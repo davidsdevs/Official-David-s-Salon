@@ -1,0 +1,516 @@
+/**
+ * Billing Service
+ * Handles all billing and POS operations
+ */
+
+import { 
+  collection, 
+  doc, 
+  getDocs, 
+  getDoc,
+  addDoc, 
+  updateDoc,
+  query, 
+  where, 
+  orderBy,
+  Timestamp,
+  writeBatch
+} from 'firebase/firestore';
+import { db } from '../config/firebase';
+// Inventory service removed - inventory deduction disabled
+import toast from 'react-hot-toast';
+
+// Collections
+const BILLS_COLLECTION = 'transactions';
+const BILLING_LOGS_COLLECTION = 'transaction_logs';
+
+// Bill Status Constants
+export const BILL_STATUS = {
+  PAID: 'paid',
+  REFUNDED: 'refunded',
+  VOIDED: 'voided'
+};
+
+// Payment Methods
+export const PAYMENT_METHODS = {
+  CASH: 'cash',
+  CARD: 'card',
+  VOUCHER: 'voucher',
+  GIFT_CARD: 'gift_card'
+};
+
+/**
+ * Generate a new bill for a completed appointment
+ * @param {Object} billData - Bill information
+ * @param {Object} currentUser - User creating the bill
+ * @returns {Promise<string>} - Bill ID
+ */
+export const createBill = async (billData, currentUser) => {
+  try {
+    const billRef = collection(db, BILLS_COLLECTION);
+    
+    // Ensure we have valid user data
+    if (!currentUser) {
+      throw new Error('Invalid user data. Please log in again.');
+    }
+    
+    // Get user ID - handle both Firebase Auth user and userData from Firestore
+    const userId = currentUser.uid || currentUser.id;
+    const userName = currentUser.displayName || 
+                    `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || 
+                    currentUser.email || 
+                    'Unknown User';
+    
+    const bill = {
+      appointmentId: billData.appointmentId,
+      clientId: billData.clientId,
+      clientName: billData.clientName,
+      clientPhone: billData.clientPhone || '',
+      branchId: billData.branchId,
+      branchName: billData.branchName,
+      stylistId: billData.stylistId || null,
+      stylistName: billData.stylistName || '',
+      items: billData.items || [], // Array of services/products
+      subtotal: billData.subtotal || 0,
+      discount: billData.discount || 0,
+      discountType: billData.discountType || null, // 'percentage' or 'fixed'
+      discountCode: billData.discountCode || null,
+      loyaltyPointsUsed: billData.loyaltyPointsUsed || 0,
+      tax: billData.tax || 0,
+      taxRate: billData.taxRate || 0,
+      serviceCharge: billData.serviceCharge || 0,
+      serviceChargeRate: billData.serviceChargeRate || 0,
+      total: billData.total || 0,
+      paymentMethod: billData.paymentMethod,
+      paymentReference: billData.paymentReference || null,
+      status: BILL_STATUS.PAID,
+      notes: billData.notes || '',
+      createdBy: userId,
+      createdByName: userName,
+      approvedBy: null,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
+    };
+
+    const docRef = await addDoc(billRef, bill);
+    
+    // Inventory deduction removed - inventory module has been deleted
+    
+    // Log the action
+    await logBillingAction({
+      billId: docRef.id,
+      action: 'create',
+      performedBy: userId,
+      performedByName: userName,
+      branchId: billData.branchId,
+      details: `Bill created for ${billData.clientName}`
+    });
+
+    toast.success('Bill created successfully');
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating bill:', error);
+    toast.error('Failed to create bill');
+    throw error;
+  }
+};
+
+/**
+ * Get bill by ID
+ * @param {string} billId - Bill ID
+ * @returns {Promise<Object>} - Bill data
+ */
+export const getBillById = async (billId) => {
+  try {
+    const billRef = doc(db, BILLS_COLLECTION, billId);
+    const billSnap = await getDoc(billRef);
+    
+    if (!billSnap.exists()) {
+      throw new Error('Bill not found');
+    }
+    
+    return {
+      id: billSnap.id,
+      ...billSnap.data(),
+      createdAt: billSnap.data().createdAt?.toDate(),
+      updatedAt: billSnap.data().updatedAt?.toDate()
+    };
+  } catch (error) {
+    console.error('Error fetching bill:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get all bills for a branch
+ * @param {string} branchId - Branch ID
+ * @param {Object} filters - Optional filters (startDate, endDate, status)
+ * @returns {Promise<Array>} - Array of bills
+ */
+export const getBillsByBranch = async (branchId, filters = {}) => {
+  try {
+    const billsRef = collection(db, BILLS_COLLECTION);
+    let q = query(
+      billsRef,
+      where('branchId', '==', branchId),
+      orderBy('createdAt', 'desc')
+    );
+
+    // Apply status filter if provided
+    if (filters.status) {
+      q = query(
+        billsRef,
+        where('branchId', '==', branchId),
+        where('status', '==', filters.status),
+        orderBy('createdAt', 'desc')
+      );
+    }
+
+    const snapshot = await getDocs(q);
+    let bills = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate(),
+      updatedAt: doc.data().updatedAt?.toDate()
+    }));
+
+    // Apply date filters in memory (to avoid complex Firestore queries)
+    if (filters.startDate) {
+      const start = new Date(filters.startDate);
+      start.setHours(0, 0, 0, 0);
+      bills = bills.filter(bill => bill.createdAt >= start);
+    }
+
+    if (filters.endDate) {
+      const end = new Date(filters.endDate);
+      end.setHours(23, 59, 59, 999);
+      bills = bills.filter(bill => bill.createdAt <= end);
+    }
+
+    return bills;
+  } catch (error) {
+    console.error('Error fetching bills:', error);
+    toast.error('Failed to fetch bills');
+    return [];
+  }
+};
+
+/**
+ * Get bills by client ID
+ * @param {string} clientId - Client ID
+ * @returns {Promise<Array>} - Array of bills
+ */
+export const getBillsByClient = async (clientId) => {
+  try {
+    const billsRef = collection(db, BILLS_COLLECTION);
+    const q = query(
+      billsRef,
+      where('clientId', '==', clientId),
+      orderBy('createdAt', 'desc')
+    );
+
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate(),
+      updatedAt: doc.data().updatedAt?.toDate()
+    }));
+  } catch (error) {
+    console.error('Error fetching client bills:', error);
+    return [];
+  }
+};
+
+/**
+ * Process a refund for a bill
+ * @param {string} billId - Bill ID
+ * @param {Object} refundData - Refund information
+ * @param {Object} currentUser - User processing the refund
+ * @returns {Promise<void>}
+ */
+export const refundBill = async (billId, refundData, currentUser) => {
+  try {
+    const billRef = doc(db, BILLS_COLLECTION, billId);
+    const bill = await getBillById(billId);
+
+    if (bill.status === BILL_STATUS.REFUNDED || bill.status === BILL_STATUS.VOIDED) {
+      throw new Error('Bill is already refunded or voided');
+    }
+
+    const newStatus = BILL_STATUS.REFUNDED;
+
+    const userId = currentUser.uid || currentUser.id;
+    const userName = currentUser.displayName || 
+                    `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || 
+                    currentUser.email || 
+                    'Unknown User';
+
+    await updateDoc(billRef, {
+      status: newStatus,
+      refundAmount: refundData.amount || bill.total,
+      refundReason: refundData.reason || '',
+      approvedBy: userId,
+      approvedByName: userName,
+      refundedAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
+    });
+
+    // Log the refund action
+    await logBillingAction({
+      billId,
+      action: 'refund',
+      performedBy: userId,
+      performedByName: userName,
+      branchId: bill.branchId,
+      details: `Refund of ₱${refundData.amount || bill.total}. Reason: ${refundData.reason || 'No reason provided'}`
+    });
+
+    toast.success('Refund processed successfully');
+  } catch (error) {
+    console.error('Error processing refund:', error);
+    toast.error(error.message || 'Failed to process refund');
+    throw error;
+  }
+};
+
+/**
+ * Void a bill transaction
+ * @param {string} billId - Bill ID
+ * @param {string} reason - Void reason
+ * @param {Object} currentUser - User voiding the bill
+ * @returns {Promise<void>}
+ */
+export const voidBill = async (billId, reason, currentUser) => {
+  try {
+    const billRef = doc(db, BILLS_COLLECTION, billId);
+    const bill = await getBillById(billId);
+
+    if (bill.status === BILL_STATUS.VOIDED) {
+      throw new Error('Bill is already voided');
+    }
+
+    const userId = currentUser.uid || currentUser.id;
+    const userName = currentUser.displayName || 
+                    `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || 
+                    currentUser.email || 
+                    'Unknown User';
+
+    await updateDoc(billRef, {
+      status: BILL_STATUS.VOIDED,
+      voidReason: reason,
+      approvedBy: userId,
+      approvedByName: userName,
+      voidedAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
+    });
+
+    // Log the void action
+    await logBillingAction({
+      billId,
+      action: 'void',
+      performedBy: userId,
+      performedByName: userName,
+      branchId: bill.branchId,
+      details: `Bill voided. Reason: ${reason}`
+    });
+
+    toast.success('Bill voided successfully');
+  } catch (error) {
+    console.error('Error voiding bill:', error);
+    toast.error(error.message || 'Failed to void bill');
+    throw error;
+  }
+};
+
+/**
+ * Get daily sales summary for a branch
+ * @param {string} branchId - Branch ID
+ * @param {Date} date - Date (defaults to today)
+ * @returns {Promise<Object>} - Sales summary
+ */
+export const getDailySalesSummary = async (branchId, date = new Date()) => {
+  try {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const bills = await getBillsByBranch(branchId, {
+      startDate: startOfDay,
+      endDate: endOfDay
+    });
+
+    const summary = {
+      totalTransactions: 0,
+      totalRevenue: 0,
+      totalDiscounts: 0,
+      totalRefunds: 0,
+      totalTax: 0,
+      totalServiceCharge: 0,
+      paymentBreakdown: {
+        cash: 0,
+        card: 0,
+        voucher: 0,
+        gift_card: 0
+      },
+      statusBreakdown: {
+        paid: 0,
+        refunded: 0,
+        voided: 0
+      }
+    };
+
+    bills.forEach(bill => {
+      // Count by status
+      summary.statusBreakdown[bill.status] = (summary.statusBreakdown[bill.status] || 0) + 1;
+
+      if (bill.status === BILL_STATUS.PAID) {
+        summary.totalTransactions++;
+        summary.totalRevenue += bill.total;
+        summary.totalDiscounts += bill.discount;
+        summary.totalTax += bill.tax;
+        summary.totalServiceCharge += bill.serviceCharge;
+
+        // Payment breakdown
+        if (bill.paymentMethod) {
+          summary.paymentBreakdown[bill.paymentMethod] += bill.total;
+        }
+      }
+
+      if (bill.status === BILL_STATUS.REFUNDED) {
+        summary.totalRefunds += bill.refundAmount || bill.total;
+      }
+    });
+
+    // Net revenue (after refunds)
+    summary.netRevenue = summary.totalRevenue - summary.totalRefunds;
+
+    return summary;
+  } catch (error) {
+    console.error('Error getting daily sales summary:', error);
+    return null;
+  }
+};
+
+/**
+ * Calculate bill totals
+ * @param {Object} billData - Bill data with items, discount, tax rate, etc.
+ * @returns {Object} - Calculated totals
+ */
+export const calculateBillTotals = (billData) => {
+  const { items = [], discount = 0, discountType = 'fixed', taxRate = 0, serviceChargeRate = 0, loyaltyPointsUsed = 0 } = billData;
+
+  // Calculate subtotal from items
+  const subtotal = items.reduce((sum, item) => {
+    return sum + (item.price * (item.quantity || 1));
+  }, 0);
+
+  // Calculate discount amount
+  let discountAmount = 0;
+  if (discountType === 'percentage') {
+    discountAmount = (subtotal * discount) / 100;
+  } else {
+    discountAmount = discount;
+  }
+
+  // Add loyalty points discount (e.g., 1 point = 1 peso)
+  discountAmount += loyaltyPointsUsed;
+
+  // Amount after discount
+  const amountAfterDiscount = Math.max(0, subtotal - discountAmount);
+
+  // Calculate service charge
+  const serviceCharge = (amountAfterDiscount * serviceChargeRate) / 100;
+
+  // Calculate tax
+  const tax = ((amountAfterDiscount + serviceCharge) * taxRate) / 100;
+
+  // Calculate total
+  const total = amountAfterDiscount + serviceCharge + tax;
+
+  return {
+    subtotal: parseFloat(subtotal.toFixed(2)),
+    discount: parseFloat(discountAmount.toFixed(2)),
+    serviceCharge: parseFloat(serviceCharge.toFixed(2)),
+    tax: parseFloat(tax.toFixed(2)),
+    total: parseFloat(total.toFixed(2))
+  };
+};
+
+/**
+ * Log billing action for audit trail
+ * @param {Object} logData - Log information
+ * @returns {Promise<void>}
+ */
+const logBillingAction = async (logData) => {
+  try {
+    const logsRef = collection(db, BILLING_LOGS_COLLECTION);
+    await addDoc(logsRef, {
+      billId: logData.billId,
+      action: logData.action,
+      performedBy: logData.performedBy,
+      performedByName: logData.performedByName,
+      branchId: logData.branchId,
+      details: logData.details,
+      timestamp: Timestamp.now()
+    });
+  } catch (error) {
+    console.error('Error logging billing action:', error);
+    // Don't throw - logging failures shouldn't break the main operation
+  }
+};
+
+/**
+ * Get billing logs for a bill
+ * @param {string} billId - Bill ID
+ * @returns {Promise<Array>} - Array of logs
+ */
+export const getBillingLogs = async (billId) => {
+  try {
+    const logsRef = collection(db, BILLING_LOGS_COLLECTION);
+    const q = query(
+      logsRef,
+      where('billId', '==', billId),
+      orderBy('timestamp', 'desc')
+    );
+
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      timestamp: doc.data().timestamp?.toDate()
+    }));
+  } catch (error) {
+    console.error('Error fetching billing logs:', error);
+    return [];
+  }
+};
+
+/**
+ * Get all billing logs for a branch
+ * @param {string} branchId - Branch ID
+ * @param {number} limit - Maximum number of logs to retrieve
+ * @returns {Promise<Array>} - Array of logs
+ */
+export const getBranchBillingLogs = async (branchId, limit = 100) => {
+  try {
+    const logsRef = collection(db, BILLING_LOGS_COLLECTION);
+    const q = query(
+      logsRef,
+      where('branchId', '==', branchId),
+      orderBy('timestamp', 'desc')
+    );
+
+    const snapshot = await getDocs(q);
+    return snapshot.docs.slice(0, limit).map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      timestamp: doc.data().timestamp?.toDate()
+    }));
+  } catch (error) {
+    console.error('Error fetching branch billing logs:', error);
+    return [];
+  }
+};

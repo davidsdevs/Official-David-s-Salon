@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+.firebase
+.env
+.env.local
+.env.production
+package-lock.json
+*.log
+.DS_Store
