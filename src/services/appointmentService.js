@@ -14,6 +14,8 @@ import {
   query, 
   where,
   orderBy,
+  limit as firestoreLimit,
+  startAfter,
   Timestamp,
   serverTimestamp
 } from 'firebase/firestore';
@@ -185,6 +187,93 @@ export const getAppointmentsByStylist = async (stylistId) => {
   } catch (error) {
     console.error('Error fetching stylist appointments:', error);
     toast.error('Failed to load your appointments');
+    throw error;
+  }
+};
+
+/**
+ * Get appointments with filters and pagination
+ * @param {Object} filters - Filter criteria (branchId, status, clientId, stylistId, startDate, endDate)
+ * @param {string} currentUserRole - Current user role
+ * @param {string} currentUserId - Current user ID
+ * @param {number} pageSize - Page size (default: 20)
+ * @param {Object} lastDoc - Last document for pagination
+ * @returns {Promise<Object>} Appointments with pagination info
+ */
+export const getAppointments = async (filters = {}, currentUserRole = 'branch_manager', currentUserId = 'current_user', pageSize = 20, lastDoc = null) => {
+  try {
+    const appointmentsRef = collection(db, APPOINTMENTS_COLLECTION);
+    const constraints = [];
+
+    // Apply filters
+    if (filters.branchId) {
+      constraints.push(where('branchId', '==', filters.branchId));
+    }
+    if (filters.status) {
+      constraints.push(where('status', '==', filters.status));
+    }
+    if (filters.clientId) {
+      constraints.push(where('clientId', '==', filters.clientId));
+    }
+    if (filters.stylistId) {
+      // For multi-service appointments, we'll filter client-side
+      // For now, we'll query by stylistId field (single-service appointments)
+      constraints.push(where('stylistId', '==', filters.stylistId));
+    }
+    if (filters.startDate) {
+      constraints.push(where('appointmentDate', '>=', Timestamp.fromDate(new Date(filters.startDate))));
+    }
+    if (filters.endDate) {
+      constraints.push(where('appointmentDate', '<=', Timestamp.fromDate(new Date(filters.endDate))));
+    }
+
+    // Add ordering
+    constraints.push(orderBy('appointmentDate', 'desc'));
+
+    // Add pagination
+    if (pageSize) {
+      constraints.push(firestoreLimit(pageSize + 1)); // Fetch one extra to check if there's more
+    }
+    if (lastDoc) {
+      constraints.push(startAfter(lastDoc));
+    }
+
+    const q = query(appointmentsRef, ...constraints);
+    const snapshot = await getDocs(q);
+    
+    const docs = snapshot.docs;
+    const hasMore = docs.length > pageSize;
+    const appointments = (hasMore ? docs.slice(0, pageSize) : docs).map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      appointmentDate: doc.data().appointmentDate?.toDate(),
+      createdAt: doc.data().createdAt?.toDate(),
+      updatedAt: doc.data().updatedAt?.toDate()
+    }));
+
+    // Filter multi-service appointments by stylistId if needed (client-side)
+    let filteredAppointments = appointments;
+    if (filters.stylistId) {
+      filteredAppointments = appointments.filter(apt => {
+        // Check single-service appointments
+        if (apt.stylistId === filters.stylistId) {
+          return true;
+        }
+        // Check multi-service appointments
+        if (apt.services && Array.isArray(apt.services)) {
+          return apt.services.some(svc => svc.stylistId === filters.stylistId);
+        }
+        return false;
+      });
+    }
+
+    return {
+      appointments: filteredAppointments,
+      lastDoc: hasMore ? docs[pageSize - 1] : null,
+      hasMore: hasMore
+    };
+  } catch (error) {
+    console.error('Error fetching appointments:', error);
     throw error;
   }
 };

@@ -684,3 +684,201 @@ export const sendPasswordResetNotification = async ({ email, displayName }) => {
     html: htmlContent
   });
 };
+
+/**
+ * Send promotion email to client
+ * @param {Object} promotion - Promotion data
+ * @param {Object} clientData - Client data with email
+ * @returns {Promise<Object>} - Result of email sending
+ */
+export const sendPromotionEmail = async (promotion, clientData) => {
+  try {
+    if (!clientData.email) {
+      return {
+        success: false,
+        message: 'Client email not found'
+      };
+    }
+
+    const clientName = clientData.firstName && clientData.lastName
+      ? `${clientData.firstName} ${clientData.lastName}`.trim()
+      : clientData.name || 'Valued Client';
+
+    // Fetch branch name
+    let branchName = 'Unknown Branch';
+    if (promotion.branchId) {
+      try {
+        const { doc, getDoc } = await import('firebase/firestore');
+        const { db } = await import('../config/firebase');
+        const branchDoc = await getDoc(doc(db, 'branches', promotion.branchId));
+        if (branchDoc.exists()) {
+          branchName = branchDoc.data().name || branchDoc.data().branchName || 'Unknown Branch';
+        }
+      } catch (err) {
+        console.warn('Could not fetch branch name:', err);
+      }
+    }
+
+    // Format dates
+    const startDate = promotion.startDate?.toDate 
+      ? promotion.startDate.toDate() 
+      : new Date(promotion.startDate);
+    const endDate = promotion.endDate?.toDate 
+      ? promotion.endDate.toDate() 
+      : new Date(promotion.endDate);
+
+    const startDateFormatted = startDate.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    const endDateFormatted = endDate.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+
+    // Build applicable to text
+    let applicableText = '';
+    if (promotion.applicableTo === 'services') {
+      applicableText = 'Valid on all services';
+    } else if (promotion.applicableTo === 'products') {
+      applicableText = 'Valid on all products';
+    } else if (promotion.applicableTo === 'specific') {
+      const serviceCount = promotion.specificServices?.length || 0;
+      const productCount = promotion.specificProducts?.length || 0;
+      const items = [];
+      if (serviceCount > 0) items.push(`${serviceCount} service${serviceCount > 1 ? 's' : ''}`);
+      if (productCount > 0) items.push(`${productCount} product${productCount > 1 ? 's' : ''}`);
+      applicableText = `Valid on ${items.join(' and ')}`;
+    } else {
+      applicableText = 'Valid on all services and products';
+    }
+
+    // Build usage information
+    let usageInfo = '';
+    if (promotion.usageType === 'one-time') {
+      usageInfo = 'Usage: One-time use per client';
+    } else if (promotion.usageType === 'repeating') {
+      if (promotion.maxUses) {
+        usageInfo = `Usage: Can be used up to ${promotion.maxUses} time${promotion.maxUses > 1 ? 's' : ''}`;
+      } else {
+        usageInfo = 'Usage: Unlimited uses';
+      }
+    }
+
+    // Build promotion code info
+    const promotionCodeText = promotion.promotionCode 
+      ? `Promotion Code: ${promotion.promotionCode}`
+      : '';
+
+    const discountText = promotion.discountType === 'percentage' 
+      ? `${promotion.discountValue}% OFF`
+      : `₱${promotion.discountValue} OFF`;
+
+    // Create email content
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #160B53, #12094A); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { padding: 30px; background: white; border: 1px solid #e0e0e0; border-radius: 0 0 10px 10px; }
+          .promotion-box { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .discount { font-size: 24px; font-weight: bold; color: #28a745; margin: 10px 0; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0; font-size: 24px;">🎉 Special Promotion</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">David's Salon</p>
+          </div>
+          <div class="content">
+            <h2 style="color: #160B53; margin-top: 0;">Hello ${clientName},</h2>
+            <p>We have an exciting promotion just for you!</p>
+            <div class="promotion-box">
+              <h3 style="color: #160B53; margin-top: 0;">${promotion.title}</h3>
+              <p>${promotion.description || 'No description provided.'}</p>
+              <div class="discount">${discountText}</div>
+              <p><strong>${applicableText}</strong></p>
+              ${promotionCodeText ? `<p><strong>${promotionCodeText}</strong></p>` : ''}
+              <p>${usageInfo}</p>
+            </div>
+            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <h4 style="margin-top: 0; color: #856404;">Validity Period:</h4>
+              <p style="margin: 0; color: #856404;">
+                <strong>Valid from:</strong> ${startDateFormatted}<br>
+                <strong>Valid until:</strong> ${endDateFormatted}
+              </p>
+            </div>
+            <p><strong>Branch:</strong> ${branchName}</p>
+            <p>Don't miss out on this amazing offer! Visit us soon to take advantage of this promotion.</p>
+            <p>We look forward to seeing you!</p>
+            <div class="footer">
+              <p>This is an automated email from David's Salon Management System.<br>
+              Please do not reply to this email.</p>
+              <p>© ${new Date().getFullYear()} David's Salon. All rights reserved.</p>
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const textContent = `
+Hello ${clientName},
+
+🎉 Special Promotion: ${promotion.title}
+
+${promotion.description || 'No description provided.'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DISCOUNT DETAILS:
+Discount: ${discountText}
+${applicableText}
+${promotionCodeText ? promotionCodeText + '\n' : ''}${usageInfo}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VALIDITY PERIOD:
+Valid from: ${startDateFormatted}
+Valid until: ${endDateFormatted}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Branch: ${branchName}
+
+Don't miss out on this amazing offer! Visit us soon to take advantage of this promotion.
+
+We look forward to seeing you!
+
+---
+David's Salon
+    `;
+
+    const result = await sendEmail({
+      to: clientData.email,
+      subject: `Special Promotion: ${promotion.title}`,
+      text: textContent,
+      html: htmlContent
+    });
+
+    return {
+      success: result.success,
+      message: result.success ? 'Promotion email sent successfully' : result.error || 'Failed to send email',
+      email: clientData.email
+    };
+  } catch (error) {
+    console.error('Error sending promotion email:', error);
+    return {
+      success: false,
+      message: 'Failed to send promotion email',
+      error: error.message
+    };
+  }
+};

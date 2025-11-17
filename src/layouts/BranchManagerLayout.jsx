@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, Calendar, BarChart3, Building2, Scissors, Receipt } from 'lucide-react';
+import { LayoutDashboard, Users, Calendar, BarChart3, Building2, Scissors, Receipt, Package, ShoppingCart, Megaphone, FileText, TrendingUp, Wallet } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -17,6 +17,14 @@ const BranchManagerLayout = () => {
     { path: '/manager/branch-settings', label: 'Branch Settings', icon: Building2 },
     { path: ROUTES.MANAGER_APPOINTMENTS, label: 'Appointments', icon: Calendar },
     { path: '/manager/billing', label: 'Billing', icon: Receipt },
+    { section: 'Operations' },
+    { path: '/manager/inventory', label: 'Inventory', icon: Package },
+    { path: '/manager/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
+    { path: '/manager/deposits', label: 'Bank Deposits', icon: Wallet },
+    { path: '/manager/promotions', label: 'Promotions', icon: Megaphone },
+    { path: '/manager/stylist-portfolios', label: 'Stylist Portfolios', icon: FileText },
+    { section: 'Analytics' },
+    { path: '/manager/client-analytics', label: 'Client Analytics', icon: TrendingUp },
     { path: ROUTES.MANAGER_REPORTS, label: 'Reports', icon: BarChart3 },
   ];
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Building2, BarChart3, TrendingUp, Activity, Users } from 'lucide-react';
+import { LayoutDashboard, Building2, BarChart3, TrendingUp, Activity, Users, Package, ShoppingCart, Wallet } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -13,6 +13,10 @@ const OperationalManagerLayout = () => {
     { section: 'Management' },
     { path: ROUTES.OPERATIONAL_MANAGER_USERS, label: 'Users', icon: Users },
     { path: ROUTES.OPERATIONAL_MANAGER_BRANCHES, label: 'Branches', icon: Building2 },
+    { section: 'Operations' },
+    { path: '/operational-manager/inventory', label: 'Inventory', icon: Package },
+    { path: '/operational-manager/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
+    { path: '/operational-manager/deposits', label: 'Deposits', icon: Wallet },
     { section: 'System' },
     { path: ROUTES.OPERATIONAL_MANAGER_ACTIVITY, label: 'Activity Logs', icon: Activity },
   ];

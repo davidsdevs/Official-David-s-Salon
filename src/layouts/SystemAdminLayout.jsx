@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, Building2, Settings, Activity, Clipboard } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, Settings, Activity, Clipboard, Package, FileText, Image, Megaphone, Truck } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -14,6 +14,12 @@ const SystemAdminLayout = () => {
     { path: ROUTES.ADMIN_USERS, label: 'Users', icon: Users },
     { path: ROUTES.ADMIN_BRANCHES, label: 'Branches', icon: Building2 },
     { path: '/admin/service-templates', label: 'Service Catalog', icon: Clipboard },
+    { path: '/admin/master-products', label: 'Master Products', icon: Package },
+    { path: '/admin/suppliers', label: 'Suppliers', icon: Truck },
+    { section: 'Content' },
+    { path: '/admin/content-management', label: 'Content Management', icon: FileText },
+    { path: '/admin/homepage-content', label: 'Homepage Content', icon: Image },
+    { path: '/admin/promotions', label: 'Promotions', icon: Megaphone },
     { section: 'System' },
     { path: '/admin/activity-logs', label: 'Activity Logs', icon: Activity },
     { path: ROUTES.ADMIN_SETTINGS, label: 'Settings', icon: Settings },

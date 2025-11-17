@@ -30,11 +30,18 @@ import BranchesManagement from '../pages/system-admin/Branches';
 import ServiceTemplates from '../pages/system-admin/ServiceTemplates';
 import SystemAdminActivityLogs from '../pages/system-admin/ActivityLogs';
 import Promotions from '../pages/system-admin/Promotions';
+import Suppliers from '../pages/system-admin/Suppliers';
+import ContentManagement from '../pages/system-admin/ContentManagement';
+import HomepageContentManagement from '../pages/system-admin/HomepageContentManagement';
+import MasterProducts from '../pages/system-admin/MasterProducts';
 import SeedServices from '../pages/admin/SeedServices';
 import OperationalManagerDashboard from '../pages/operational-manager/Dashboard';
 import OperationalManagerUsersView from '../pages/operational-manager/UsersView';
 import OperationalManagerBranches from '../pages/operational-manager/Branches';
 import OperationalManagerActivityLogs from '../pages/operational-manager/ActivityLogs';
+import OperationalManagerInventory from '../pages/operational-manager/Inventory';
+import OperationalManagerPurchaseOrders from '../pages/operational-manager/PurchaseOrders';
+import OperationalManagerDeposits from '../pages/operational-manager/Deposits';
 import BranchManagerDashboard from '../pages/branch-manager/Dashboard';
 import StaffManagement from '../pages/branch-manager/StaffManagement';
 import ServicesManagement from '../pages/branch-manager/ServicesManagement';
@@ -43,6 +50,12 @@ import BranchSettings from '../pages/branch-manager/BranchSettings';
 import BranchManagerAppointments from '../pages/branch-manager/Appointments';
 import BranchManagerBilling from '../pages/branch-manager/Billing';
 import ClientAnalytics from '../pages/branch-manager/ClientAnalytics';
+import BranchManagerDeposits from '../pages/branch-manager/Deposits';
+import BranchManagerPromotions from '../pages/branch-manager/Promotions';
+import BranchManagerStylistPortfolios from '../pages/branch-manager/StylistPortfolios';
+import BranchManagerReports from '../pages/branch-manager/Reports';
+import BranchManagerPurchaseOrders from '../pages/branch-manager/PurchaseOrders';
+import BranchManagerInventory from '../pages/branch-manager/Inventory';
 import ReceptionistDashboard from '../pages/receptionist/Dashboard';
 import ReceptionistAppointments from '../pages/receptionist/Appointments';
 import ReceptionistBilling from '../pages/receptionist/Billing';
@@ -138,6 +151,10 @@ const AppRoutes = () => {
               <Route path="seed-services" element={<SeedServices />} />
               <Route path="activity-logs" element={<SystemAdminActivityLogs />} />
               <Route path="promotions" element={<Promotions />} />
+              <Route path="suppliers" element={<Suppliers />} />
+              <Route path="content-management" element={<ContentManagement />} />
+              <Route path="homepage-content" element={<HomepageContentManagement />} />
+              <Route path="master-products" element={<MasterProducts />} />
               <Route path="settings" element={<div className="p-6">Settings - Coming Soon</div>} />
         <Route path="profile" element={<Profile />} />
       </Route>
@@ -155,6 +172,9 @@ const AppRoutes = () => {
         <Route path="users" element={<OperationalManagerUsersView />} />
         <Route path="branches" element={<OperationalManagerBranches />} />
         <Route path="activity" element={<OperationalManagerActivityLogs />} />
+        <Route path="inventory" element={<OperationalManagerInventory />} />
+        <Route path="purchase-orders" element={<OperationalManagerPurchaseOrders />} />
+        <Route path="deposits" element={<OperationalManagerDeposits />} />
         <Route path="profile" element={<Profile />} />
       </Route>
 
@@ -175,7 +195,12 @@ const AppRoutes = () => {
               <Route path="appointments" element={<BranchManagerAppointments />} />
               <Route path="billing" element={<BranchManagerBilling />} />
               <Route path="client-analytics" element={<ClientAnalytics />} />
-              <Route path="reports" element={<div className="p-6">Reports - Coming Soon</div>} />
+              <Route path="reports" element={<BranchManagerReports />} />
+              <Route path="deposits" element={<BranchManagerDeposits />} />
+              <Route path="promotions" element={<BranchManagerPromotions />} />
+              <Route path="stylist-portfolios" element={<BranchManagerStylistPortfolios />} />
+              <Route path="purchase-orders" element={<BranchManagerPurchaseOrders />} />
+              <Route path="inventory" element={<BranchManagerInventory />} />
         <Route path="profile" element={<Profile />} />
       </Route>
 

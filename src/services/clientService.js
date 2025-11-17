@@ -75,6 +75,48 @@ export const getClients = async () => {
 };
 
 /**
+ * Get clients by branch (clients who have transactions/appointments at this branch)
+ * Note: Clients are not assigned to branches, so we filter by service history
+ * @param {string} branchId - Branch ID
+ * @returns {Promise<Array>} - Array of clients
+ */
+export const getClientsByBranch = async (branchId) => {
+  try {
+    // Since clients don't have a branchId field, we need to get clients
+    // who have service history at this branch
+    const serviceHistoryRef = collection(db, SERVICE_HISTORY_COLLECTION);
+    const q = query(
+      serviceHistoryRef,
+      where('branchId', '==', branchId)
+    );
+    const snapshot = await getDocs(q);
+    
+    // Get unique client IDs
+    const clientIds = new Set();
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.clientId) {
+        clientIds.add(data.clientId);
+      }
+    });
+    
+    // Fetch client details
+    const clients = [];
+    for (const clientId of clientIds) {
+      const client = await getClientById(clientId);
+      if (client) {
+        clients.push(client);
+      }
+    }
+    
+    return clients;
+  } catch (error) {
+    console.error('Error fetching clients by branch:', error);
+    return [];
+  }
+};
+
+/**
  * Get client by ID
  * @param {string} clientId - Client ID
  * @returns {Promise<Object|null>} - Client data or null
