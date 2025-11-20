@@ -13,8 +13,7 @@ import {
   BarChart3, 
   DollarSign, 
   ClipboardList, 
-  Calendar,
-  UserCog
+  Calendar
 } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
@@ -41,19 +40,17 @@ const InventoryLayout = () => {
     { path: ROUTES.INVENTORY_REPORTS, label: 'Reports', icon: BarChart3 },
     { path: ROUTES.INVENTORY_COST_ANALYSIS, label: 'Cost Analysis', icon: DollarSign },
     { path: ROUTES.INVENTORY_AUDIT, label: 'Inventory Audit', icon: ClipboardList },
-    { section: 'Account' },
-    { path: ROUTES.PROFILE, label: 'Profile', icon: UserCog },
   ];
 
   return (
     <div className="min-h-screen flex bg-gray-50">
       <Sidebar isOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(false)} menuItems={menuItems} />
       
-      <div className="flex-1 flex flex-col lg:ml-64">
+      <div className="flex-1 flex flex-col md:ml-64">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
         
         <div className="flex-1 flex flex-col overflow-y-auto">
-          <main className="flex-1 p-6">
+          <main className="flex-1 p-4 md:p-6">
             <Outlet />
           </main>
         </div>

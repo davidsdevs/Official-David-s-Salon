@@ -80,7 +80,7 @@ export default function Navigation() {
         <div className="flex items-center">
           <Link to="/">
             <img
-              src="/logo.png"
+              src="/logo.jpg"
               alt="David's Salon Logo"
               className="h-12 sm:h-16"
             />

@@ -7,7 +7,7 @@ const Sidebar = ({ isOpen, toggleSidebar, menuItems }) => {
       {/* Mobile overlay */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
           onClick={toggleSidebar}
         />
       )}
@@ -17,12 +17,12 @@ const Sidebar = ({ isOpen, toggleSidebar, menuItems }) => {
         className={`
           fixed top-0 left-0 h-screen bg-white border-r border-gray-200 z-50
           transition-transform duration-300 ease-in-out
-          w-64 lg:translate-x-0 flex flex-col
-          ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+          w-64 md:translate-x-0 flex flex-col
+          ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
       >
         {/* Mobile close button */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 lg:hidden flex-shrink-0">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 md:hidden flex-shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-sm">DS</span>
@@ -50,7 +50,7 @@ const Sidebar = ({ isOpen, toggleSidebar, menuItems }) => {
               {item.path && (
                 <NavLink
                   to={item.path}
-                  end={item.label === 'Dashboard'}
+                  end={item.path.endsWith('/settings') || item.label === 'Dashboard'}
                   onClick={toggleSidebar}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${

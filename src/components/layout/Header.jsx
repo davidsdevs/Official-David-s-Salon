@@ -64,7 +64,7 @@ const Header = ({ toggleSidebar, sidebarOpen }) => {
       operationalManager: '/operational-manager/profile',
       branchManager: '/manager/profile',
       receptionist: '/receptionist/profile',
-      inventoryController: '/login', // Inventory module removed
+      inventoryController: '/inventory/profile',
       stylist: '/stylist/profile',
       client: '/client/profile',
     };
@@ -77,7 +77,7 @@ const Header = ({ toggleSidebar, sidebarOpen }) => {
       operationalManager: '/operational-manager/settings',
       branchManager: '/manager/settings',
       receptionist: '/receptionist/settings',
-      inventoryController: '/login', // Inventory module removed
+      inventoryController: '/inventory/profile',
       stylist: '/stylist/settings',
       client: '/client/settings',
     };
@@ -91,7 +91,7 @@ const Header = ({ toggleSidebar, sidebarOpen }) => {
         <div className="flex items-center gap-4">
           <button
             onClick={toggleSidebar}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors lg:hidden"
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors md:hidden"
             aria-label="Toggle sidebar"
           >
             {sidebarOpen ? (

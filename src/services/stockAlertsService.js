@@ -322,9 +322,10 @@ class StockAlertsService {
    * Automatically generate alerts for low stock items
    * This should be called periodically or when stock changes
    * @param {string} branchId - Branch ID (optional, if not provided checks all branches)
+   * @param {Object} settings - Alert settings { lowStockThreshold: 10, criticalThreshold: 0 }
    * @returns {Promise<Object>} - { success, alertsCreated, message }
    */
-  async generateAlertsForLowStock(branchId = null) {
+  async generateAlertsForLowStock(branchId = null, settings = null) {
     try {
       let alertsCreated = 0;
       const existingAlerts = new Map(); // Track existing active alerts by productId+branchId
@@ -341,25 +342,33 @@ class StockAlertsService {
         existingAlerts.set(key, doc.id);
       });
 
-      // Get branch stocks
-      let stocksResult;
+      // Get stocks from stocks collection (not branch_stocks)
+      let stocksQuery;
       if (branchId) {
-        stocksResult = await inventoryService.getBranchStocks(branchId);
+        stocksQuery = query(
+          collection(db, 'stocks'),
+          where('branchId', '==', branchId),
+          where('status', '==', 'active')
+        );
       } else {
-        // Get all branches - we'll need to query all branch_stocks
-        // For now, we'll get stocks for a specific branch or all
-        const stocksQuery = query(collection(db, 'branch_stocks'));
-        const stocksSnap = await getDocs(stocksQuery);
-        const stocks = [];
-        stocksSnap.forEach((doc) => {
-          const data = doc.data();
-          stocks.push({
-            id: doc.id,
-            ...data,
-          });
-        });
-        stocksResult = { success: true, stocks };
+        // Get all active stocks from all branches
+        stocksQuery = query(
+          collection(db, 'stocks'),
+          where('status', '==', 'active')
+        );
       }
+      
+      const stocksSnap = await getDocs(stocksQuery);
+      const stocks = [];
+      stocksSnap.forEach((doc) => {
+        const data = doc.data();
+        stocks.push({
+          id: doc.id,
+          ...data,
+        });
+      });
+      
+      const stocksResult = { success: true, stocks };
 
       if (!stocksResult.success || !stocksResult.stocks) {
         return { success: false, message: 'Failed to fetch stocks', alertsCreated: 0 };
@@ -373,23 +382,42 @@ class StockAlertsService {
         branchNames.set(doc.id, doc.data().name || doc.id);
       });
 
+      // Get product information to get minStock/maxStock
+      const productsMap = new Map();
+      const productsQuery = query(collection(db, 'products'));
+      const productsSnap = await getDocs(productsQuery);
+      productsSnap.forEach((doc) => {
+        const productData = doc.data();
+        productsMap.set(doc.id, {
+          minStock: productData.minStock || 10, // Default min stock
+          maxStock: productData.maxStock || 100, // Default max stock
+          brand: productData.brand || '',
+          category: productData.category || '',
+          unitCost: productData.unitCost || 0
+        });
+      });
+
+      // Use configurable threshold from settings (default: 10)
+      const lowStockThreshold = settings?.lowStockThreshold || 10;
+      const criticalThreshold = settings?.criticalThreshold !== undefined ? settings.criticalThreshold : 0;
+
       // Check each stock and create alerts if needed
       for (const stock of stocksResult.stocks) {
-        const currentStock = stock.currentStock || 0;
-        const minStock = stock.minStock || 0;
-        const maxStock = stock.maxStock || 0;
+        const currentStock = parseInt(stock.realTimeStock || 0);
+        const productInfo = productsMap.get(stock.productId);
+        const maxStock = productInfo?.maxStock || 100; // Default max stock
         const stockBranchId = stock.branchId || branchId;
 
-        // Determine alert type and priority
+        // Determine alert type and priority using configurable threshold
         let alertType = null;
         let priority = 'Medium';
 
-        if (currentStock === 0) {
+        if (currentStock <= criticalThreshold) {
           alertType = 'Out of Stock';
           priority = 'Critical';
-        } else if (currentStock <= minStock) {
+        } else if (currentStock <= lowStockThreshold) {
           alertType = 'Low Stock';
-          priority = currentStock <= minStock * 0.5 ? 'High' : 'Medium';
+          priority = currentStock <= (lowStockThreshold * 0.5) ? 'High' : 'Medium';
         } else if (currentStock > maxStock * 1.5 && maxStock > 0) {
           alertType = 'Overstock';
           priority = 'Low';
@@ -405,20 +433,20 @@ class StockAlertsService {
             const alertData = {
               productId: stock.productId,
               productName: stock.productName || 'Unknown Product',
-              brand: stock.brand || '',
-              category: stock.category || '',
+              brand: productInfo?.brand || stock.brand || '',
+              category: productInfo?.category || stock.category || '',
               branchId: stockBranchId,
               branchName: branchName,
               currentStock: currentStock,
-              minStock: minStock,
+              minStock: lowStockThreshold, // Use configured threshold
               maxStock: maxStock,
-              unitCost: stock.unitCost || 0,
+              unitCost: productInfo?.unitCost || stock.unitCost || 0,
               alertType: alertType,
               priority: priority,
               location: stock.location || '',
               supplier: stock.supplier || '',
               lastRestocked: stock.lastRestocked,
-              notes: `Automatically generated alert for ${alertType.toLowerCase()}`,
+              notes: `Automatically generated alert for ${alertType.toLowerCase()} (Threshold: ${lowStockThreshold})`,
             };
 
             const result = await this.createAlert(alertData);
@@ -439,7 +467,7 @@ class StockAlertsService {
                   currentStock: currentStock,
                   alertType: alertType,
                   priority: priority,
-                  totalValue: currentStock * (stock.unitCost || 0),
+                  totalValue: currentStock * (productInfo?.unitCost || stock.unitCost || 0),
                 });
               }
             }

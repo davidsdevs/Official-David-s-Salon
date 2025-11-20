@@ -16,6 +16,7 @@ const ConfirmModal = ({
   cancelText = 'Cancel',
   type = 'danger', // 'danger' | 'warning' | 'info'
   loading = false,
+  disabled = false, // Disable confirm button
   children // Custom content to display below message
 }) => {
   if (!isOpen) return null;
@@ -79,7 +80,7 @@ const ConfirmModal = ({
             onClick={() => {
               onConfirm();
             }}
-            disabled={loading}
+            disabled={loading || disabled}
             className={`px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${style.button}`}
           >
             {loading && <LoadingSpinner size="sm" />}

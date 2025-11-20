@@ -17,6 +17,7 @@ import {
   setDoc, 
   updateDoc,
   deleteDoc,
+  addDoc,
   query,
   where,
   orderBy,
@@ -117,6 +118,23 @@ export const setBranchPrice = async (serviceId, branchId, price, currentUser) =>
     
     const currentData = serviceDoc.data();
     const branchPricing = currentData.branchPricing || {};
+    const oldPrice = branchPricing[branchId];
+    
+    // Only track history if price actually changed
+    if (oldPrice !== undefined && oldPrice !== price) {
+      // Record price change history
+      const priceHistoryRef = collection(db, 'servicePriceHistory');
+      await addDoc(priceHistoryRef, {
+        serviceId,
+        serviceName: currentData.name,
+        branchId,
+        oldPrice,
+        newPrice: price,
+        changedBy: currentUser.uid,
+        changedByName: currentUser.displayName || currentUser.email || 'Unknown',
+        changedAt: Timestamp.now()
+      });
+    }
     
     // Update or add this branch's price (direct value)
     branchPricing[branchId] = price;

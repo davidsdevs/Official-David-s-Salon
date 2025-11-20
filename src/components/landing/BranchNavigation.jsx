@@ -35,7 +35,7 @@ export default function BranchNavigation({ branchName = "Makati Branch" }) {
         <div className="flex items-center space-x-4">
           <Link to="/">
             <img
-              src="/logo.png"
+              src="/logo.jpg"
               alt="David's Salon Logo"
               className="h-12 sm:h-16"
             />

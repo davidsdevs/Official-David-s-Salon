@@ -9,7 +9,7 @@ export default function BranchFooter({ branchName, branchPhone, branchAddress, b
           <div className="text-center md:text-left">
             <Link to="/">
               <img
-                src="/logo.png"
+                src="/logo.jpg"
                 alt="David's Salon Logo"
                 className="h-12 sm:h-16 mb-4 mx-auto md:mx-0"
               />

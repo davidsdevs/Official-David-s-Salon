@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES, USER_ROLES } from '../utils/constants';
-import { getUserRoles } from '../utils/helpers';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import Button from '../components/ui/Button';
@@ -15,63 +14,28 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [shouldNavigate, setShouldNavigate] = useState(false);
-  const { login, activeRole, userData } = useAuth();
+  const [error, setError] = useState('');
+  const { login } = useAuth();
   const navigate = useNavigate();
-
-  // Handle navigation after successful login
-  useEffect(() => {
-    if (shouldNavigate && activeRole) {
-      const dashboardMap = {
-        [USER_ROLES.SYSTEM_ADMIN]: ROUTES.ADMIN_DASHBOARD,
-        [USER_ROLES.OPERATIONAL_MANAGER]: ROUTES.OPERATIONAL_MANAGER_DASHBOARD,
-        [USER_ROLES.BRANCH_MANAGER]: ROUTES.MANAGER_DASHBOARD,
-        [USER_ROLES.RECEPTIONIST]: ROUTES.RECEPTIONIST_DASHBOARD,
-        [USER_ROLES.INVENTORY_CONTROLLER]: ROUTES.INVENTORY_DASHBOARD,
-        [USER_ROLES.STYLIST]: ROUTES.STYLIST_DASHBOARD,
-        [USER_ROLES.CLIENT]: ROUTES.CLIENT_DASHBOARD,
-      };
-
-      navigate(dashboardMap[activeRole] || ROUTES.HOME);
-      setShouldNavigate(false);
-    }
-  }, [shouldNavigate, activeRole, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
     setLoading(true);
 
     try {
-      const result = await login(email, password);
+      // Login with CLIENT role restriction
+      await login(email, password, USER_ROLES.CLIENT);
       
-      // Get role from returned userData or wait for state update
-      if (result?.userData) {
-        const roles = getUserRoles(result.userData);
-        // Get activeRole from localStorage or use first role
-        const savedActiveRole = localStorage.getItem(`activeRole_${result.user.uid}`);
-        const roleToUse = (savedActiveRole && roles.includes(savedActiveRole)) 
-          ? savedActiveRole 
-          : roles[0];
-        
-        const dashboardMap = {
-          [USER_ROLES.SYSTEM_ADMIN]: ROUTES.ADMIN_DASHBOARD,
-          [USER_ROLES.OPERATIONAL_MANAGER]: ROUTES.OPERATIONAL_MANAGER_DASHBOARD,
-          [USER_ROLES.BRANCH_MANAGER]: ROUTES.MANAGER_DASHBOARD,
-          [USER_ROLES.RECEPTIONIST]: ROUTES.RECEPTIONIST_DASHBOARD,
-          [USER_ROLES.INVENTORY_CONTROLLER]: ROUTES.INVENTORY_DASHBOARD,
-          [USER_ROLES.STYLIST]: ROUTES.STYLIST_DASHBOARD,
-          [USER_ROLES.CLIENT]: ROUTES.CLIENT_DASHBOARD,
-        };
-
-        navigate(dashboardMap[roleToUse] || ROUTES.HOME);
-      } else {
-        // If userData not in result, wait for state update
-        setShouldNavigate(true);
-      }
+      // Navigate to client dashboard
+      navigate(ROUTES.CLIENT_DASHBOARD);
     } catch (error) {
-      // Error already handled by AuthContext, no need to log again
-      // Just silently fail and let loading state reset
-      setShouldNavigate(false);
+      // Error is already handled by AuthContext, but we can set a local error state
+      if (error.message === 'INVALID_ROLE') {
+        setError('This login page is for clients only. Staff members should use their role-specific login page.');
+      } else {
+        setError(error.message || 'Invalid email or password');
+      }
     } finally {
       setLoading(false);
     }
@@ -87,14 +51,21 @@ const Login = () => {
         <div className="max-w-md w-full space-y-8">
           <div className="text-center">
             <h2 className="mt-6 text-center text-3xl font-extrabold text-[#160B53]">
-            Welcome Back
+              Client Login
             </h2>
             <p className="mt-2 text-center text-sm text-gray-600">
-            Sign in to David's Salon Management System
-          </p>
-        </div>
+              Sign in to access your account
+            </p>
+          </div>
 
           <Card className="p-8 border-0" style={{ boxShadow: '0 2px 15px 0 rgba(0, 0, 0, 0.25)' }}>
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-600 text-sm">
+                <AlertCircle className="w-4 h-4" />
+                <span>{error}</span>
+              </div>
+            )}
+
             <form className="space-y-6" onSubmit={handleSubmit}>
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -175,17 +146,17 @@ const Login = () => {
                 </Button>
           </div>
 
-              <div className="text-center">
-            <p className="text-sm text-gray-600">
-              Don't have an account?{' '}
-                  <Link
-                    to="/register"
-                    className="font-medium text-[#160B53] hover:text-[#160B53]/80"
-              >
-                Register as Client
-                  </Link>
-            </p>
-          </div>
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <p className="text-center text-sm text-gray-600">
+                Don't have an account?{' '}
+                <Link
+                  to="/register"
+                  className="font-medium text-[#160B53] hover:text-[#160B53]/80"
+                >
+                  Register here
+                </Link>
+              </p>
+            </div>
             </form>
           </Card>
         </div>

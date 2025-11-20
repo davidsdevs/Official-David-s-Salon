@@ -9,6 +9,7 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import Modal from '../../components/ui/Modal';
 import { productService } from '../../services/productService';
 import { getBranches } from '../../services/branchService';
+import { inventoryService } from '../../services/inventoryService';
 import { db } from '../../config/firebase';
 import { collection, addDoc, getDocs, getDoc, query, where, orderBy, limit, startAfter, serverTimestamp, updateDoc, doc, writeBatch, getCountFromServer } from 'firebase/firestore';
 import { 
@@ -780,6 +781,95 @@ const StockTransfer = () => {
         finalToBranchName = formData.toBranchName || branches.find(b => b.id === formData.toBranchId)?.name || '';
       }
       
+      // Prepare items with batch information (for transfers)
+      const itemsWithBatches = [];
+      
+      // STOCK DEDUCTION - Clear logic prevents mixing up:
+      if (formData.transferType === 'transfer') {
+        // TRANSFER TYPE: Deduct stock IMMEDIATELY from sending branch (fromBranchId)
+        // Current branch is sending, so deduct from their inventory
+        // Use batch-aware transfer (FIFO)
+        for (const item of formData.items) {
+          const itemData = {
+            productId: item.productId,
+            productName: item.productName,
+            stockId: item.stockId,
+            quantity: parseInt(item.quantity),
+            unitCost: parseFloat(item.unitCost) || 0,
+            totalCost: parseFloat(item.totalCost) || 0,
+            batches: [] // Will be populated if batches found
+          };
+
+          // Get batches for this item using FIFO
+          const batchesResult = await inventoryService.getBatchesForTransfer({
+            branchId: finalFromBranchId,
+            productId: item.productId,
+            quantity: parseInt(item.quantity)
+          });
+
+          if (batchesResult.success && batchesResult.batches.length > 0) {
+            // Add batch information to transfer item
+            itemData.batches = batchesResult.batches.map(b => ({
+              batchId: b.batchId,
+              batchNumber: b.batchNumber,
+              quantity: b.quantity,
+              expirationDate: b.expirationDate instanceof Date 
+                ? b.expirationDate.toISOString() 
+                : (b.expirationDate ? new Date(b.expirationDate).toISOString() : null),
+              unitCost: b.unitCost
+            }));
+
+            // Deduct from batches using FIFO
+            const deductResult = await inventoryService.deductStockFIFO({
+              branchId: finalFromBranchId,
+              productId: item.productId,
+              quantity: parseInt(item.quantity),
+              reason: 'Stock Transfer',
+              notes: `Transfer to ${finalToBranchName}`,
+              createdBy: userData?.uid,
+              productName: item.productName
+            });
+
+            if (!deductResult.success) {
+              throw new Error(`Failed to deduct stock for ${item.productName}: ${deductResult.message}`);
+            }
+          } else {
+            // Fallback: Update stock directly if no batches found (backward compatibility)
+            if (item.stockId) {
+              const stockRef = doc(db, 'stocks', item.stockId);
+              const stockDoc = await getDoc(stockRef);
+              
+              if (stockDoc.exists()) {
+                const stockData = stockDoc.data();
+                if (stockData.branchId === finalFromBranchId) {
+                  const currentStock = stockData.realTimeStock || 0;
+                  const newStock = Math.max(0, currentStock - parseInt(item.quantity));
+                  batch.update(stockRef, {
+                    realTimeStock: newStock,
+                    updatedAt: serverTimestamp()
+                  });
+                }
+              }
+            }
+          }
+
+          itemsWithBatches.push(itemData);
+        }
+      } else if (formData.transferType === 'borrow') {
+        // BORROW TYPE: NO stock deduction yet
+        // Stock will be deducted by the LENDING branch (fromBranchId) 
+        // when they approve/process the borrow request
+        // This prevents accidental deduction from the wrong branch
+        itemsWithBatches.push(...formData.items.map(item => ({
+          productId: item.productId,
+          productName: item.productName,
+          stockId: item.stockId,
+          quantity: parseInt(item.quantity),
+          unitCost: parseFloat(item.unitCost) || 0,
+          totalCost: parseFloat(item.totalCost) || 0
+        })));
+      }
+
       // Prepare transfer data - SAME COLLECTION, differentiated by transferType
       // Both transfers and borrow requests use the same structure for consistency
       const transferData = {
@@ -796,14 +886,7 @@ const StockTransfer = () => {
         status: 'Pending',
         reason: formData.reason,
         notes: formData.notes || '',
-        items: formData.items.map(item => ({
-          productId: item.productId,
-          productName: item.productName,
-          stockId: item.stockId, // Only populated for transfers (when we have the stock ID)
-          quantity: parseInt(item.quantity),
-          unitCost: parseFloat(item.unitCost) || 0,
-          totalCost: parseFloat(item.totalCost) || 0
-        })),
+        items: itemsWithBatches,
         totalItems: formData.items.reduce((sum, item) => sum + parseInt(item.quantity), 0),
         totalValue: formData.items.reduce((sum, item) => sum + parseFloat(item.totalCost), 0),
         createdBy: userData?.uid,
@@ -830,36 +913,6 @@ const StockTransfer = () => {
       // ============================================================
       const transferRef = doc(collection(db, 'stock_transfer'));
       batch.set(transferRef, transferData);
-      
-      // STOCK DEDUCTION - Clear logic prevents mixing up:
-      if (formData.transferType === 'transfer') {
-        // TRANSFER TYPE: Deduct stock IMMEDIATELY from sending branch (fromBranchId)
-        // Current branch is sending, so deduct from their inventory
-        for (const item of formData.items) {
-          if (item.stockId) {
-            const stockRef = doc(db, 'stocks', item.stockId);
-            const stockDoc = await getDoc(stockRef);
-            
-            if (stockDoc.exists()) {
-              const stockData = stockDoc.data();
-              // Double-check: ensure stock belongs to the sending branch
-              if (stockData.branchId === finalFromBranchId) {
-                const currentStock = stockData.realTimeStock || 0;
-                const newStock = Math.max(0, currentStock - parseInt(item.quantity));
-                batch.update(stockRef, {
-                  realTimeStock: newStock,
-                  updatedAt: serverTimestamp()
-                });
-              }
-            }
-          }
-        }
-      } else if (formData.transferType === 'borrow') {
-        // BORROW TYPE: NO stock deduction yet
-        // Stock will be deducted by the LENDING branch (fromBranchId) 
-        // when they approve/process the borrow request
-        // This prevents accidental deduction from the wrong branch
-      }
       
       // Commit batch
       await batch.commit();
@@ -894,6 +947,179 @@ const StockTransfer = () => {
     } catch (error) {
       console.error('Error creating transfer:', error);
       setFormErrors({ general: 'Failed to create transfer. Please try again.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle receiving a transfer (mark as completed and create transfer batches)
+  const handleReceiveTransfer = async (transfer) => {
+    if (!transfer || transfer.status === 'Completed') {
+      alert('Transfer is already completed or invalid');
+      return;
+    }
+
+    if (transfer.toBranchId !== userData?.branchId) {
+      alert('You can only receive transfers sent to your branch');
+      return;
+    }
+
+    if (!confirm(`Confirm receipt of transfer from ${transfer.fromBranchName}?`)) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      // Create transfer batches at receiving branch
+      const transferBatchesResult = await inventoryService.createTransferBatches({
+        transferId: transfer.id,
+        fromBranchId: transfer.fromBranchId,
+        toBranchId: transfer.toBranchId,
+        items: transfer.items || [],
+        receivedBy: userData?.uid,
+        receivedAt: new Date()
+      });
+
+      if (!transferBatchesResult.success) {
+        throw new Error(transferBatchesResult.message || 'Failed to create transfer batches');
+      }
+
+      // Update stock for each product (add to receiving branch)
+      for (const item of transfer.items || []) {
+        const stockData = {
+          branchId: transfer.toBranchId,
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitCost: item.unitCost,
+          reason: 'Stock Transfer Received',
+          notes: `Transfer from ${transfer.fromBranchName} - Transfer ID: ${transfer.id}`,
+          createdBy: userData?.uid
+        };
+
+        const stockResult = await inventoryService.addStock(stockData);
+        if (!stockResult.success) {
+          console.error(`Failed to update stock for ${item.productName}:`, stockResult.message);
+        }
+      }
+
+      // Update transfer status to Completed
+      const transferRef = doc(db, 'stock_transfer', transfer.id);
+      await updateDoc(transferRef, {
+        status: 'Completed',
+        actualDelivery: serverTimestamp(),
+        receivedBy: userData?.uid,
+        receivedByName: userData?.name || userData?.email || 'Unknown',
+        receivedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      await reloadTransfers();
+      alert('Transfer received successfully! Transfer batches created.');
+    } catch (error) {
+      console.error('Error receiving transfer:', error);
+      alert(`Failed to receive transfer: ${error.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle returning stock from a transfer
+  const handleReturnStock = async (transfer, item, returnQuantity, returnReason) => {
+    if (!transfer || transfer.status !== 'Completed') {
+      alert('Can only return stock from completed transfers');
+      return;
+    }
+
+    if (transfer.fromBranchId !== userData?.branchId) {
+      alert('You can only return stock to transfers you sent');
+      return;
+    }
+
+    if (!returnQuantity || returnQuantity <= 0) {
+      alert('Please enter a valid return quantity');
+      return;
+    }
+
+    if (returnQuantity > item.quantity) {
+      alert(`Return quantity cannot exceed transferred quantity (${item.quantity})`);
+      return;
+    }
+
+    if (!confirm(`Return ${returnQuantity} units of ${item.productName}?`)) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      // Find transfer batches for this item
+      const batchesResult = await inventoryService.getBranchBatches(userData?.branchId, {
+        productId: item.productId
+      });
+
+      if (!batchesResult.success) {
+        throw new Error('Failed to get batches');
+      }
+
+      // Find batches from this transfer
+      const transferBatches = batchesResult.batches.filter(b => 
+        b.sourceType === 'transfer' && 
+        b.sourceTransferId === transfer.id &&
+        b.productId === item.productId
+      );
+
+      if (transferBatches.length === 0) {
+        throw new Error('No transfer batches found for this item');
+      }
+
+      // Return stock from transfer batches (FIFO)
+      let remainingToReturn = returnQuantity;
+      for (const batch of transferBatches) {
+        if (remainingToReturn <= 0) break;
+        
+        const returnQty = Math.min(remainingToReturn, batch.remainingQuantity || 0);
+        if (returnQty <= 0) continue;
+
+        const returnResult = await inventoryService.returnStockToBatch({
+          batchId: batch.id,
+          quantity: returnQty,
+          returnReason: returnReason || 'Stock return',
+          returnedBy: userData?.uid,
+          returnedAt: new Date()
+        });
+
+        if (!returnResult.success) {
+          throw new Error(returnResult.message);
+        }
+
+        remainingToReturn -= returnQty;
+      }
+
+      if (remainingToReturn > 0) {
+        throw new Error(`Could not return all quantity. ${remainingToReturn} units could not be returned.`);
+      }
+
+      // Update stock at receiving branch (deduct)
+      const stockData = {
+        branchId: transfer.toBranchId,
+        productId: item.productId,
+        productName: item.productName,
+        quantity: -returnQuantity, // Negative for deduction
+        unitCost: item.unitCost,
+        reason: 'Stock Return',
+        notes: `Returned to ${transfer.fromBranchName} - Transfer ID: ${transfer.id}`,
+        createdBy: userData?.uid
+      };
+
+      await inventoryService.addStock(stockData);
+
+      await reloadTransfers();
+      alert(`Successfully returned ${returnQuantity} units of ${item.productName}`);
+    } catch (error) {
+      console.error('Error returning stock:', error);
+      alert(`Failed to return stock: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -1080,7 +1306,7 @@ const StockTransfer = () => {
         )}
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
           <Card className="p-4">
             <div className="flex items-center">
               <ArrowRightLeft className="h-8 w-8 text-blue-600" />
@@ -1209,157 +1435,184 @@ const StockTransfer = () => {
           </div>
         </Card>
 
-        {/* Transfers Table */}
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Transfer ID
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    From Branch
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    To Branch
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Transfer Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Items
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Total Value
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredTransfers.map((transfer) => {
-                  // Check if this is an incoming borrow request that needs review
-                  const isIncomingBorrowRequest = 
-                    transfer.transferType === 'borrow' &&
-                    transfer.fromBranchId === userData?.branchId && // We are the lending branch
-                    transfer.status === 'Pending';
-                  
-                  return (
-                    <tr key={transfer.id} className={`hover:bg-gray-50 ${isIncomingBorrowRequest ? 'bg-purple-50' : ''}`}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <div>
-                      <div className="text-sm font-medium text-gray-900">{transfer.id}</div>
-                            <div className="text-xs text-gray-500">by {transfer.createdByName || transfer.createdBy}</div>
-                          </div>
-                          {transfer.transferType === 'borrow' && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800" title="Borrow Request - Requesting stock from another branch">
-                              <ArrowRight className="h-3 w-3" />
-                              Borrow
-                            </span>
-                          )}
-                          {(!transfer.transferType || transfer.transferType === 'transfer') && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800" title="Transfer - Sending stock to another branch">
-                              <ArrowRightLeft className="h-3 w-3" />
-                              Transfer
-                            </span>
-                          )}
-                          {isIncomingBorrowRequest && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 animate-pulse" title="Awaiting your review">
-                              <AlertCircle className="h-3 w-3" />
-                              Review
-                            </span>
-                          )}
-                        </div>
-                    </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <div className="text-sm text-gray-900">{transfer.fromBranchName}</div>
-                          {transfer.transferType === 'borrow' && transfer.fromBranchId !== userData?.branchId && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800" title="Borrowing from this branch">
-                              <ArrowRight className="h-3 w-3" />
-                              From
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <div className="text-sm text-gray-900">{transfer.toBranchName}</div>
-                          {transfer.toBranchHasSystem === false && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800" title="Branch without system">
-                              <AlertCircle className="h-3 w-3" />
-                              Manual
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{format(new Date(transfer.transferDate), 'MMM dd, yyyy')}</div>
-                        <div className="text-xs text-gray-500">Expected: {format(new Date(transfer.expectedDelivery), 'MMM dd')}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(transfer.status)}`}>
-                          {getStatusIcon(transfer.status)}
-                          {transfer.status}
+        {/* Transfers Cards */}
+        {filteredTransfers.length === 0 ? (
+          <Card className="p-12">
+            <div className="text-center">
+              <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Transfers Found</h3>
+              <p className="text-gray-600">Create your first transfer to get started.</p>
+            </div>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredTransfers.map((transfer) => {
+              // Check if this is an incoming borrow request that needs review
+              const isIncomingBorrowRequest = 
+                transfer.transferType === 'borrow' &&
+                transfer.fromBranchId === userData?.branchId && // We are the lending branch
+                transfer.status === 'Pending';
+              
+              // Get product images from items (first 4 products for preview)
+              const previewItems = (transfer.items || []).slice(0, 4);
+              
+              return (
+                <Card 
+                  key={transfer.id} 
+                  className={`p-4 hover:shadow-lg transition-shadow ${isIncomingBorrowRequest ? 'border-2 border-purple-300 bg-purple-50' : ''}`}
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-sm font-semibold text-gray-900 truncate">{transfer.id}</h3>
+                        {transfer.transferType === 'borrow' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800" title="Borrow Request">
+                            <ArrowRight className="h-3 w-3" />
+                            Borrow
+                          </span>
+                        )}
+                        {(!transfer.transferType || transfer.transferType === 'transfer') && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800" title="Transfer">
+                            <ArrowRightLeft className="h-3 w-3" />
+                            Transfer
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">by {transfer.createdByName || transfer.createdBy}</p>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(transfer.status)}`}>
+                      {getStatusIcon(transfer.status)}
+                      {transfer.status}
+                    </span>
+                  </div>
+
+                  {/* Branch Info */}
+                  <div className="mb-3 p-2 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2 text-sm mb-1">
+                      <Building className="h-4 w-4 text-gray-400" />
+                      <span className="font-medium text-gray-700">From:</span>
+                      <span className="text-gray-900">{transfer.fromBranchName}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <ArrowRight className="h-4 w-4 text-gray-400" />
+                      <span className="font-medium text-gray-700">To:</span>
+                      <span className="text-gray-900">{transfer.toBranchName}</span>
+                      {transfer.toBranchHasSystem === false && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 ml-1">
+                          Manual
                         </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{transfer.totalItems} items</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">₱{transfer.totalValue.toLocaleString()}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex gap-2">
-                          {isIncomingBorrowRequest ? (
-                            <Button
-                              variant="default"
-                              size="sm"
-                              onClick={() => handleReviewBorrowRequest(transfer)}
-                              className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white"
-                            >
-                              <ClipboardList className="h-3 w-3" />
-                              Review Request
-                            </Button>
-                          ) : (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleViewDetails(transfer)}
-                                className="flex items-center gap-1"
-                              >
-                                <Eye className="h-3 w-3" />
-                                View
-                              </Button>
-                              {transfer.status === 'Pending' && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleEditTransfer(transfer)}
-                                  className="flex items-center gap-1"
-                                >
-                                  <Edit className="h-3 w-3" />
-                                  Edit
-                                </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Product Images Preview */}
+                  {previewItems.length > 0 && (
+                    <div className="mb-3">
+                      <div className="grid grid-cols-4 gap-1">
+                        {previewItems.map((item, idx) => {
+                          // Find product to get image
+                          const product = products.find(p => p.id === item.productId);
+                          const imageUrl = product?.imageUrl || item.productImageUrl;
+                          
+                          return (
+                            <div key={idx} className="relative aspect-square bg-gray-100 rounded overflow-hidden">
+                              {imageUrl ? (
+                                <img
+                                  src={imageUrl}
+                                  alt={item.productName || 'Product'}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.nextSibling.style.display = 'flex';
+                                  }}
+                                />
+                              ) : null}
+                              <div className="w-full h-full flex items-center justify-center bg-gray-100" style={{ display: imageUrl ? 'none' : 'flex' }}>
+                                <Package className="h-6 w-6 text-gray-400" />
+                              </div>
+                              {item.quantity > 1 && (
+                                <div className="absolute bottom-0 right-0 bg-black/70 text-white text-xs px-1 rounded-tl">
+                                  {item.quantity}x
+                                </div>
                               )}
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {(transfer.items || []).length > 4 && (
+                        <p className="text-xs text-gray-500 mt-1 text-center">
+                          +{(transfer.items || []).length - 4} more items
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Transfer Date */}
+                  <div className="flex items-center gap-2 text-xs text-gray-600 mb-3">
+                    <Calendar className="h-4 w-4" />
+                    <span>{format(new Date(transfer.transferDate), 'MMM dd, yyyy')}</span>
+                    {transfer.expectedDelivery && (
+                      <>
+                        <span>•</span>
+                        <span>Expected: {format(new Date(transfer.expectedDelivery), 'MMM dd')}</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="flex items-center justify-between pt-3 border-t border-gray-200">
+                    <div>
+                      <p className="text-xs text-gray-500">Items</p>
+                      <p className="text-sm font-semibold text-gray-900">{transfer.totalItems || (transfer.items || []).length} items</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">Total Value</p>
+                      <p className="text-sm font-bold text-[#160B53]">₱{transfer.totalValue.toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2 mt-3">
+                    {isIncomingBorrowRequest ? (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => handleReviewBorrowRequest(transfer)}
+                        className="flex-1 flex items-center justify-center gap-1 bg-purple-600 hover:bg-purple-700 text-white"
+                      >
+                        <ClipboardList className="h-3 w-3" />
+                        Review Request
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleViewDetails(transfer)}
+                          className="flex-1 flex items-center justify-center gap-1"
+                        >
+                          <Eye className="h-3 w-3" />
+                          View
+                        </Button>
+                        {transfer.status === 'Pending' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleEditTransfer(transfer)}
+                            className="flex items-center justify-center gap-1"
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
           </div>
-        </Card>
+        )}
 
         {/* Pagination Load More */}
         {filteredTransfers.length > 0 && hasMore && (
@@ -2068,7 +2321,7 @@ const StockTransfer = () => {
                       </div>
                       
                       <div className="col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Unit Cost (OTC Price)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Unit Cost</label>
                         <Input
                           type="number"
                           min="0"
@@ -2576,7 +2829,7 @@ const StockTransfer = () => {
                       </div>
                       
                       <div className="col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Unit Cost (OTC Price)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Unit Cost</label>
                         <Input
                           type="number"
                           min="0"
@@ -2585,7 +2838,7 @@ const StockTransfer = () => {
                           disabled
                           className="bg-gray-50 cursor-not-allowed"
                         />
-                        <p className="text-xs text-gray-500 mt-1">Automatically set from product OTC price</p>
+                        <p className="text-xs text-gray-500 mt-1">Automatically set from product price</p>
                       </div>
                       
                       <div className="col-span-2">

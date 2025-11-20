@@ -198,44 +198,39 @@ const UpcGenerator = () => {
     setIsDetailsModalOpen(true);
   };
 
-  // Handle generate QR code - simplified, no branch/batch selection needed, no database storage
+  // Handle generate QR code - open batch selection modal
   const handleGenerateQRCode = async (product) => {
+    setSelectedProduct(product);
+    setSelectedBatches([]);
+    setGenerateForm({
+      productId: product.id,
+      branchId: '',
+      batchId: '',
+      quantity: 1,
+      size: 'medium'
+    });
+    setIsGenerateModalOpen(true);
+  };
+
+  // Handle batch selection and QR code generation
+  const handleGenerateFromBatch = async (batch) => {
     try {
       setLoading(true);
       setError(null);
-      setSelectedProduct(product);
 
-      // Find the oldest active batch for this product (FIFO - for expiration date)
-      let expirationDate = null;
-      let batchNumber = 'N/A';
-
-      // Try to find batches across all branches
-      if (branches.length > 0) {
-        for (const branch of branches) {
-          try {
-            const batchesResult = await inventoryService.getProductBatches(branch.id, product.id, { status: 'active' });
-            if (batchesResult.success && batchesResult.batches.length > 0) {
-              // Get the oldest batch (first one after FIFO sort)
-              const oldest = batchesResult.batches[0];
-              if (oldest && oldest.expirationDate) {
-                expirationDate = oldest.expirationDate;
-                batchNumber = oldest.batchNumber;
-                break; // Found one, use it
-              }
-            }
-          } catch (err) {
-            console.warn(`Could not fetch batches for branch ${branch.name}:`, err);
-          }
-        }
+      if (!batch || !batch.batchNumber) {
+        setError('Invalid batch selected');
+        return;
       }
 
-      // Generate QR code string directly (no database storage - cache-based)
+      // Use batch data from product_batches
       const qrCodeString = JSON.stringify({
-        productId: product.id,
-        productName: product.name,
-        price: product.otcPrice || 0,
-        batchNumber: batchNumber,
-        expirationDate: expirationDate ? expirationDate.toISOString() : null,
+        productId: batch.productId,
+        productName: batch.productName,
+        price: selectedProduct?.otcPrice || 0,
+        batchNumber: batch.batchNumber,
+        expirationDate: batch.expirationDate ? new Date(batch.expirationDate).toISOString() : null,
+        branchId: batch.branchId,
         timestamp: Date.now()
       });
 
@@ -243,15 +238,18 @@ const UpcGenerator = () => {
       const qrCode = {
         id: `qr-${Date.now()}`,
         qrCodeString: qrCodeString,
-        batchNumber: batchNumber,
-        productName: product.name,
-        price: product.otcPrice || 0,
-        expirationDate: expirationDate,
+        batchNumber: batch.batchNumber,
+        productName: batch.productName,
+        productId: batch.productId,
+        price: selectedProduct?.otcPrice || 0,
+        expirationDate: batch.expirationDate ? new Date(batch.expirationDate) : null,
+        branchId: batch.branchId,
         createdAt: new Date()
       };
 
       setGeneratedQRCodes(prev => [...prev, qrCode]);
       setQrCodesToPrint([qrCode]);
+      setIsGenerateModalOpen(false);
       setIsPrintModalOpen(true);
       setError(null);
     } catch (err) {
@@ -301,7 +299,7 @@ const UpcGenerator = () => {
     }
   };
 
-  // Handle form submission
+  // Handle form submission - generate QR codes from selected batch
   const handleGenerateSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -321,33 +319,40 @@ const UpcGenerator = () => {
         return;
       }
 
+      if (!batch.batchNumber) {
+        setError('Selected batch does not have a batch number');
+        setLoading(false);
+        return;
+      }
+
+      // Generate QR codes directly from batch data (no database storage - cache-based)
       const qrCodes = [];
       for (let i = 0; i < generateForm.quantity; i++) {
-        try {
-          const result = await qrCodeService.generateQRCodeForBatch({
-            productId: generateForm.productId,
-            batchId: generateForm.batchId,
-            branchId: generateForm.branchId,
-            expirationDate: batch.expirationDate,
-            price: selectedProduct.otcPrice || 0
-          });
+        // Use batch data from product_batches collection
+        const qrCodeString = JSON.stringify({
+          productId: batch.productId,
+          productName: batch.productName || selectedProduct?.name,
+          price: selectedProduct?.otcPrice || 0,
+          batchNumber: batch.batchNumber, // From product_batches
+          expirationDate: batch.expirationDate ? new Date(batch.expirationDate).toISOString() : null,
+          branchId: batch.branchId,
+          timestamp: Date.now()
+        });
 
-          if (result.success) {
-            qrCodes.push({
-              ...result.qrCodeData,
-              qrCodeString: result.qrCodeString,
-              batchNumber: batch.batchNumber,
-              productName: selectedProduct.name,
-              price: selectedProduct.otcPrice || 0
-            });
-          } else {
-            console.error('Failed to generate QR code:', result.message);
-            setError(result.message || 'Failed to generate QR code');
-          }
-        } catch (qrError) {
-          console.error('Error generating QR code:', qrError);
-          setError(qrError.message || 'Error generating QR code');
-        }
+        // Create QR code data (in-memory only, no database)
+        const qrCode = {
+          id: `qr-${Date.now()}-${i}`,
+          qrCodeString: qrCodeString,
+          batchNumber: batch.batchNumber, // From product_batches
+          productName: batch.productName || selectedProduct?.name,
+          productId: batch.productId,
+          price: selectedProduct?.otcPrice || 0,
+          expirationDate: batch.expirationDate ? new Date(batch.expirationDate) : null,
+          branchId: batch.branchId,
+          createdAt: new Date()
+        };
+
+        qrCodes.push(qrCode);
       }
 
       if (qrCodes.length > 0) {
@@ -436,15 +441,15 @@ const UpcGenerator = () => {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">QR Code Generator</h1>
-            <p className="text-gray-600">Generate QR code stickers for product batches with expiration dates</p>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900">QR Code Generator</h1>
+            <p className="text-sm md:text-base text-gray-600">Generate QR code stickers for product batches with expiration dates</p>
           </div>
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
           <Card className="p-4">
             <div className="flex items-center">
               <Package className="h-8 w-8 text-blue-600" />

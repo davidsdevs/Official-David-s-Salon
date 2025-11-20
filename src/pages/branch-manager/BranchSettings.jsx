@@ -4,7 +4,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { MapPin, Phone, Mail, Clock, Save } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { MapPin, Phone, Mail, Clock, Save, ArrowLeft } from 'lucide-react';
 import { getBranchById, updateBranch } from '../../services/branchService';
 import { useAuth } from '../../context/AuthContext';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -12,6 +13,7 @@ import toast from 'react-hot-toast';
 
 const BranchSettings = () => {
   const { currentUser, userBranch } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [branch, setBranch] = useState(null);
@@ -131,9 +133,17 @@ const BranchSettings = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Branch Settings</h1>
-        <p className="text-gray-600 mt-1">Manage your branch information and operating hours</p>
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => navigate('/manager/settings')}
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <ArrowLeft className="h-5 w-5 text-gray-600" />
+        </button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Branch Settings</h1>
+          <p className="text-gray-600 mt-1">Manage your branch information and operating hours</p>
+        </div>
       </div>
 
       {/* Branch Info Card */}

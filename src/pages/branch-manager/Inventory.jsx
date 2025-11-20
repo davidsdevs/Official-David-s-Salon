@@ -48,7 +48,8 @@ import {
 import { format } from 'date-fns';
 import { transactionApiService } from '../../services/transactionApiService';
 import { openaiService } from '../../services/openaiService';
-import { Sparkles, Loader2 as Loader2Icon } from 'lucide-react';
+import { getAllServices } from '../../services/serviceManagementService';
+import { Sparkles, Loader2 as Loader2Icon, Scissors } from 'lucide-react';
 
 // Debounce hook for search
 const useDebounce = (value, delay) => {
@@ -85,6 +86,7 @@ const Inventory = () => {
   // ========== PRODUCTS TAB STATE ==========
   const [products, setProducts] = useState([]);
   const [stocks, setStocks] = useState([]);
+  const [services, setServices] = useState([]); // For service-product mapping
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -298,6 +300,20 @@ const Inventory = () => {
     setLoadingSales(false);
     }
   };
+
+  // Load services for service-product mapping
+  const loadServices = async () => {
+    try {
+      const servicesList = await getAllServices();
+      setServices(servicesList);
+    } catch (err) {
+      console.error('Error loading services:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadServices();
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'products') {
@@ -1429,6 +1445,7 @@ const Inventory = () => {
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
                       <th className="text-left py-3 px-4 font-semibold text-gray-700">Unit Cost</th>
                       <th className="text-left py-3 px-4 font-semibold text-gray-700">OTC Price</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700 hidden lg:table-cell">Service Mapping</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Total Value</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
               </tr>
@@ -1436,7 +1453,7 @@ const Inventory = () => {
             <tbody>
                     {filteredProducts.length === 0 ? (
                       <tr>
-                        <td colSpan="9" className="text-center py-8 text-gray-500">
+                        <td colSpan="10" className="text-center py-8 text-gray-500">
                           No products found
                         </td>
                       </tr>
@@ -1468,6 +1485,27 @@ const Inventory = () => {
                   </td>
                           <td className="py-4 px-4 text-gray-700">₱{(product.unitCost || 0).toFixed(2)}</td>
                           <td className="py-4 px-4 text-gray-700">₱{(product.otcPrice || 0).toFixed(2)}</td>
+                          <td className="py-4 px-4 hidden lg:table-cell">
+                            {product.serviceProductMapping && Object.keys(product.serviceProductMapping).length > 0 ? (
+                              <div className="space-y-1">
+                                {Object.entries(product.serviceProductMapping).slice(0, 2).map(([serviceId, minimumCost]) => {
+                                  const service = services.find(s => s.id === serviceId);
+                                  return (
+                                    <div key={serviceId} className="flex items-center gap-1 text-xs">
+                                      <Scissors className="w-3 h-3 text-purple-500 flex-shrink-0" />
+                                      <span className="text-gray-700 truncate">{service?.name || 'Unknown'}</span>
+                                      <span className="text-purple-600 font-medium">₱{parseFloat(minimumCost || 0).toLocaleString()}</span>
+                                    </div>
+                                  );
+                                })}
+                                {Object.keys(product.serviceProductMapping).length > 2 && (
+                                  <span className="text-xs text-gray-400">+{Object.keys(product.serviceProductMapping).length - 2} more</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">None</span>
+                            )}
+                          </td>
                           <td className="py-4 px-4 text-gray-700">
                             ₱{((product.currentStock || 0) * (product.unitCost || 0)).toLocaleString()}
                           </td>
@@ -1697,13 +1735,7 @@ const Inventory = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
-              <p className="text-gray-600">Create and manage purchase orders from suppliers</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button onClick={handleCreateOrder} className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A]">
-                <Plus className="h-4 w-4" />
-                Create Order
-              </Button>
+              <p className="text-gray-600">View purchase orders from suppliers</p>
             </div>
           </div>
 
@@ -1910,29 +1942,18 @@ const Inventory = () => {
                             )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <div className="flex items-center gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  setSelectedOrder(order);
-                                  setIsDetailsModalOpen(true);
-                                }}
-                                className="flex items-center gap-1"
-                              >
-                                <Eye className="h-3 w-3" />
-                                View
-                              </Button>
-                              {canReceive(order) && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleReceiveOrder(order.id)}
-                                  className="bg-blue-600 text-white hover:bg-blue-700"
-                                >
-                                  Receive
-                                </Button>
-                              )}
-                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedOrder(order);
+                                setIsDetailsModalOpen(true);
+                              }}
+                              className="flex items-center gap-1"
+                            >
+                              <Eye className="h-3 w-3" />
+                              View
+                            </Button>
                           </td>
                         </tr>
                       ))
@@ -2760,6 +2781,29 @@ const Inventory = () => {
                     </p>
                   </div>
                 )}
+                {/* Service Mapping */}
+                {selectedProduct.serviceProductMapping && Object.keys(selectedProduct.serviceProductMapping).length > 0 && (
+                  <div className="col-span-2 border-t pt-4 mt-4">
+                    <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <Scissors className="w-4 h-4 text-purple-500" />
+                      Service-Product Mapping (Minimum Cost)
+                    </p>
+                    <div className="space-y-2">
+                      {Object.entries(selectedProduct.serviceProductMapping).map(([serviceId, minimumCost]) => {
+                        const service = services.find(s => s.id === serviceId);
+                        return (
+                          <div key={serviceId} className="flex items-center justify-between p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <Scissors className="w-4 h-4 text-purple-500" />
+                              <span className="text-sm font-medium text-gray-900">{service?.name || 'Unknown Service'}</span>
+                            </div>
+                            <span className="text-sm font-semibold text-purple-600">₱{parseFloat(minimumCost || 0).toLocaleString()}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
               
@@ -2779,6 +2823,176 @@ const Inventory = () => {
         </div>
       </div>
     )}
+
+      {/* PURCHASE ORDERS MODALS */}
+      {/* Order Details Modal */}
+      {isDetailsModalOpen && selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col transform transition-all duration-300 scale-100">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-white/20 rounded-lg">
+                    <FileText className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold">Purchase Order Details</h2>
+                    <p className="text-white/80 text-sm mt-1">{selectedOrder.orderId || selectedOrder.id}</p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setIsDetailsModalOpen(false);
+                    setSelectedOrder(null);
+                  }}
+                  className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-6">
+                {/* Order Header */}
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">{selectedOrder.supplierName || 'Unknown Supplier'}</h3>
+                    <p className="text-gray-600">Order Date: {selectedOrder.orderDate ? format(new Date(selectedOrder.orderDate), 'MMM dd, yyyy') : 'N/A'}</p>
+                  </div>
+                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium border ${getStatusColorPO(selectedOrder.status)}`}>
+                    {getStatusIcon(selectedOrder.status)}
+                    {selectedOrder.status}
+                  </span>
+                </div>
+
+                {/* Order Information */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium text-gray-500">Expected Delivery</label>
+                      <p className="text-gray-900">
+                        {selectedOrder.expectedDelivery ? format(new Date(selectedOrder.expectedDelivery), 'MMM dd, yyyy') : 'Not set'}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-500">Created By</label>
+                      <p className="text-gray-900">{selectedOrder.createdByName || 'Unknown'}</p>
+                    </div>
+                    {selectedOrder.approvedByName && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Approved By</label>
+                        <p className="text-gray-900 text-green-600 font-semibold">{selectedOrder.approvedByName}</p>
+                        {selectedOrder.approvedAt && (
+                          <p className="text-xs text-gray-500">
+                            {format(new Date(selectedOrder.approvedAt), 'MMM dd, yyyy HH:mm')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {selectedOrder.rejectedByName && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Rejected By</label>
+                        <p className="text-gray-900 text-red-600 font-semibold">{selectedOrder.rejectedByName}</p>
+                        {selectedOrder.rejectedAt && (
+                          <p className="text-xs text-gray-500">
+                            {format(new Date(selectedOrder.rejectedAt), 'MMM dd, yyyy HH:mm')}
+                          </p>
+                        )}
+                        {selectedOrder.rejectionNote && (
+                          <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-sm font-medium text-red-800">Rejection Note:</p>
+                            <p className="text-sm text-red-700 mt-1">{selectedOrder.rejectionNote}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium text-gray-500">Total Amount</label>
+                      <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                    </div>
+                    {selectedOrder.notes && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Notes</label>
+                        <p className="text-gray-900">{selectedOrder.notes}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Order Items */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Items</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {selectedOrder.items && selectedOrder.items.length > 0 ? (
+                          selectedOrder.items.map((item, index) => (
+                            <tr key={index}>
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-gray-900">{item.productName}</div>
+                                {item.sku && (
+                                  <div className="text-xs text-gray-500">SKU: {item.sku}</div>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-gray-900">{item.quantity}</td>
+                              <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="4" className="px-4 py-4 text-center text-gray-500">No items</td>
+                          </tr>
+                        )}
+                      </tbody>
+                      {selectedOrder.items && selectedOrder.items.length > 0 && (
+                        <tfoot className="bg-gray-50">
+                          <tr>
+                            <td colSpan="3" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
+                            <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
+                              ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-gray-200 p-6 bg-gray-50">
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsDetailsModalOpen(false);
+                    setSelectedOrder(null);
+                  }}
+                  className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     
   );

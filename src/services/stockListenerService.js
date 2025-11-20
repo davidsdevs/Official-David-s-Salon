@@ -62,11 +62,14 @@ class StockListenerService {
         const isVoided = status === 'voided' || status === 'Voided' || status === 'cancelled' || status === 'Cancelled';
         
         // Handle voided transactions - return stock back
+        const salesType = transactionData.salesType || '';
+        const hasProducts = salesType === 'product' || salesType === 'mixed';
+        const productItems = (transactionData.items || []).filter(item => item.type === 'product');
+        
         if ((change.type === 'added' || change.type === 'modified') && 
             isVoided &&
-            transactionData.products && 
-            Array.isArray(transactionData.products) && 
-            transactionData.products.length > 0 &&
+            hasProducts &&
+            productItems.length > 0 &&
             transactionData.stockDeducted) { // Only return if stock was previously deducted
           
           // Skip if already processed for void
@@ -102,9 +105,8 @@ class StockListenerService {
         // Handle paid/completed transactions - deduct stock
         else if ((change.type === 'added' || change.type === 'modified') && 
             isPaidOrCompleted &&
-            transactionData.products && 
-            Array.isArray(transactionData.products) && 
-            transactionData.products.length > 0 &&
+            hasProducts &&
+            productItems.length > 0 &&
             !transactionData.stockDeducted) { // Check if stock was already deducted
           
           // Mark as processed
@@ -147,9 +149,12 @@ class StockListenerService {
    * @param {string} transactionId - Transaction ID
    */
   async processTransactionProducts(transactionData, transactionId) {
-    const { products, branchId } = transactionData;
+    const { items, branchId } = transactionData;
 
-    if (!products || !Array.isArray(products) || products.length === 0) {
+    // Filter items to get only products
+    const productItems = (items || []).filter(item => item.type === 'product');
+
+    if (!productItems || productItems.length === 0) {
       return;
     }
 
@@ -163,8 +168,8 @@ class StockListenerService {
     const fallbackBatch = writeBatch(db);
 
     // Process each product in the transaction
-    for (const product of products) {
-      const productId = product.productId || product.id;
+    for (const product of productItems) {
+      const productId = product.id || product.productId;
       const quantity = parseInt(product.quantity || 1);
 
       if (!productId || quantity <= 0) {
@@ -326,9 +331,12 @@ class StockListenerService {
    * @param {string} transactionId - Transaction ID
    */
   async returnTransactionProducts(transactionData, transactionId) {
-    const { products, branchId } = transactionData;
+    const { items, branchId } = transactionData;
 
-    if (!products || !Array.isArray(products) || products.length === 0) {
+    // Filter items to get only products
+    const productItems = (items || []).filter(item => item.type === 'product');
+
+    if (!productItems || productItems.length === 0) {
       return;
     }
 
@@ -341,8 +349,8 @@ class StockListenerService {
     const stockReturns = [];
 
     // Process each product in the transaction
-    for (const product of products) {
-      const productId = product.productId || product.id;
+    for (const product of productItems) {
+      const productId = product.id || product.productId;
       const quantity = parseInt(product.quantity || 1);
 
       if (!productId || quantity <= 0) {

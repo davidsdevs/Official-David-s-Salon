@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, Calendar, BarChart3, Building2, Scissors, Receipt, Package, ShoppingCart, Megaphone, FileText, TrendingUp, Wallet } from 'lucide-react';
+import { LayoutDashboard, Users, Calendar, BarChart3, Settings, Receipt, Package, Megaphone, FileText, TrendingUp, Wallet } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -12,14 +12,12 @@ const BranchManagerLayout = () => {
     { path: ROUTES.MANAGER_DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
     { section: 'Management' },
     { path: ROUTES.MANAGER_STAFF, label: 'Staff', icon: Users },
-    { path: '/manager/services', label: 'Services', icon: Scissors },
     { path: '/manager/calendar', label: 'Calendar & Holidays', icon: Calendar },
-    { path: '/manager/branch-settings', label: 'Branch Settings', icon: Building2 },
+    { path: '/manager/settings', label: 'Settings', icon: Settings },
     { path: ROUTES.MANAGER_APPOINTMENTS, label: 'Appointments', icon: Calendar },
     { path: '/manager/billing', label: 'Billing', icon: Receipt },
     { section: 'Operations' },
     { path: '/manager/inventory', label: 'Inventory', icon: Package },
-    { path: '/manager/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
     { path: '/manager/deposits', label: 'Bank Deposits', icon: Wallet },
     { path: '/manager/promotions', label: 'Promotions', icon: Megaphone },
     { path: '/manager/stylist-portfolios', label: 'Stylist Portfolios', icon: FileText },

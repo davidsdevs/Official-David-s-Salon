@@ -307,13 +307,13 @@ const ExpiryTracker = () => {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Batch Expiration Tracker</h1>
-            <p className="text-gray-600">Monitor product batches and expiration dates</p>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Batch Expiration Tracker</h1>
+            <p className="text-sm md:text-base text-gray-600">Monitor product batches and expiration dates</p>
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={loadBatches} className="flex items-center gap-2">
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+            <Button variant="outline" onClick={loadBatches} className="flex items-center gap-2 text-xs md:text-sm">
               <RefreshCw className="h-4 w-4" />
               Refresh
             </Button>
@@ -325,7 +325,7 @@ const ExpiryTracker = () => {
           <Card className="p-4 bg-red-50 border-red-200">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-red-600" />
-              <p className="text-red-800">{error}</p>
+              <p className="text-sm text-red-800">{error}</p>
               <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto">
                 <X className="h-4 w-4" />
               </Button>
@@ -334,7 +334,7 @@ const ExpiryTracker = () => {
         )}
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 md:gap-4">
           <Card className="p-4">
             <div className="flex items-center">
               <Package className="h-8 w-8 text-blue-600" />

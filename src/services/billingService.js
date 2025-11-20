@@ -14,7 +14,8 @@ import {
   where, 
   orderBy,
   Timestamp,
-  writeBatch
+  writeBatch,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 // Inventory service removed - inventory deduction disabled
@@ -64,6 +65,23 @@ export const createBill = async (billData, currentUser) => {
                     currentUser.email || 
                     'Unknown User';
     
+    // Determine sales type based on items
+    const items = billData.items || [];
+    let salesType = 'service'; // Default to service
+    
+    if (items.length > 0) {
+      const hasServices = items.some(item => item.type === 'service');
+      const hasProducts = items.some(item => item.type === 'product');
+      
+      if (hasServices && hasProducts) {
+        salesType = 'mixed';
+      } else if (hasProducts && !hasServices) {
+        salesType = 'product';
+      } else {
+        salesType = 'service';
+      }
+    }
+    
     const bill = {
       appointmentId: billData.appointmentId,
       clientId: billData.clientId,
@@ -73,17 +91,22 @@ export const createBill = async (billData, currentUser) => {
       branchName: billData.branchName,
       stylistId: billData.stylistId || null,
       stylistName: billData.stylistName || '',
-      items: billData.items || [], // Array of services/products
+      items: items, // Array of services/products
+      salesType: salesType, // 'service', 'product', or 'mixed'
       subtotal: billData.subtotal || 0,
       discount: billData.discount || 0,
       discountType: billData.discountType || null, // 'percentage' or 'fixed'
       discountCode: billData.discountCode || null,
+      promotionCode: billData.promotionCode || null,
+      promotionId: billData.promotionId || null,
+      promotionDiscount: billData.promotionDiscount || 0,
       loyaltyPointsUsed: billData.loyaltyPointsUsed || 0,
       tax: billData.tax || 0,
       taxRate: billData.taxRate || 0,
       total: billData.total || 0,
       paymentMethod: billData.paymentMethod,
       paymentReference: billData.paymentReference || null,
+      receiptNumber: billData.receiptNumber || null, // Receipt number from physical receipt
       status: BILL_STATUS.PAID,
       notes: billData.notes || '',
       createdBy: userId,
@@ -95,7 +118,58 @@ export const createBill = async (billData, currentUser) => {
 
     const docRef = await addDoc(billRef, bill);
     
-    // Inventory deduction removed - inventory module has been deleted
+    // Directly deduct stock for products in transaction
+    if (salesType === 'product' || salesType === 'mixed') {
+      try {
+        const productItems = items.filter(item => item.type === 'product');
+        
+        if (productItems.length > 0) {
+          const stockBatch = writeBatch(db);
+          
+          for (const item of productItems) {
+            if (!item.id || !item.quantity || item.quantity <= 0) continue;
+            
+            // Find stock document by productId and branchId
+            const stockQuery = query(
+              collection(db, 'stocks'),
+              where('productId', '==', item.id),
+              where('branchId', '==', billData.branchId),
+              where('status', '==', 'active')
+            );
+            
+            const stockSnapshot = await getDocs(stockQuery);
+            
+            if (!stockSnapshot.empty) {
+              const stockDoc = stockSnapshot.docs[0];
+              const stockData = stockDoc.data();
+              const stockRef = stockDoc.ref;
+              
+              const currentStock = parseInt(stockData.realTimeStock || 0);
+              const quantityToDeduct = parseInt(item.quantity || 0);
+              const newStock = Math.max(0, currentStock - quantityToDeduct);
+              
+              // Update stock directly
+              stockBatch.update(stockRef, {
+                realTimeStock: newStock,
+                updatedAt: serverTimestamp()
+              });
+              
+              console.log(`✅ Stock deducted: ${item.name} - ${quantityToDeduct} units (${currentStock} → ${newStock})`);
+            } else {
+              console.warn(`⚠️ Stock not found for product ${item.id} (${item.name}) at branch ${billData.branchId}`);
+            }
+          }
+          
+          // Commit all stock deductions
+          await stockBatch.commit();
+          console.log(`✅ Stock deduction completed for ${productItems.length} product(s)`);
+        }
+      } catch (stockError) {
+        console.error('Error deducting stock:', stockError);
+        // Don't fail the transaction if stock deduction fails, but log it
+        toast.error('Transaction created but stock deduction failed. Please update stock manually.');
+      }
+    }
     
     // CRM Integration: Handle loyalty points
     if (billData.clientId && billData.branchId) {
@@ -347,15 +421,21 @@ export const refundBill = async (billId, refundData, currentUser) => {
  * @param {string} billId - Bill ID
  * @param {string} reason - Void reason
  * @param {Object} currentUser - User voiding the bill
+ * @param {Object} witnessInfo - Witness information {id, email, name}
  * @returns {Promise<void>}
  */
-export const voidBill = async (billId, reason, currentUser) => {
+export const voidBill = async (billId, reason, currentUser, witnessInfo = null) => {
   try {
     const billRef = doc(db, BILLS_COLLECTION, billId);
     const bill = await getBillById(billId);
 
     if (bill.status === BILL_STATUS.VOIDED) {
       throw new Error('Bill is already voided');
+    }
+
+    // Require witness for voiding
+    if (!witnessInfo || !witnessInfo.id) {
+      throw new Error('Witness verification is required to void a transaction');
     }
 
     const userId = currentUser.uid || currentUser.id;
@@ -369,18 +449,21 @@ export const voidBill = async (billId, reason, currentUser) => {
       voidReason: reason,
       approvedBy: userId,
       approvedByName: userName,
+      witnessId: witnessInfo.id,
+      witnessEmail: witnessInfo.email,
+      witnessName: witnessInfo.name,
       voidedAt: Timestamp.now(),
       updatedAt: Timestamp.now()
     });
 
-    // Log the void action
+    // Log the void action with witness information
     await logBillingAction({
       billId,
       action: 'void',
       performedBy: userId,
       performedByName: userName,
       branchId: bill.branchId,
-      details: `Bill voided. Reason: ${reason}`
+      details: `Bill voided. Reason: ${reason}. Witness: ${witnessInfo.name} (${witnessInfo.email})`
     });
 
     toast.success('Bill voided successfully');
@@ -466,7 +549,7 @@ export const getDailySalesSummary = async (branchId, date = new Date()) => {
  * @returns {Object} - Calculated totals
  */
 export const calculateBillTotals = (billData) => {
-  const { items = [], discount = 0, discountType = 'fixed', taxRate = 0, loyaltyPointsUsed = 0 } = billData;
+  const { items = [], discount = 0, discountType = 'fixed', taxRate = 0, loyaltyPointsUsed = 0, promotionDiscount = 0 } = billData;
 
   // Calculate subtotal from items
   const subtotal = items.reduce((sum, item) => {
@@ -483,6 +566,9 @@ export const calculateBillTotals = (billData) => {
 
   // Add loyalty points discount (e.g., 1 point = 1 peso)
   discountAmount += loyaltyPointsUsed;
+
+  // Add promotion discount
+  discountAmount += (promotionDiscount || 0);
 
   // Amount after discount
   const amountAfterDiscount = Math.max(0, subtotal - discountAmount);

@@ -4,11 +4,14 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, DollarSign, Tag, Search, CreditCard, Wallet, Gift, Scissors, Package, Banknote, Smartphone, Star } from 'lucide-react';
+import { X, DollarSign, Tag, Search, CreditCard, Wallet, Gift, Scissors, Package, Banknote, Smartphone, Star, CheckCircle, AlertCircle } from 'lucide-react';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { PAYMENT_METHODS, calculateBillTotals } from '../../services/billingService';
 import { getLoyaltyPoints } from '../../services/loyaltyService';
+import { validatePromotionCode, calculatePromotionDiscount, trackPromotionUsage } from '../../services/promotionService';
 import { useAuth } from '../../context/AuthContext';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import toast from 'react-hot-toast';
 
 const BillingModalPOS = ({
@@ -30,6 +33,7 @@ const BillingModalPOS = ({
     loyaltyPointsUsed: '',
     paymentMethod: PAYMENT_METHODS.CASH,
     paymentReference: '',
+    receiptNumber: '', // Receipt number from physical receipt
     notes: '',
     amountReceived: '',
     tax: '',
@@ -57,17 +61,16 @@ const BillingModalPOS = ({
   const [activeTab, setActiveTab] = useState('service'); // 'service' or 'product'
   const [clientLoyaltyPoints, setClientLoyaltyPoints] = useState(0);
   
-  // Mock products data (similar to old project)
-  const [availableProducts] = useState([
-    { id: 'prod-1', name: 'Shampoo', price: 200, stock: 50 },
-    { id: 'prod-2', name: 'Conditioner', price: 250, stock: 30 },
-    { id: 'prod-3', name: 'Hair Oil', price: 300, stock: 25 },
-    { id: 'prod-4', name: 'Styling Gel', price: 180, stock: 40 },
-    { id: 'prod-5', name: 'Hair Mask', price: 350, stock: 20 },
-    { id: 'prod-6', name: 'Hair Serum', price: 400, stock: 15 },
-    { id: 'prod-7', name: 'Dry Shampoo', price: 220, stock: 35 },
-    { id: 'prod-8', name: 'Hair Spray', price: 190, stock: 45 }
-  ]);
+  // Promotion code states
+  const [promotionCode, setPromotionCode] = useState('');
+  const [appliedPromotion, setAppliedPromotion] = useState(null);
+  const [promotionDiscount, setPromotionDiscount] = useState(0);
+  const [validatingPromotion, setValidatingPromotion] = useState(false);
+  const [promotionError, setPromotionError] = useState('');
+  
+  // Products and stocks
+  const [availableProducts, setAvailableProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -132,6 +135,116 @@ const BillingModalPOS = ({
       fetchLoyaltyPoints();
     }
   }, [isOpen, appointment?.clientId, appointment?.branchId, formData.clientId, userBranch]);
+
+  // Reset form data when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setFormData(prev => ({
+        ...prev,
+        receiptNumber: '', // Reset receipt number when modal closes
+        items: [],
+        discount: '',
+        loyaltyPointsUsed: '',
+        paymentMethod: PAYMENT_METHODS.CASH,
+        paymentReference: '',
+        amountReceived: '',
+        tax: ''
+      }));
+      setAppliedPromotion(null);
+      setPromotionCode('');
+      setPromotionDiscount(0);
+    }
+  }, [isOpen]);
+
+  // Fetch products and stocks when modal opens
+  useEffect(() => {
+    const fetchProductsAndStocks = async () => {
+      if (!isOpen || !userBranch) return;
+
+      try {
+        setLoadingProducts(true);
+
+        // Fetch products available to this branch
+        const productsRef = collection(db, 'products');
+        const productsSnapshot = await getDocs(productsRef);
+        
+        const branchProducts = [];
+        productsSnapshot.forEach((doc) => {
+          const productData = doc.data();
+          
+          // Check if product is available to this branch
+          const isAvailableToBranch = productData.branches && 
+            Array.isArray(productData.branches) &&
+            productData.branches.includes(userBranch);
+          
+          if (isAvailableToBranch) {
+            branchProducts.push({
+              id: doc.id,
+              name: productData.name || 'Unknown Product',
+              price: productData.otcPrice || productData.salonUsePrice || productData.unitCost || 0,
+              basePrice: productData.otcPrice || productData.salonUsePrice || productData.unitCost || 0,
+              category: productData.category || '',
+              brand: productData.brand || '',
+              imageUrl: productData.imageUrl || '',
+              description: productData.description || '',
+              status: productData.status || 'Active',
+              stock: 0, // Will be updated with stock data
+              ...productData
+            });
+          }
+        });
+
+        // Fetch stock information for this branch from stocks collection
+        const stocksRef = collection(db, 'stocks');
+        const stocksQuery = query(
+          stocksRef,
+          where('branchId', '==', userBranch),
+          where('status', '==', 'active')
+        );
+        const stocksSnapshot = await getDocs(stocksQuery);
+        
+        const stocks = [];
+        stocksSnapshot.forEach((doc) => {
+          const stockData = doc.data();
+          stocks.push({
+            id: doc.id,
+            productId: stockData.productId,
+            productName: stockData.productName,
+            realTimeStock: stockData.realTimeStock || 0,
+            status: stockData.status || 'active',
+            ...stockData
+          });
+        });
+
+        // Merge products with stock data
+        const productsWithStock = branchProducts.map(product => {
+          const stock = stocks.find(s => s.productId === product.id);
+          return {
+            ...product,
+            stock: stock?.realTimeStock || 0,
+            stockId: stock?.id || null,
+            stockStatus: stock?.status || 'Out of Stock'
+          };
+        });
+
+        // Only show active products
+        setAvailableProducts(productsWithStock.filter(p => p.status === 'Active'));
+      } catch (error) {
+        console.error('Error fetching products and stocks:', error);
+        toast.error('Failed to load products');
+        setAvailableProducts([]);
+      } finally {
+        setLoadingProducts(false);
+      }
+    };
+
+    if (isOpen) {
+      fetchProductsAndStocks();
+    } else {
+      // Reset when modal closes
+      setAvailableProducts([]);
+    }
+  }, [isOpen, userBranch]);
 
   useEffect(() => {
     if (isOpen) {
@@ -252,16 +365,30 @@ const BillingModalPOS = ({
   }, [appointment, isOpen]);
 
   useEffect(() => {
+    // Calculate promotion discount if promotion is applied
+    let promoDiscount = 0;
+    if (appliedPromotion) {
+      const services = formData.items.filter(item => item.type === 'service');
+      const products = formData.items.filter(item => item.type === 'product');
+      const subtotal = formData.items.reduce((sum, item) => sum + (item.price || 0), 0);
+      const promoResult = calculatePromotionDiscount(appliedPromotion, subtotal, services, products);
+      promoDiscount = promoResult.discountAmount;
+      setPromotionDiscount(promoDiscount);
+    } else {
+      setPromotionDiscount(0);
+    }
+
     const calculated = calculateBillTotals({
       items: formData.items,
       discount: parseFloat(formData.discount) || 0,
       discountType: formData.discountType,
       taxRate: parseFloat(formData.tax) || 0,
       serviceChargeRate: 0,
-      loyaltyPointsUsed: parseInt(formData.loyaltyPointsUsed) || 0
+      loyaltyPointsUsed: parseInt(formData.loyaltyPointsUsed) || 0,
+      promotionDiscount: promoDiscount // Add promotion discount
     });
     setTotals(calculated);
-  }, [formData.items, formData.discount, formData.discountType, formData.loyaltyPointsUsed, formData.tax]);
+  }, [formData.items, formData.discount, formData.discountType, formData.loyaltyPointsUsed, formData.tax, appliedPromotion]);
 
   const handleToggleService = (service) => {
     const existing = formData.items.find(item => item.id === service.id && item.type === 'service');
@@ -291,6 +418,12 @@ const BillingModalPOS = ({
   };
 
   const handleToggleProduct = (product) => {
+    // Check if product is in stock
+    if (product.stock <= 0) {
+      toast.error(`${product.name} is out of stock`);
+      return;
+    }
+
     const existing = formData.items.find(item => item.id === product.id && item.type === 'product');
     if (existing) {
       setFormData(prev => ({
@@ -307,7 +440,8 @@ const BillingModalPOS = ({
           basePrice: product.price || 0,
           price: product.price || 0,
           quantity: 1,
-          stock: product.stock || 0
+          stock: product.stock || 0,
+          stockId: product.stockId || null
         }]
       }));
     }
@@ -452,7 +586,53 @@ const BillingModalPOS = ({
     };
   }, [showClientList]);
 
-  const handleSubmit = (e) => {
+  // Handle promotion code validation
+  const handleValidatePromotionCode = async () => {
+    if (!promotionCode.trim()) {
+      setPromotionError('Please enter a promotion code');
+      return;
+    }
+
+    if (!userBranch) {
+      setPromotionError('Branch ID not found');
+      return;
+    }
+
+    setValidatingPromotion(true);
+    setPromotionError('');
+
+    try {
+      const clientId = appointment?.clientId || formData.clientId || null;
+      const result = await validatePromotionCode(promotionCode.trim(), userBranch, clientId);
+
+      if (result.success) {
+        setAppliedPromotion(result.promotion);
+        toast.success(`Promotion "${result.promotion.title}" applied!`);
+        setPromotionError('');
+      } else {
+        setAppliedPromotion(null);
+        setPromotionError(result.error || 'Invalid promotion code');
+        toast.error(result.error || 'Invalid promotion code');
+      }
+    } catch (error) {
+      console.error('Error validating promotion code:', error);
+      setAppliedPromotion(null);
+      setPromotionError('Failed to validate promotion code');
+      toast.error('Failed to validate promotion code');
+    } finally {
+      setValidatingPromotion(false);
+    }
+  };
+
+  // Remove promotion code
+  const handleRemovePromotion = () => {
+    setPromotionCode('');
+    setAppliedPromotion(null);
+    setPromotionDiscount(0);
+    setPromotionError('');
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
     // Validate client name for service transactions
@@ -464,6 +644,27 @@ const BillingModalPOS = ({
     if (formData.items.length === 0) {
       toast.error('Please add at least one service or product');
       return;
+    }
+
+    // Validate product stock availability
+    for (const item of formData.items) {
+      if (item.type === 'product') {
+        const product = availableProducts.find(p => p.id === item.id);
+        if (!product) {
+          toast.error(`Product "${item.name}" is no longer available`);
+          return;
+        }
+        
+        if (product.stock <= 0) {
+          toast.error(`Product "${item.name}" is out of stock`);
+          return;
+        }
+        
+        if (item.quantity > product.stock) {
+          toast.error(`Insufficient stock for "${item.name}". Only ${product.stock} units available.`);
+          return;
+        }
+      }
     }
 
     // Validate stylist selection for TR (Transfer) client type
@@ -486,6 +687,12 @@ const BillingModalPOS = ({
 
     const isWalkIn = appointment?.isWalkIn || !appointment?.clientId;
 
+    // Validate receipt number for billing mode
+    if (mode === 'billing' && !formData.receiptNumber.trim()) {
+      toast.error('Receipt number is required');
+      return;
+    }
+
     const billData = {
       appointmentId: isWalkIn ? null : appointment?.id,
       clientId: formData.clientId || null,
@@ -500,15 +707,30 @@ const BillingModalPOS = ({
       subtotal: totals.subtotal,
       discount: parseFloat(formData.discount) || 0, // Store discount amount/percentage (not computed)
       discountType: formData.discountType,
+      promotionCode: appliedPromotion ? promotionCode.trim().toUpperCase() : null,
+      promotionId: appliedPromotion?.id || null,
+      promotionDiscount: promotionDiscount || 0,
       loyaltyPointsUsed: parseInt(formData.loyaltyPointsUsed) || 0,
       tax: totals.tax, // Computed tax amount (for billing)
       taxRate: parseFloat(formData.tax) || 0, // Tax rate (for storing in appointment)
       total: totals.total,
       paymentMethod: formData.paymentMethod,
       paymentReference: formData.paymentReference,
+      receiptNumber: formData.receiptNumber.trim(), // Receipt number from physical receipt
       amountReceived: formData.paymentMethod === PAYMENT_METHODS.CASH ? (parseFloat(formData.amountReceived) || 0) : totals.total,
       notes: formData.notes || (isWalkIn ? 'Walk-in customer' : '')
     };
+
+    // Track promotion usage if promotion was applied
+    if (appliedPromotion) {
+      try {
+        const clientId = formData.clientId || appointment?.clientId || null;
+        await trackPromotionUsage(appliedPromotion.id, clientId);
+      } catch (error) {
+        console.error('Error tracking promotion usage:', error);
+        // Don't block the submission if tracking fails
+      }
+    }
 
     onSubmit(billData);
   };
@@ -794,36 +1016,65 @@ const BillingModalPOS = ({
                   })}
                   
                   {/* Products Tab */}
-                  {activeTab === 'product' && availableProducts
-                    .filter(product => 
-                      product?.name?.toLowerCase().includes(serviceSearch.toLowerCase())
+                  {activeTab === 'product' && (
+                    loadingProducts ? (
+                      <div className="col-span-5 flex items-center justify-center py-8">
+                        <LoadingSpinner size="sm" />
+                        <span className="ml-2 text-sm text-gray-500">Loading products...</span>
+                      </div>
+                    ) : availableProducts.length === 0 ? (
+                      <div className="col-span-5 text-center py-8 text-gray-500">
+                        <Package className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                        <p className="text-sm">No products available</p>
+                      </div>
+                    ) : (
+                      availableProducts
+                        .filter(product => 
+                          product?.name?.toLowerCase().includes(serviceSearch.toLowerCase())
+                        )
+                        .map((product) => {
+                          const isSelected = formData.items.some(item => item.id === product.id && item.type === 'product');
+                          const isOutOfStock = product.stock <= 0;
+                          const isLowStock = product.stock > 0 && product.stock <= 10;
+                          
+                          return (
+                            <button
+                              key={product.id}
+                              type="button"
+                              onClick={() => handleToggleProduct(product)}
+                              disabled={isOutOfStock}
+                              className={`px-3 py-2.5 rounded-lg border-2 text-left transition-all ${
+                                isOutOfStock
+                                  ? 'border-red-300 bg-red-50 opacity-60 cursor-not-allowed'
+                                  : isSelected
+                                  ? 'border-[#2D1B4E] bg-purple-50 shadow-md'
+                                  : 'border-gray-300 bg-white hover:border-gray-400'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1 mb-0.5">
+                                <Package className={`w-3 h-3 ${isOutOfStock ? 'text-red-600' : 'text-green-600'}`} />
+                                <p className={`font-semibold text-sm ${isSelected ? 'text-[#2D1B4E]' : isOutOfStock ? 'text-red-700' : 'text-gray-900'}`}>
+                                  {product.name || 'Unknown Product'}
+                                </p>
+                              </div>
+                              <p className={`text-base font-bold mb-0.5 ${isSelected ? 'text-purple-700' : isOutOfStock ? 'text-red-700' : 'text-gray-900'}`}>
+                                ₱{product.price}
+                              </p>
+                              <p className={`text-xs ${
+                                isOutOfStock 
+                                  ? 'text-red-600 font-semibold' 
+                                  : isLowStock 
+                                  ? 'text-yellow-600 font-semibold' 
+                                  : 'text-gray-500'
+                              }`}>
+                                {isOutOfStock ? 'Out of Stock' : `Stock: ${product.stock}`}
+                                {isLowStock && !isOutOfStock && ' (Low)'}
+                              </p>
+                            </button>
+                          );
+                        })
                     )
-                    .map((product) => {
-                    const isSelected = formData.items.some(item => item.id === product.id && item.type === 'product');
-                    return (
-                      <button
-                        key={product.id}
-                        type="button"
-                        onClick={() => handleToggleProduct(product)}
-                        className={`px-3 py-2.5 rounded-lg border-2 text-left transition-all ${
-                          isSelected
-                            ? 'border-[#2D1B4E] bg-purple-50 shadow-md'
-                            : 'border-gray-300 bg-white hover:border-gray-400'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <Package className="w-3 h-3 text-green-600" />
-                          <p className={`font-semibold text-sm ${isSelected ? 'text-[#2D1B4E]' : 'text-gray-900'}`}>
-                            {product.name || 'Unknown Product'}
-                          </p>
-                        </div>
-                        <p className={`text-base font-bold mb-0.5 ${isSelected ? 'text-purple-700' : 'text-gray-900'}`}>
-                          ₱{product.price}
-                        </p>
-                        <p className="text-xs text-gray-500">Stock: {product.stock}</p>
-                      </button>
-                    );
-                  })}
+                  )}
                 </div>
               </div>
             </div>
@@ -912,13 +1163,35 @@ const BillingModalPOS = ({
                             <input
                               type="number"
                               min="1"
-                              max={item.stock || 999}
+                              max={item.stock || 0}
                               value={item.quantity || 1}
-                              onChange={(e) => handleUpdateItem(index, 'quantity', parseInt(e.target.value) || 1)}
-                              className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
+                              onChange={(e) => {
+                                const quantity = parseInt(e.target.value) || 1;
+                                const maxQuantity = item.stock || 0;
+                                if (quantity > maxQuantity) {
+                                  toast.error(`Only ${maxQuantity} units available`);
+                                  handleUpdateItem(index, 'quantity', maxQuantity);
+                                } else {
+                                  handleUpdateItem(index, 'quantity', quantity);
+                                }
+                              }}
+                              className={`w-full px-2 py-1 text-xs border rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent ${
+                                item.quantity > (item.stock || 0) 
+                                  ? 'border-red-300 bg-red-50' 
+                                  : 'border-gray-300'
+                              }`}
                             />
-                            {item.stock && (
-                              <p className="text-xs text-gray-400 mt-1">Available: {item.stock}</p>
+                            {item.stock !== undefined && (
+                              <p className={`text-xs mt-1 ${
+                                item.quantity > (item.stock || 0) 
+                                  ? 'text-red-600 font-semibold' 
+                                  : (item.stock || 0) <= 10 
+                                  ? 'text-yellow-600' 
+                                  : 'text-gray-400'
+                              }`}>
+                                Available: {item.stock}
+                                {item.quantity > (item.stock || 0) && ' (Exceeds stock!)'}
+                              </p>
                             )}
                           </div>
                         )}
@@ -1070,6 +1343,94 @@ const BillingModalPOS = ({
               {/* Fixed Bottom Section */}
               <div className="border-t bg-white p-3 flex-shrink-0">
                 <div className="space-y-2 mb-3">
+                  {/* Promotion Code */}
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-2 mb-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Tag className="h-4 w-4 text-purple-600" />
+                        <label className="block text-xs font-medium text-gray-700">
+                          Promotion Code
+                        </label>
+                      </div>
+                      {appliedPromotion && (
+                        <button
+                          type="button"
+                          onClick={handleRemovePromotion}
+                          className="text-xs text-red-600 hover:text-red-700 font-medium"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={promotionCode}
+                        onChange={(e) => {
+                          setPromotionCode(e.target.value.toUpperCase());
+                          setPromotionError('');
+                          if (appliedPromotion) {
+                            setAppliedPromotion(null);
+                            setPromotionDiscount(0);
+                          }
+                        }}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleValidatePromotionCode();
+                          }
+                        }}
+                        disabled={validatingPromotion || !!appliedPromotion}
+                        className={`flex-1 px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-purple-500 focus:border-transparent ${
+                          appliedPromotion
+                            ? 'bg-green-50 border-green-300'
+                            : promotionError
+                            ? 'border-red-300 bg-red-50'
+                            : 'border-purple-300'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        placeholder="Enter promotion code"
+                      />
+                      {!appliedPromotion && (
+                        <button
+                          type="button"
+                          onClick={handleValidatePromotionCode}
+                          disabled={validatingPromotion || !promotionCode.trim()}
+                          className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                        >
+                          {validatingPromotion ? (
+                            <>
+                              <LoadingSpinner size="sm" />
+                              Validating...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="h-3 w-3" />
+                              Apply
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    {appliedPromotion && (
+                      <div className="mt-2 p-2 bg-green-100 border border-green-300 rounded">
+                        <div className="flex items-center gap-2 mb-1">
+                          <CheckCircle className="h-3 w-3 text-green-600" />
+                          <p className="text-xs font-semibold text-green-800">{appliedPromotion.title}</p>
+                        </div>
+                        <p className="text-xs text-green-700">{appliedPromotion.description}</p>
+                        <p className="text-xs font-bold text-green-800 mt-1">
+                          Discount: ₱{promotionDiscount.toFixed(2)}
+                        </p>
+                      </div>
+                    )}
+                    {promotionError && !appliedPromotion && (
+                      <div className="mt-2 flex items-center gap-1 text-xs text-red-600">
+                        <AlertCircle className="h-3 w-3" />
+                        <span>{promotionError}</span>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Loyalty Points (only for registered clients) */}
                   {(appointment?.clientId || formData.clientId) && clientLoyaltyPoints > 0 && (
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-2">
@@ -1222,6 +1583,22 @@ const BillingModalPOS = ({
                         placeholder="Reference number (optional)"
                       />
                     )}
+
+                    {/* Receipt Number Input - Required when processing payment */}
+                    <div className="mt-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Receipt Number *
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.receiptNumber}
+                        onChange={(e) => setFormData(prev => ({ ...prev, receiptNumber: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2D1B4E] focus:border-transparent"
+                        placeholder="Enter receipt number from physical receipt"
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Enter the receipt number from the physical receipt</p>
+                    </div>
                   </div>
                 )}
 
@@ -1231,6 +1608,12 @@ const BillingModalPOS = ({
                     <span>Subtotal:</span>
                     <span>₱{totals.subtotal.toFixed(2)}</span>
                   </div>
+                  {promotionDiscount > 0 && (
+                    <div className="flex justify-between text-purple-600">
+                      <span>Promotion Discount:</span>
+                      <span>-₱{promotionDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
                   {totals.discount > 0 && (
                     <div className="flex justify-between">
                       <span>Discount ({formData.discount || 0}%):</span>

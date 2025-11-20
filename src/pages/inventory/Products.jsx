@@ -23,8 +23,10 @@ import {
   Clock
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { getAllServices } from '../../services/serviceManagementService';
+import { Scissors } from 'lucide-react';
 
 const Products = () => {
   const { userData } = useAuth();
@@ -32,6 +34,7 @@ const Products = () => {
   // Data states
   const [products, setProducts] = useState([]);
   const [suppliers, setSuppliers] = useState([]); // For mapping supplier IDs to names
+  const [services, setServices] = useState([]); // For mapping service IDs to names
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
@@ -94,9 +97,20 @@ const Products = () => {
     }
   };
 
+  // Load services
+  const loadServices = async () => {
+    try {
+      const servicesList = await getAllServices();
+      setServices(servicesList);
+    } catch (err) {
+      console.error('Error loading services:', err);
+    }
+  };
+
   // Load products and suppliers on mount
   useEffect(() => {
     loadSuppliers();
+    loadServices();
     loadProducts();
   }, []);
 
@@ -331,29 +345,29 @@ const Products = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Products</h1>
-          <p className="text-gray-600">Manage your product inventory and details</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Products</h1>
+          <p className="text-sm md:text-base text-gray-600">Manage your product inventory and details</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3 flex-wrap">
           <Button 
             variant="outline" 
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 text-xs md:text-sm"
             onClick={() => setIsImportModalOpen(true)}
           >
             <Upload className="h-4 w-4" />
-            Import
+            <span className="hidden sm:inline">Import</span>
           </Button>
           <Button 
             variant="outline" 
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 text-xs md:text-sm"
             onClick={exportProducts}
           >
             <Download className="h-4 w-4" />
-            Export
+            <span className="hidden sm:inline">Export</span>
           </Button>
-          <Button className="flex items-center gap-2 bg-[#160B53] hover:bg-[#12094A] text-white">
+          <Button className="flex items-center gap-2 bg-[#160B53] hover:bg-[#12094A] text-white text-xs md:text-sm">
             <Plus className="h-4 w-4" />
             Add Product
           </Button>
@@ -361,8 +375,8 @@ const Products = () => {
       </div>
 
       {/* Search and Filters */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row gap-4">
+      <Card className="p-4 md:p-6">
+        <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <SearchInput
               placeholder="Search products by name, brand, or description..."
@@ -371,7 +385,7 @@ const Products = () => {
               className="w-full"
             />
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2 md:gap-3 flex-wrap">
             <select
               value={filters.category}
               onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
@@ -414,46 +428,50 @@ const Products = () => {
 
       {/* Products Table */}
       <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Product
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Brand
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  UPC
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  OTC Price
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Salon Use Price
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Unit Cost
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Commission
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredProducts.map((product) => (
-                <tr key={product.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
+        <div className="overflow-x-auto -mx-4 md:mx-0">
+          <div className="inline-block min-w-full align-middle md:px-0">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Product
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
+                    Brand
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                    Category
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">
+                    UPC
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    OTC Price
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                    Salon Use
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">
+                    Unit Cost
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">
+                    Commission
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                    Service Mapping
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredProducts.map((product) => (
+                  <tr key={product.id} className="hover:bg-gray-50">
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
                         {product.imageUrl ? (
@@ -479,34 +497,52 @@ const Products = () => {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden md:table-cell">
                     <div className="text-sm text-gray-900">{product.brand || 'N/A'}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                     <div className="text-sm text-gray-900">{product.category || 'N/A'}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
                     <div className="text-sm text-gray-500">{product.upc || 'N/A'}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-green-600">₱{product.otcPrice?.toLocaleString() || '0'}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                     <div className="text-sm font-medium text-blue-600">₱{product.salonUsePrice?.toLocaleString() || '0'}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
                     <div className="text-sm text-gray-900">₱{product.unitCost?.toLocaleString() || '0'}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
                     <div className="text-sm text-gray-900">{product.commissionPercentage || 0}%</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 md:px-6 py-4 hidden lg:table-cell">
+                    {product.serviceProductMapping && Object.keys(product.serviceProductMapping).length > 0 ? (
+                      <div className="space-y-1">
+                        {Object.entries(product.serviceProductMapping).map(([serviceId, minimumCost]) => {
+                          const service = services.find(s => s.id === serviceId);
+                          return (
+                            <div key={serviceId} className="flex items-center gap-2 text-xs">
+                              <Scissors className="w-3 h-3 text-purple-500 flex-shrink-0" />
+                              <span className="text-gray-700 truncate">{service?.name || 'Unknown Service'}</span>
+                              <span className="text-purple-600 font-medium">₱{parseFloat(minimumCost || 0).toLocaleString()}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">None</span>
+                    )}
+                  </td>
+                  <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
                       {getStatusIcon(product.status)}
                       {product.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <Button
                         variant="outline"
@@ -529,6 +565,7 @@ const Products = () => {
               ))}
             </tbody>
           </table>
+        </div>
         </div>
       </Card>
 
@@ -651,6 +688,30 @@ const Products = () => {
                 <p className="text-gray-900 mt-1">{selectedProduct.branches?.length || 0} branch(es)</p>
               </div>
             </div>
+
+            {/* Service Mapping */}
+            {selectedProduct.serviceProductMapping && Object.keys(selectedProduct.serviceProductMapping).length > 0 && (
+              <div className="border-t pt-6">
+                <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                  <Scissors className="w-4 h-4 text-purple-500" />
+                  Service-Product Mapping (Minimum Cost)
+                </h3>
+                <div className="space-y-2">
+                  {Object.entries(selectedProduct.serviceProductMapping).map(([serviceId, minimumCost]) => {
+                    const service = services.find(s => s.id === serviceId);
+                    return (
+                      <div key={serviceId} className="flex items-center justify-between p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <Scissors className="w-4 h-4 text-purple-500" />
+                          <span className="text-sm font-medium text-gray-900">{service?.name || 'Unknown Service'}</span>
+                        </div>
+                        <span className="text-sm font-semibold text-purple-600">₱{parseFloat(minimumCost || 0).toLocaleString()}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Timestamps */}
             <div className="border-t pt-4">

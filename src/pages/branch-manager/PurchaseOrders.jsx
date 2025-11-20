@@ -66,6 +66,8 @@ const PurchaseOrders = () => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('all');
+  const [dateFilterStart, setDateFilterStart] = useState('');
+  const [dateFilterEnd, setDateFilterEnd] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -528,9 +530,33 @@ const PurchaseOrders = () => {
     const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus;
     const matchesSupplier = selectedSupplierFilter === 'all' || order.supplierId === selectedSupplierFilter;
 
-    return matchesSearch && matchesStatus && matchesSupplier;
+    // Date filter - filter by orderDate
+    let matchesDate = true;
+    if (dateFilterStart || dateFilterEnd) {
+      const orderDate = order.orderDate ? new Date(order.orderDate) : null;
+      if (orderDate) {
+        if (dateFilterStart) {
+          const startDate = new Date(dateFilterStart);
+          startDate.setHours(0, 0, 0, 0);
+          if (orderDate < startDate) {
+            matchesDate = false;
+          }
+        }
+        if (dateFilterEnd) {
+          const endDate = new Date(dateFilterEnd);
+          endDate.setHours(23, 59, 59, 999);
+          if (orderDate > endDate) {
+            matchesDate = false;
+          }
+        }
+      } else {
+        matchesDate = false; // If no order date, exclude if date filter is active
+      }
+    }
+
+    return matchesSearch && matchesStatus && matchesSupplier && matchesDate;
     });
-  }, [purchaseOrders, searchTerm, selectedStatus, selectedSupplierFilter]);
+  }, [purchaseOrders, searchTerm, selectedStatus, selectedSupplierFilter, dateFilterStart, dateFilterEnd]);
 
   // Get status color
   const getStatusColor = (status) => {
@@ -683,53 +709,102 @@ const PurchaseOrders = () => {
 
       {/* Search and Filters */}
       <Card className="p-6">
-        <div className="flex flex-col lg:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              type="text"
-              placeholder="Search by order ID, supplier, or notes..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10"
-            />
+        <div className="space-y-4">
+          {/* Search and Status/Supplier Filters */}
+          <div className="flex flex-col lg:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Search by order ID, supplier, or notes..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10"
+              />
+            </div>
+            <div className="flex gap-3">
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+              >
+                <option value="all">All Status</option>
+                <option value="Pending">Pending</option>
+                <option value="Approved">Approved</option>
+                <option value="Shipped">Shipped</option>
+                <option value="Delivered">Delivered</option>
+                <option value="Cancelled">Cancelled</option>
+                <option value="Overdue">Overdue</option>
+              </select>
+              <select
+                value={selectedSupplierFilter}
+                onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+              >
+                <option value="all">All Suppliers</option>
+                {suppliers.map(supplier => (
+                  <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedStatus('all');
+                  setSelectedSupplierFilter('all');
+                  setDateFilterStart('');
+                  setDateFilterEnd('');
+                }}
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Reset
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-3">
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-            >
-              <option value="all">All Status</option>
-              <option value="Pending">Pending</option>
-              <option value="Approved">Approved</option>
-              <option value="Shipped">Shipped</option>
-              <option value="Delivered">Delivered</option>
-              <option value="Cancelled">Cancelled</option>
-              <option value="Overdue">Overdue</option>
-            </select>
-            <select
-              value={selectedSupplierFilter}
-              onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-            >
-              <option value="all">All Suppliers</option>
-              {suppliers.map(supplier => (
-                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-              ))}
-            </select>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSearchTerm('');
-                setSelectedStatus('all');
-                setSelectedSupplierFilter('all');
-              }}
-              className="flex items-center gap-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Reset
-            </Button>
+
+          {/* Date Range Filters */}
+          <div className="flex flex-col sm:flex-row gap-3 items-end border-t pt-4">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-gray-400" />
+              <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Date Range:</span>
+            </div>
+            <div className="flex-1 flex flex-col sm:flex-row gap-3">
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
+                <Input
+                  type="date"
+                  value={dateFilterStart}
+                  onChange={(e) => setDateFilterStart(e.target.value)}
+                  className="w-full"
+                  max={dateFilterEnd || undefined}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-gray-600 mb-1">To Date</label>
+                <Input
+                  type="date"
+                  value={dateFilterEnd}
+                  onChange={(e) => setDateFilterEnd(e.target.value)}
+                  className="w-full"
+                  min={dateFilterStart || undefined}
+                />
+              </div>
+              {(dateFilterStart || dateFilterEnd) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDateFilterStart('');
+                    setDateFilterEnd('');
+                  }}
+                  className="flex items-center gap-1"
+                >
+                  <X className="h-3 w-3" />
+                  Clear Dates
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </Card>

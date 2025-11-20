@@ -13,6 +13,9 @@
     "create-users": "node scripts/createTestUsers.js"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@esbuild/win32-x64": "^0.25.12",
     "@protobufjs/aspromise": "^1.1.2",
     "@protobufjs/base64": "^1.1.2",
@@ -36,6 +39,7 @@
     "react-hot-toast": "^2.4.1",
     "react-router-dom": "^6.20.0",
     "react-to-print": "^3.2.0",
+    "recharts": "^3.4.1",
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
     "tesseract.js": "^6.0.1"

@@ -13,6 +13,12 @@ import InventoryLayout from '../layouts/InventoryLayout';
 
 // Pages
 import Login from '../pages/Login';
+import SystemAdminLogin from '../pages/system-admin/Login';
+import BranchManagerLogin from '../pages/branch-manager/Login';
+import ReceptionistLogin from '../pages/receptionist/Login';
+import OperationalManagerLogin from '../pages/operational-manager/Login';
+import InventoryControllerLogin from '../pages/inventory/Login';
+import StylistLogin from '../pages/stylist/Login';
 import Register from '../pages/public/Register';
 import ForgotPassword from '../pages/public/ForgotPassword';
 import HomePage from '../pages/public/HomePage';
@@ -42,9 +48,14 @@ import OperationalManagerActivityLogs from '../pages/operational-manager/Activit
 import OperationalManagerInventory from '../pages/operational-manager/Inventory';
 import OperationalManagerPurchaseOrders from '../pages/operational-manager/PurchaseOrders';
 import OperationalManagerDeposits from '../pages/operational-manager/Deposits';
+import PriceHistoryAnalytics from '../pages/operational-manager/PriceHistoryAnalytics';
+import CalendarCombined from '../pages/operational-manager/CalendarCombined';
 import BranchManagerDashboard from '../pages/branch-manager/Dashboard';
 import StaffManagement from '../pages/branch-manager/StaffManagement';
+import Settings from '../pages/branch-manager/Settings';
 import ServicesManagement from '../pages/branch-manager/ServicesManagement';
+import BranchProducts from '../pages/branch-manager/BranchProducts';
+import BranchPageContents from '../pages/branch-manager/BranchPageContents';
 import CalendarManagement from '../pages/branch-manager/CalendarManagement';
 import BranchSettings from '../pages/branch-manager/BranchSettings';
 import BranchManagerAppointments from '../pages/branch-manager/Appointments';
@@ -54,7 +65,6 @@ import BranchManagerDeposits from '../pages/branch-manager/Deposits';
 import BranchManagerPromotions from '../pages/branch-manager/Promotions';
 import BranchManagerStylistPortfolios from '../pages/branch-manager/StylistPortfolios';
 import BranchManagerReports from '../pages/branch-manager/Reports';
-import BranchManagerPurchaseOrders from '../pages/branch-manager/PurchaseOrders';
 import BranchManagerInventory from '../pages/branch-manager/Inventory';
 import ReceptionistDashboard from '../pages/receptionist/Dashboard';
 import ReceptionistAppointments from '../pages/receptionist/Appointments';
@@ -121,7 +131,31 @@ const AppRoutes = () => {
       <Route path="/branch/:slug/stylists/:stylistId" element={<StylistProfilePage />} />
       <Route path="/branch/:slug/products" element={<BranchProductsPage />} />
       
-      {/* Public auth routes */}
+      {/* Public auth routes - Role-specific login pages */}
+      <Route 
+        path="/system-admin/login" 
+        element={currentUser ? <Navigate to={getRoleBasedRoute()} replace /> : <SystemAdminLogin />} 
+      />
+      <Route 
+        path="/branch-manager/login" 
+        element={currentUser ? <Navigate to={getRoleBasedRoute()} replace /> : <BranchManagerLogin />} 
+      />
+      <Route 
+        path="/receptionist/login" 
+        element={currentUser ? <Navigate to={getRoleBasedRoute()} replace /> : <ReceptionistLogin />} 
+      />
+      <Route 
+        path="/operational-manager/login" 
+        element={currentUser ? <Navigate to={getRoleBasedRoute()} replace /> : <OperationalManagerLogin />} 
+      />
+      <Route 
+        path="/inventory/login" 
+        element={currentUser ? <Navigate to={getRoleBasedRoute()} replace /> : <InventoryControllerLogin />} 
+      />
+      <Route 
+        path="/stylist/login" 
+        element={currentUser ? <Navigate to={getRoleBasedRoute()} replace /> : <StylistLogin />} 
+      />
       <Route 
         path={ROUTES.LOGIN} 
         element={currentUser ? <Navigate to={getRoleBasedRoute()} replace /> : <Login />} 
@@ -175,6 +209,8 @@ const AppRoutes = () => {
         <Route path="inventory" element={<OperationalManagerInventory />} />
         <Route path="purchase-orders" element={<OperationalManagerPurchaseOrders />} />
         <Route path="deposits" element={<OperationalManagerDeposits />} />
+        <Route path="price-history" element={<PriceHistoryAnalytics />} />
+        <Route path="calendar" element={<CalendarCombined />} />
         <Route path="profile" element={<Profile />} />
       </Route>
 
@@ -189,9 +225,12 @@ const AppRoutes = () => {
       >
         <Route index element={<BranchManagerDashboard />} />
         <Route path="staff" element={<StaffManagement />} />
-        <Route path="services" element={<ServicesManagement />} />
         <Route path="calendar" element={<CalendarManagement />} />
-        <Route path="branch-settings" element={<BranchSettings />} />
+        <Route path="settings" element={<Settings />} />
+        <Route path="settings/services" element={<ServicesManagement />} />
+        <Route path="settings/products" element={<BranchProducts />} />
+        <Route path="settings/page-contents" element={<BranchPageContents />} />
+        <Route path="settings/branch-settings" element={<BranchSettings />} />
               <Route path="appointments" element={<BranchManagerAppointments />} />
               <Route path="billing" element={<BranchManagerBilling />} />
               <Route path="client-analytics" element={<ClientAnalytics />} />
@@ -199,7 +238,6 @@ const AppRoutes = () => {
               <Route path="deposits" element={<BranchManagerDeposits />} />
               <Route path="promotions" element={<BranchManagerPromotions />} />
               <Route path="stylist-portfolios" element={<BranchManagerStylistPortfolios />} />
-              <Route path="purchase-orders" element={<BranchManagerPurchaseOrders />} />
               <Route path="inventory" element={<BranchManagerInventory />} />
         <Route path="profile" element={<Profile />} />
       </Route>

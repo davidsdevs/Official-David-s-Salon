@@ -40,7 +40,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { serviceService } from '../../services/serviceService';
+import { getBranchServices } from '../../services/branchServicesService';
 import { productService } from '../../services/productService';
 import { openaiService } from '../../services/openaiService';
 import { Sparkles, Loader2 as Loader2Icon } from 'lucide-react';
@@ -158,8 +158,8 @@ const Promotions = () => {
     try {
       if (!userData?.branchId) return;
       
-      // Load services for this branch
-      const services = await serviceService.getServicesByBranch(userData.branchId);
+      // Load services for this branch using branchServicesService
+      const services = await getBranchServices(userData.branchId);
       setAvailableServices(services);
       
       // Load products
@@ -172,14 +172,29 @@ const Promotions = () => {
     }
   };
 
-  // Generate unique promotion code
+  // Generate unique promotion code in format: DS-{first3BranchId}-{random}
   const generatePromotionCode = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluding confusing chars
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    if (!userData?.branchId) {
+      // Fallback if no branch ID
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let random = '';
+      for (let i = 0; i < 5; i++) {
+        random += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return `DS-XXX-${random}`;
     }
-    return code;
+    
+    // Get first 3 characters of branch ID (uppercase)
+    const branchPrefix = userData.branchId.substring(0, 3).toUpperCase();
+    
+    // Generate random 5-character suffix
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluding confusing chars
+    let random = '';
+    for (let i = 0; i < 5; i++) {
+      random += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    
+    return `DS-${branchPrefix}-${random}`;
   };
 
   // Check if promotion code is unique
@@ -241,12 +256,12 @@ const Promotions = () => {
     }
   };
 
-  // Auto-generate code when autoGenerateCode is true
+  // Auto-generate code when autoGenerateCode is true or when modal opens
   useEffect(() => {
-    if (formData.autoGenerateCode && !formData.promotionCode) {
+    if (isCreateModalOpen && formData.autoGenerateCode && !formData.promotionCode) {
       setFormData(prev => ({ ...prev, promotionCode: generatePromotionCode() }));
     }
-  }, [formData.autoGenerateCode]);
+  }, [isCreateModalOpen, formData.autoGenerateCode, userData?.branchId]);
 
   // Get promotion status
   const getPromotionStatus = (promotion) => {
@@ -667,7 +682,14 @@ const Promotions = () => {
         </div>
         <div className="flex items-center gap-3">
           <Button
-            onClick={() => setIsCreateModalOpen(true)}
+            onClick={() => {
+              setIsCreateModalOpen(true);
+              // Generate code when opening modal
+              setFormData(prev => ({
+                ...prev,
+                promotionCode: generatePromotionCode()
+              }));
+            }}
             className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A]"
           >
             <Plus className="h-4 w-4" />
@@ -976,14 +998,19 @@ const Promotions = () => {
             setFormData({
               title: '',
               description: '',
+              promotionCode: '',
+              autoGenerateCode: true,
               discountType: 'percentage',
               discountValue: '',
               applicableTo: 'all',
               specificServices: [],
               specificProducts: [],
+              usageType: 'repeating',
+              maxUses: '',
               startDate: '',
               endDate: '',
-              isActive: true
+              isActive: true,
+              emailToClients: false
             });
           }}
           title="Create Promotion"
@@ -1015,6 +1042,35 @@ const Promotions = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
                 required
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Promotion Code <span className="text-red-500">*</span>
+              </label>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="text"
+                  value={formData.promotionCode}
+                  placeholder="DS-XXX-XXXXX"
+                  className="flex-1 font-mono"
+                  required
+                  readOnly
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, promotionCode: generatePromotionCode() }));
+                  }}
+                  className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                  title="Generate new code"
+                >
+                  🔄
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Format: DS-{userData?.branchId ? userData.branchId.substring(0, 3).toUpperCase() : 'XXX'}-XXXXX (auto-generated)
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -1103,9 +1159,9 @@ const Promotions = () => {
                               }}
                               className="w-4 h-4 text-[#160B53] border-gray-300 rounded focus:ring-[#160B53]"
                             />
-                            <span className="text-sm text-gray-900">{service.serviceName || service.name}</span>
+                            <span className="text-sm text-gray-900">{service.name || service.serviceName}</span>
                             <span className="text-xs text-gray-500 ml-auto">
-                              ₱{service.prices?.[service.branches?.indexOf(userData?.branchId)] || service.basePrice || 0}
+                              ₱{service.price || (service.branchPricing?.[userData?.branchId]) || 0}
                             </span>
                           </label>
                         ))}

@@ -11,7 +11,7 @@ import { uploadToCloudinary, validateImageFile } from '../../services/imageServi
 import { ROLE_LABELS } from '../../utils/constants';
 import { formatDate, getFullName, getInitials } from '../../utils/helpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import SetupRolePins from '../../components/auth/SetupRolePins';
+import SetupRolePasswords from '../../components/auth/SetupRolePasswords';
 import toast from 'react-hot-toast';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -383,9 +383,9 @@ const Profile = () => {
         </form>
       </div>
 
-      {/* Role PINs Setup */}
+      {/* Role Passwords Setup */}
       {userData?.roles && userData.roles.length > 1 && (
-        <SetupRolePins />
+        <SetupRolePasswords />
       )}
 
       {/* Security Note */}

@@ -649,6 +649,64 @@ class InventoryService {
   }
 
   /**
+   * Get batches for transfer (FIFO selection without deduction)
+   * Returns which batches should be used for a transfer
+   * @param {Object} transferData - { branchId, productId, quantity }
+   * @returns {Object} - { success, batches: [{ batchId, batchNumber, quantity, expirationDate, ... }] }
+   */
+  async getBatchesForTransfer(transferData) {
+    try {
+      const { branchId, productId, quantity } = transferData;
+      let remainingNeeded = Number(quantity);
+
+      // Get all active batches for this product, sorted by expiration date (FIFO)
+      const batchesResult = await this.getProductBatches(branchId, productId, { status: 'active' });
+      if (!batchesResult.success || batchesResult.batches.length === 0) {
+        return { success: false, message: 'No active batches found for this product', batches: [] };
+      }
+
+      const batchesForTransfer = [];
+
+      // Select batches in FIFO order
+      for (const batchRecord of batchesResult.batches) {
+        if (remainingNeeded <= 0) break;
+
+        const availableInBatch = batchRecord.remainingQuantity || 0;
+        if (availableInBatch <= 0) continue;
+
+        const quantityFromBatch = Math.min(remainingNeeded, availableInBatch);
+        remainingNeeded -= quantityFromBatch;
+
+        batchesForTransfer.push({
+          batchId: batchRecord.id,
+          batchNumber: batchRecord.batchNumber,
+          quantity: quantityFromBatch,
+          expirationDate: batchRecord.expirationDate,
+          unitCost: batchRecord.unitCost,
+          remainingQuantity: availableInBatch // Current remaining before transfer
+        });
+      }
+
+      if (remainingNeeded > 0) {
+        return { 
+          success: false, 
+          message: `Insufficient stock. Only ${quantity - remainingNeeded} units available.`,
+          batches: batchesForTransfer
+        };
+      }
+
+      return { 
+        success: true, 
+        batches: batchesForTransfer,
+        message: `Found ${batchesForTransfer.length} batch(es) for transfer`
+      };
+    } catch (error) {
+      console.error('Error getting batches for transfer:', error);
+      return { success: false, message: error.message, batches: [] };
+    }
+  }
+
+  /**
    * Deduct stock using FIFO (First In First Out) - oldest batches first
    * @param {Object} deductionData - { branchId, productId, quantity, reason, notes, createdBy }
    */
@@ -865,6 +923,202 @@ class InventoryService {
     } catch (error) {
       console.error('Error getting expired batches:', error);
       return { success: false, message: error.message, batches: [] };
+    }
+  }
+
+  /**
+   * Create transfer batches when receiving stock from another branch
+   * @param {Object} transferData - { transferId, toBranchId, items: [{ productId, productName, quantity, batches: [...] }], receivedBy, receivedAt }
+   */
+  async createTransferBatches(transferData) {
+    try {
+      const batch = writeBatch(db);
+      const createdBatches = [];
+      let batchSequence = 1;
+
+      if (!transferData.items || !Array.isArray(transferData.items)) {
+        return { success: false, message: 'Invalid transfer data: items array required' };
+      }
+
+      for (const item of transferData.items) {
+        if (!item.productId || !item.quantity || item.quantity <= 0) {
+          continue;
+        }
+
+        // If item has batch information from transfer, use it
+        if (item.batches && Array.isArray(item.batches) && item.batches.length > 0) {
+          // Create a batch for each source batch
+          for (const sourceBatch of item.batches) {
+            const batchNumber = `${transferData.transferId || 'TR'}-BATCH-${String(batchSequence).padStart(3, '0')}`;
+            const batchRef = doc(collection(db, this.productBatchesCollection));
+            
+            const expirationDate = sourceBatch.expirationDate 
+              ? (sourceBatch.expirationDate instanceof Date 
+                  ? Timestamp.fromDate(sourceBatch.expirationDate)
+                  : Timestamp.fromDate(new Date(sourceBatch.expirationDate)))
+              : null;
+            
+            const receivedDate = transferData.receivedAt 
+              ? Timestamp.fromDate(new Date(transferData.receivedAt)) 
+              : serverTimestamp();
+
+            const batchData = {
+              batchNumber: batchNumber,
+              productId: String(item.productId),
+              productName: String(item.productName || ''),
+              branchId: String(transferData.toBranchId),
+              sourceType: 'transfer',
+              sourceTransferId: String(transferData.transferId || ''),
+              originalBatchId: String(sourceBatch.batchId || ''),
+              originalBatchNumber: String(sourceBatch.batchNumber || ''),
+              quantity: Number(sourceBatch.quantity),
+              remainingQuantity: Number(sourceBatch.quantity),
+              unitCost: Number(sourceBatch.unitCost || item.unitCost || 0),
+              expirationDate: expirationDate,
+              receivedDate: receivedDate,
+              receivedBy: String(transferData.receivedBy || ''),
+              fromBranchId: String(transferData.fromBranchId || ''),
+              status: 'active',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            };
+
+            batch.set(batchRef, batchData);
+            createdBatches.push({ id: batchRef.id, ...batchData });
+            batchSequence++;
+          }
+        } else {
+          // Fallback: Create single batch if no batch info provided (backward compatibility)
+          const batchNumber = `${transferData.transferId || 'TR'}-BATCH-${String(batchSequence).padStart(3, '0')}`;
+          const batchRef = doc(collection(db, this.productBatchesCollection));
+          const receivedDate = transferData.receivedAt 
+            ? Timestamp.fromDate(new Date(transferData.receivedAt)) 
+            : serverTimestamp();
+
+          const batchData = {
+            batchNumber: batchNumber,
+            productId: String(item.productId),
+            productName: String(item.productName || ''),
+            branchId: String(transferData.toBranchId),
+            sourceType: 'transfer',
+            sourceTransferId: String(transferData.transferId || ''),
+            quantity: Number(item.quantity),
+            remainingQuantity: Number(item.quantity),
+            unitCost: Number(item.unitCost || 0),
+            expirationDate: null, // Unknown expiration if no batch info
+            receivedDate: receivedDate,
+            receivedBy: String(transferData.receivedBy || ''),
+            fromBranchId: String(transferData.fromBranchId || ''),
+            status: 'active',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          };
+
+          batch.set(batchRef, batchData);
+          createdBatches.push({ id: batchRef.id, ...batchData });
+          batchSequence++;
+        }
+      }
+
+      await batch.commit();
+      return { success: true, batches: createdBatches, message: `Created ${createdBatches.length} transfer batch(es)` };
+    } catch (error) {
+      console.error('Error creating transfer batches:', error);
+      return { success: false, message: error.message, batches: [] };
+    }
+  }
+
+  /**
+   * Return stock to original batch (for returned transfers)
+   * @param {Object} returnData - { batchId, quantity, returnReason, returnedBy, returnedAt }
+   */
+  async returnStockToBatch(returnData) {
+    try {
+      const { batchId, quantity } = returnData;
+      
+      // Get the transfer batch
+      const batchRef = doc(db, this.productBatchesCollection, batchId);
+      const batchDoc = await getDoc(batchRef);
+      
+      if (!batchDoc.exists()) {
+        return { success: false, message: 'Transfer batch not found' };
+      }
+
+      const transferBatch = batchDoc.data();
+      
+      // Check if this is a transfer batch
+      if (transferBatch.sourceType !== 'transfer' || !transferBatch.originalBatchId) {
+        return { success: false, message: 'This batch is not a transfer batch or has no original batch reference' };
+      }
+
+      // Check if there's enough quantity to return
+      if (transferBatch.remainingQuantity < quantity) {
+        return { success: false, message: `Insufficient quantity. Only ${transferBatch.remainingQuantity} units available to return.` };
+      }
+
+      const batch = writeBatch(db);
+      
+      // Try to restore to original batch
+      const originalBatchRef = doc(db, this.productBatchesCollection, transferBatch.originalBatchId);
+      const originalBatchDoc = await getDoc(originalBatchRef);
+      
+      if (originalBatchDoc.exists()) {
+        // Original batch exists - restore quantity
+        const originalBatch = originalBatchDoc.data();
+        const newRemaining = (originalBatch.remainingQuantity || 0) + quantity;
+        
+        batch.update(originalBatchRef, {
+          remainingQuantity: newRemaining,
+          status: newRemaining > 0 ? 'active' : originalBatch.status,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        // Original batch doesn't exist - create a return batch
+        const returnBatchNumber = `RET-${transferBatch.originalBatchNumber || 'BATCH'}-${Date.now()}`;
+        const returnBatchRef = doc(collection(db, this.productBatchesCollection));
+        
+        batch.set(returnBatchRef, {
+          batchNumber: returnBatchNumber,
+          productId: transferBatch.productId,
+          productName: transferBatch.productName,
+          branchId: transferBatch.fromBranchId, // Return to original branch
+          sourceType: 'return',
+          sourceTransferId: transferBatch.sourceTransferId,
+          originalBatchId: transferBatch.originalBatchId,
+          originalBatchNumber: transferBatch.originalBatchNumber,
+          quantity: quantity,
+          remainingQuantity: quantity,
+          unitCost: transferBatch.unitCost,
+          expirationDate: transferBatch.expirationDate,
+          receivedDate: returnData.returnedAt 
+            ? Timestamp.fromDate(new Date(returnData.returnedAt)) 
+            : serverTimestamp(),
+          receivedBy: String(returnData.returnedBy || ''),
+          fromBranchId: transferBatch.branchId, // Branch returning the stock
+          returnReason: String(returnData.returnReason || ''),
+          status: 'active',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      // Update transfer batch (reduce remaining quantity)
+      const newTransferRemaining = transferBatch.remainingQuantity - quantity;
+      batch.update(batchRef, {
+        remainingQuantity: newTransferRemaining,
+        status: newTransferRemaining <= 0 ? 'depleted' : 'active',
+        updatedAt: serverTimestamp()
+      });
+
+      await batch.commit();
+      return { 
+        success: true, 
+        message: `Returned ${quantity} units successfully`,
+        returnedToOriginal: originalBatchDoc.exists()
+      };
+    } catch (error) {
+      console.error('Error returning stock to batch:', error);
+      return { success: false, message: error.message };
     }
   }
 }

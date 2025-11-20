@@ -16,7 +16,6 @@ import { getUsersByRole } from '../../services/userService';
 import { USER_ROLES } from '../../utils/constants';
 import { exportAppointmentsToCSV, exportAnalyticsToCSV } from '../../utils/exportHelpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import AppointmentCard from '../../components/appointment/AppointmentCard';
 import toast from 'react-hot-toast';
 
 const BranchManagerAppointments = () => {
@@ -446,29 +445,158 @@ const BranchManagerAppointments = () => {
         </div>
       )}
 
-      {/* Recent Appointments */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Appointments</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {appointments.length === 0 ? (
-            <div className="col-span-full text-center py-8">
-              <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-500">No appointments found for this period</p>
-            </div>
-          ) : (
-            appointments.slice(0, 6).map((appointment) => (
-              <AppointmentCard
-                key={appointment.id}
-                appointment={appointment}
-                showActions={false}
-              />
-            ))
-          )}
+      {/* Appointments Table */}
+      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">Appointments</h2>
         </div>
-        {appointments.length > 6 && (
-          <div className="mt-4 text-center">
-            <p className="text-sm text-gray-500">
-              Showing 6 of {appointments.length} appointments
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Client
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Date & Time
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Services
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Stylist
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {appointments.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="px-6 py-12 text-center">
+                    <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-gray-500">No appointments found for this period</p>
+                  </td>
+                </tr>
+              ) : (
+                appointments.map((appointment) => {
+                  const aptDate = appointment.appointmentDate?.toDate 
+                    ? appointment.appointmentDate.toDate() 
+                    : new Date(appointment.appointmentDate);
+                  const dateStr = aptDate.toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric', 
+                    year: 'numeric' 
+                  });
+                  const timeStr = aptDate.toLocaleTimeString('en-US', { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                  });
+                  
+                  // Get services list
+                  let servicesList = [];
+                  let totalAmount = 0;
+                  if (appointment.services && appointment.services.length > 0) {
+                    servicesList = appointment.services.map(svc => svc.serviceName || 'Unknown Service');
+                    totalAmount = appointment.services.reduce((sum, svc) => sum + (svc.price || 0), 0);
+                  } else {
+                    servicesList = [appointment.serviceName || 'Unknown Service'];
+                    totalAmount = appointment.totalAmount || appointment.price || 0;
+                  }
+                  
+                  // Get stylists list
+                  let stylistsList = [];
+                  if (appointment.services && appointment.services.length > 0) {
+                    stylistsList = appointment.services
+                      .map(svc => svc.stylistName || 'Unassigned')
+                      .filter((name, index, self) => self.indexOf(name) === index);
+                  } else {
+                    stylistsList = [appointment.stylistName || 'Unassigned'];
+                  }
+                  
+                  const statusColors = {
+                    [APPOINTMENT_STATUS.PENDING]: 'bg-yellow-100 text-yellow-800',
+                    [APPOINTMENT_STATUS.CONFIRMED]: 'bg-blue-100 text-blue-800',
+                    [APPOINTMENT_STATUS.COMPLETED]: 'bg-green-100 text-green-800',
+                    [APPOINTMENT_STATUS.CANCELLED]: 'bg-red-100 text-red-800',
+                    [APPOINTMENT_STATUS.NO_SHOW]: 'bg-gray-100 text-gray-800'
+                  };
+                  
+                  return (
+                    <tr key={appointment.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {appointment.clientName || appointment.client?.firstName 
+                              ? `${appointment.client?.firstName || ''} ${appointment.client?.lastName || ''}`.trim() 
+                              : 'Unknown Client'}
+                          </div>
+                          {appointment.client?.email && (
+                            <div className="text-sm text-gray-500">{appointment.client.email}</div>
+                          )}
+                          {appointment.client?.phone && (
+                            <div className="text-sm text-gray-500">{appointment.client.phone}</div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{dateStr}</div>
+                        <div className="text-sm text-gray-500">{timeStr}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900">
+                          {servicesList.length > 0 ? (
+                            <div className="space-y-1">
+                              {servicesList.map((service, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                  <span className="text-xs">•</span>
+                                  <span>{service}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">No services</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900">
+                          {stylistsList.length > 0 ? (
+                            <div className="space-y-1">
+                              {stylistsList.map((stylist, idx) => (
+                                <div key={idx}>{stylist}</div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">Unassigned</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          statusColors[appointment.status] || 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {appointment.status || 'Pending'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        ₱{totalAmount.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        {appointments.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+            <p className="text-sm text-gray-600">
+              Showing {appointments.length} appointment{appointments.length !== 1 ? 's' : ''}
             </p>
           </div>
         )}

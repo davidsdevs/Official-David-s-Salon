@@ -11,8 +11,9 @@ import { productService } from '../../services/productService';
 import { logActivity as activityServiceLogActivity } from '../../services/activityService';
 import { stockListenerService } from '../../services/stockListenerService';
 import { weeklyStockRecorder } from '../../services/weeklyStockRecorder';
-import { db } from '../../config/firebase';
+import { db, auth } from '../../config/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy, limit, startAfter, getCountFromServer, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { 
   Package, 
   Search,
@@ -94,6 +95,13 @@ const Stocks = () => {
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isCreateStockModalOpen, setIsCreateStockModalOpen] = useState(false);
   const [isEditStockModalOpen, setIsEditStockModalOpen] = useState(false);
+  
+  // Stock deduction history states
+  const [stockDeductions, setStockDeductions] = useState([]);
+  const [loadingDeductions, setLoadingDeductions] = useState(false);
+  const [showDeductionHistory, setShowDeductionHistory] = useState(false);
+  const [deductionSearchTerm, setDeductionSearchTerm] = useState('');
+  const [deductionDateFilter, setDeductionDateFilter] = useState('7days'); // 'all', '7days', '30days', '90days'
   
   // Edit stock form state
   const [editStockForm, setEditStockForm] = useState({
@@ -688,28 +696,59 @@ const Stocks = () => {
     setIsForceAdjustModalOpen(true);
   };
   
-  // Verify manager code (simple verification - can be enhanced with Firestore lookup)
+  // Verify manager code by checking branch manager's password
   const verifyManagerCode = async (code, branchId) => {
     try {
-      // In a real implementation, you might query Firestore for branch codes
-      // For now, we'll do a simple check - you can enhance this
+      if (!branchId || !code) {
+        return false;
+      }
+
+      // Get branch manager for this branch
       const usersRef = collection(db, 'users');
       const q = query(
         usersRef,
         where('role', '==', 'branchManager'),
-        where('branchId', '==', branchId)
+        where('branchId', '==', branchId),
+        where('active', '==', true)
       );
       const snapshot = await getDocs(q);
-      const managers = snapshot.docs.map(doc => doc.data());
       
-      // Check if code matches any manager's code or ID
-      // You can implement your own code verification logic here
-      // For now, we'll check if it matches manager's uid or a stored code
-      return managers.some(manager => 
-        manager.uid === code || 
-        manager.managerCode === code ||
-        manager.id === code
-      );
+      if (snapshot.empty) {
+        console.error('No branch manager found for branch:', branchId);
+        return false;
+      }
+
+      // Get the first branch manager (should be only one per branch)
+      const managerDoc = snapshot.docs[0];
+      const managerData = managerDoc.data();
+      
+      if (!managerData.email) {
+        console.error('Branch manager has no email');
+        return false;
+      }
+
+      // Try to sign in with branch manager's email and entered password
+      // This verifies the password is correct
+      // Note: This will temporarily sign in as the branch manager, then sign out
+      // The app's AuthContext will handle re-authentication automatically
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, managerData.email, code);
+        
+        // If successful, immediately sign out
+        // The AuthContext will handle redirecting the user to login if needed
+        if (userCredential.user) {
+          // Small delay to ensure sign-in is registered
+          await new Promise(resolve => setTimeout(resolve, 100));
+          await signOut(auth);
+          return true;
+        }
+        
+        return false;
+      } catch (authError) {
+        // Authentication failed - password is incorrect
+        console.error('Password verification failed:', authError);
+        return false;
+      }
     } catch (error) {
       console.error('Error verifying manager code:', error);
       return false;
@@ -811,6 +850,99 @@ const Stocks = () => {
     }
   };
 
+  // Load stock deduction history from transactions
+  const loadStockDeductions = async () => {
+    if (!userData?.branchId) return;
+    
+    try {
+      setLoadingDeductions(true);
+      
+      // Calculate date range
+      let startDate = null;
+      const now = new Date();
+      const endDate = now;
+      
+      if (deductionDateFilter === '7days') {
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      } else if (deductionDateFilter === '30days') {
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      } else if (deductionDateFilter === '90days') {
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      }
+      
+      // Query transactions with products
+      const transactionsRef = collection(db, 'transactions');
+      let transactionsQuery = query(
+        transactionsRef,
+        where('branchId', '==', userData.branchId),
+        where('status', '==', 'paid'),
+        orderBy('createdAt', 'desc'),
+        limit(500) // Limit to recent transactions
+      );
+      
+      const transactionsSnapshot = await getDocs(transactionsQuery);
+      
+      const deductions = [];
+      
+      transactionsSnapshot.forEach((doc) => {
+        const transactionData = doc.data();
+        const transactionId = doc.id;
+        
+        // Check if transaction has products
+        const salesType = transactionData.salesType || '';
+        if (salesType !== 'product' && salesType !== 'mixed') return;
+        
+        // Filter date if needed
+        if (startDate) {
+          const createdAt = transactionData.createdAt?.toDate ? 
+            transactionData.createdAt.toDate() : 
+            new Date(transactionData.createdAt);
+          if (createdAt < startDate) return;
+        }
+        
+        // Extract product items
+        const items = transactionData.items || [];
+        const productItems = items.filter(item => item.type === 'product');
+        
+        productItems.forEach((item) => {
+          deductions.push({
+            id: `${transactionId}_${item.id}`,
+            transactionId: transactionId,
+            productId: item.id,
+            productName: item.name,
+            quantity: item.quantity || 1,
+            price: item.price || 0,
+            total: (item.price || 0) * (item.quantity || 1),
+            clientName: transactionData.clientName || 'Walk-in',
+            createdAt: transactionData.createdAt?.toDate ? 
+              transactionData.createdAt.toDate() : 
+              new Date(transactionData.createdAt),
+            createdBy: transactionData.createdByName || transactionData.createdBy || 'Unknown',
+            branchName: transactionData.branchName || '',
+            paymentMethod: transactionData.paymentMethod || 'cash'
+          });
+        });
+      });
+      
+      // Sort by date (newest first)
+      deductions.sort((a, b) => b.createdAt - a.createdAt);
+      
+      setStockDeductions(deductions);
+    } catch (error) {
+      console.error('Error loading stock deductions:', error);
+      setStockDeductions([]);
+    } finally {
+      setLoadingDeductions(false);
+    }
+  };
+
+  // Load deductions when showing history or date filter changes
+  useEffect(() => {
+    if (showDeductionHistory) {
+      loadStockDeductions();
+    }
+  }, [showDeductionHistory, deductionDateFilter, userData?.branchId]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -840,9 +972,9 @@ const Stocks = () => {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Stock Management</h1>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Stock Management</h1>
             <p className="text-gray-600">Track inventory levels and stock movements</p>
           </div>
           <div className="flex items-center gap-3">
@@ -902,18 +1034,35 @@ const Stocks = () => {
               <Calendar className="h-4 w-4" />
               Record Week Stock
             </Button>
+            {/* Only allow system admins to create stock manually - all other stock must come from Purchase Orders */}
+            {(userData?.role === 'systemAdmin' || userData?.role === 'operationalManager') && (
+              <Button 
+                className="flex items-center gap-2"
+                onClick={() => setIsCreateStockModalOpen(true)}
+                title="Manual stock creation is restricted. All new stock should come from Purchase Orders."
+              >
+                <Plus className="h-4 w-4" />
+                Create Stock (Admin Only)
+              </Button>
+            )}
             <Button 
-              className="flex items-center gap-2"
-              onClick={() => setIsCreateStockModalOpen(true)}
+              variant="outline"
+              className={`flex items-center gap-2 ${showDeductionHistory ? 'bg-blue-50 border-blue-300' : ''}`}
+              onClick={() => {
+                setShowDeductionHistory(!showDeductionHistory);
+                if (!showDeductionHistory) {
+                  loadStockDeductions();
+                }
+              }}
             >
-              <Plus className="h-4 w-4" />
-              Create Stock
+              <Activity className="h-4 w-4" />
+              {showDeductionHistory ? 'Hide' : 'Show'} Deduction History
             </Button>
           </div>
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
           <Card className="p-4">
             <div className="flex items-center">
               <Package className="h-8 w-8 text-blue-600" />
@@ -968,9 +1117,180 @@ const Stocks = () => {
           </Card>
         </div>
 
+        {/* Stock Deduction History */}
+        {showDeductionHistory && (
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Stock Deduction History</h2>
+                <p className="text-gray-600 text-sm mt-1">View all stock deductions from transactions</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={deductionDateFilter}
+                  onChange={(e) => setDeductionDateFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                >
+                  <option value="all">All Time</option>
+                  <option value="7days">Last 7 Days</option>
+                  <option value="30days">Last 30 Days</option>
+                  <option value="90days">Last 90 Days</option>
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadStockDeductions}
+                  disabled={loadingDeductions}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loadingDeductions ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+            </div>
+
+            {/* Search */}
+            <div className="mb-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Search by product name, client name, or transaction ID..."
+                  value={deductionSearchTerm}
+                  onChange={(e) => setDeductionSearchTerm(e.target.value)}
+                  className="pl-10 w-full"
+                />
+              </div>
+            </div>
+
+            {/* Deductions Table */}
+            {loadingDeductions ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
+                <span className="ml-2 text-gray-600">Loading deduction history...</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Date & Time
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Product
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Quantity
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Client
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Transaction ID
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Amount
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Processed By
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {stockDeductions
+                      .filter(deduction => {
+                        if (!deductionSearchTerm) return true;
+                        const search = deductionSearchTerm.toLowerCase();
+                        return (
+                          deduction.productName?.toLowerCase().includes(search) ||
+                          deduction.clientName?.toLowerCase().includes(search) ||
+                          deduction.transactionId?.toLowerCase().includes(search)
+                        );
+                      })
+                      .map((deduction) => (
+                        <tr key={deduction.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">
+                              {format(deduction.createdAt, 'MMM dd, yyyy')}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {format(deduction.createdAt, 'hh:mm a')}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="text-sm font-medium text-gray-900">
+                              {deduction.productName}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                              -{deduction.quantity}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="text-sm text-gray-900">{deduction.clientName}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="text-sm text-gray-600 font-mono">
+                              #{deduction.transactionId.slice(-8)}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="text-sm font-semibold text-gray-900">
+                              ₱{deduction.total.toLocaleString()}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="text-sm text-gray-600">{deduction.createdBy}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    {stockDeductions.filter(deduction => {
+                      if (!deductionSearchTerm) return true;
+                      const search = deductionSearchTerm.toLowerCase();
+                      return (
+                        deduction.productName?.toLowerCase().includes(search) ||
+                        deduction.clientName?.toLowerCase().includes(search) ||
+                        deduction.transactionId?.toLowerCase().includes(search)
+                      );
+                    }).length === 0 && (
+                      <tr>
+                        <td colSpan="7" className="px-4 py-12 text-center text-gray-500">
+                          <Package className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                          <p>No stock deductions found</p>
+                          {deductionSearchTerm && (
+                            <p className="text-sm mt-1">Try adjusting your search</p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Summary */}
+            {!loadingDeductions && stockDeductions.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">
+                    Total Deductions: <span className="font-semibold text-gray-900">{stockDeductions.length}</span>
+                  </span>
+                  <span className="text-gray-600">
+                    Total Quantity Deducted: <span className="font-semibold text-red-600">
+                      -{stockDeductions.reduce((sum, d) => sum + d.quantity, 0)}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
+
         {/* Search and Filters */}
-        <Card className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
+        <Card className="p-4 md:p-6">
+          <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
               <SearchInput
                 placeholder="Search by product name, brand, or UPC... (debounced for performance)"
@@ -982,7 +1302,7 @@ const Stocks = () => {
                 <p className="text-xs text-gray-500 mt-1">Searching...</p>
               )}
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-2 md:gap-3 flex-wrap">
               <select
                 value={filters.status}
                 onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
@@ -1024,34 +1344,38 @@ const Stocks = () => {
 
         {/* Stock Table */}
         <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Product
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Current Stock
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Min/Max
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Weekly Stocks
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Location
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Period
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+          <div className="overflow-x-auto -mx-4 md:mx-0">
+            <div className="inline-block min-w-full align-middle md:px-0">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Product
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
+                      Beginning
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Current
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                      Min/Max
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">
+                      Weekly
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                      Location
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">
+                      Period
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -1067,38 +1391,42 @@ const Stocks = () => {
                   
                   return (
                   <tr key={stock.id || `${stock.productId}-${stock.startPeriod}`} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">{productName}</div>
-                        <div className="text-sm text-gray-500">{brand} • {upc}</div>
-                        <div className="text-xs text-gray-400">{category}</div>
+                        <div className="text-xs md:text-sm text-gray-500">{brand} • {upc}</div>
+                        <div className="text-xs text-gray-400 hidden md:block">{category}</div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden md:table-cell">
+                      <div className="text-sm font-medium text-blue-900">{stock.beginningStock || 0}</div>
+                      <div className="text-xs text-blue-600">Beginning</div>
+                    </td>
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{currentStock}</div>
                       <div className="text-xs text-gray-500">{monthLabel}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                       <div className="text-sm text-gray-900">{stock.minStock || 'N/A'} / {stock.maxStock || 'N/A'}</div>
                       <div className="text-xs text-gray-500">min / max</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(stock.status || 'In Stock')}`}>
                         {getStatusIcon(stock.status || 'In Stock')}
                         {stock.status || 'In Stock'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
                       <div className="text-sm font-medium text-gray-900">
                         {stock.weekOneStock || 0} / {stock.weekTwoStock || 0} / {stock.weekThreeStock || 0} / {stock.weekFourStock || 0}
                       </div>
                       <div className="text-xs text-gray-500">W1 / W2 / W3 / W4</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                       <div className="text-sm text-gray-900">{stock.location || 'N/A'}</div>
                       <div className="text-xs text-gray-500">{stock.branchName || 'N/A'}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
                       <div className="text-sm text-gray-900">
                         {stock.startPeriod ? format(new Date(stock.startPeriod), 'MMM dd, yyyy') : 'N/A'}
                       </div>
@@ -1106,7 +1434,7 @@ const Stocks = () => {
                         {stock.endPeriod ? format(new Date(stock.endPeriod), 'MMM dd, yyyy') : 'N/A'}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <td className="px-3 md:px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex gap-2">
                         <Button
                           variant="outline"
@@ -1142,6 +1470,7 @@ const Stocks = () => {
                 })}
               </tbody>
             </table>
+          </div>
           </div>
           
           {/* Pagination Controls */}
@@ -1248,13 +1577,22 @@ const Stocks = () => {
                 : 'Get started by adding stock items'
               }
             </p>
-            <Button 
-              className="flex items-center gap-2 mx-auto"
-              onClick={() => setIsCreateStockModalOpen(true)}
-            >
-              <Plus className="h-4 w-4" />
-              Add Stock Item
-            </Button>
+            {(userData?.role === 'systemAdmin' || userData?.role === 'operationalManager') ? (
+              <Button 
+                className="flex items-center gap-2 mx-auto"
+                onClick={() => setIsCreateStockModalOpen(true)}
+                title="Manual stock creation is restricted. All new stock should come from Purchase Orders."
+              >
+                <Plus className="h-4 w-4" />
+                Add Stock Item (Admin Only)
+              </Button>
+            ) : (
+              <div className="text-center p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  Stock must be created through Purchase Orders to maintain proper batch tracking.
+                </p>
+              </div>
+            )}
           </Card>
         )}
 
@@ -1880,6 +2218,14 @@ const Stocks = () => {
             <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
               <div className="flex items-center justify-between px-6 py-4">
                 <h2 className="text-2xl font-bold text-gray-900">Create Stock Record</h2>
+                {(userData?.role === 'systemAdmin' || userData?.role === 'operationalManager') && (
+                  <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm text-yellow-800">
+                      <strong>Admin Only:</strong> Manual stock creation should only be used for initial setup or adjustments. 
+                      All new stock should normally come from Purchase Orders to maintain proper batch tracking and audit trails.
+                    </p>
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     setIsCreateStockModalOpen(false);
@@ -2263,6 +2609,12 @@ const Stocks = () => {
                     </Button>
                     <Button 
                       onClick={async () => {
+                        // Check if user is authorized
+                        if (userData?.role !== 'systemAdmin' && userData?.role !== 'operationalManager') {
+                          alert('Unauthorized: Only system administrators and operational managers can create stock manually. All new stock must come from Purchase Orders.');
+                          return;
+                        }
+
                         // Validation
                         const errors = {};
                         

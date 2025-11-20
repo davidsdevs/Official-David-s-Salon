@@ -15,7 +15,8 @@ import {
   deleteDoc,
   query,
   orderBy,
-  Timestamp 
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { logActivity } from './activityService';
@@ -97,6 +98,11 @@ export const saveService = async (serviceData, currentUser) => {
     }
     
     await setDoc(serviceRef, data, { merge: true });
+
+    // Update product mappings in products collection
+    if (serviceData.productMappings && Array.isArray(serviceData.productMappings)) {
+      await updateProductMappings(serviceId, serviceData.productMappings, currentUser);
+    }
     
     // Log activity
     await logActivity({
@@ -115,6 +121,85 @@ export const saveService = async (serviceData, currentUser) => {
   } catch (error) {
     console.error('Error saving service:', error);
     toast.error('Failed to save service');
+    throw error;
+  }
+};
+
+/**
+ * Update service-product mappings in products collection
+ * Stores serviceProductMapping field in each product: { serviceId: minimumCost }
+ * @param {string} serviceId - Service ID
+ * @param {Array} productMappings - Array of {productId, productName, minimumCost}
+ * @param {Object} currentUser - Current user
+ */
+const updateProductMappings = async (serviceId, productMappings, currentUser) => {
+  try {
+    const batch = writeBatch(db);
+    
+    // Create a map of new mappings
+    const newMappings = {};
+    productMappings.forEach(mapping => {
+      newMappings[mapping.productId] = mapping.minimumCost;
+    });
+    
+    // Get products that either:
+    // 1. Are in the new mappings list (need to add/update)
+    // 2. Currently have a mapping for this service (need to check if should remove)
+    const productsRef = collection(db, 'products');
+    const productsSnapshot = await getDocs(productsRef);
+    
+    const productsToUpdate = [];
+    const productIdsWithNewMappings = new Set(Object.keys(newMappings));
+    
+    // Find products that need updating
+    productsSnapshot.forEach((docSnap) => {
+      const productData = docSnap.data();
+      const productId = docSnap.id;
+      
+      const hasNewMapping = productIdsWithNewMappings.has(productId);
+      const hasExistingMapping = productData.serviceProductMapping && 
+                                  productData.serviceProductMapping[serviceId] !== undefined;
+      
+      // Only update if product has a new mapping OR had an existing mapping (to remove if needed)
+      if (hasNewMapping || hasExistingMapping) {
+        productsToUpdate.push({ id: productId, data: productData });
+      }
+    });
+    
+    // Update only the products that need changes
+    productsToUpdate.forEach(({ id: productId, data: productData }) => {
+      const productRef = doc(db, 'products', productId);
+      
+      let serviceProductMapping = { ...(productData.serviceProductMapping || {}) };
+      
+      if (newMappings[productId]) {
+        // Add or update mapping for this service
+        serviceProductMapping[serviceId] = parseFloat(newMappings[productId]) || 0;
+      } else {
+        // Remove mapping for this service if it exists
+        if (serviceProductMapping[serviceId] !== undefined) {
+          delete serviceProductMapping[serviceId];
+          // If no mappings left, set to empty object
+          if (Object.keys(serviceProductMapping).length === 0) {
+            serviceProductMapping = {};
+          }
+        } else {
+          // No change needed, skip this product
+          return;
+        }
+      }
+      
+      // Update product with new mappings
+      batch.update(productRef, {
+        serviceProductMapping,
+        updatedAt: Timestamp.now(),
+        updatedBy: currentUser.uid
+      });
+    });
+    
+    await batch.commit();
+  } catch (error) {
+    console.error('Error updating product mappings:', error);
     throw error;
   }
 };

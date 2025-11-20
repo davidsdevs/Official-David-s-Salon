@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Building2, BarChart3, TrendingUp, Activity, Users, Package, ShoppingCart, Wallet } from 'lucide-react';
+import { LayoutDashboard, Building2, BarChart3, TrendingUp, Activity, Users, Package, ShoppingCart, Wallet, DollarSign, Calendar } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -17,6 +17,9 @@ const OperationalManagerLayout = () => {
     { path: '/operational-manager/inventory', label: 'Inventory', icon: Package },
     { path: '/operational-manager/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
     { path: '/operational-manager/deposits', label: 'Deposits', icon: Wallet },
+    { path: ROUTES.OPERATIONAL_MANAGER_CALENDAR, label: 'Calendar', icon: Calendar },
+    { section: 'Analytics' },
+    { path: ROUTES.OPERATIONAL_MANAGER_PRICE_HISTORY, label: 'Price History Analytics', icon: DollarSign },
     { section: 'System' },
     { path: ROUTES.OPERATIONAL_MANAGER_ACTIVITY, label: 'Activity Logs', icon: Activity },
   ];
@@ -25,11 +28,11 @@ const OperationalManagerLayout = () => {
     <div className="min-h-screen flex bg-gray-50">
       <Sidebar isOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(false)} menuItems={menuItems} />
       
-      <div className="flex-1 flex flex-col lg:ml-64">
+      <div className="flex-1 flex flex-col md:ml-64">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
         
         <div className="flex-1 flex flex-col overflow-y-auto">
-          <main className="flex-1 p-6">
+          <main className="flex-1 p-4 md:p-6">
             <Outlet />
           </main>
         </div>

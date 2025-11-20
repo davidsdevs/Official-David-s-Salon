@@ -28,11 +28,15 @@ import {
   AlertCircle,
   TrendingDown,
   ShoppingCart,
-  ArrowRight
+  ArrowRight,
+  Settings,
+  X
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { stockAlertsService } from '../../services/stockAlertsService';
 import { getBranches } from '../../services/branchService';
+import { collection, query, where, onSnapshot, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 const StockAlerts = () => {
   const { userData } = useAuth();
@@ -54,6 +58,12 @@ const StockAlerts = () => {
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isGeneratingAlerts, setIsGeneratingAlerts] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [alertSettings, setAlertSettings] = useState({
+    lowStockThreshold: 10, // Default: alert when realTimeStock <= 10
+    criticalThreshold: 0 // Alert when realTimeStock === 0
+  });
+  const [loadingSettings, setLoadingSettings] = useState(false);
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -72,6 +82,66 @@ const StockAlerts = () => {
     alertType: 'Low Stock',
     notes: ''
   });
+
+  // Load alert settings
+  const loadAlertSettings = async () => {
+    try {
+      setLoadingSettings(true);
+      const settingsRef = doc(db, 'stock_alert_settings', 'default');
+      const settingsSnap = await getDoc(settingsRef);
+      
+      if (settingsSnap.exists()) {
+        const data = settingsSnap.data();
+        setAlertSettings({
+          lowStockThreshold: data.lowStockThreshold || 10,
+          criticalThreshold: data.criticalThreshold || 0
+        });
+      } else {
+        // Create default settings if they don't exist
+        await setDoc(settingsRef, {
+          lowStockThreshold: 10,
+          criticalThreshold: 0,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        setAlertSettings({
+          lowStockThreshold: 10,
+          criticalThreshold: 0
+        });
+      }
+    } catch (error) {
+      console.error('Error loading alert settings:', error);
+      // Use defaults if loading fails
+      setAlertSettings({
+        lowStockThreshold: 10,
+        criticalThreshold: 0
+      });
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
+
+  // Save alert settings
+  const saveAlertSettings = async () => {
+    try {
+      setLoadingSettings(true);
+      const settingsRef = doc(db, 'stock_alert_settings', 'default');
+      await setDoc(settingsRef, {
+        lowStockThreshold: parseInt(alertSettings.lowStockThreshold) || 10,
+        criticalThreshold: parseInt(alertSettings.criticalThreshold) || 0,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      
+      // Regenerate alerts with new settings
+      await handleGenerateAlerts();
+      setIsSettingsModalOpen(false);
+    } catch (error) {
+      console.error('Error saving alert settings:', error);
+      setError('Failed to save settings');
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
 
   // Load branches
   const loadBranches = async () => {
@@ -137,12 +207,15 @@ const StockAlerts = () => {
       setIsGeneratingAlerts(true);
       setError(null);
       
-      const result = await stockAlertsService.generateAlertsForLowStock();
+      const result = await stockAlertsService.generateAlertsForLowStock(null, alertSettings);
       
       if (result.success) {
         // Reload alerts after generation
         await loadAlerts();
-        alert(`Successfully generated ${result.alertsCreated} new alerts`);
+        // Don't show alert on auto-generation, only on manual refresh
+        if (result.alertsCreated > 0) {
+          console.log(`✅ Generated ${result.alertsCreated} new alerts`);
+        }
       } else {
         setError(result.message || 'Failed to generate alerts');
       }
@@ -157,8 +230,46 @@ const StockAlerts = () => {
   // Load alerts and branches on mount
   useEffect(() => {
     loadBranches();
+    loadAlertSettings();
     loadAlerts();
+    // Automatically generate alerts on page load (after settings are loaded)
+    setTimeout(() => {
+      handleGenerateAlerts();
+    }, 500);
   }, []);
+
+  // Auto-generate alerts when stocks change (real-time listener)
+  useEffect(() => {
+    // Listen to stocks collection for automatic alert generation
+    const stocksRef = collection(db, 'stocks');
+    const stocksQuery = query(
+      stocksRef,
+      where('status', '==', 'active')
+    );
+
+    const unsubscribe = onSnapshot(stocksQuery, async (snapshot) => {
+      // When stocks change, automatically generate alerts
+      // Debounce to avoid too many calls
+      if (!isGeneratingAlerts) {
+        // Small delay to batch multiple changes
+        setTimeout(async () => {
+          try {
+            await stockAlertsService.generateAlertsForLowStock(null, alertSettings);
+            await loadAlerts(); // Reload alerts after generation
+          } catch (error) {
+            console.error('Error auto-generating alerts:', error);
+          }
+        }, 1000); // 1 second debounce
+      }
+    }, (error) => {
+      console.error('Error in stocks listener:', error);
+    });
+
+    // Cleanup listener on unmount
+    return () => {
+      unsubscribe();
+    };
+  }, [isGeneratingAlerts, alertSettings]);
 
   // Reload alerts when filters change
   useEffect(() => {
@@ -390,20 +501,31 @@ const StockAlerts = () => {
     <>>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Stock Alerts</h1>
-            <p className="text-gray-600">Monitor low stock levels and inventory alerts</p>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Stock Alerts</h1>
+            <p className="text-sm md:text-base text-gray-600">Automatically monitor low stock levels and inventory alerts</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Alerts are automatically generated when realTimeStock ≤ {alertSettings.lowStockThreshold} (Critical: ≤ {alertSettings.criticalThreshold})
+            </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+            <Button 
+              variant="outline" 
+              onClick={() => setIsSettingsModalOpen(true)}
+              className="flex items-center gap-2 text-xs md:text-sm"
+            >
+              <Settings className="h-4 w-4" />
+              Settings
+            </Button>
             <Button 
               variant="outline" 
               onClick={handleGenerateAlerts}
               disabled={isGeneratingAlerts}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 text-xs md:text-sm"
             >
               <RefreshCw className={`h-4 w-4 ${isGeneratingAlerts ? 'animate-spin' : ''}`} />
-              {isGeneratingAlerts ? 'Generating...' : 'Generate Alerts'}
+              {isGeneratingAlerts ? 'Generating...' : 'Refresh Alerts'}
             </Button>
             <Button variant="outline" className="flex items-center gap-2">
               <Download className="h-4 w-4" />
@@ -437,7 +559,7 @@ const StockAlerts = () => {
         )}
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 md:gap-4">
           <Card className="p-4">
             <div className="flex items-center">
               <Bell className="h-8 w-8 text-blue-600" />
@@ -1007,6 +1129,99 @@ const StockAlerts = () => {
                 </Button>
                 <Button onClick={() => setIsFilterModalOpen(false)}>
                   Apply Filters
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )}
+
+        {/* Settings Modal */}
+        {isSettingsModalOpen && (
+          <Modal
+            isOpen={isSettingsModalOpen}
+            onClose={() => setIsSettingsModalOpen(false)}
+            title="Stock Alert Settings"
+            size="md"
+          >
+            <div className="space-y-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  Configure the threshold for automatic stock alerts. Alerts will be generated when product stock falls below these values.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Low Stock Threshold
+                  <span className="text-gray-500 text-xs ml-2">(Default: 10)</span>
+                </label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={alertSettings.lowStockThreshold}
+                  onChange={(e) => setAlertSettings({
+                    ...alertSettings,
+                    lowStockThreshold: parseInt(e.target.value) || 10
+                  })}
+                  placeholder="10"
+                  className="w-full"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Alert will be triggered when realTimeStock is ≤ {alertSettings.lowStockThreshold}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Critical Stock Threshold
+                  <span className="text-gray-500 text-xs ml-2">(Default: 0)</span>
+                </label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={alertSettings.criticalThreshold}
+                  onChange={(e) => setAlertSettings({
+                    ...alertSettings,
+                    criticalThreshold: parseInt(e.target.value) || 0
+                  })}
+                  placeholder="0"
+                  className="w-full"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Critical alert will be triggered when realTimeStock is ≤ {alertSettings.criticalThreshold}
+                </p>
+              </div>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Current Settings:</h4>
+                <ul className="text-xs text-gray-600 space-y-1">
+                  <li>• Low Stock Alert: realTimeStock ≤ {alertSettings.lowStockThreshold}</li>
+                  <li>• Critical Alert: realTimeStock ≤ {alertSettings.criticalThreshold}</li>
+                  <li>• Alerts are automatically generated when stock changes</li>
+                </ul>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsSettingsModalOpen(false)}
+                  disabled={loadingSettings}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={saveAlertSettings}
+                  disabled={loadingSettings}
+                  className="flex items-center gap-2"
+                >
+                  {loadingSettings ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Settings'
+                  )}
                 </Button>
               </div>
             </div>

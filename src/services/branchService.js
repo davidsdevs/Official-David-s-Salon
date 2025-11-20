@@ -33,7 +33,8 @@ export const getAllBranches = async () => {
     // Try with orderBy first, fallback to simple query if it fails
     let snapshot;
     try {
-      const q = query(branchesRef, orderBy('name', 'asc'));
+      // Try ordering by branchName first (actual field name), then fallback to name
+      const q = query(branchesRef, orderBy('branchName', 'asc'));
       snapshot = await getDocs(q);
     } catch (orderByError) {
       // If orderBy fails (e.g., missing index or field), try without it
@@ -46,11 +47,11 @@ export const getAllBranches = async () => {
       ...doc.data()
     }));
     
-    // Sort manually if orderBy failed
-    if (branches.length > 0 && branches[0].name) {
+    // Sort manually by branchName or name field
+    if (branches.length > 0) {
       branches.sort((a, b) => {
-        const nameA = (a.name || '').toLowerCase();
-        const nameB = (b.name || '').toLowerCase();
+        const nameA = (a.branchName || a.name || '').toLowerCase();
+        const nameB = (b.branchName || b.name || '').toLowerCase();
         return nameA.localeCompare(nameB);
       });
     }
@@ -59,9 +60,9 @@ export const getAllBranches = async () => {
     if (branches.length > 0) {
       console.log('[branchService] Sample branch:', {
         id: branches[0].id,
+        branchName: branches[0].branchName,
         name: branches[0].name,
-        isActive: branches[0].isActive,
-        hasStatus: branches[0].status !== undefined
+        isActive: branches[0].isActive
       });
     }
     return branches;

@@ -34,8 +34,10 @@ import {
   Square
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import inventoryService from '../../services/inventoryService';
+import toast from 'react-hot-toast';
 
 const Deliveries = () => {
   const { userData } = useAuth();
@@ -50,6 +52,8 @@ const Deliveries = () => {
   // UI states
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('all');
+  const [dateFilterStart, setDateFilterStart] = useState('');
+  const [dateFilterEnd, setDateFilterEnd] = useState('');
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [isReceivingModalOpen, setIsReceivingModalOpen] = useState(false);
@@ -57,6 +61,11 @@ const Deliveries = () => {
   const [checkedItems, setCheckedItems] = useState({}); // { productId: boolean }
   const [isProcessing, setIsProcessing] = useState(false);
   const [receivingNotes, setReceivingNotes] = useState('');
+  
+  // Batch expiration modal states
+  const [isBatchExpirationModalOpen, setIsBatchExpirationModalOpen] = useState(false);
+  const [batchExpirationDates, setBatchExpirationDates] = useState({}); // { productId: expirationDate }
+  const [receivedDeliveryData, setReceivedDeliveryData] = useState(null); // Store delivery data after receiving
 
   // Load deliveries (purchase orders with In Transit status)
   useEffect(() => {
@@ -134,9 +143,33 @@ const Deliveries = () => {
 
       const matchesSupplier = selectedSupplierFilter === 'all' || delivery.supplierId === selectedSupplierFilter;
 
-      return matchesSearch && matchesSupplier;
+      // Date filter - filter by orderDate
+      let matchesDate = true;
+      if (dateFilterStart || dateFilterEnd) {
+        const orderDate = delivery.orderDate ? new Date(delivery.orderDate) : null;
+        if (orderDate) {
+          if (dateFilterStart) {
+            const startDate = new Date(dateFilterStart);
+            startDate.setHours(0, 0, 0, 0);
+            if (orderDate < startDate) {
+              matchesDate = false;
+            }
+          }
+          if (dateFilterEnd) {
+            const endDate = new Date(dateFilterEnd);
+            endDate.setHours(23, 59, 59, 999);
+            if (orderDate > endDate) {
+              matchesDate = false;
+            }
+          }
+        } else {
+          matchesDate = false; // If no order date, exclude if date filter is active
+        }
+      }
+
+      return matchesSearch && matchesSupplier && matchesDate;
     });
-  }, [deliveries, searchTerm, selectedSupplierFilter]);
+  }, [deliveries, searchTerm, selectedSupplierFilter, dateFilterStart, dateFilterEnd]);
 
   // Delivery statistics
   const deliveryStats = useMemo(() => {
@@ -242,16 +275,55 @@ const Deliveries = () => {
         updatedAt: serverTimestamp()
       });
 
+      // Store delivery data for batch creation
+      setReceivedDeliveryData({
+        purchaseOrderId: selectedOrder.orderId || selectedOrder.id,
+        purchaseOrderDocId: selectedOrder.id,
+        branchId: userData.branchId,
+        supplierId: selectedOrder.supplierId,
+        supplierName: selectedOrder.supplierName,
+        items: selectedOrder.items.map(item => {
+          const orderedQty = item.quantity || 0;
+          const receivedQty = receivedQuantities[item.productId] || 0;
+          return {
+            productId: item.productId,
+            productName: item.productName,
+            sku: item.sku || null,
+            quantity: receivedQty,
+            unitPrice: item.unitPrice || 0
+          };
+        }).filter(item => item.quantity > 0), // Only include items with received quantity > 0
+        receivedBy: userData.uid || userData.id,
+        receivedByName: (userData.firstName && userData.lastName 
+          ? `${userData.firstName} ${userData.lastName}`.trim() 
+          : (userData.email || 'Unknown')),
+        receivedAt: new Date()
+      });
+
       // Reload deliveries
       await loadDeliveries();
       
-      // Close modal and reset
+      // Close receiving modal
       setIsReceivingModalOpen(false);
       setSelectedOrder(null);
       setReceivedQuantities({});
       setCheckedItems({});
       setReceivingNotes('');
       setError(null);
+      
+      // Open batch expiration modal
+      const initialExpirationDates = {};
+      selectedOrder.items.forEach(item => {
+        const receivedQty = receivedQuantities[item.productId] || 0;
+        if (receivedQty > 0) {
+          // Set default expiration to 1 year from today
+          const defaultExpiration = new Date();
+          defaultExpiration.setFullYear(defaultExpiration.getFullYear() + 1);
+          initialExpirationDates[item.productId] = defaultExpiration.toISOString().split('T')[0];
+        }
+      });
+      setBatchExpirationDates(initialExpirationDates);
+      setIsBatchExpirationModalOpen(true);
     } catch (err) {
       console.error('Error receiving delivery:', err);
       setError(err.message || 'Failed to receive delivery. Please try again.');
@@ -445,9 +517,9 @@ const Deliveries = () => {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Deliveries</h1>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Deliveries</h1>
             <p className="text-gray-600">Track purchase orders that are in transit</p>
           </div>
           <Button
@@ -474,7 +546,7 @@ const Deliveries = () => {
         )}
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
           <Card className="p-4">
             <div className="flex items-center">
               <Truck className="h-8 w-8 text-purple-600" />
@@ -507,40 +579,89 @@ const Deliveries = () => {
         </div>
 
         {/* Search and Filters */}
-        <Card className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                type="text"
-                placeholder="Search by order ID, supplier, or notes..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10"
-              />
+        <Card className="p-4 md:p-6">
+          <div className="space-y-4">
+            {/* Search and Supplier Filters */}
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Search by order ID, supplier, or notes..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10"
+                />
+              </div>
+              <div className="flex gap-2 md:gap-3 flex-wrap">
+                <select
+                  value={selectedSupplierFilter}
+                  onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Suppliers</option>
+                  {suppliers.map(supplier => (
+                    <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                  ))}
+                </select>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedSupplierFilter('all');
+                    setDateFilterStart('');
+                    setDateFilterEnd('');
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Reset
+                </Button>
+              </div>
             </div>
-            <div className="flex gap-3">
-              <select
-                value={selectedSupplierFilter}
-                onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-              >
-                <option value="all">All Suppliers</option>
-                {suppliers.map(supplier => (
-                  <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                ))}
-              </select>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSearchTerm('');
-                  setSelectedSupplierFilter('all');
-                }}
-                className="flex items-center gap-2"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Reset
-              </Button>
+
+            {/* Date Range Filters */}
+            <div className="flex flex-col sm:flex-row gap-3 items-end border-t pt-4">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-gray-400" />
+                <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Date Range:</span>
+              </div>
+              <div className="flex-1 flex flex-col sm:flex-row gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
+                  <Input
+                    type="date"
+                    value={dateFilterStart}
+                    onChange={(e) => setDateFilterStart(e.target.value)}
+                    className="w-full"
+                    max={dateFilterEnd || undefined}
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">To Date</label>
+                  <Input
+                    type="date"
+                    value={dateFilterEnd}
+                    onChange={(e) => setDateFilterEnd(e.target.value)}
+                    className="w-full"
+                    min={dateFilterStart || undefined}
+                  />
+                </div>
+                {(dateFilterStart || dateFilterEnd) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDateFilterStart('');
+                      setDateFilterEnd('');
+                    }}
+                    className="flex items-center gap-1"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear Dates
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </Card>
@@ -1033,6 +1154,191 @@ const Deliveries = () => {
                     )}
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Expiration Modal */}
+      {isBatchExpirationModalOpen && receivedDeliveryData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col transform transition-all duration-300 scale-100">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-white/20 rounded-lg">
+                    <Calendar className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold">Batch Expiration Dates</h2>
+                    <p className="text-white/80 text-sm mt-1">Enter expiration dates for each product batch</p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setIsBatchExpirationModalOpen(false);
+                    setBatchExpirationDates({});
+                    setReceivedDeliveryData(null);
+                  }}
+                  className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-6">
+                {/* Info Box */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold mb-1 text-blue-900">Batch Expiration Tracking</p>
+                      <p className="text-sm text-blue-700">
+                        Each product will be tracked in batches with the expiration date you specify. 
+                        The system will use FIFO (First In, First Out) to manage stock rotation, using the oldest batches first.
+                        Leave expiration date empty if the product doesn't expire.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Expiration Dates Table */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Product Expiration Dates</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiration Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {receivedDeliveryData.items && receivedDeliveryData.items.length > 0 ? (
+                          receivedDeliveryData.items.map((item, index) => (
+                            <tr key={item.productId || index} className="hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-gray-900">{item.productName}</div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="text-sm text-gray-500">{item.sku || 'N/A'}</div>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <div className="text-gray-900 font-medium">{item.quantity}</div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <Input
+                                  type="date"
+                                  value={batchExpirationDates[item.productId] || ''}
+                                  onChange={(e) => {
+                                    setBatchExpirationDates(prev => ({
+                                      ...prev,
+                                      [item.productId]: e.target.value
+                                    }));
+                                  }}
+                                  className="w-full"
+                                  min={new Date().toISOString().split('T')[0]}
+                                />
+                                {batchExpirationDates[item.productId] && (
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    {format(new Date(batchExpirationDates[item.productId]), 'MMM dd, yyyy')}
+                                  </p>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="4" className="px-4 py-4 text-center text-gray-500">No items</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-gray-200 p-6 bg-gray-50">
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    // Skip batch creation - just close modal
+                    setIsBatchExpirationModalOpen(false);
+                    setBatchExpirationDates({});
+                    setReceivedDeliveryData(null);
+                    toast.success('Delivery received. Batch creation skipped.');
+                  }}
+                  disabled={isProcessing}
+                  className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                >
+                  Skip
+                </Button>
+                <Button
+                  onClick={async () => {
+                    if (!receivedDeliveryData) return;
+                    
+                    try {
+                      setIsProcessing(true);
+                      setError(null);
+
+                      // Prepare items with expiration dates
+                      const itemsWithExpiration = receivedDeliveryData.items.map(item => ({
+                        ...item,
+                        expirationDate: batchExpirationDates[item.productId] || null
+                      }));
+
+                      // Create batches
+                      const deliveryData = {
+                        ...receivedDeliveryData,
+                        items: itemsWithExpiration
+                      };
+
+                      const batchesResult = await inventoryService.createProductBatches(deliveryData);
+                      
+                      if (!batchesResult.success) {
+                        throw new Error(batchesResult.message || 'Failed to create product batches');
+                      }
+
+                      toast.success(`Successfully created ${batchesResult.batchesCreated || itemsWithExpiration.length} batch(es)!`);
+                      
+                      // Close modal and reset
+                      setIsBatchExpirationModalOpen(false);
+                      setBatchExpirationDates({});
+                      setReceivedDeliveryData(null);
+                    } catch (err) {
+                      console.error('Error creating batches:', err);
+                      setError(err.message || 'Failed to create batches. Please try again.');
+                      toast.error(err.message || 'Failed to create batches');
+                    } finally {
+                      setIsProcessing(false);
+                    }
+                  }}
+                  disabled={isProcessing}
+                  className="bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Creating Batches...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4" />
+                      Create Batches
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           </div>

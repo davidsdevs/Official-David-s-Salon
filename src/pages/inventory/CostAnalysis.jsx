@@ -317,21 +317,21 @@ const CostAnalysis = () => {
     <>>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Cost Analysis</h1>
-            <p className="text-gray-600">Analyze product costs, margins, and profitability</p>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Cost Analysis</h1>
+            <p className="text-sm md:text-base text-gray-600">Analyze product costs, margins, and profitability</p>
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="outline" className="flex items-center gap-2">
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+            <Button variant="outline" className="flex items-center gap-2 text-xs md:text-sm">
               <Upload className="h-4 w-4" />
-              Import
+              <span className="hidden sm:inline">Import</span>
             </Button>
-            <Button variant="outline" className="flex items-center gap-2">
+            <Button variant="outline" className="flex items-center gap-2 text-xs md:text-sm">
               <Download className="h-4 w-4" />
-              Export
+              <span className="hidden sm:inline">Export</span>
             </Button>
-            <Button onClick={handleCreateAnalysis} className="flex items-center gap-2">
+            <Button onClick={handleCreateAnalysis} className="flex items-center gap-2 text-xs md:text-sm">
               <Plus className="h-4 w-4" />
               New Analysis
             </Button>
@@ -339,7 +339,7 @@ const CostAnalysis = () => {
         </div>
 
         {/* Summary Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 md:gap-4">
           <Card className="p-4">
             <div className="flex items-center">
               <Package className="h-8 w-8 text-blue-600" />

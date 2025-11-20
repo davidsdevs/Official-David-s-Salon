@@ -98,6 +98,31 @@ export const getUserById = async (userId) => {
 };
 
 /**
+ * Get user by email
+ * @param {string} email - User email
+ * @returns {Promise<Object|null>} User data or null if not found
+ */
+export const getUserByEmail = async (email) => {
+  try {
+    const usersQuery = query(collection(db, 'users'), where('email', '==', email.trim().toLowerCase()));
+    const usersSnapshot = await getDocs(usersQuery);
+    
+    if (usersSnapshot.empty) {
+      return null;
+    }
+    
+    const userDoc = usersSnapshot.docs[0];
+    return {
+      id: userDoc.id,
+      ...userDoc.data()
+    };
+  } catch (error) {
+    console.error('Error fetching user by email:', error);
+    throw error;
+  }
+};
+
+/**
  * Create a new user
  * @param {Object} userData - User data
  * @param {Object} currentUser - User creating the account

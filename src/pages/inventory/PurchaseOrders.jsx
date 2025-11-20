@@ -28,10 +28,10 @@ import {
   TrendingUp,
   ArrowRightLeft,
   QrCode,
+  Calendar,
   BarChart3,
   ClipboardList,
   UserCog,
-  Calendar,
   PackageCheck
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -73,6 +73,8 @@ const PurchaseOrders = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('all');
+  const [dateFilterStart, setDateFilterStart] = useState('');
+  const [dateFilterEnd, setDateFilterEnd] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -566,9 +568,33 @@ const PurchaseOrders = () => {
       const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus;
       const matchesSupplier = selectedSupplierFilter === 'all' || order.supplierId === selectedSupplierFilter;
 
-      return matchesSearch && matchesStatus && matchesSupplier;
+      // Date filter - filter by orderDate
+      let matchesDate = true;
+      if (dateFilterStart || dateFilterEnd) {
+        const orderDate = order.orderDate ? new Date(order.orderDate) : null;
+        if (orderDate) {
+          if (dateFilterStart) {
+            const startDate = new Date(dateFilterStart);
+            startDate.setHours(0, 0, 0, 0);
+            if (orderDate < startDate) {
+              matchesDate = false;
+            }
+          }
+          if (dateFilterEnd) {
+            const endDate = new Date(dateFilterEnd);
+            endDate.setHours(23, 59, 59, 999);
+            if (orderDate > endDate) {
+              matchesDate = false;
+            }
+          }
+        } else {
+          matchesDate = false; // If no order date, exclude if date filter is active
+        }
+      }
+
+      return matchesSearch && matchesStatus && matchesSupplier && matchesDate;
     });
-  }, [purchaseOrders, searchTerm, selectedStatus, selectedSupplierFilter]);
+  }, [purchaseOrders, searchTerm, selectedStatus, selectedSupplierFilter, dateFilterStart, dateFilterEnd]);
 
   // Get status color
   const getStatusColor = (status) => {
@@ -756,13 +782,13 @@ const PurchaseOrders = () => {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
-            <p className="text-gray-600">Create and manage purchase orders from suppliers</p>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Purchase Orders</h1>
+            <p className="text-sm md:text-base text-gray-600">Create and manage purchase orders from suppliers</p>
           </div>
           <div className="flex items-center gap-3">
-            <Button onClick={handleCreateOrder} className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A]">
+            <Button onClick={handleCreateOrder} className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A] text-xs md:text-sm">
               <Plus className="h-4 w-4" />
               Create Order
             </Button>
@@ -774,7 +800,7 @@ const PurchaseOrders = () => {
           <Card className="p-4 bg-red-50 border-red-200">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-red-600" />
-              <p className="text-red-800">{error}</p>
+              <p className="text-sm text-red-800">{error}</p>
               <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto">
                 <X className="h-4 w-4" />
               </Button>
@@ -783,7 +809,7 @@ const PurchaseOrders = () => {
         )}
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
           <Card className="p-4">
             <div className="flex items-center">
               <ShoppingCart className="h-8 w-8 text-blue-600" />
@@ -847,132 +873,182 @@ const PurchaseOrders = () => {
 
         {/* Search and Filters */}
         <Card className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                type="text"
-                placeholder="Search by order ID, supplier, or notes..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10"
-              />
+          <div className="space-y-4">
+            {/* Search and Status/Supplier Filters */}
+            <div className="flex flex-col lg:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Search by order ID, supplier, or notes..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10"
+                />
+              </div>
+              <div className="flex gap-3">
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Status</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Received">Received</option>
+                  <option value="Approved">Approved</option>
+                  <option value="In Transit">In Transit</option>
+                  <option value="Rejected">Rejected</option>
+                  <option value="Shipped">Shipped</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Cancelled">Cancelled</option>
+                  <option value="Overdue">Overdue</option>
+                </select>
+                <select
+                  value={selectedSupplierFilter}
+                  onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Suppliers</option>
+                  {suppliers.map(supplier => (
+                    <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                  ))}
+                </select>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedStatus('all');
+                    setSelectedSupplierFilter('all');
+                    setDateFilterStart('');
+                    setDateFilterEnd('');
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Reset
+                </Button>
+              </div>
             </div>
-            <div className="flex gap-3">
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-              >
-                <option value="all">All Status</option>
-                <option value="Pending">Pending</option>
-                <option value="Received">Received</option>
-                <option value="Approved">Approved</option>
-                <option value="In Transit">In Transit</option>
-                <option value="Rejected">Rejected</option>
-                <option value="Shipped">Shipped</option>
-                <option value="Delivered">Delivered</option>
-                <option value="Cancelled">Cancelled</option>
-                <option value="Overdue">Overdue</option>
-              </select>
-              <select
-                value={selectedSupplierFilter}
-                onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-              >
-                <option value="all">All Suppliers</option>
-                {suppliers.map(supplier => (
-                  <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                ))}
-              </select>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSearchTerm('');
-                  setSelectedStatus('all');
-                  setSelectedSupplierFilter('all');
-                }}
-                className="flex items-center gap-2"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Reset
-              </Button>
+
+            {/* Date Range Filters */}
+            <div className="flex flex-col sm:flex-row gap-3 items-end border-t pt-4">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-gray-400" />
+                <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Date Range:</span>
+              </div>
+              <div className="flex-1 flex flex-col sm:flex-row gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
+                  <Input
+                    type="date"
+                    value={dateFilterStart}
+                    onChange={(e) => setDateFilterStart(e.target.value)}
+                    className="w-full"
+                    max={dateFilterEnd || undefined}
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">To Date</label>
+                  <Input
+                    type="date"
+                    value={dateFilterEnd}
+                    onChange={(e) => setDateFilterEnd(e.target.value)}
+                    className="w-full"
+                    min={dateFilterStart || undefined}
+                  />
+                </div>
+                {(dateFilterStart || dateFilterEnd) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDateFilterStart('');
+                      setDateFilterEnd('');
+                    }}
+                    className="flex items-center gap-1"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear Dates
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </Card>
 
         {/* Purchase Orders Table */}
         <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Order ID
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Supplier
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Order Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Expected Delivery
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Total Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Items
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+          <div className="overflow-x-auto -mx-4 md:mx-0">
+            <div className="inline-block min-w-full align-middle md:px-0">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Order ID
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
+                      Supplier
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                      Order Date
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                      Expected
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
+                      Amount
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">
+                      Items
+                    </th>
+                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan="8" className="px-3 md:px-6 py-8 text-center text-gray-500">
                       No purchase orders found. Create your first order to get started.
                     </td>
                   </tr>
                 ) : (
                   filteredOrders.map((order) => (
                     <tr key={order.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">{order.orderId || order.id}</div>
                         <div className="text-xs text-gray-500">by {order.createdByName || 'Unknown'}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden md:table-cell">
                         <div className="text-sm text-gray-900">{order.supplierName || 'Unknown Supplier'}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                         <div className="text-sm text-gray-900">
                           {order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                         <div className="text-sm text-gray-900">
                           {order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(order.status)}`}>
                           {getStatusIcon(order.status)}
                           {order.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden md:table-cell">
                         <div className="text-sm font-medium text-gray-900">₱{(order.totalAmount || 0).toLocaleString()}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
                         <div className="text-sm text-gray-900">{order.items?.length || 0} items</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <td className="px-3 md:px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center gap-2">
                           <Button
                             variant="outline"
@@ -986,16 +1062,6 @@ const PurchaseOrders = () => {
                             <Eye className="h-3 w-3" />
                             View
                           </Button>
-                          {canMarkDelivered(order) && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleOpenDeliveryModal(order)}
-                              className="bg-green-600 text-white hover:bg-green-700 flex items-center gap-1"
-                            >
-                              <Truck className="h-3 w-3" />
-                              Mark Delivered
-                            </Button>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -1003,6 +1069,7 @@ const PurchaseOrders = () => {
                 )}
               </tbody>
             </table>
+          </div>
           </div>
         </Card>
 
@@ -1600,18 +1667,6 @@ const PurchaseOrders = () => {
               {/* Modal Footer */}
               <div className="border-t border-gray-200 p-6 bg-gray-50">
                 <div className="flex justify-end gap-3">
-                  {canMarkDelivered(selectedOrder) && (
-                    <Button
-                      onClick={() => {
-                        setIsDetailsModalOpen(false);
-                        handleOpenDeliveryModal(selectedOrder);
-                      }}
-                      className="bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
-                    >
-                      <Truck className="h-4 w-4" />
-                      Mark Delivered
-                    </Button>
-                  )}
                   <Button
                     variant="outline"
                     onClick={() => {
