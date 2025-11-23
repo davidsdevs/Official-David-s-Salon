@@ -4,7 +4,8 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { Search, DollarSign, Calendar, Filter, Receipt, Eye, AlertCircle, Printer, X, UserPlus, Bell } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Banknote, Calendar, Filter, Receipt, Eye, AlertCircle, Printer, X, UserPlus, Bell } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getBillsByBranch,
@@ -13,11 +14,15 @@ import {
   PAYMENT_METHODS,
   createBill
 } from '../../services/billingService';
-import { getAppointmentsByBranch, APPOINTMENT_STATUS, updateAppointmentStatus } from '../../services/appointmentService';
+import { 
+  getAppointmentsByBranch, 
+  APPOINTMENT_STATUS, 
+  updateAppointmentStatus
+} from '../../services/appointmentService';
 import { getBranchById } from '../../services/branchService';
 import { getBranchServices } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
-import { USER_ROLES } from '../../utils/constants';
+import { USER_ROLES, ROUTES } from '../../utils/constants';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import BillingModalPOS from '../../components/billing/BillingModalPOS';
 import ReceiptComponent from '../../components/billing/Receipt';
@@ -25,6 +30,7 @@ import { useReactToPrint } from 'react-to-print';
 import toast from 'react-hot-toast';
 
 const ReceptionistBilling = () => {
+  const navigate = useNavigate();
   const { currentUser, userBranch, userBranchData, userData } = useAuth();
   const [bills, setBills] = useState([]);
   const [completedAppointments, setCompletedAppointments] = useState([]);
@@ -178,21 +184,8 @@ const ReceptionistBilling = () => {
   };
 
   const handleWalkInBilling = () => {
-    // Create a temporary appointment object for walk-in
-    const walkInAppointment = {
-      id: `walkin-${Date.now()}`,
-      clientId: '',
-      clientName: '',
-      clientPhone: '',
-      clientEmail: '',
-      branchId: userBranch,
-      branchName: userBranchData?.branchName || '',
-      services: [],
-      isWalkIn: true // Flag to indicate this is a walk-in
-    };
-    
-    setSelectedAppointment(walkInAppointment);
-    setShowBillingModal(true);
+    // Redirect to arrivals queue where walk-ins are managed and checked in
+    navigate(ROUTES.RECEPTIONIST_ARRIVALS);
   };
 
   const handleSubmitBill = async (billData) => {
@@ -284,7 +277,7 @@ const ReceptionistBilling = () => {
                 <p className="text-2xl font-bold text-green-600 mt-1">₱{dailySummary.netRevenue?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-green-100 rounded-lg">
-                <DollarSign className="w-6 h-6 text-green-600" />
+                <Banknote className="w-6 h-6 text-green-600" />
               </div>
             </div>
           </div>
@@ -308,7 +301,7 @@ const ReceptionistBilling = () => {
                 <p className="text-2xl font-bold text-yellow-600 mt-1">₱{dailySummary.totalDiscounts?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-yellow-100 rounded-lg">
-                <DollarSign className="w-6 h-6 text-yellow-600" />
+                <Banknote className="w-6 h-6 text-yellow-600" />
               </div>
             </div>
           </div>
@@ -320,7 +313,7 @@ const ReceptionistBilling = () => {
                 <p className="text-2xl font-bold text-red-600 mt-1">₱{dailySummary.totalRefunds?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-red-100 rounded-lg">
-                <DollarSign className="w-6 h-6 text-red-600" />
+                <Banknote className="w-6 h-6 text-red-600" />
               </div>
             </div>
           </div>
@@ -405,7 +398,31 @@ const ReceptionistBilling = () => {
                       <p className="text-xs text-gray-500">{bill.clientPhone}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm text-gray-600">{bill.items?.length || 0} service(s)</p>
+                      {(() => {
+                        const services = bill.items?.filter(item => item.type === 'service' || !item.type).length || 0;
+                        const products = bill.items?.filter(item => item.type === 'product').length || 0;
+                        const totalItems = bill.items?.length || 0;
+                        
+                        if (services > 0 && products > 0) {
+                          return (
+                            <p className="text-sm text-gray-600">
+                              {services} service(s), {products} product(s)
+                            </p>
+                          );
+                        } else if (products > 0) {
+                          return (
+                            <p className="text-sm text-gray-600">
+                              {products} product(s)
+                            </p>
+                          );
+                        } else {
+                          return (
+                            <p className="text-sm text-gray-600">
+                              {totalItems} service(s)
+                            </p>
+                          );
+                        }
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       <p className="text-sm text-gray-600">{getPaymentMethodLabel(bill.paymentMethod)}</p>

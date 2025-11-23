@@ -3,30 +3,38 @@
  * For managing appointments and bookings
  */
 
-import { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Calendar, Clock, CheckCircle, XCircle, Play, Check, User, Phone, Scissors, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Plus, Search, Calendar, Clock, CheckCircle, XCircle, Check, User, Phone, Scissors, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Printer, Edit } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getAppointmentsByBranch, 
   createAppointment, 
   updateAppointment,
   updateAppointmentStatus,
+  checkInAppointment,
   cancelAppointment,
-  getTodayAppointmentStats,
-  getAppointmentStats,
   APPOINTMENT_STATUS 
 } from '../../services/appointmentService';
 import { getBranchServices } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
 import { USER_ROLES } from '../../utils/constants';
+import { getArrivalsByBranch, ARRIVAL_STATUS } from '../../services/arrivalsService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import AppointmentFormModal from '../../components/appointment/AppointmentFormModal';
+import AppointmentDetails from '../../components/appointment/AppointmentDetails';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import BillingModalPOS from '../../components/billing/BillingModalPOS';
 import toast from 'react-hot-toast';
+import { useReactToPrint } from 'react-to-print';
 
 const ReceptionistAppointments = () => {
   const { currentUser, userBranch, userBranchData } = useAuth();
+  const printRef = useRef();
+  
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+  });
+  
   const [appointments, setAppointments] = useState([]);
   const [filteredAppointments, setFilteredAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,84 +43,52 @@ const ReceptionistAppointments = () => {
   const [processingStatus, setProcessingStatus] = useState(null); // Track which appointment is being processed
   const [highlightedAppointment, setHighlightedAppointment] = useState(null); // Track which appointment to highlight
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState('pending'); // Status tabs
-  const [dateFilter, setDateFilter] = useState('today');
-  const [customStartDate, setCustomStartDate] = useState('');
-  const [customEndDate, setCustomEndDate] = useState('');
-  const [showCustomDateRange, setShowCustomDateRange] = useState(false);
+  const [activeTab, setActiveTab] = useState('all'); // Status tabs - default to 'all' to show all appointments
   const [sortField, setSortField] = useState('appointmentDate');
   const [sortDirection, setSortDirection] = useState('asc');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  // Get today's date in YYYY-MM-DD format
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
+  const [filters, setFilters] = useState({
+    startDate: getTodayDate(),
+    endDate: getTodayDate(),
+    stylistId: 'all',
+    serviceId: 'all',
+    checkInStatus: 'all', // 'all', 'checkedIn', 'notCheckedIn'
+    clientType: 'all', // 'all', 'registered', 'guest'
+    status: 'all' // 'all', 'pending', 'confirmed', 'completed', 'cancelled', 'no-show'
+  });
   const [showModal, setShowModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showCheckInModal, setShowCheckInModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState(null);
+  const [appointmentToConfirm, setAppointmentToConfirm] = useState(null);
+  const [appointmentToCheckIn, setAppointmentToCheckIn] = useState(null);
   const [appointmentToBill, setAppointmentToBill] = useState(null);
   const [targetStatus, setTargetStatus] = useState(null);
   const [processingBilling, setProcessingBilling] = useState(false);
   const [cancellationReason, setCancellationReason] = useState('');
   const [stats, setStats] = useState(null);
+  const [showCreateConfirmModal, setShowCreateConfirmModal] = useState(false);
+  const [pendingAppointmentData, setPendingAppointmentData] = useState(null);
   
   // Data for form
   const [services, setServices] = useState([]);
   const [stylists, setStylists] = useState([]);
   const [clients, setClients] = useState([]);
 
-  const getDateRange = (filter) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const weekFromNow = new Date(today);
-    weekFromNow.setDate(weekFromNow.getDate() + 7);
-
-    switch (filter) {
-      case 'today':
-        return { start: today, end: tomorrow };
-      case 'tomorrow':
-        return { start: tomorrow, end: new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000) };
-      case 'week':
-        return { start: today, end: weekFromNow };
-      case 'upcoming':
-        return { start: today, end: null };
-      case 'custom':
-        if (customStartDate && customEndDate) {
-          const start = new Date(customStartDate);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(customEndDate);
-          end.setHours(23, 59, 59, 999);
-          return { start, end };
-        }
-        return { start: today, end: tomorrow };
-      case 'all':
-        return { start: null, end: null };
-      default:
-        return { start: today, end: tomorrow };
-    }
-  };
-
   const fetchStats = async () => {
     try {
-      const { start, end } = getDateRange(dateFilter);
-      let statsData;
-      
-      if (dateFilter === 'upcoming') {
-        // For upcoming, use all appointments from today onwards
-        const upcomingAppointments = appointments.filter(apt => {
-          const aptDate = new Date(apt.appointmentDate);
-          return aptDate >= start;
-        });
-        statsData = calculateStatsFromAppointments(upcomingAppointments);
-      } else {
-        // Use the existing getAppointmentStats function for date ranges
-        if (dateFilter === 'today') {
-          statsData = await getTodayAppointmentStats(userBranch);
-        } else {
-          statsData = await getAppointmentStats(userBranch, start, end);
-        }
-      }
-      
+      // Calculate stats from all appointments (no date filter)
+      const statsData = calculateStatsFromAppointments(appointments);
       setStats(statsData);
     } catch (error) {
       console.error('Error fetching stats:', error);
@@ -125,8 +101,7 @@ const ReceptionistAppointments = () => {
       pending: appointmentList.filter(a => a.status === APPOINTMENT_STATUS.PENDING).length,
       confirmed: appointmentList.filter(a => a.status === APPOINTMENT_STATUS.CONFIRMED).length,
       completed: appointmentList.filter(a => a.status === APPOINTMENT_STATUS.COMPLETED).length,
-      cancelled: appointmentList.filter(a => a.status === APPOINTMENT_STATUS.CANCELLED).length,
-      inService: appointmentList.filter(a => a.status === APPOINTMENT_STATUS.IN_SERVICE).length
+      cancelled: appointmentList.filter(a => a.status === APPOINTMENT_STATUS.CANCELLED).length
     };
   };
 
@@ -134,6 +109,31 @@ const ReceptionistAppointments = () => {
     try {
       setLoading(true);
       const data = await getAppointmentsByBranch(userBranch);
+      
+      // Fetch arrivals to check which appointments are already checked in
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      let checkedInAppointmentIds = new Set();
+      try {
+        const arrivalsData = await getArrivalsByBranch(userBranch, today, tomorrow);
+        // Get appointment IDs that are checked in and not completed/cancelled
+        checkedInAppointmentIds = new Set(
+          arrivalsData
+            .filter(arr => 
+              !arr.isWalkIn && 
+              arr.appointmentId && 
+              arr.status !== ARRIVAL_STATUS.COMPLETED && 
+              arr.status !== ARRIVAL_STATUS.CANCELLED
+            )
+            .map(arr => arr.appointmentId)
+        );
+      } catch (error) {
+        console.error('Error fetching arrivals:', error);
+        // Continue even if arrivals fetch fails
+      }
       
       // Fetch fresh data for enrichment
       const servicesData = await getBranchServices(userBranch);
@@ -169,7 +169,8 @@ const ReceptionistAppointments = () => {
             clientName: client ? `${client.firstName} ${client.lastName}` : apt.clientName || 'Guest',
             clientPhone: client?.phoneNumber || apt.clientPhone || '',
             clientEmail: client?.email || apt.clientEmail || '',
-            branchName: userBranchData?.name || userBranchData?.branchName || ''
+            branchName: userBranchData?.name || userBranchData?.branchName || '',
+            isCheckedIn: checkedInAppointmentIds.has(apt.id)
           };
         }
         
@@ -182,7 +183,8 @@ const ReceptionistAppointments = () => {
           clientName: client ? `${client.firstName} ${client.lastName}` : apt.clientName || 'Guest',
           clientPhone: client?.phoneNumber || apt.clientPhone || '',
           clientEmail: client?.email || apt.clientEmail || '',
-          branchName: userBranchData?.name || userBranchData?.branchName || ''
+          branchName: userBranchData?.name || userBranchData?.branchName || '',
+          isCheckedIn: checkedInAppointmentIds.has(apt.id)
         };
       }));
       
@@ -212,9 +214,10 @@ const ReceptionistAppointments = () => {
     }
   };
 
-  // Memoized appointments filtered by date/search (but not status) - for tab counts
+  // Memoized appointments filtered by date/search/filters (but not status) - for tab counts
   const filteredForCounts = useMemo(() => {
-    let filtered = [...appointments];
+    // Exclude walk-in records from the appointments view
+    let filtered = appointments.filter(apt => !apt.isWalkIn);
 
     // Apply search filter
     if (searchTerm) {
@@ -232,47 +235,112 @@ const ReceptionistAppointments = () => {
       );
     }
 
-    // Apply date filter
-    const { start, end } = getDateRange(dateFilter);
-    
-    if (dateFilter !== 'all') {
-      if (dateFilter === 'today') {
-        filtered = filtered.filter(apt => {
-          const aptDate = new Date(apt.appointmentDate);
-          aptDate.setHours(0, 0, 0, 0);
-          return aptDate.getTime() === start.getTime();
-        });
-      } else if (dateFilter === 'tomorrow') {
-        const tomorrow = new Date(start);
-        filtered = filtered.filter(apt => {
-          const aptDate = new Date(apt.appointmentDate);
-          aptDate.setHours(0, 0, 0, 0);
-          return aptDate.getTime() === tomorrow.getTime();
-        });
-      } else if (dateFilter === 'week') {
-        filtered = filtered.filter(apt => {
-          const aptDate = new Date(apt.appointmentDate);
-          return aptDate >= start && aptDate <= end;
-        });
-      } else if (dateFilter === 'upcoming') {
-        filtered = filtered.filter(apt => new Date(apt.appointmentDate) >= start);
-      } else if (dateFilter === 'custom' && start && end) {
-        filtered = filtered.filter(apt => {
-          const aptDate = new Date(apt.appointmentDate);
-          return aptDate >= start && aptDate <= end;
-        });
+    // Apply date range filter (only if dates are provided)
+    if (filters.startDate) {
+      const startDate = new Date(filters.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      filtered = filtered.filter(apt => {
+        const aptDate = new Date(apt.appointmentDate);
+        aptDate.setHours(0, 0, 0, 0);
+        return aptDate >= startDate;
+      });
+    }
+
+    if (filters.endDate) {
+      const endDate = new Date(filters.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(apt => {
+        const aptDate = new Date(apt.appointmentDate);
+        return aptDate <= endDate;
+      });
+    }
+
+    // Apply stylist filter
+    if (filters.stylistId !== 'all') {
+      filtered = filtered.filter(apt => {
+        if (apt.services && apt.services.length > 0) {
+          return apt.services.some(s => s.stylistId === filters.stylistId);
+        }
+        return apt.stylistId === filters.stylistId;
+      });
+    }
+
+    // Apply service filter
+    if (filters.serviceId !== 'all') {
+      filtered = filtered.filter(apt => {
+        if (apt.services && apt.services.length > 0) {
+          return apt.services.some(s => s.serviceId === filters.serviceId);
+        }
+        return apt.serviceId === filters.serviceId;
+      });
+    }
+
+    // Apply check-in status filter
+    if (filters.checkInStatus !== 'all') {
+      if (filters.checkInStatus === 'checkedIn') {
+        filtered = filtered.filter(apt => apt.isCheckedIn === true);
+      } else if (filters.checkInStatus === 'notCheckedIn') {
+        filtered = filtered.filter(apt => apt.isCheckedIn !== true);
       }
     }
 
+    // Apply client type filter (guest vs registered)
+    if (filters.clientType !== 'all') {
+      if (filters.clientType === 'registered') {
+        filtered = filtered.filter(apt => !apt.isGuest && apt.clientId);
+      } else if (filters.clientType === 'guest') {
+        filtered = filtered.filter(apt => apt.isGuest || !apt.clientId);
+      }
+    }
+
+    // Apply status filter
+    if (filters.status !== 'all') {
+      const statusMap = {
+        'pending': APPOINTMENT_STATUS.PENDING,
+        'confirmed': APPOINTMENT_STATUS.CONFIRMED,
+        'completed': APPOINTMENT_STATUS.COMPLETED,
+        'cancelled': APPOINTMENT_STATUS.CANCELLED,
+        'no-show': APPOINTMENT_STATUS.NO_SHOW
+      };
+      const statusToFilter = statusMap[filters.status];
+      if (statusToFilter) {
+        filtered = filtered.filter(apt => apt.status === statusToFilter);
+      }
+    }
+
+    // Apply time range filter
+    if (filters.startTime) {
+      filtered = filtered.filter(apt => {
+        const aptTime = new Date(apt.appointmentDate);
+        const aptHour = aptTime.getHours();
+        const aptMin = aptTime.getMinutes();
+        const aptTimeMinutes = aptHour * 60 + aptMin;
+        const [startHour, startMin] = filters.startTime.split(':').map(Number);
+        const startTimeMinutes = startHour * 60 + startMin;
+        return aptTimeMinutes >= startTimeMinutes;
+      });
+    }
+
+    if (filters.endTime) {
+      filtered = filtered.filter(apt => {
+        const aptTime = new Date(apt.appointmentDate);
+        const aptHour = aptTime.getHours();
+        const aptMin = aptTime.getMinutes();
+        const aptTimeMinutes = aptHour * 60 + aptMin;
+        const [endHour, endMin] = filters.endTime.split(':').map(Number);
+        const endTimeMinutes = endHour * 60 + endMin;
+        return aptTimeMinutes <= endTimeMinutes;
+      });
+    }
+
     return filtered;
-  }, [appointments, searchTerm, dateFilter, customStartDate, customEndDate]);
+  }, [appointments, searchTerm, filters]);
 
   // Memoized counts for each status tab
   const statusCounts = useMemo(() => {
     return {
       pending: filteredForCounts.filter(a => a.status === APPOINTMENT_STATUS.PENDING).length,
       confirmed: filteredForCounts.filter(a => a.status === APPOINTMENT_STATUS.CONFIRMED).length,
-      inService: filteredForCounts.filter(a => a.status === APPOINTMENT_STATUS.IN_SERVICE).length,
       completed: filteredForCounts.filter(a => a.status === APPOINTMENT_STATUS.COMPLETED).length,
       cancelled: filteredForCounts.filter(a => a.status === APPOINTMENT_STATUS.CANCELLED).length,
       noShow: filteredForCounts.filter(a => a.status === APPOINTMENT_STATUS.NO_SHOW).length
@@ -287,7 +355,6 @@ const ReceptionistAppointments = () => {
       const statusMap = {
         'pending': APPOINTMENT_STATUS.PENDING,
         'confirmed': APPOINTMENT_STATUS.CONFIRMED,
-        'in-service': APPOINTMENT_STATUS.IN_SERVICE,
         'completed': APPOINTMENT_STATUS.COMPLETED,
         'cancelled': APPOINTMENT_STATUS.CANCELLED,
         'no-show': APPOINTMENT_STATUS.NO_SHOW
@@ -345,7 +412,7 @@ const ReceptionistAppointments = () => {
 
   useEffect(() => {
     fetchStats();
-  }, [dateFilter, appointments]);
+  }, [appointments]);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -377,59 +444,126 @@ const ReceptionistAppointments = () => {
     setShowModal(true);
   };
 
+  const handleRescheduleAppointment = (appointment) => {
+    setSelectedAppointment(appointment);
+    setShowModal(true);
+  };
+
   const handleCreateAppointment = () => {
     setSelectedAppointment(null);
     setShowModal(true);
   };
 
   const handleSubmit = async (formData) => {
-    try {
-      setSaving(true);
-      
-      if (selectedAppointment) {
-        // Update existing appointment
+    if (selectedAppointment) {
+      // Update existing appointment - no confirmation needed for updates
+      try {
+        setSaving(true);
         await updateAppointment(selectedAppointment.id, formData, currentUser);
-      } else {
-        // Create new appointment
-        // Ensure branchName is not undefined
-        let branchName = formData.branchName || userBranchData?.name || userBranchData?.branchName;
-        
-        // If still undefined, fetch branch data
-        if (!branchName && userBranch) {
+        setShowModal(false);
+        await fetchAppointments();
+        await fetchStats();
+      } catch (error) {
+        console.error('Error saving appointment:', error);
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      // Create new appointment - show confirmation
+      // Prepare appointment data for confirmation
+      let branchName = formData.branchName || userBranchData?.name || userBranchData?.branchName;
+      
+      if (!branchName && userBranch) {
+        try {
           const { getBranchById } = await import('../../services/branchService');
           const branchData = await getBranchById(userBranch);
           branchName = branchData?.name || branchData?.branchName || 'Unknown Branch';
+        } catch (error) {
+          console.error('Error fetching branch:', error);
         }
-        
-        const appointmentData = {
-          ...formData,
-          branchId: formData.branchId || userBranch,
-          branchName: branchName
-        };
-        await createAppointment(appointmentData, currentUser);
       }
       
+      const appointmentData = {
+        ...formData,
+        branchId: formData.branchId || userBranch,
+        branchName: branchName,
+        status: APPOINTMENT_STATUS.CONFIRMED // Receptionist bookings are automatically confirmed
+      };
+      
+      setPendingAppointmentData(appointmentData);
+      setShowCreateConfirmModal(true);
+    }
+  };
+
+  const confirmCreateAppointment = async () => {
+    if (!pendingAppointmentData) return;
+    
+    try {
+      setSaving(true);
+      setShowCreateConfirmModal(false);
+      await createAppointment(pendingAppointmentData, currentUser);
       setShowModal(false);
+      setPendingAppointmentData(null);
       await fetchAppointments();
       await fetchStats();
     } catch (error) {
       console.error('Error saving appointment:', error);
+      setPendingAppointmentData(null);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleUpdateStatus = async (appointment, newStatus) => {
-    // Show billing modal when starting service (to add services/products and adjust prices)
-    if (newStatus === APPOINTMENT_STATUS.IN_SERVICE) {
-      setAppointmentToBill(appointment);
-      setTargetStatus(newStatus);
-      setShowBillingModal(true);
-      return;
-    }
+  const handleCheckIn = (appointment) => {
+    setAppointmentToCheckIn(appointment);
+    setShowCheckInModal(true);
+  };
 
-    // For other status updates (including confirm), proceed directly
-    await proceedWithStatusUpdate(appointment, newStatus);
+  const confirmCheckIn = async () => {
+    if (!appointmentToCheckIn) return;
+    
+    try {
+      setProcessingStatus(appointmentToCheckIn.id);
+      await checkInAppointment(appointmentToCheckIn.id, currentUser);
+      
+      // Highlight the appointment that was checked in
+      setHighlightedAppointment(appointmentToCheckIn.id);
+      
+      await fetchAppointments();
+      await fetchStats();
+      
+      // Clear highlight after 5 seconds
+      setTimeout(() => {
+        setHighlightedAppointment(null);
+      }, 5000);
+      
+      setShowCheckInModal(false);
+      setAppointmentToCheckIn(null);
+      toast.success(`${appointmentToCheckIn.clientName || 'Client'} checked in successfully`);
+    } catch (error) {
+      console.error('Error checking in appointment:', error);
+      toast.error('Failed to check in appointment');
+    } finally {
+      setProcessingStatus(null);
+    }
+  };
+
+  const handleUpdateStatus = (appointment, newStatus) => {
+    if (newStatus === APPOINTMENT_STATUS.CONFIRMED) {
+      setAppointmentToConfirm(appointment);
+      setShowConfirmModal(true);
+    } else {
+      // For other status updates, proceed directly
+      proceedWithStatusUpdate(appointment, newStatus);
+    }
+  };
+
+  const confirmStatusUpdate = async () => {
+    if (!appointmentToConfirm) return;
+    
+    await proceedWithStatusUpdate(appointmentToConfirm, APPOINTMENT_STATUS.CONFIRMED);
+    setShowConfirmModal(false);
+    setAppointmentToConfirm(null);
   };
 
   const handleBillingSubmit = async (billData) => {
@@ -495,7 +629,6 @@ const ReceptionistAppointments = () => {
       const statusToTabMap = {
         [APPOINTMENT_STATUS.PENDING]: 'pending',
         [APPOINTMENT_STATUS.CONFIRMED]: 'confirmed',
-        [APPOINTMENT_STATUS.IN_SERVICE]: 'in-service',
         [APPOINTMENT_STATUS.COMPLETED]: 'completed',
         [APPOINTMENT_STATUS.CANCELLED]: 'cancelled',
         [APPOINTMENT_STATUS.NO_SHOW]: 'no-show'
@@ -535,7 +668,6 @@ const ReceptionistAppointments = () => {
       const statusToTabMap = {
         [APPOINTMENT_STATUS.PENDING]: 'pending',
         [APPOINTMENT_STATUS.CONFIRMED]: 'confirmed',
-        [APPOINTMENT_STATUS.IN_SERVICE]: 'in-service',
         [APPOINTMENT_STATUS.COMPLETED]: 'completed',
         [APPOINTMENT_STATUS.CANCELLED]: 'cancelled',
         [APPOINTMENT_STATUS.NO_SHOW]: 'no-show'
@@ -623,6 +755,41 @@ const ReceptionistAppointments = () => {
     });
   };
 
+  // Get active filters info for printing
+  const getActiveFiltersInfo = () => {
+    const activeFilters = [];
+    if (filters.startDate || filters.endDate) {
+      const start = filters.startDate || 'N/A';
+      const end = filters.endDate || 'N/A';
+      activeFilters.push(`Date: ${start} to ${end}`);
+    }
+    if (filters.stylistId !== 'all') {
+      const stylist = stylists.find(s => s.id === filters.stylistId);
+      if (stylist) {
+        activeFilters.push(`Stylist: ${stylist.firstName} ${stylist.lastName}`);
+      }
+    }
+    if (filters.serviceId !== 'all') {
+      const service = services.find(s => s.id === filters.serviceId);
+      if (service) {
+        activeFilters.push(`Service: ${service.name}`);
+      }
+    }
+    if (filters.status !== 'all') {
+      activeFilters.push(`Status: ${filters.status.charAt(0).toUpperCase() + filters.status.slice(1)}`);
+    }
+    if (filters.clientType !== 'all') {
+      activeFilters.push(`Client Type: ${filters.clientType === 'registered' ? 'Registered' : 'Guest'}`);
+    }
+    if (filters.checkInStatus !== 'all') {
+      activeFilters.push(`Check-in: ${filters.checkInStatus === 'checkedIn' ? 'Checked In' : 'Not Checked In'}`);
+    }
+    if (activeTab !== 'all') {
+      activeFilters.push(`Tab: ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`);
+    }
+    return activeFilters;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -648,7 +815,7 @@ const ReceptionistAppointments = () => {
         </button>
       </div>
 
-      {/* Search and Date Filter Bar */}
+      {/* Search Bar */}
       <div className="flex gap-3">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -660,58 +827,34 @@ const ReceptionistAppointments = () => {
             className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           />
         </div>
-        <div className="flex gap-2">
-          <select
-            value={dateFilter}
-            onChange={(e) => {
-              setDateFilter(e.target.value);
-              if (e.target.value === 'custom') {
-                setShowCustomDateRange(true);
-              } else {
-                setShowCustomDateRange(false);
-                setCustomStartDate('');
-                setCustomEndDate('');
-              }
-            }}
-            className="px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent min-w-[150px]"
-          >
-            <option value="all">All Dates</option>
-            <option value="today">Today</option>
-            <option value="tomorrow">Tomorrow</option>
-            <option value="week">This Week</option>
-            <option value="upcoming">Upcoming</option>
-            <option value="custom">Custom Range</option>
-          </select>
-          
-          {showCustomDateRange && (
-            <>
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                className="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                placeholder="Start Date"
-              />
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={(e) => setCustomEndDate(e.target.value)}
-                className="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                placeholder="End Date"
-              />
-              <button
-                onClick={() => {
-                  if (customStartDate && customEndDate) {
-                    applyFilters();
-                  }
-                }}
-                className="px-4 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-              >
-                Apply
-              </button>
-            </>
+        <button
+          onClick={() => setShowFilterModal(true)}
+          className={`px-4 py-2.5 border rounded-lg transition-colors flex items-center gap-2 ${
+            (filters.startDate || filters.endDate || 
+             filters.stylistId !== 'all' || filters.serviceId !== 'all' || filters.checkInStatus !== 'all' ||
+             filters.clientType !== 'all' || filters.status !== 'all')
+              ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
+              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Filter className="w-5 h-5" />
+          Filters
+          {((filters.startDate || filters.endDate || 
+             filters.stylistId !== 'all' || filters.serviceId !== 'all' || filters.checkInStatus !== 'all' ||
+             filters.clientType !== 'all' || filters.status !== 'all')) && (
+            <span className="px-2 py-0.5 text-xs bg-primary-600 text-white rounded-full">
+              Active
+            </span>
           )}
-        </div>
+        </button>
+        <button
+          onClick={handlePrint}
+          disabled={filteredAppointments.length === 0}
+          className="px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Printer className="w-5 h-5" />
+          Print
+        </button>
       </div>
 
       {/* Status Tabs */}
@@ -746,22 +889,6 @@ const ReceptionistAppointments = () => {
               <span>Confirmed</span>
               <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
                 {statusCounts.confirmed}
-              </span>
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('in-service')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'in-service'
-                ? 'border-purple-500 text-purple-700'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Play className="w-4 h-4" />
-              <span>In Service</span>
-              <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700">
-                {statusCounts.inService}
               </span>
             </div>
           </button>
@@ -948,34 +1075,36 @@ const ReceptionistAppointments = () => {
                         
                         {apt.status === APPOINTMENT_STATUS.CONFIRMED && (
                           <button
-                            onClick={() => handleUpdateStatus(apt, APPOINTMENT_STATUS.IN_SERVICE)}
-                            disabled={processingStatus === apt.id}
-                            className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            onClick={() => handleCheckIn(apt)}
+                            disabled={processingStatus === apt.id || apt.isCheckedIn}
+                            className={`px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
+                              apt.isCheckedIn 
+                                ? 'bg-gray-400 cursor-not-allowed' 
+                                : 'bg-green-600 hover:bg-green-700'
+                            }`}
                           >
                             {processingStatus === apt.id && <LoadingSpinner size="sm" />}
-                            {processingStatus === apt.id ? 'Starting...' : 'Start'}
-                          </button>
-                        )}
-                        
-                        {apt.status === APPOINTMENT_STATUS.IN_SERVICE && (
-                          <button
-                            onClick={() => handleUpdateStatus(apt, APPOINTMENT_STATUS.COMPLETED)}
-                            disabled={processingStatus === apt.id}
-                            className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                          >
-                            {processingStatus === apt.id && <LoadingSpinner size="sm" />}
-                            {processingStatus === apt.id ? 'Completing...' : 'Complete'}
+                            {processingStatus === apt.id ? 'Checking in...' : apt.isCheckedIn ? 'Checked In' : 'Check In'}
                           </button>
                         )}
                         
                         {apt.status !== APPOINTMENT_STATUS.COMPLETED && apt.status !== APPOINTMENT_STATUS.CANCELLED && (
-                          <button
-                            onClick={() => handleCancelAppointment(apt)}
-                            disabled={processingStatus === apt.id || deleting}
-                            className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            Cancel
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleRescheduleAppointment(apt)}
+                              disabled={processingStatus === apt.id || saving}
+                              className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Reschedule
+                            </button>
+                            <button
+                              onClick={() => handleCancelAppointment(apt)}
+                              disabled={processingStatus === apt.id || deleting}
+                              className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Cancel
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
@@ -1033,6 +1162,64 @@ const ReceptionistAppointments = () => {
         </div>
       </ConfirmModal>
 
+      {/* Confirm Appointment Modal */}
+      <ConfirmModal
+        isOpen={showConfirmModal}
+        onClose={() => {
+          if (processingStatus !== appointmentToConfirm?.id) {
+            setShowConfirmModal(false);
+            setAppointmentToConfirm(null);
+          }
+        }}
+        onConfirm={confirmStatusUpdate}
+        title="Confirm Appointment"
+        message={`Are you sure you want to confirm this appointment for ${appointmentToConfirm?.clientName}?`}
+        confirmText="Confirm Appointment"
+        cancelText="Cancel"
+        type="default"
+        loading={processingStatus === appointmentToConfirm?.id}
+      />
+
+      {/* Check In Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showCheckInModal}
+        onClose={() => {
+          if (processingStatus !== appointmentToCheckIn?.id) {
+            setShowCheckInModal(false);
+            setAppointmentToCheckIn(null);
+          }
+        }}
+        onConfirm={confirmCheckIn}
+        title="Check In Appointment"
+        message={`Are you sure you want to check in ${appointmentToCheckIn?.clientName}?`}
+        confirmText="Check In"
+        cancelText="Cancel"
+        type="default"
+        loading={processingStatus === appointmentToCheckIn?.id}
+      />
+
+      {/* Confirm Create Appointment Modal */}
+      <ConfirmModal
+        isOpen={showCreateConfirmModal}
+        onClose={() => {
+          if (!saving) {
+            setShowCreateConfirmModal(false);
+            setPendingAppointmentData(null);
+          }
+        }}
+        onConfirm={confirmCreateAppointment}
+        title="Book Appointment"
+        message={
+          pendingAppointmentData
+            ? `Are you sure you want to book an appointment for ${pendingAppointmentData.clientName || 'this client'}?`
+            : 'Are you sure you want to book this appointment?'
+        }
+        confirmText="Book Appointment"
+        cancelText="Cancel"
+        type="default"
+        loading={saving}
+      />
+
       {/* Billing Modal POS - For starting service with billing */}
       {appointmentToBill && (
         <BillingModalPOS
@@ -1056,219 +1243,497 @@ const ReceptionistAppointments = () => {
 
       {/* Appointment Details Modal */}
       {showDetailsModal && selectedAppointment && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-primary-600 to-primary-700 text-white px-6 py-6 rounded-t-2xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="bg-white bg-opacity-20 rounded-full p-2">
-                    <Calendar className="w-6 h-6" />
+        <AppointmentDetails
+          appointment={selectedAppointment}
+          onClose={() => setShowDetailsModal(false)}
+          onEdit={(apt) => {
+            setSelectedAppointment(apt);
+            setShowDetailsModal(false);
+            setShowModal(true);
+          }}
+        />
+      )}
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-900">Filter Appointments</h2>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Date Range */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date Range
+                </label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={filters.startDate}
+                      onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold">Appointment Details</h2>
-                    <p className="text-primary-100 text-sm">Complete appointment information</p>
+                    <label className="block text-xs text-gray-500 mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={filters.endDate}
+                      onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
                   </div>
                 </div>
-                <button 
-                  onClick={() => setShowDetailsModal(false)}
-                  className="text-white hover:bg-white hover:bg-opacity-20 transition-colors p-2 rounded-full"
+              </div>
+
+              {/* Status & Client Type */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Status
+                  </label>
+                  <select
+                    value={filters.status}
+                    onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="no-show">No Show</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Client Type
+                  </label>
+                  <select
+                    value={filters.clientType}
+                    onChange={(e) => setFilters(prev => ({ ...prev, clientType: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  >
+                    <option value="all">All Clients</option>
+                    <option value="registered">Registered Clients</option>
+                    <option value="guest">Guest Clients</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Stylist & Service */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Stylist
+                  </label>
+                  <select
+                    value={filters.stylistId}
+                    onChange={(e) => setFilters(prev => ({ ...prev, stylistId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  >
+                    <option value="all">All Stylists</option>
+                    {stylists.map(stylist => (
+                      <option key={stylist.id} value={stylist.id}>
+                        {stylist.firstName} {stylist.lastName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Service
+                  </label>
+                  <select
+                    value={filters.serviceId}
+                    onChange={(e) => setFilters(prev => ({ ...prev, serviceId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  >
+                    <option value="all">All Services</option>
+                    {services.map(service => (
+                      <option key={service.id} value={service.id}>
+                        {service.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Check-in Status */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Check-in Status
+                </label>
+                <select
+                  value={filters.checkInStatus}
+                  onChange={(e) => setFilters(prev => ({ ...prev, checkInStatus: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
-                  <XCircle className="w-6 h-6" />
-                </button>
+                  <option value="all">All</option>
+                  <option value="checkedIn">Checked In</option>
+                  <option value="notCheckedIn">Not Checked In</option>
+                </select>
               </div>
             </div>
 
-            {/* Content */}
-            <div className="p-6 space-y-6">
-              {/* Client Header Card */}
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="bg-blue-100 rounded-full p-3">
-                      <User className="w-8 h-8 text-blue-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-bold text-gray-900">{selectedAppointment.clientName}</h3>
-                      <p className="text-gray-600 text-sm">Client Information</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                      selectedAppointment.status === 'confirmed' ? 'bg-green-100 text-green-800' :
-                      selectedAppointment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      selectedAppointment.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                      selectedAppointment.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      <div className={`w-2 h-2 rounded-full mr-2 ${
-                        selectedAppointment.status === 'confirmed' ? 'bg-green-500' :
-                        selectedAppointment.status === 'pending' ? 'bg-yellow-500' :
-                        selectedAppointment.status === 'completed' ? 'bg-blue-500' :
-                        selectedAppointment.status === 'cancelled' ? 'bg-red-500' :
-                        'bg-gray-500'
-                      }`}></div>
-                      {selectedAppointment.status?.charAt(0).toUpperCase() + selectedAppointment.status?.slice(1)}
-                    </div>
-                    {selectedAppointment.id && (
-                      <p className="text-gray-500 text-xs mt-1">ID: {selectedAppointment.id.slice(-8)}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Main Content Grid */}
-              <div className="grid md:grid-cols-2 gap-6">
-                {/* Contact Information Card */}
-                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                  <div className="flex items-center space-x-3 mb-4">
-                    <div className="bg-green-100 rounded-full p-2">
-                      <Phone className="w-5 h-5 text-green-600" />
-                    </div>
-                    <h4 className="text-lg font-semibold text-gray-900">Contact Details</h4>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                      <span className="text-gray-600 font-medium">Phone Number</span>
-                      <span className="text-gray-900 font-medium">{selectedAppointment.clientPhone || 'Not provided'}</span>
-                    </div>
-                    <div className="flex items-center justify-between py-2">
-                      <span className="text-gray-600 font-medium">Email Address</span>
-                      <span className="text-gray-900 font-medium text-sm break-all">{selectedAppointment.clientEmail || 'Not provided'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Appointment Schedule Card */}
-                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                  <div className="flex items-center space-x-3 mb-4">
-                    <div className="bg-purple-100 rounded-full p-2">
-                      <Clock className="w-5 h-5 text-purple-600" />
-                    </div>
-                    <h4 className="text-lg font-semibold text-gray-900">Schedule</h4>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                      <span className="text-gray-600 font-medium">Date</span>
-                      <span className="text-gray-900 font-semibold">
-                        {new Date(selectedAppointment.appointmentDate).toLocaleDateString('en-US', { 
-                          weekday: 'short',
-                          year: 'numeric',
-                          month: 'short', 
-                          day: 'numeric'
-                        })}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between py-2">
-                      <span className="text-gray-600 font-medium">Time</span>
-                      <span className="text-gray-900 font-semibold">
-                        {new Date(selectedAppointment.appointmentDate).toLocaleTimeString('en-US', { 
-                          hour: 'numeric', 
-                          minute: '2-digit', 
-                          hour12: true 
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Services Card */}
-              <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                <div className="flex items-center space-x-3 mb-6">
-                  <div className="bg-pink-100 rounded-full p-2">
-                    <Scissors className="w-5 h-5 text-pink-600" />
-                  </div>
-                  <h4 className="text-lg font-semibold text-gray-900">Services Booked</h4>
-                </div>
-                <div className="space-y-4">
-                  {selectedAppointment.services && selectedAppointment.services.length > 0 ? (
-                    selectedAppointment.services.map((service, index) => (
-                      <div key={index} className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <h5 className="font-semibold text-gray-900 text-lg">{service.serviceName}</h5>
-                            <p className="text-gray-600 text-sm">with {service.stylistName || 'Unassigned Stylist'}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-primary-600 text-xl">₱{service.price?.toFixed(0) || '0'}</p>
-                            <p className="text-gray-500 text-sm">{service.duration || 30} minutes</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200">
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <h5 className="font-semibold text-gray-900 text-lg">{selectedAppointment.serviceName}</h5>
-                          <p className="text-gray-600 text-sm">with {selectedAppointment.stylistName || 'Unassigned Stylist'}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold text-primary-600 text-xl">₱{selectedAppointment.price?.toFixed(0) || '0'}</p>
-                          <p className="text-gray-500 text-sm">{selectedAppointment.duration || 30} minutes</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Summary Card */}
-              <div className="bg-gradient-to-r from-primary-50 to-primary-100 border border-primary-200 rounded-xl p-6">
-                <h4 className="text-lg font-semibold text-primary-900 mb-4">Appointment Summary</h4>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="text-center">
-                    <p className="text-sm text-primary-600 font-medium uppercase tracking-wide mb-1">Total Amount</p>
-                    <p className="text-3xl font-bold text-primary-700">
-                      ₱{
-                        selectedAppointment.services && selectedAppointment.services.length > 0
-                          ? selectedAppointment.services.reduce((sum, s) => sum + (s.price || 0), 0).toFixed(0)
-                          : (selectedAppointment.price?.toFixed(0) || '0')
-                      }
-                    </p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm text-primary-600 font-medium uppercase tracking-wide mb-1">Total Duration</p>
-                    <p className="text-3xl font-bold text-primary-700">
-                      {selectedAppointment.services && selectedAppointment.services.length > 0
-                        ? selectedAppointment.services.reduce((sum, s) => sum + (s.duration || 30), 0)
-                        : selectedAppointment.duration || 30
-                      } <span className="text-lg">min</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Notes */}
-              {selectedAppointment.notes && (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                  <div className="flex items-center space-x-3 mb-3">
-                    <div className="bg-blue-100 rounded-full p-2">
-                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </div>
-                    <h4 className="text-lg font-semibold text-blue-900">Special Notes</h4>
-                  </div>
-                  <p className="text-blue-800 bg-white rounded-lg p-3 border border-blue-200">{selectedAppointment.notes}</p>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-                <button
-                  onClick={() => setShowDetailsModal(false)}
-                  className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors flex items-center space-x-2"
-                >
-                  <XCircle className="w-4 h-4" />
-                  <span>Close</span>
-                </button>
-              </div>
+            {/* Modal Footer */}
+            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-end gap-3">
+              <button
+                onClick={() => {
+                  setFilters({
+                    startDate: getTodayDate(),
+                    endDate: getTodayDate(),
+                    stylistId: 'all',
+                    serviceId: 'all',
+                    checkInStatus: 'all',
+                    clientType: 'all',
+                    status: 'all'
+                  });
+                }}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                Reset Filters
+              </button>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                Apply Filters
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Hidden Print Component */}
+      <div className="hidden">
+        <div ref={printRef} className="print-content p-6" style={{ fontFamily: 'Arial, sans-serif', fontSize: '10px' }}>
+          {/* Header */}
+          <div className="mb-3 pb-2 border-b border-black">
+            <h1 className="text-base font-bold text-black mb-1" style={{ fontSize: '14px' }}>
+              APPOINTMENT REPORT - {userBranchData?.name || userBranchData?.branchName || 'David Salon'}
+            </h1>
+            <div className="flex justify-between text-xs text-black" style={{ fontSize: '9px' }}>
+              <span>
+                Period: {
+                  filters.startDate && filters.endDate
+                    ? `${new Date(filters.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${new Date(filters.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                    : 'All Time'
+                }
+              </span>
+              <span>
+                Generated: {new Date().toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </span>
+            </div>
+          </div>
+
+          {/* Summary Statistics */}
+          {(() => {
+            const stats = {
+              total: filteredAppointments.length,
+              pending: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.PENDING).length,
+              confirmed: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.CONFIRMED).length,
+              completed: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.COMPLETED).length,
+              cancelled: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.CANCELLED).length,
+              noShow: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.NO_SHOW).length,
+              checkedIn: filteredAppointments.filter(a => a.isCheckedIn).length,
+              registered: filteredAppointments.filter(a => !a.isGuest && a.clientId).length,
+              guest: filteredAppointments.filter(a => a.isGuest || !a.clientId).length,
+            };
+            
+            // Calculate time distribution
+            const timeSlots = { morning: 0, afternoon: 0, evening: 0 };
+            filteredAppointments.forEach(apt => {
+              const hour = new Date(apt.appointmentDate).getHours();
+              if (hour >= 6 && hour < 12) timeSlots.morning++;
+              else if (hour >= 12 && hour < 17) timeSlots.afternoon++;
+              else if (hour >= 17 && hour < 22) timeSlots.evening++;
+            });
+
+            // Stylist distribution
+            const stylistCounts = {};
+            filteredAppointments.forEach(apt => {
+              if (apt.services && apt.services.length > 0) {
+                apt.services.forEach(svc => {
+                  const stylistId = svc.stylistId || apt.stylistId;
+                  const stylistName = svc.stylistName || apt.stylistName || 'Unassigned';
+                  if (stylistId) {
+                    stylistCounts[stylistId] = stylistCounts[stylistId] || { name: stylistName, count: 0 };
+                    stylistCounts[stylistId].count++;
+                  }
+                });
+              } else {
+                const stylistId = apt.stylistId;
+                const stylistName = apt.stylistName || 'Unassigned';
+                if (stylistId) {
+                  stylistCounts[stylistId] = stylistCounts[stylistId] || { name: stylistName, count: 0 };
+                  stylistCounts[stylistId].count++;
+                }
+              }
+            });
+
+            // Service popularity
+            const serviceCounts = {};
+            filteredAppointments.forEach(apt => {
+              if (apt.services && apt.services.length > 0) {
+                apt.services.forEach(svc => {
+                  const serviceName = svc.serviceName || 'Unknown';
+                  serviceCounts[serviceName] = (serviceCounts[serviceName] || 0) + 1;
+                });
+              } else if (apt.serviceName) {
+                serviceCounts[apt.serviceName] = (serviceCounts[apt.serviceName] || 0) + 1;
+              }
+            });
+
+            const completionRate = stats.total > 0 ? ((stats.completed / stats.total) * 100).toFixed(1) : 0;
+            const cancellationRate = stats.total > 0 ? ((stats.cancelled / stats.total) * 100).toFixed(1) : 0;
+            const checkInRate = (stats.confirmed + stats.completed) > 0 ? ((stats.checkedIn / (stats.confirmed + stats.completed)) * 100).toFixed(1) : 0;
+
+            return (
+                <>
+                  {/* Key Metrics */}
+                  <div className="mb-3 grid grid-cols-4 gap-2">
+                    <div className="border border-black p-2">
+                      <div className="text-xs text-black mb-0.5" style={{ fontSize: '8px' }}>Total Appointments</div>
+                      <div className="text-base font-bold text-black" style={{ fontSize: '14px' }}>{stats.total}</div>
+                    </div>
+                    <div className="border border-black p-2">
+                      <div className="text-xs text-black mb-0.5" style={{ fontSize: '8px' }}>Completed</div>
+                      <div className="text-base font-bold text-black" style={{ fontSize: '14px' }}>{stats.completed}</div>
+                      <div className="text-xs text-black" style={{ fontSize: '8px' }}>({completionRate}%)</div>
+                    </div>
+                    <div className="border border-black p-2">
+                      <div className="text-xs text-black mb-0.5" style={{ fontSize: '8px' }}>Confirmed</div>
+                      <div className="text-base font-bold text-black" style={{ fontSize: '14px' }}>{stats.confirmed}</div>
+                    </div>
+                    <div className="border border-black p-2">
+                      <div className="text-xs text-black mb-0.5" style={{ fontSize: '8px' }}>Cancelled</div>
+                      <div className="text-base font-bold text-black" style={{ fontSize: '14px' }}>{stats.cancelled}</div>
+                      <div className="text-xs text-black" style={{ fontSize: '8px' }}>({cancellationRate}%)</div>
+                    </div>
+                  </div>
+
+                  {/* Detailed Breakdown */}
+                  <div className="mb-3 grid grid-cols-3 gap-2">
+                    <div className="border border-black p-2">
+                      <h3 className="text-xs font-bold text-black mb-1 uppercase border-b border-black pb-0.5" style={{ fontSize: '9px' }}>Status</h3>
+                      <table className="w-full text-xs" style={{ fontSize: '9px' }}>
+                        <tbody>
+                          <tr>
+                            <td className="text-black">Pending:</td>
+                            <td className="text-right font-semibold text-black">{stats.pending}</td>
+                          </tr>
+                          <tr>
+                            <td className="text-black">Confirmed:</td>
+                            <td className="text-right font-semibold text-black">{stats.confirmed}</td>
+                          </tr>
+                          <tr>
+                            <td className="text-black">Completed:</td>
+                            <td className="text-right font-semibold text-black">{stats.completed}</td>
+                          </tr>
+                          <tr>
+                            <td className="text-black">Cancelled:</td>
+                            <td className="text-right font-semibold text-black">{stats.cancelled}</td>
+                          </tr>
+                          {stats.noShow > 0 && (
+                            <tr>
+                              <td className="text-black">No Show:</td>
+                              <td className="text-right font-semibold text-black">{stats.noShow}</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="border border-black p-2">
+                      <h3 className="text-xs font-bold text-black mb-1 uppercase border-b border-black pb-0.5" style={{ fontSize: '9px' }}>Clients</h3>
+                      <table className="w-full text-xs" style={{ fontSize: '9px' }}>
+                        <tbody>
+                          <tr>
+                            <td className="text-black">Registered:</td>
+                            <td className="text-right font-semibold text-black">{stats.registered} ({stats.total > 0 ? ((stats.registered / stats.total) * 100).toFixed(1) : 0}%)</td>
+                          </tr>
+                          <tr>
+                            <td className="text-black">Guest:</td>
+                            <td className="text-right font-semibold text-black">{stats.guest} ({stats.total > 0 ? ((stats.guest / stats.total) * 100).toFixed(1) : 0}%)</td>
+                          </tr>
+                          <tr className="border-t border-black">
+                            <td className="text-black">Checked In:</td>
+                            <td className="text-right font-semibold text-black">{stats.checkedIn} ({checkInRate}%)</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="border border-black p-2">
+                      <h3 className="text-xs font-bold text-black mb-1 uppercase border-b border-black pb-0.5" style={{ fontSize: '9px' }}>Time Slot</h3>
+                      <table className="w-full text-xs" style={{ fontSize: '9px' }}>
+                        <tbody>
+                          <tr>
+                            <td className="text-black">Morning:</td>
+                            <td className="text-right font-semibold text-black">{timeSlots.morning}</td>
+                          </tr>
+                          <tr>
+                            <td className="text-black">Afternoon:</td>
+                            <td className="text-right font-semibold text-black">{timeSlots.afternoon}</td>
+                          </tr>
+                          <tr>
+                            <td className="text-black">Evening:</td>
+                            <td className="text-right font-semibold text-black">{timeSlots.evening}</td>
+                          </tr>
+                          <tr className="border-t border-black">
+                            <td className="text-black font-semibold">Peak:</td>
+                            <td className="text-right font-bold text-black">
+                              {timeSlots.morning >= timeSlots.afternoon && timeSlots.morning >= timeSlots.evening ? 'Morning' :
+                               timeSlots.afternoon >= timeSlots.evening ? 'Afternoon' : 'Evening'}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Top Performers - Side by Side */}
+                  <div className="mb-3 grid grid-cols-2 gap-2">
+                    {Object.keys(stylistCounts).length > 0 && (
+                      <div className="border border-black p-2">
+                        <h3 className="text-xs font-bold text-black mb-1 uppercase border-b border-black pb-0.5" style={{ fontSize: '9px' }}>Top Stylists</h3>
+                        <table className="w-full text-xs" style={{ fontSize: '9px' }}>
+                          <tbody>
+                            {Object.entries(stylistCounts)
+                              .sort((a, b) => b[1].count - a[1].count)
+                              .slice(0, 5)
+                              .map(([id, data]) => (
+                                <tr key={id}>
+                                  <td className="text-black">{data.name}</td>
+                                  <td className="text-right font-semibold text-black">{data.count}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {Object.keys(serviceCounts).length > 0 && (
+                      <div className="border border-black p-2">
+                        <h3 className="text-xs font-bold text-black mb-1 uppercase border-b border-black pb-0.5" style={{ fontSize: '9px' }}>Top Services</h3>
+                        <table className="w-full text-xs" style={{ fontSize: '9px' }}>
+                          <tbody>
+                            {Object.entries(serviceCounts)
+                              .sort((a, b) => b[1] - a[1])
+                              .slice(0, 5)
+                              .map(([serviceName, count]) => (
+                                <tr key={serviceName}>
+                                  <td className="text-black">{serviceName.length > 25 ? serviceName.substring(0, 25) + '...' : serviceName}</td>
+                                  <td className="text-right font-semibold text-black">{count}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Active Filters */}
+                  {getActiveFiltersInfo().length > 0 && (
+                    <div className="mb-2 p-1.5 border border-black text-xs" style={{ fontSize: '8px', backgroundColor: '#f5f5f5' }}>
+                      <strong className="text-black">Filters:</strong> {getActiveFiltersInfo().join(' • ')}
+                    </div>
+                  )}
+              </>
+            );
+          })()}
+
+          <table className="w-full border-collapse text-xs" style={{ fontSize: '9px' }}>
+            <thead>
+              <tr className="bg-gray-200 border-b-2 border-black">
+                <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '30px' }}>#</th>
+                <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '130px' }}>Date & Time</th>
+                <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '170px' }}>Client</th>
+                <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '230px' }}>Services</th>
+                <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '140px' }}>Stylist</th>
+                <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '100px' }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredAppointments.map((apt, index) => {
+                const aptDate = new Date(apt.appointmentDate);
+                const dateStr = aptDate.toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric', 
+                  year: 'numeric' 
+                });
+                const timeStr = aptDate.toLocaleTimeString('en-US', { 
+                  hour: 'numeric', 
+                  minute: '2-digit', 
+                  hour12: true 
+                });
+
+                let servicesList = '';
+                if (apt.services && apt.services.length > 0) {
+                  servicesList = apt.services.map(s => s.serviceName).join(', ');
+                } else {
+                  servicesList = apt.serviceName || 'N/A';
+                }
+
+                const stylistName = apt.stylistName || 'Unassigned';
+
+                return (
+                  <tr key={apt.id} className="border-b border-gray-400">
+                    <td className="px-2 py-1.5 text-center text-black">{index + 1}</td>
+                    <td className="px-2 py-1.5 text-black">
+                      <div className="font-semibold">{dateStr}</div>
+                      <div>{timeStr}</div>
+                    </td>
+                    <td className="px-2 py-1.5 text-black">
+                      <div className="font-medium">{apt.clientName || 'Guest'}</div>
+                      {apt.clientPhone && (
+                        <div>{apt.clientPhone}</div>
+                      )}
+                      <span>({apt.isGuest ? 'Guest' : 'Registered'})</span>
+                    </td>
+                    <td className="px-2 py-1.5 text-black">
+                      <div>{servicesList}</div>
+                    </td>
+                    <td className="px-2 py-1.5 text-black">
+                      <div>{stylistName}</div>
+                      {apt.isCheckedIn && (
+                        <span className="font-semibold">✓ Checked In</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-black font-medium">
+                      {apt.status || 'N/A'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          <div className="mt-4 pt-3 border-t-2 border-black">
+            <div className="flex justify-between items-center text-xs text-black">
+              <div className="font-semibold">Report generated for business analysis</div>
+              <div className="font-bold">Total: {filteredAppointments.length} appointment(s)</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

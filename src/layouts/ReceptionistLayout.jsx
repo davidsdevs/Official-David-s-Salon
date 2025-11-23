@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Calendar, Users, Receipt } from 'lucide-react';
+import { LayoutDashboard, Calendar, Users, Receipt, CheckCircle, Clock, Scissors, Package } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -12,8 +12,13 @@ const ReceptionistLayout = () => {
     { path: ROUTES.RECEPTIONIST_DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
     { section: 'Operations' },
     { path: ROUTES.RECEPTIONIST_APPOINTMENTS, label: 'Appointments', icon: Calendar },
+    { path: ROUTES.RECEPTIONIST_ARRIVALS, label: 'Arrivals & Check-ins', icon: CheckCircle },
     { path: ROUTES.RECEPTIONIST_CLIENTS, label: 'Clients', icon: Users },
     { path: ROUTES.RECEPTIONIST_BILLING, label: 'Billing', icon: Receipt },
+    { path: ROUTES.RECEPTIONIST_STAFF_SCHEDULE, label: 'Staff Schedule', icon: Clock },
+    { section: 'Catalog' },
+    { path: ROUTES.RECEPTIONIST_SERVICES, label: 'Services', icon: Scissors },
+    { path: ROUTES.RECEPTIONIST_PRODUCTS, label: 'Products', icon: Package },
   ];
 
   return (

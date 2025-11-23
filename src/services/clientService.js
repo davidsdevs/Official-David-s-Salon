@@ -55,12 +55,48 @@ export const getClients = async () => {
       snapshot = await getDocs(q);
     }
     
-    const clients = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate()
-    }));
+    const clients = snapshot.docs.map(doc => {
+      const data = doc.data();
+      
+      // Safe date conversion for createdAt
+      let createdAt = null;
+      if (data.createdAt) {
+        if (data.createdAt.toDate && typeof data.createdAt.toDate === 'function') {
+          createdAt = data.createdAt.toDate();
+        } else if (data.createdAt instanceof Date) {
+          createdAt = data.createdAt;
+        } else {
+          try {
+            createdAt = new Date(data.createdAt);
+          } catch (e) {
+            createdAt = null;
+          }
+        }
+      }
+      
+      // Safe date conversion for updatedAt
+      let updatedAt = null;
+      if (data.updatedAt) {
+        if (data.updatedAt.toDate && typeof data.updatedAt.toDate === 'function') {
+          updatedAt = data.updatedAt.toDate();
+        } else if (data.updatedAt instanceof Date) {
+          updatedAt = data.updatedAt;
+        } else {
+          try {
+            updatedAt = new Date(data.updatedAt);
+          } catch (e) {
+            updatedAt = null;
+          }
+        }
+      }
+      
+      return {
+        id: doc.id,
+        ...data,
+        createdAt,
+        updatedAt
+      };
+    });
     
     // Sort by firstName (manual sort if orderBy fails)
     return clients.sort((a, b) => {
@@ -130,11 +166,45 @@ export const getClientById = async (clientId) => {
       return null;
     }
     
+    const data = clientSnap.data();
+    
+    // Safe date conversion for createdAt
+    let createdAt = null;
+    if (data.createdAt) {
+      if (data.createdAt.toDate && typeof data.createdAt.toDate === 'function') {
+        createdAt = data.createdAt.toDate();
+      } else if (data.createdAt instanceof Date) {
+        createdAt = data.createdAt;
+      } else {
+        try {
+          createdAt = new Date(data.createdAt);
+        } catch (e) {
+          createdAt = null;
+        }
+      }
+    }
+    
+    // Safe date conversion for updatedAt
+    let updatedAt = null;
+    if (data.updatedAt) {
+      if (data.updatedAt.toDate && typeof data.updatedAt.toDate === 'function') {
+        updatedAt = data.updatedAt.toDate();
+      } else if (data.updatedAt instanceof Date) {
+        updatedAt = data.updatedAt;
+      } else {
+        try {
+          updatedAt = new Date(data.updatedAt);
+        } catch (e) {
+          updatedAt = null;
+        }
+      }
+    }
+    
     return {
       id: clientSnap.id,
-      ...clientSnap.data(),
-      createdAt: clientSnap.data().createdAt?.toDate(),
-      updatedAt: clientSnap.data().updatedAt?.toDate()
+      ...data,
+      createdAt,
+      updatedAt
     };
   } catch (error) {
     console.error('Error fetching client:', error);
@@ -227,12 +297,29 @@ export const getClientProfile = async (clientId) => {
     
     if (clientSnap.exists()) {
       const data = clientSnap.data();
+      
+      // Safe date conversion helper
+      const convertDate = (dateField) => {
+        if (!dateField) return null;
+        if (dateField.toDate && typeof dateField.toDate === 'function') {
+          return dateField.toDate();
+        } else if (dateField instanceof Date) {
+          return dateField;
+        } else {
+          try {
+            return new Date(dateField);
+          } catch (e) {
+            return null;
+          }
+        }
+      };
+      
       return {
         id: clientSnap.id,
         ...data,
-        createdAt: data.createdAt?.toDate(),
-        updatedAt: data.updatedAt?.toDate(),
-        lastVisit: data.lastVisit?.toDate()
+        createdAt: convertDate(data.createdAt),
+        updatedAt: convertDate(data.updatedAt),
+        lastVisit: convertDate(data.lastVisit)
       };
     }
     

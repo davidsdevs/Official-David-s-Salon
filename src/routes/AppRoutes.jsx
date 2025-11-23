@@ -68,8 +68,12 @@ import BranchManagerReports from '../pages/branch-manager/Reports';
 import BranchManagerInventory from '../pages/branch-manager/Inventory';
 import ReceptionistDashboard from '../pages/receptionist/Dashboard';
 import ReceptionistAppointments from '../pages/receptionist/Appointments';
+import ReceptionistArrivals from '../pages/receptionist/Arrivals';
 import ReceptionistBilling from '../pages/receptionist/Billing';
 import ReceptionistClients from '../pages/receptionist/Clients';
+import ReceptionistStaffSchedule from '../pages/receptionist/StaffSchedule';
+import ReceptionistServices from '../pages/receptionist/Services';
+import ReceptionistProducts from '../pages/receptionist/Products';
 import StylistDashboard from '../pages/stylist/Dashboard';
 import StylistAppointments from '../pages/stylist/Appointments';
 import ClientDashboard from '../pages/client/Dashboard';
@@ -131,6 +135,9 @@ const AppRoutes = () => {
       <Route path="/branch/:slug/stylists/:stylistId" element={<StylistProfilePage />} />
       <Route path="/branch/:slug/products" element={<BranchProductsPage />} />
       
+      {/* Public admin utility routes - No auth required */}
+      <Route path="/seed-services" element={<SeedServices />} />
+      
       {/* Public auth routes - Role-specific login pages */}
       <Route 
         path="/system-admin/login" 
@@ -182,8 +189,7 @@ const AppRoutes = () => {
         <Route path="users" element={<UsersManagement />} />
         <Route path="branches" element={<BranchesManagement />} />
         <Route path="service-templates" element={<ServiceTemplates />} />
-              <Route path="seed-services" element={<SeedServices />} />
-              <Route path="activity-logs" element={<SystemAdminActivityLogs />} />
+        <Route path="activity-logs" element={<SystemAdminActivityLogs />} />
               <Route path="promotions" element={<Promotions />} />
               <Route path="suppliers" element={<Suppliers />} />
               <Route path="content-management" element={<ContentManagement />} />
@@ -253,8 +259,12 @@ const AppRoutes = () => {
       >
               <Route index element={<ReceptionistDashboard />} />
               <Route path="appointments" element={<ReceptionistAppointments />} />
+              <Route path="arrivals" element={<ReceptionistArrivals />} />
               <Route path="clients" element={<ReceptionistClients />} />
               <Route path="billing" element={<ReceptionistBilling />} />
+              <Route path="staff-schedule" element={<ReceptionistStaffSchedule />} />
+              <Route path="services" element={<ReceptionistServices />} />
+              <Route path="products" element={<ReceptionistProducts />} />
         <Route path="profile" element={<Profile />} />
       </Route>
 

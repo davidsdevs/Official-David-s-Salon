@@ -369,7 +369,7 @@ const StaffSchedule = () => {
       
       console.log('Fetched lending data:', {
         activeLendingsFromBranch: activeLendingsFromBranch.length,
-        lentOutMap: Object.keys(lentOutMap).length,
+        lentOutMapCount: Object.keys(lentOutMap).length,
         lentOutMap
       });
       

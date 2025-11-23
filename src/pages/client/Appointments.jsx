@@ -157,17 +157,6 @@ const ClientAppointments = () => {
         return;
       }
 
-      // Validate 2-hour advance notice
-      const appointmentTime = new Date(bookingData.timeSlot.time);
-      const now = new Date();
-      const timeDiff = appointmentTime.getTime() - now.getTime();
-      const hoursDiff = timeDiff / (1000 * 60 * 60);
-      
-      if (hoursDiff < 2) {
-        toast.error('Appointments must be booked at least 2 hours in advance. Please select a later time.');
-        return;
-      }
-
       setBooking(true);
       
       const branch = branches.find(b => b.id === bookingData.branchId);

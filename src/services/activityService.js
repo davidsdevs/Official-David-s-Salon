@@ -79,8 +79,11 @@ export const logActivity = async (activityData) => {
       performedByName: performedByName,
       targetUser: activityData.targetUser || null,
       targetUserName: targetUserName,
+      targetType: activityData.targetType || null,
+      targetId: activityData.targetId || null,
       branchId: activityData.branchId || null,
       details: activityData.details || {},
+      metadata: activityData.metadata || {},
       timestamp: Timestamp.now(),
       ipAddress: activityData.ipAddress || null
     };

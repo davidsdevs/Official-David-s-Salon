@@ -94,10 +94,30 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
           {bill.items?.map((item, index) => (
             <div key={index}>
               <div className="flex justify-between">
-                <span className="flex-1">{item.name}</span>
-                <span className="font-semibold">₱{item.price?.toFixed(2)}</span>
+                <div className="flex-1">
+                  <span>{item.name}</span>
+                  {(item.type === 'product' || item.quantity > 1) && (
+                    <span className="text-xs text-gray-600 ml-1">
+                      x{item.quantity || 1}
+                    </span>
+                  )}
+                </div>
+                <span className="font-semibold">
+                  {item.type === 'product' && item.quantity > 1 ? (
+                    <>
+                      ₱{item.basePrice?.toFixed(2) || item.price?.toFixed(2)}
+                      {item.basePrice && (
+                        <span className="text-xs text-gray-500 ml-1">
+                          = ₱{item.price?.toFixed(2)}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    `₱${item.price?.toFixed(2)}`
+                  )}
+                </span>
               </div>
-              {item.stylistName && (
+              {item.stylistName && item.type !== 'product' && (
                 <div className="text-xs text-gray-600 ml-2">
                   Stylist: {item.stylistName}
                 </div>

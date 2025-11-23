@@ -219,18 +219,6 @@ const AppointmentFormModal = ({
     // Get appointment date/time from selected slot
     const appointmentDateTime = new Date(formData.timeSlot.time);
     
-    // Validate 2-hour advance notice (only for registered clients, not guest clients)
-    if (!appointment && !isGuestMode) {
-      const now = new Date();
-      const timeDiff = appointmentDateTime.getTime() - now.getTime();
-      const hoursDiff = timeDiff / (1000 * 60 * 60);
-      
-      if (hoursDiff < 2) {
-        alert('Appointments must be booked at least 2 hours in advance. Please select a later time.');
-        return;
-      }
-    }
-    
     // Get branch name from branches array
     const selectedBranch = branches && branches.filter(b => b && b.id).find(b => b.id === formData.branchId);
     
@@ -275,14 +263,9 @@ const AppointmentFormModal = ({
     onSubmit(submitData);
   };
 
-  // Calculate minimum date/time (2 hours from now for registered clients, today for guest clients)
+  // Calculate minimum date/time (today for all clients)
   const getMinDateTime = () => {
-    if (isGuestMode) {
-      return new Date().toISOString().split('T')[0];
-    }
-    const minDate = new Date();
-    minDate.setHours(minDate.getHours() + 2);
-    return minDate.toISOString().split('T')[0];
+    return new Date().toISOString().split('T')[0];
   };
 
   if (!isOpen) return null;
@@ -775,9 +758,6 @@ const AppointmentFormModal = ({
                 min={getMinDateTime()}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Appointments must be booked at least 2 hours in advance
-              </p>
             </div>
 
             {/* Time Slot Selection */}

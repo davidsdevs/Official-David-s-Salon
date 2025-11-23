@@ -6,23 +6,24 @@
 import { useState } from 'react';
 import { 
   collection, 
+  doc,
   addDoc, 
+  updateDoc,
   getDocs,
   query,
   where,
-  writeBatch,
   serverTimestamp 
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { RefreshCw, Check, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const BRANCH_ID = 'XFL1DUK3fe3JrhygLYUv'; // Ayala Mall Harbor Point
+const BRANCH_ID = 'KYiL9JprSX3LBOYzrF6e'; // Target branch for seeding
 
 const SERVICES = [
   // HAIRCUT AND BLOWDRY
   {
-    serviceName: "Cut, Shampoo and Blowdry",
+    name: "Cut, Shampoo and Blowdry",
     category: "Haircut and Blowdry",
     price: 450,
     duration: 60,
@@ -30,7 +31,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Kid's Haircut",
+    name: "Kid's Haircut",
     category: "Haircut and Blowdry",
     price: 300,
     duration: 45,
@@ -38,7 +39,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Shampoo and Blowdry",
+    name: "Shampoo and Blowdry",
     category: "Haircut and Blowdry",
     price: 300,
     duration: 45,
@@ -46,7 +47,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Shampoo + Blowdry (Premium)",
+    name: "Shampoo + Blowdry (Premium)",
     category: "Haircut and Blowdry",
     price: 1000,
     duration: 60,
@@ -56,7 +57,7 @@ const SERVICES = [
 
   // HAIR COLORING
   {
-    serviceName: "Tint",
+    name: "Tint",
     category: "Hair Coloring",
     price: 2600,
     duration: 120,
@@ -64,7 +65,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Tint (Ammonia Free)",
+    name: "Tint (Ammonia Free)",
     category: "Hair Coloring",
     price: 2600,
     duration: 120,
@@ -72,7 +73,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Highlights Cap",
+    name: "Highlights Cap",
     category: "Hair Coloring",
     price: 2600,
     duration: 150,
@@ -80,7 +81,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Highlights Foil",
+    name: "Highlights Foil",
     category: "Hair Coloring",
     price: 2600,
     duration: 180,
@@ -88,7 +89,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Special Conditioning",
+    name: "Special Conditioning",
     category: "Hair Coloring",
     price: 2200,
     duration: 90,
@@ -96,7 +97,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Balayage",
+    name: "Balayage",
     category: "Hair Coloring",
     price: 6000,
     duration: 240,
@@ -106,7 +107,7 @@ const SERVICES = [
 
   // HAIR TREATMENT
   {
-    serviceName: "Protein Treatment",
+    name: "Protein Treatment",
     category: "Hair Treatment",
     price: 800,
     duration: 60,
@@ -114,7 +115,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Moroccan Treatment",
+    name: "Moroccan Treatment",
     category: "Hair Treatment",
     price: 1200,
     duration: 90,
@@ -122,7 +123,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Plarma Full Head",
+    name: "Plarma Full Head",
     category: "Hair Treatment",
     price: 1400,
     duration: 120,
@@ -130,7 +131,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Plarma",
+    name: "Plarma",
     category: "Hair Treatment",
     price: 1800,
     duration: 90,
@@ -138,7 +139,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Q1 Luster",
+    name: "Q1 Luster",
     category: "Hair Treatment",
     price: 1800,
     duration: 90,
@@ -146,7 +147,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Foliage Booster",
+    name: "Foliage Booster",
     category: "Hair Treatment",
     price: 2400,
     duration: 120,
@@ -154,7 +155,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "D2 Treatment",
+    name: "D2 Treatment",
     category: "Hair Treatment",
     price: 2400,
     duration: 120,
@@ -162,7 +163,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Tailoring",
+    name: "Tailoring",
     category: "Hair Treatment",
     price: 3500,
     duration: 150,
@@ -172,7 +173,7 @@ const SERVICES = [
 
   // STRAIGHTENING & PERMING
   {
-    serviceName: "Perm",
+    name: "Perm",
     category: "Straightening and Perming",
     price: 3000,
     duration: 180,
@@ -180,7 +181,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Digital Perm",
+    name: "Digital Perm",
     category: "Straightening and Perming",
     price: 6000,
     duration: 240,
@@ -188,7 +189,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Relaxing",
+    name: "Relaxing",
     category: "Straightening and Perming",
     price: 3800,
     duration: 180,
@@ -196,7 +197,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Rebonding",
+    name: "Rebonding",
     category: "Straightening and Perming",
     price: 6000,
     duration: 240,
@@ -204,7 +205,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Keratin Treatment",
+    name: "Keratin Treatment",
     category: "Straightening and Perming",
     price: 3300,
     duration: 180,
@@ -212,7 +213,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Foliage",
+    name: "Foliage",
     category: "Straightening and Perming",
     price: 3300,
     duration: 180,
@@ -220,7 +221,7 @@ const SERVICES = [
     isChemical: true
   },
   {
-    serviceName: "Kerateraphy",
+    name: "Kerateraphy",
     category: "Straightening and Perming",
     price: 5800,
     duration: 210,
@@ -230,7 +231,7 @@ const SERVICES = [
 
   // HAIR & MAKE UP
   {
-    serviceName: "Hair & Make Up",
+    name: "Hair & Make Up",
     category: "Hair and Make Up",
     price: 1700,
     duration: 90,
@@ -238,7 +239,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Hair Setting (Basic)",
+    name: "Hair Setting (Basic)",
     category: "Hair and Make Up",
     price: 850,
     duration: 45,
@@ -246,7 +247,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Hair Setting (Premium)",
+    name: "Hair Setting (Premium)",
     category: "Hair and Make Up",
     price: 1200,
     duration: 60,
@@ -256,7 +257,7 @@ const SERVICES = [
 
   // NAIL CARE
   {
-    serviceName: "Manicure",
+    name: "Manicure",
     category: "Nail Care",
     price: 300,
     duration: 45,
@@ -264,7 +265,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Pedicure",
+    name: "Pedicure",
     category: "Nail Care",
     price: 350,
     duration: 60,
@@ -272,7 +273,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Nail Extension",
+    name: "Nail Extension",
     category: "Nail Care",
     price: 1500,
     duration: 90,
@@ -280,7 +281,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Footspa",
+    name: "Footspa",
     category: "Nail Care",
     price: 450,
     duration: 45,
@@ -288,7 +289,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Gel FX",
+    name: "Gel FX",
     category: "Nail Care",
     price: 600,
     duration: 60,
@@ -296,7 +297,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Change Polish",
+    name: "Change Polish",
     category: "Nail Care",
     price: 300,
     duration: 30,
@@ -306,7 +307,7 @@ const SERVICES = [
 
   // WAXING AND THREADING
   {
-    serviceName: "Threading",
+    name: "Threading",
     category: "Waxing and Threading",
     price: 300,
     duration: 30,
@@ -314,7 +315,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Upper/Lower Lip Threading",
+    name: "Upper/Lower Lip Threading",
     category: "Waxing and Threading",
     price: 150,
     duration: 15,
@@ -322,7 +323,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Eyebrow Shape",
+    name: "Eyebrow Shape",
     category: "Waxing and Threading",
     price: 250,
     duration: 20,
@@ -330,7 +331,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Underarm Waxing",
+    name: "Underarm Waxing",
     category: "Waxing and Threading",
     price: 400,
     duration: 30,
@@ -338,7 +339,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Half Leg Waxing",
+    name: "Half Leg Waxing",
     category: "Waxing and Threading",
     price: 600,
     duration: 45,
@@ -346,7 +347,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Full Leg Waxing",
+    name: "Full Leg Waxing",
     category: "Waxing and Threading",
     price: 850,
     duration: 60,
@@ -356,7 +357,7 @@ const SERVICES = [
 
   // MASSAGE
   {
-    serviceName: "Foot Massage",
+    name: "Foot Massage",
     category: "Massage",
     price: 400,
     duration: 30,
@@ -364,7 +365,7 @@ const SERVICES = [
     isChemical: false
   },
   {
-    serviceName: "Head Massage",
+    name: "Head Massage",
     category: "Massage",
     price: 400,
     duration: 30,
@@ -384,74 +385,69 @@ const SeedServices = () => {
       setCompleted(false);
       setProgress('Starting service seeding...');
 
-      // Step 1: Clear existing service templates
-      setProgress('Clearing existing service templates...');
-      const templatesRef = collection(db, 'service_templates');
-      const templatesSnapshot = await getDocs(templatesRef);
-      
-      if (!templatesSnapshot.empty) {
-        const batch = writeBatch(db);
-        templatesSnapshot.docs.forEach(doc => {
-          batch.delete(doc.ref);
-        });
-        await batch.commit();
-        setProgress(`Deleted ${templatesSnapshot.size} existing templates`);
-      }
-
-      // Step 2: Clear existing services for the branch
-      setProgress('Clearing existing branch services...');
       const servicesRef = collection(db, 'services');
-      const branchServicesQuery = query(servicesRef, where('branchId', '==', BRANCH_ID));
-      const branchServicesSnapshot = await getDocs(branchServicesQuery);
-      
-      if (!branchServicesSnapshot.empty) {
-        const batch = writeBatch(db);
-        branchServicesSnapshot.docs.forEach(doc => {
-          batch.delete(doc.ref);
-        });
-        await batch.commit();
-        setProgress(`Deleted ${branchServicesSnapshot.size} existing branch services`);
-      }
 
-      // Step 3: Create service templates
-      setProgress('Creating service templates...');
-      const templateIds = {};
+      // Step 1: Check for existing services by name
+      setProgress('Checking for existing services...');
+      const existingServicesQuery = query(servicesRef, where('isActive', '==', true));
+      const existingSnapshot = await getDocs(existingServicesQuery);
       
+      const existingServicesByName = {};
+      existingSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        existingServicesByName[data.name] = { id: doc.id, ...data };
+      });
+
+      setProgress(`Found ${existingSnapshot.size} existing services`);
+
+      // Step 2: Add or update services with branch pricing
+      let createdCount = 0;
+      let updatedCount = 0;
+
       for (let i = 0; i < SERVICES.length; i++) {
         const service = SERVICES[i];
-        const templateData = {
-          ...service,
-          enabled: true,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
+        const { price, ...serviceData } = service; // Extract price from service data
         
-        const docRef = await addDoc(collection(db, 'service_templates'), templateData);
-        templateIds[service.serviceName] = docRef.id;
-        setProgress(`Created template ${i + 1}/${SERVICES.length}: ${service.serviceName}`);
+        const existingService = existingServicesByName[service.name];
+        
+        if (existingService) {
+          // Service exists - update branchPricing
+          const currentBranchPricing = existingService.branchPricing || {};
+          const newBranchPricing = {
+            ...currentBranchPricing,
+            [BRANCH_ID]: price
+          };
+          
+          const serviceDocRef = doc(db, 'services', existingService.id);
+          await updateDoc(serviceDocRef, {
+            ...serviceData,
+            branchPricing: newBranchPricing,
+            updatedAt: serverTimestamp()
+          });
+          
+          updatedCount++;
+          setProgress(`Updated ${i + 1}/${SERVICES.length}: ${service.name} (₱${price})`);
+        } else {
+          // Service doesn't exist - create new
+          const newServiceData = {
+            ...serviceData,
+            branchPricing: {
+              [BRANCH_ID]: price
+            },
+            isActive: true,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          };
+          
+          await addDoc(servicesRef, newServiceData);
+          createdCount++;
+          setProgress(`Created ${i + 1}/${SERVICES.length}: ${service.name} (₱${price})`);
+        }
       }
 
-      // Step 4: Assign services to branch
-      setProgress('Assigning services to Ayala Harbor Point branch...');
-      
-      for (let i = 0; i < SERVICES.length; i++) {
-        const service = SERVICES[i];
-        const serviceData = {
-          ...service,
-          branchId: BRANCH_ID,
-          templateId: templateIds[service.serviceName],
-          enabled: true,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-        
-        await addDoc(collection(db, 'services'), serviceData);
-        setProgress(`Assigned service ${i + 1}/${SERVICES.length}: ${service.serviceName}`);
-      }
-
-      setProgress(`✅ Successfully seeded ${SERVICES.length} services!`);
+      setProgress(`✅ Successfully seeded ${SERVICES.length} services!\n   Created: ${createdCount} | Updated: ${updatedCount}`);
       setCompleted(true);
-      toast.success('Services seeded successfully!');
+      toast.success(`Services seeded! Created: ${createdCount}, Updated: ${updatedCount}`);
     } catch (error) {
       console.error('Error seeding services:', error);
       setProgress(`❌ Error: ${error.message}`);
@@ -476,7 +472,8 @@ const SeedServices = () => {
             Seed David's Salon Services
           </h1>
           <p className="text-gray-600">
-            This will seed {SERVICES.length} services across {categories.length} categories to Ayala Harbor Point branch.
+            This will seed {SERVICES.length} services across {categories.length} categories to the selected branch.
+            Existing services will be updated with new pricing, new services will be created.
           </p>
         </div>
 

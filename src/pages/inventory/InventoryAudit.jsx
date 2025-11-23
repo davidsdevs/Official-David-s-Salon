@@ -279,7 +279,7 @@ const InventoryAudit = () => {
 
   if (loading) {
     return (
-      <>>
+      <>
         <div className="flex items-center justify-center h-64">
           <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
           <span className="ml-2 text-gray-600">Loading audit data...</span>
@@ -290,7 +290,7 @@ const InventoryAudit = () => {
 
   if (error) {
     return (
-      <>>
+      <>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
             <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
@@ -307,7 +307,7 @@ const InventoryAudit = () => {
   }
 
   return (
-    <>>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">

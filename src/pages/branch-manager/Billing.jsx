@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { Search, DollarSign, Calendar, Receipt, Eye, RefreshCw, XCircle, Download, Printer, User, CheckCircle, FileSearch, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Search, Banknote, Calendar, Receipt, Eye, RefreshCw, XCircle, Download, Printer, User, CheckCircle, FileSearch, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getBillsByBranch,
@@ -393,7 +393,7 @@ const BranchManagerBilling = () => {
                 <p className="text-2xl font-bold text-green-600 mt-1">₱{dailySummary.netRevenue?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-green-100 rounded-lg">
-                <DollarSign className="w-6 h-6 text-green-600" />
+                <Banknote className="w-6 h-6 text-green-600" />
               </div>
             </div>
           </div>
@@ -417,7 +417,7 @@ const BranchManagerBilling = () => {
                 <p className="text-2xl font-bold text-purple-600 mt-1">₱{dailySummary.totalRevenue?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-purple-100 rounded-lg">
-                <DollarSign className="w-6 h-6 text-purple-600" />
+                <Banknote className="w-6 h-6 text-purple-600" />
               </div>
             </div>
           </div>
@@ -429,7 +429,7 @@ const BranchManagerBilling = () => {
                 <p className="text-2xl font-bold text-yellow-600 mt-1">₱{dailySummary.totalDiscounts?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-yellow-100 rounded-lg">
-                <DollarSign className="w-6 h-6 text-yellow-600" />
+                <Banknote className="w-6 h-6 text-yellow-600" />
               </div>
             </div>
           </div>

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, DollarSign, Tag, Search, CreditCard, Wallet, Gift, Scissors, Package, Banknote, Smartphone, Star, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Banknote, Tag, Search, CreditCard, Wallet, Gift, Scissors, Package, Smartphone, Star, CheckCircle, AlertCircle } from 'lucide-react';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { PAYMENT_METHODS, calculateBillTotals } from '../../services/billingService';
 import { getLoyaltyPoints } from '../../services/loyaltyService';
@@ -23,7 +23,7 @@ const BillingModalPOS = ({
   services = [],
   stylists = [],
   clients = [],
-  mode = 'billing' // 'billing' or 'start-service'
+  mode = 'billing' // 'billing', 'start-service', or 'checkin'
 }) => {
   const { userBranch } = useAuth();
   const [formData, setFormData] = useState({
@@ -667,11 +667,25 @@ const BillingModalPOS = ({
       }
     }
 
-    // Validate stylist selection for TR (Transfer) client type
+    // Validate stylist selection for TR (Transfer) client type in billing mode
+    if (mode === 'billing') {
     const transferServices = formData.items.filter(item => item.type === 'service' && item.clientType === 'TR');
     for (const service of transferServices) {
       if (!service.stylistId || service.stylistId.trim() === '') {
         toast.error(`Stylist is required for Transfer (TR) client type. Please select a stylist for "${service.name}".`);
+          return;
+        }
+      }
+    }
+
+    // Validate stylist selection for ALL services in checkin mode
+    if (mode === 'checkin') {
+      const servicesWithoutStylist = formData.items.filter(item => 
+        item.type === 'service' && (!item.stylistId || item.stylistId.trim() === '')
+      );
+      if (servicesWithoutStylist.length > 0) {
+        const serviceNames = servicesWithoutStylist.map(s => s.name).join(', ');
+        toast.error(`Please assign a stylist to: ${serviceNames}`);
         return;
       }
     }
@@ -752,14 +766,18 @@ const BillingModalPOS = ({
               <X className="w-5 h-5" />
             </button>
             <h2 className="text-2xl font-bold text-white mb-1">
-              {mode === 'start-service' 
+              {mode === 'checkin'
+                ? (appointment?.isWalkIn ? 'Add Walk-in Client' : 'Check-in Client')
+                : mode === 'start-service' 
                 ? 'Start Service' 
                 : appointment?.isWalkIn || !appointment?.clientId 
                   ? 'Walk-in Customer' 
                   : 'Process Payment'}
             </h2>
             <p className="text-white/70 text-sm">
-              {mode === 'start-service'
+              {mode === 'checkin'
+                ? 'Add services, products, and adjust details before confirming arrival'
+                : mode === 'start-service'
                 ? 'Add services/products and adjust prices before starting service'
                 : appointment?.isWalkIn || !appointment?.clientId 
                   ? 'Create new transaction for walk-in customer'
@@ -1196,14 +1214,15 @@ const BillingModalPOS = ({
                           </div>
                         )}
 
-                        {/* Stylist Selection (only for services, and only changeable for TR) */}
+                        {/* Stylist Selection (only for services) */}
                         {item.type === 'service' && (
                           <div className="mb-2">
                             <label className="text-xs text-gray-500 mb-1 block">
-                              Stylist {item.clientType === 'TR' && <span className="text-red-500">*</span>}
+                              Stylist {mode === 'checkin' && <span className="text-red-500">*</span>}
+                              {mode !== 'checkin' && item.clientType === 'TR' && <span className="text-red-500">*</span>}
                             </label>
-                            {item.clientType === 'TR' ? (
-                              // TR: Allow stylist change
+                            {(mode === 'checkin' || item.clientType === 'TR') ? (
+                              // Checkin mode or TR: Allow stylist change
                               <>
                                 <select
                                   value={item.stylistId || ''}
@@ -1216,29 +1235,31 @@ const BillingModalPOS = ({
                                       handleUpdateItem(index, 'stylistName', '');
                                     }
                                   }}
-                                  required
+                                  required={mode === 'checkin' || item.clientType === 'TR'}
                                   className={`w-full px-2 py-1 text-xs border rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent ${
-                                    !item.stylistId 
+                                    (mode === 'checkin' || item.clientType === 'TR') && !item.stylistId 
                                       ? 'border-red-300 bg-red-50' 
                                       : 'border-gray-300'
                                   }`}
                                 >
-                                  <option value="">Select Stylist</option>
+                                  <option value="">Select Stylist *</option>
                                   {stylists.map(stylist => (
                                     <option key={stylist.id} value={stylist.id}>
                                       {stylist.firstName} {stylist.lastName}
                                     </option>
                                   ))}
                                 </select>
-                                {!item.stylistId && (
-                                  <p className="text-xs text-red-500 mt-1">Stylist is required for Transfer</p>
+                                {(mode === 'checkin' || item.clientType === 'TR') && !item.stylistId && (
+                                  <p className="text-xs text-red-500 mt-1">
+                                    {mode === 'checkin' ? 'Please select a stylist' : 'Stylist is required for Transfer'}
+                                  </p>
                                 )}
                               </>
                             ) : (
-                              // X or R: Show stylist as read-only (from appointment)
+                              // Billing mode with X or R: Show stylist as read-only (from appointment/service)
                               <input
                                 type="text"
-                                value={item.stylistName || 'Any available'}
+                                value={item.stylistName || 'Not assigned'}
                                 readOnly
                                 disabled
                                 className="w-full px-2 py-1 text-xs border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed"
@@ -1659,7 +1680,11 @@ const BillingModalPOS = ({
                       <span>Processing...</span>
                     </>
                   ) : (
-                      <span>{mode === 'start-service' ? 'Start Service' : 'Process Payment'}</span>
+                      <span>
+                        {mode === 'start-service' ? 'Start Service' : 
+                         mode === 'checkin' ? (appointment?.isWalkIn ? 'Add to Queue' : 'Confirm Check-in') :
+                         'Process Payment'}
+                      </span>
                   )}
                 </button>
                 </div>

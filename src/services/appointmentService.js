@@ -399,13 +399,33 @@ export const createAppointment = async (appointmentData, currentUser) => {
     }
 
     const appointmentsRef = collection(db, APPOINTMENTS_COLLECTION);
+    const defaultStatus = appointmentData.status || APPOINTMENT_STATUS.PENDING;
+    
+    // Build initial history entry
+    const initialHistory = [{
+      action: 'created',
+      by: currentUser.uid,
+      timestamp: new Date().toISOString(),
+      notes: appointmentData.isGuest ? 'Appointment created for new client' : 'Appointment created'
+    }];
+    
+    // If status is confirmed, add confirmation to history
+    if (defaultStatus === APPOINTMENT_STATUS.CONFIRMED) {
+      initialHistory.push({
+        action: 'status_changed_to_confirmed',
+        by: currentUser.uid,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
     const newAppointment = {
       ...appointmentData,
       appointmentDate: Timestamp.fromDate(new Date(appointmentData.appointmentDate)),
-      status: appointmentData.status || APPOINTMENT_STATUS.PENDING,
+      status: defaultStatus,
       createdBy: currentUser.uid,
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      history: initialHistory
     };
 
     const docRef = await addDoc(appointmentsRef, newAppointment);
@@ -462,20 +482,6 @@ export const updateAppointment = async (appointmentId, updates, currentUser) => 
     if (updates.appointmentDate) {
       const appointment = await getAppointmentById(appointmentId);
       
-      // Check 2-hour advance notice requirement
-      const now = new Date();
-      // Handle both Firestore Timestamp and Date objects
-      const originalTime = appointment.appointmentDate instanceof Date 
-        ? appointment.appointmentDate 
-        : appointment.appointmentDate.toDate();
-      const timeDiff = originalTime.getTime() - now.getTime();
-      const hoursDiff = timeDiff / (1000 * 60 * 60);
-      
-      if (hoursDiff < 2 && hoursDiff > 0) {
-        toast.error('Appointments must be rescheduled at least 2 hours in advance');
-        throw new Error('Insufficient advance notice');
-      }
-      
       // Check availability for multi-service or single-service
       if (updates.services && updates.services.length > 0) {
         // Multi-service: check each stylist
@@ -523,6 +529,17 @@ export const updateAppointment = async (appointmentId, updates, currentUser) => 
     // Get appointment before update to check status change and stylist changes
     const appointmentBeforeUpdate = await getAppointmentById(appointmentId);
     const oldStatus = appointmentBeforeUpdate.status;
+    const oldDate = appointmentBeforeUpdate.appointmentDate;
+    const oldTime = appointmentBeforeUpdate.appointmentTime || null;
+    
+    // Helper function to get timestamp in milliseconds from Date or Timestamp
+    const getTimeMillis = (dateValue) => {
+      if (!dateValue) return null;
+      if (dateValue instanceof Date) return dateValue.getTime();
+      if (dateValue?.toMillis) return dateValue.toMillis();
+      if (dateValue?.toDate) return dateValue.toDate().getTime();
+      return null;
+    };
 
     // Check for stylist transfer (when clientType is TR and stylist changes)
     let stylistTransferDetected = false;
@@ -552,9 +569,42 @@ export const updateAppointment = async (appointmentId, updates, currentUser) => 
       }
     }
 
+    // Build history entry
+    const historyEntry = {
+      by: currentUser.uid,
+      timestamp: new Date().toISOString()
+    };
+
+    // Check if this is a reschedule
+    const oldDateMillis = getTimeMillis(oldDate);
+    const newDateMillis = getTimeMillis(cleanUpdates.appointmentDate);
+    
+    if (cleanUpdates.appointmentDate && oldDateMillis !== null && newDateMillis !== null && oldDateMillis !== newDateMillis) {
+      historyEntry.action = 'rescheduled';
+      historyEntry.details = {
+        oldDate: oldDate instanceof Date ? oldDate.toISOString() : (oldDate?.toDate ? oldDate.toDate().toISOString() : oldDate),
+        oldTime: oldTime,
+        newDate: cleanUpdates.appointmentDate instanceof Date ? cleanUpdates.appointmentDate.toISOString() : (cleanUpdates.appointmentDate?.toDate ? cleanUpdates.appointmentDate.toDate().toISOString() : cleanUpdates.appointmentDate),
+        newTime: cleanUpdates.appointmentTime || null
+      };
+      if (cleanUpdates.rescheduleReason) {
+        historyEntry.reason = cleanUpdates.rescheduleReason;
+      }
+    } else if (cleanUpdates.status && cleanUpdates.status !== oldStatus) {
+      historyEntry.action = `status_changed_to_${cleanUpdates.status}`;
+      if (cleanUpdates.status === APPOINTMENT_STATUS.CANCELLED && cleanUpdates.cancelReason) {
+        historyEntry.reason = cleanUpdates.cancelReason;
+      }
+    } else {
+      historyEntry.action = 'updated';
+      historyEntry.notes = 'Appointment updated';
+    }
+
+    // Update appointment with history
     await updateDoc(appointmentRef, {
       ...cleanUpdates,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      history: [...(appointmentBeforeUpdate.history || []), historyEntry]
     });
 
     // Get updated appointment for notifications
@@ -701,6 +751,23 @@ export const updateAppointmentStatus = async (appointmentId, status, currentUser
       updates.completedBy = currentUser.uid;
     }
     
+    // Get current appointment to build history
+    const currentAppointment = await getAppointmentById(appointmentId);
+    
+    // Build history entry for status change
+    const historyEntry = {
+      action: `status_changed_to_${status}`,
+      by: currentUser.uid,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (status === APPOINTMENT_STATUS.CANCELLED && postServiceNotes) {
+      historyEntry.reason = postServiceNotes;
+    }
+    
+    // Add history to updates
+    updates.history = [...(currentAppointment.history || []), historyEntry];
+    
     await updateDoc(appointmentRef, updates);
     
     // Get updated appointment for notifications
@@ -751,6 +818,131 @@ export const updateAppointmentStatus = async (appointmentId, status, currentUser
 };
 
 /**
+ * Check in appointment (mark as arrived)
+ */
+export const checkInAppointment = async (appointmentId, currentUser) => {
+  try {
+    console.log('🔄 checkInAppointment called for:', appointmentId);
+    const appointmentRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
+    const appointment = await getAppointmentById(appointmentId);
+    
+    console.log('📋 Appointment fetched:', { 
+      id: appointment.id, 
+      status: appointment.status, 
+      clientName: appointment.clientName 
+    });
+    
+    // Only allow check-in for confirmed appointments
+    if (appointment.status !== APPOINTMENT_STATUS.CONFIRMED) {
+      toast.error('Only confirmed appointments can be checked in');
+      throw new Error('Only confirmed appointments can be checked in');
+    }
+    
+    // Check if appointment is already checked in (check arrivals collection instead of appointment.arrivedAt)
+    const { getArrivalByAppointmentId, createArrivalFromAppointment, ARRIVAL_STATUS } = await import('./arrivalsService');
+    const existingArrival = await getArrivalByAppointmentId(appointmentId);
+    
+    if (existingArrival && existingArrival.status !== ARRIVAL_STATUS.COMPLETED && existingArrival.status !== ARRIVAL_STATUS.CANCELLED) {
+      toast.info('Client has already been checked in');
+      return;
+    }
+    
+    // Create entry in arrivals collection with ARRIVED status
+    
+    // Pass appointment data with ARRIVED status explicitly set
+    const appointmentWithArrivedStatus = {
+      ...appointment,
+      status: ARRIVAL_STATUS.ARRIVED // Override to set as arrived, not confirmed
+    };
+    
+    console.log('📝 Creating arrival from appointment check-in with status:', ARRIVAL_STATUS.ARRIVED);
+    const createdArrival = await createArrivalFromAppointment(appointmentWithArrivedStatus, currentUser);
+    console.log('✅ Arrival created successfully:', createdArrival?.id);
+    
+    // Log activity
+    await logActivity({
+      performedBy: currentUser.uid,
+      action: 'CHECK_IN_APPOINTMENT',
+      targetType: 'appointment',
+      targetId: appointmentId,
+      details: `Checked in ${appointment.clientName || 'client'}`,
+      metadata: { 
+        clientName: appointment.clientName,
+        arrivalId: createdArrival?.id,
+        arrivalStatus: ARRIVAL_STATUS.ARRIVED
+      }
+    });
+
+    // Toast is shown in createArrivalFromAppointment, so we don't show another one here
+    console.log('🎉 Check-in completed successfully!');
+  } catch (error) {
+    console.error('Error checking in appointment:', error);
+    toast.error('Failed to check in appointment');
+    throw error;
+  }
+};
+
+/**
+ * Create a walk-in appointment and mark as arrived
+ * So walk-in clients appear in the arrivals queue like regular appointments
+ */
+export const createWalkInAppointment = async (walkInData, currentUser) => {
+  try {
+    const now = new Date();
+    const appointmentsRef = collection(db, APPOINTMENTS_COLLECTION);
+
+    const newAppointment = {
+      branchId: walkInData.branchId,
+      branchName: walkInData.branchName || '',
+      clientId: walkInData.clientId || null,
+      clientName: walkInData.clientName || 'Walk-in Client',
+      clientPhone: walkInData.clientPhone || '',
+      clientEmail: walkInData.clientEmail || '',
+      services: walkInData.services || [],
+      isWalkIn: true,
+      status: APPOINTMENT_STATUS.CONFIRMED,
+      appointmentDate: Timestamp.fromDate(now),
+      // Walk-in is already in the branch, so mark as arrived immediately
+      arrivedAt: serverTimestamp(),
+      checkedInBy: currentUser.uid,
+      notes: walkInData.notes || 'Walk-in client',
+      createdBy: currentUser.uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      history: [{
+        action: 'created',
+        by: currentUser.uid,
+        timestamp: new Date().toISOString(),
+        notes: 'Walk-in appointment created'
+      }]
+    };
+
+    const docRef = await addDoc(appointmentsRef, newAppointment);
+
+    // Log activity
+    await logActivity({
+      performedBy: currentUser.uid,
+      action: 'CREATE_WALK_IN_APPOINTMENT',
+      targetType: 'appointment',
+      targetId: docRef.id,
+      details: `Created walk-in appointment for ${newAppointment.clientName}`,
+      metadata: {
+        branchId: newAppointment.branchId,
+        clientName: newAppointment.clientName,
+        isWalkIn: true
+      }
+    });
+
+    toast.success('Walk-in client added to arrivals queue');
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating walk-in appointment:', error);
+    toast.error('Failed to create walk-in appointment');
+    throw error;
+  }
+};
+
+/**
  * Cancel appointment
  */
 export const cancelAppointment = async (appointmentId, reason, currentUser, bypassValidation = false) => {
@@ -758,28 +950,21 @@ export const cancelAppointment = async (appointmentId, reason, currentUser, bypa
     const appointmentRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
     const appointment = await getAppointmentById(appointmentId);
     
-    // Check 2-hour cancellation window (unless bypassed by staff)
-    if (!bypassValidation) {
-      const now = new Date();
-      // Handle both Firestore Timestamp and Date objects
-      const appointmentTime = appointment.appointmentDate instanceof Date 
-        ? appointment.appointmentDate 
-        : appointment.appointmentDate.toDate();
-      const timeDiff = appointmentTime.getTime() - now.getTime();
-      const hoursDiff = timeDiff / (1000 * 60 * 60);
-      
-      if (hoursDiff < 2 && hoursDiff > 0) {
-        toast.error('Appointments must be cancelled at least 2 hours in advance');
-        throw new Error('Insufficient advance notice for cancellation');
-      }
-    }
+    // Build history entry
+    const historyEntry = {
+      action: 'status_changed_to_cancelled',
+      by: currentUser.uid,
+      timestamp: new Date().toISOString(),
+      reason: reason || 'No reason provided'
+    };
     
     await updateDoc(appointmentRef, {
       status: APPOINTMENT_STATUS.CANCELLED,
       cancellationReason: reason || 'No reason provided',
       cancelledBy: currentUser.uid,
       cancelledAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      history: [...(appointment.history || []), historyEntry]
     });
 
     // Get updated appointment for notifications
@@ -1181,8 +1366,10 @@ export default {
   getAppointmentsByDateRange,
   getAppointmentById,
   createAppointment,
+  createWalkInAppointment,
   updateAppointment,
   updateAppointmentStatus,
+  checkInAppointment,
   cancelAppointment,
   deleteAppointment,
   checkStylistAvailability,

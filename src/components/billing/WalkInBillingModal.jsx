@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, DollarSign, Tag, Percent, CreditCard, Wallet, Gift, Receipt, Plus, Trash2, Scissors, Package, Star } from 'lucide-react';
+import { X, Banknote, Tag, Percent, CreditCard, Wallet, Gift, Receipt, Plus, Trash2, Scissors, Package, Star } from 'lucide-react';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { PAYMENT_METHODS, calculateBillTotals } from '../../services/billingService';
 import { getLoyaltyPoints } from '../../services/loyaltyService';
@@ -710,7 +710,7 @@ const WalkInBillingModal = ({
                 </>
               ) : (
                 <>
-                  <DollarSign className="w-5 h-5" />
+                  <Banknote className="w-5 h-5" />
                   <span>Process Payment - ₱{totals.total.toFixed(2)}</span>
                 </>
               )}
