@@ -39,6 +39,7 @@ import { collection, getDocs, query, where, addDoc, serverTimestamp, doc, update
 import { db } from '../../config/firebase';
 import { inventoryService } from '../../services/inventoryService';
 import toast from 'react-hot-toast';
+import { exportToExcel } from '../../utils/excelExport';
 
 // Debounce hook for search
 const useDebounce = (value, delay) => {
@@ -742,6 +743,62 @@ const PurchaseOrders = () => {
     };
   }, [purchaseOrders]);
 
+  // Export purchase orders to Excel
+  const handleExportOrders = () => {
+    if (!filteredOrders.length) {
+      toast.error('No purchase orders to export');
+      return;
+    }
+
+    try {
+      const headers = [
+        { key: 'orderId', label: 'Order ID' },
+        { key: 'orderDate', label: 'Order Date' },
+        { key: 'supplierName', label: 'Supplier' },
+        { key: 'status', label: 'Status' },
+        { key: 'totalAmount', label: 'Total Amount (₱)' },
+        { key: 'itemsCount', label: 'Items Count' },
+        { key: 'expectedDelivery', label: 'Expected Delivery' },
+        { key: 'actualDelivery', label: 'Actual Delivery' },
+        { key: 'notes', label: 'Notes' },
+        { key: 'createdBy', label: 'Created By' }
+      ];
+
+      // Prepare data with formatted values
+      const exportData = filteredOrders.map(order => {
+        const itemsCount = order.items ? order.items.length : 0;
+        const orderDate = order.orderDate 
+          ? (order.orderDate.toDate ? order.orderDate.toDate() : new Date(order.orderDate))
+          : null;
+        const expectedDelivery = order.expectedDelivery
+          ? (order.expectedDelivery.toDate ? order.expectedDelivery.toDate() : new Date(order.expectedDelivery))
+          : null;
+        const actualDelivery = order.actualDelivery
+          ? (order.actualDelivery.toDate ? order.actualDelivery.toDate() : new Date(order.actualDelivery))
+          : null;
+
+        return {
+          orderId: order.orderId || order.id || 'N/A',
+          orderDate: orderDate ? format(orderDate, 'MMM dd, yyyy') : 'N/A',
+          supplierName: order.supplierName || 'N/A',
+          status: order.status || 'Pending',
+          totalAmount: order.totalAmount || 0,
+          itemsCount: itemsCount,
+          expectedDelivery: expectedDelivery ? format(expectedDelivery, 'MMM dd, yyyy') : 'N/A',
+          actualDelivery: actualDelivery ? format(actualDelivery, 'MMM dd, yyyy') : 'N/A',
+          notes: order.notes || '',
+          createdBy: order.createdBy || 'N/A'
+        };
+      });
+
+      exportToExcel(exportData, 'purchase_orders_export', 'Purchase Orders', headers);
+      toast.success('Purchase orders exported to Excel successfully');
+    } catch (error) {
+      console.error('Error exporting purchase orders:', error);
+      toast.error('Failed to export purchase orders');
+    }
+  };
+
   // Check if order can be marked as delivered (must be In Transit)
   const canMarkDelivered = (order) => {
     return order.status === 'In Transit';
@@ -893,6 +950,14 @@ const PurchaseOrders = () => {
             <p className="text-sm md:text-base text-gray-600">Create and manage purchase orders from suppliers</p>
           </div>
           <div className="flex items-center gap-3">
+            <Button 
+              onClick={handleExportOrders} 
+              variant="outline"
+              className="flex items-center gap-2 text-xs md:text-sm"
+            >
+              <Download className="h-4 w-4" />
+              Export Excel
+            </Button>
             <Button onClick={handleCreateOrder} className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A] text-xs md:text-sm">
               <Plus className="h-4 w-4" />
               Create Order

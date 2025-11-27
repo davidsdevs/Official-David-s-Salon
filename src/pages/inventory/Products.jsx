@@ -27,6 +27,8 @@ import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { getAllServices } from '../../services/serviceManagementService';
 import { Scissors } from 'lucide-react';
+import { exportToExcel } from '../../utils/excelExport';
+import { toast } from 'react-hot-toast';
 
 const Products = () => {
   const { userData } = useAuth();
@@ -186,53 +188,53 @@ const Products = () => {
     setSearchTerm('');
   };
 
-  // Export products to CSV
+  // Export products to Excel
   const exportProducts = () => {
     if (!filteredProducts.length) {
-      alert('No products to export');
+      toast.error('No products to export');
       return;
     }
 
-    const headers = [
-      'Name', 'Brand', 'Category', 'Description', 'UPC', 'SKU',
-      'OTC Price', 'Salon Use Price', 'Unit Cost', 'Commission Percentage',
-      'Status', 'Variants', 'Shelf Life', 'Suppliers'
-    ];
+    try {
+      const headers = [
+        { key: 'name', label: 'Name' },
+        { key: 'brand', label: 'Brand' },
+        { key: 'category', label: 'Category' },
+        { key: 'description', label: 'Description' },
+        { key: 'upc', label: 'UPC' },
+        { key: 'sku', label: 'SKU' },
+        { key: 'otcPrice', label: 'OTC Price (₱)' },
+        { key: 'salonUsePrice', label: 'Salon Use Price (₱)' },
+        { key: 'unitCost', label: 'Unit Cost (₱)' },
+        { key: 'commissionPercentage', label: 'Commission Percentage (%)' },
+        { key: 'status', label: 'Status' },
+        { key: 'variants', label: 'Variants' },
+        { key: 'shelfLife', label: 'Shelf Life' },
+        { key: 'suppliers', label: 'Suppliers' }
+      ];
 
-    const csvRows = [
-      headers.join(','),
-      ...filteredProducts.map(product => {
+      // Prepare data with formatted suppliers
+      const exportData = filteredProducts.map(product => {
         const suppliers = Array.isArray(product.suppliers) 
           ? product.suppliers.join('; ')
           : (product.supplier || '');
         
-        return [
-          `"${(product.name || '').replace(/"/g, '""')}"`,
-          `"${(product.brand || '').replace(/"/g, '""')}"`,
-          `"${(product.category || '').replace(/"/g, '""')}"`,
-          `"${(product.description || '').replace(/"/g, '""')}"`,
-          `"${(product.upc || '').replace(/"/g, '""')}"`,
-          `"${(product.sku || '').replace(/"/g, '""')}"`,
-          product.otcPrice || 0,
-          product.salonUsePrice || 0,
-          product.unitCost || 0,
-          product.commissionPercentage || 0,
-          `"${(product.status || '').replace(/"/g, '""')}"`,
-          `"${(product.variants || '').replace(/"/g, '""')}"`,
-          `"${(product.shelfLife || '').replace(/"/g, '""')}"`,
-          `"${suppliers.replace(/"/g, '""')}"`
-        ].join(',');
-      })
-    ];
+        return {
+          ...product,
+          suppliers: suppliers,
+          otcPrice: product.otcPrice || 0,
+          salonUsePrice: product.salonUsePrice || 0,
+          unitCost: product.unitCost || 0,
+          commissionPercentage: product.commissionPercentage || 0
+        };
+      });
 
-    const csvContent = csvRows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `products_export_${format(new Date(), 'yyyy-MM-dd')}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+      exportToExcel(exportData, 'products_export', 'Products', headers);
+      toast.success('Products exported to Excel successfully');
+    } catch (error) {
+      console.error('Error exporting products:', error);
+      toast.error('Failed to export products');
+    }
   };
 
   // Handle import

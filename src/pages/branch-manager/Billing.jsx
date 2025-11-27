@@ -1,6 +1,6 @@
 /**
  * Billing Management Page - Branch Manager
- * View all bills, approve refunds, void transactions, and view reports
+ * View all bills, void transactions, and view reports
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -9,7 +9,6 @@ import { useAuth } from '../../context/AuthContext';
 import { 
   getBillsByBranch,
   getDailySalesSummary,
-  refundBill,
   voidBill,
   getBillingLogs,
   BILL_STATUS,
@@ -21,6 +20,7 @@ import ConfirmModal from '../../components/ui/ConfirmModal';
 import ReceiptComponent from '../../components/billing/Receipt';
 import { useReactToPrint } from 'react-to-print';
 import toast from 'react-hot-toast';
+import { exportToExcel } from '../../utils/excelExport';
 
 const BranchManagerBilling = () => {
   const { currentUser, userBranch, userBranchData, userData } = useAuth();
@@ -38,9 +38,7 @@ const BranchManagerBilling = () => {
   
   // Modals
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [showRefundModal, setShowRefundModal] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
-  const [refundData, setRefundData] = useState({ amount: '', reason: '' });
   const [voidReason, setVoidReason] = useState('');
   const [witnessEmail, setWitnessEmail] = useState('');
   const [witnessPassword, setWitnessPassword] = useState('');
@@ -147,6 +145,59 @@ const BranchManagerBilling = () => {
     setFilteredBills(filtered);
   };
 
+  const handleExportBills = () => {
+    if (!filteredBills.length) {
+      toast.error('No bills to export');
+      return;
+    }
+
+    try {
+      const headers = [
+        { key: 'receiptNumber', label: 'Receipt #' },
+        { key: 'createdAt', label: 'Date' },
+        { key: 'clientName', label: 'Client' },
+        { key: 'clientPhone', label: 'Phone' },
+        { key: 'totalAmount', label: 'Total Amount (₱)' },
+        { key: 'paymentMethod', label: 'Payment Method' },
+        { key: 'status', label: 'Status' },
+        { key: 'itemsCount', label: 'Items Count' },
+        { key: 'createdBy', label: 'Created By' }
+      ];
+
+      // Prepare data with formatted values
+      const exportData = filteredBills.map(bill => {
+        const itemsCount = bill.items ? bill.items.length : 0;
+        const createdAt = bill.createdAt 
+          ? (bill.createdAt.toDate ? bill.createdAt.toDate() : new Date(bill.createdAt))
+          : new Date();
+
+        return {
+          receiptNumber: bill.receiptNumber || 'N/A',
+          createdAt: createdAt.toLocaleString('en-US', { 
+            year: 'numeric', 
+            month: '2-digit', 
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          clientName: bill.clientName || 'Walk-in',
+          clientPhone: bill.clientPhone || 'N/A',
+          totalAmount: bill.totalAmount || 0,
+          paymentMethod: bill.paymentMethod || 'N/A',
+          status: bill.status || 'pending',
+          itemsCount: itemsCount,
+          createdBy: bill.createdBy || 'N/A'
+        };
+      });
+
+      exportToExcel(exportData, 'bills_export', 'Bills', headers);
+      toast.success('Bills exported to Excel successfully');
+    } catch (error) {
+      console.error('Error exporting bills:', error);
+      toast.error('Failed to export bills');
+    }
+  };
+
   const handleViewDetails = async (bill) => {
     setSelectedBill(bill);
     setShowDetailsModal(true);
@@ -154,15 +205,6 @@ const BranchManagerBilling = () => {
     // Fetch logs for this bill
     const logs = await getBillingLogs(bill.id);
     setBillLogs(logs);
-  };
-
-  const handleRefundClick = (bill) => {
-    setSelectedBill(bill);
-    setRefundData({ 
-      amount: bill.total.toString(), 
-      reason: ''
-    });
-    setShowRefundModal(true);
   };
 
   const handleVoidClick = (bill) => {
@@ -173,42 +215,6 @@ const BranchManagerBilling = () => {
     setWitnessVerified(false);
     setWitnessInfo(null);
     setShowVoidModal(true);
-  };
-
-  const confirmRefund = async () => {
-    if (!refundData.reason.trim()) {
-      toast.error('Please provide a reason for the refund');
-      return;
-    }
-
-    const amount = parseFloat(refundData.amount);
-    if (isNaN(amount) || amount <= 0 || amount > selectedBill.total) {
-      toast.error('Invalid refund amount');
-      return;
-    }
-
-    try {
-      setProcessing(true);
-      // Combine currentUser (has uid) with userData (has firstName, lastName)
-      const userForBilling = {
-        ...currentUser,
-        ...userData,
-        uid: currentUser.uid
-      };
-      await refundBill(selectedBill.id, {
-        amount: amount,
-        reason: refundData.reason
-      }, userForBilling);
-      
-      setShowRefundModal(false);
-      setSelectedBill(null);
-      setRefundData({ amount: '', reason: '' });
-      await fetchData();
-    } catch (error) {
-      console.error('Error processing refund:', error);
-    } finally {
-      setProcessing(false);
-    }
   };
 
   // Verify witness before voiding
@@ -584,18 +590,27 @@ const BranchManagerBilling = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Billing Management</h1>
-          <p className="text-gray-600">View transactions, process refunds, and manage billing</p>
+          <p className="text-gray-600">View transactions, void transactions, and manage billing</p>
         </div>
-        <button
-          onClick={() => {
-            resetReceiptChecker();
-            setShowReceiptChecker(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <FileSearch className="w-5 h-5" />
-          Advanced Receipt Checker
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportBills}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <Download className="w-5 h-5" />
+            <span className="hidden sm:inline">Export Excel</span>
+          </button>
+          <button
+            onClick={() => {
+              resetReceiptChecker();
+              setShowReceiptChecker(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <FileSearch className="w-5 h-5" />
+            Advanced Receipt Checker
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -684,7 +699,6 @@ const BranchManagerBilling = () => {
           >
             <option value="all">All Status</option>
             <option value={BILL_STATUS.PAID}>Paid</option>
-            <option value={BILL_STATUS.REFUNDED}>Refunded</option>
             <option value={BILL_STATUS.VOIDED}>Voided</option>
           </select>
 
@@ -772,22 +786,13 @@ const BranchManagerBilling = () => {
                           <Eye className="w-4 h-4" />
                         </button>
                         {bill.status === BILL_STATUS.PAID && (
-                          <>
-                            <button
-                              onClick={() => handleRefundClick(bill)}
-                              className="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded transition-colors"
-                              title="Process Refund"
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleVoidClick(bill)}
-                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                              title="Void Transaction"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          </>
+                          <button
+                            onClick={() => handleVoidClick(bill)}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Void Transaction"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
                         )}
                       </div>
                     </td>
@@ -862,16 +867,6 @@ const BranchManagerBilling = () => {
                         <button
                           onClick={() => {
                             setShowDetailsModal(false);
-                            handleRefundClick(selectedBill);
-                          }}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                          Process Refund
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowDetailsModal(false);
                             handleVoidClick(selectedBill);
                           }}
                           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
@@ -888,47 +883,6 @@ const BranchManagerBilling = () => {
           </div>
         </div>
       )}
-
-      {/* Refund Modal */}
-      <ConfirmModal
-        isOpen={showRefundModal}
-        onClose={() => {
-          if (!processing) {
-            setShowRefundModal(false);
-            setSelectedBill(null);
-          }
-        }}
-        onConfirm={confirmRefund}
-        title="Process Refund"
-        message={`Process refund for bill #${selectedBill?.id?.slice(-8)}?`}
-        confirmText="Process Refund"
-        cancelText="Cancel"
-        type="warning"
-        loading={processing}
-      >
-        <div className="mt-4 space-y-4">
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <p className="text-sm text-gray-600">Full refund amount:</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">
-              ₱{selectedBill?.total?.toFixed(2) || '0.00'}
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Reason for Refund *
-            </label>
-            <textarea
-              value={refundData.reason}
-              onChange={(e) => setRefundData(prev => ({ ...prev, reason: e.target.value }))}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              placeholder="Enter reason for refund..."
-              required
-            />
-          </div>
-        </div>
-      </ConfirmModal>
 
       {/* Void Modal */}
       <ConfirmModal

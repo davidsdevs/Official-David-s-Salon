@@ -234,19 +234,39 @@ const LeaveManagement = () => {
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-600">Pending</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-600">Pending</div>
+            <div className="bg-yellow-100 p-2 rounded-lg">
+              <Clock className="w-5 h-5 text-yellow-600" />
+            </div>
+          </div>
           <div className="text-2xl font-bold text-yellow-600">{pendingRequests.length}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-600">Approved</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-600">Approved</div>
+            <div className="bg-green-100 p-2 rounded-lg">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+            </div>
+          </div>
           <div className="text-2xl font-bold text-green-600">{approvedRequests.length}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-600">Rejected</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-600">Rejected</div>
+            <div className="bg-red-100 p-2 rounded-lg">
+              <XCircle className="w-5 h-5 text-red-600" />
+            </div>
+          </div>
           <div className="text-2xl font-bold text-red-600">{rejectedRequests.length}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-600">Total</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-600">Total</div>
+            <div className="bg-gray-100 p-2 rounded-lg">
+              <Calendar className="w-5 h-5 text-gray-600" />
+            </div>
+          </div>
           <div className="text-2xl font-bold text-gray-900">{filteredRequests.length}</div>
         </div>
       </div>

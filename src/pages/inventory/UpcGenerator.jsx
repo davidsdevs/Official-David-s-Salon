@@ -11,7 +11,6 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
 import html2canvas from 'html2canvas';
 import { productService } from '../../services/productService';
-import { getBranches } from '../../services/branchService';
 import { inventoryService } from '../../services/inventoryService';
 import {
   QrCode,
@@ -44,14 +43,13 @@ import {
 import { format } from 'date-fns';
 
 const UpcGenerator = () => {
-  const { userData } = useAuth();
+  const { userData, userBranch } = useAuth();
   const printRef = useRef();
 
   
   
   // Data states
   const [products, setProducts] = useState([]);
-  const [branches, setBranches] = useState([]);
   const [generatedQRCodes, setGeneratedQRCodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -106,13 +104,9 @@ const UpcGenerator = () => {
         throw new Error(productsResult.message || 'Failed to load products');
       }
 
-      // Load branches
-      try {
-        const branchesData = await getBranches(userData?.roles?.[0] || 'Inventory Controller', userData?.uid || '');
-        setBranches(Array.isArray(branchesData) ? branchesData : (branchesData?.branches || []));
-      } catch (branchError) {
-        console.warn('Could not load branches:', branchError);
-        setBranches([]);
+      // Auto-set branch to user's branch (no need to load branches for selection)
+      if (userBranch) {
+        setGenerateForm(prev => ({ ...prev, branchId: userBranch }));
       }
       
     } catch (err) {
@@ -124,15 +118,108 @@ const UpcGenerator = () => {
   };
 
   // Load batches for a product in a branch
+  // Get batches from 'stocks' collection where stockType === 'batch' OR has batchId/batchNumber
+  // Show ALL batches so user can choose which one to print stickers for
   const loadBatches = async (productId, branchId) => {
     try {
-      const batchesResult = await inventoryService.getProductBatches(branchId, productId);
-      if (batchesResult.success) {
-        return batchesResult.batches.filter(b => b.status === 'active' && b.remainingQuantity > 0);
-      }
-      return [];
+      // Query stocks collection for batch-type stocks
+      const { collection, query, where, getDocs } = await import('firebase/firestore');
+      const { db } = await import('../../config/firebase');
+      
+      const stocksRef = collection(db, 'stocks');
+      
+      // Query for stocks with this productId and branchId
+      // Filter client-side for batch-related documents (stockType === 'batch' OR has batchId/batchNumber)
+      const q = query(
+        stocksRef,
+        where('branchId', '==', branchId),
+        where('productId', '==', productId)
+      );
+      
+      const snapshot = await getDocs(q);
+      const batches = [];
+      
+      console.log(`🔍 Loading batches for product ${productId} in branch ${branchId}`);
+      console.log(`📦 Found ${snapshot.size} stock documents`);
+      
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        
+        // Check if this is a batch-type stock
+        // A batch has: stockType === 'batch' OR has batchId OR has batchNumber
+        const isBatch = data.stockType === 'batch' || 
+                       data.batchId || 
+                       (data.batchNumber && data.batchNumber.trim() !== '');
+        
+        if (isBatch) {
+          console.log(`✅ Found batch: ${data.batchNumber || data.batchId}`, {
+            id: doc.id,
+            batchId: data.batchId,
+            batchNumber: data.batchNumber,
+            stockType: data.stockType,
+            realTimeStock: data.realTimeStock,
+            status: data.status
+          });
+          
+          // Map stocks collection structure to batch format
+          batches.push({
+            id: doc.id,
+            batchId: data.batchId || doc.id,
+            batchNumber: data.batchNumber || `BATCH-${doc.id.slice(0, 8)}`,
+            productId: data.productId,
+            productName: data.productName || '',
+            branchId: data.branchId,
+            expirationDate: data.expirationDate?.toDate ? data.expirationDate.toDate() : 
+                           data.expirationDate instanceof Date ? data.expirationDate :
+                           data.expirationDate ? new Date(data.expirationDate) : null,
+            remainingQuantity: data.realTimeStock || data.endStock || 0,
+            quantity: data.beginningStock || data.realTimeStock || 0,
+            unitCost: data.unitCost || 0,
+            status: data.status || 'active',
+            purchaseOrderId: data.purchaseOrderId || '',
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : 
+                      data.createdAt instanceof Date ? data.createdAt :
+                      data.createdAt ? new Date(data.createdAt) : new Date(),
+          });
+        } else {
+          console.log(`⏭️ Skipping non-batch stock:`, {
+            id: doc.id,
+            stockType: data.stockType,
+            hasBatchId: !!data.batchId,
+            hasBatchNumber: !!data.batchNumber
+          });
+        }
+      });
+      
+      console.log(`📋 Total batches found: ${batches.length}`);
+      
+      // Sort by expiration date (oldest first) and then by batch number
+      return batches.sort((a, b) => {
+        // First sort by expiration date
+        const dateA = a.expirationDate ? new Date(a.expirationDate).getTime() : Infinity;
+        const dateB = b.expirationDate ? new Date(b.expirationDate).getTime() : Infinity;
+        if (dateA !== dateB) return dateA - dateB;
+        // Then by batch number
+        return (a.batchNumber || '').localeCompare(b.batchNumber || '');
+      });
     } catch (error) {
-      console.error('Error loading batches:', error);
+      console.error('Error loading batches from stocks collection:', error);
+      // Fallback to product_batches if stocks query fails
+      try {
+        console.log('🔄 Falling back to product_batches collection...');
+        const batchesResult = await inventoryService.getProductBatches(branchId, productId);
+        if (batchesResult.success) {
+          console.log(`✅ Found ${batchesResult.batches.length} batches from product_batches`);
+          return batchesResult.batches.sort((a, b) => {
+            const dateA = a.expirationDate ? new Date(a.expirationDate).getTime() : Infinity;
+            const dateB = b.expirationDate ? new Date(b.expirationDate).getTime() : Infinity;
+            if (dateA !== dateB) return dateA - dateB;
+            return (a.batchNumber || '').localeCompare(b.batchNumber || '');
+          });
+        }
+      } catch (fallbackError) {
+        console.error('Fallback to product_batches also failed:', fallbackError);
+      }
       return [];
     }
   };
@@ -141,6 +228,13 @@ const UpcGenerator = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Auto-set branch to user's branch
+  useEffect(() => {
+    if (userBranch && !generateForm.branchId) {
+      setGenerateForm(prev => ({ ...prev, branchId: userBranch }));
+    }
+  }, [userBranch]);
 
   // Load batches when branch or product changes in generate form
   useEffect(() => {
@@ -204,7 +298,7 @@ const UpcGenerator = () => {
     setSelectedBatches([]);
     setGenerateForm({
       productId: product.id,
-      branchId: '',
+      branchId: userBranch || '',
       batchId: '',
       quantity: 1,
       size: 'medium'
@@ -223,12 +317,13 @@ const UpcGenerator = () => {
         return;
       }
 
-      // Use batch data from product_batches
+      // Use batch data from stocks collection
       const qrCodeString = JSON.stringify({
         productId: batch.productId,
-        productName: batch.productName,
+        productName: batch.productName || selectedProduct?.name,
         price: selectedProduct?.otcPrice || 0,
         batchNumber: batch.batchNumber,
+        batchId: batch.batchId || batch.id,
         expirationDate: batch.expirationDate ? new Date(batch.expirationDate).toISOString() : null,
         branchId: batch.branchId,
         timestamp: Date.now()
@@ -328,12 +423,13 @@ const UpcGenerator = () => {
       // Generate QR codes directly from batch data (no database storage - cache-based)
       const qrCodes = [];
       for (let i = 0; i < generateForm.quantity; i++) {
-        // Use batch data from product_batches collection
+        // Use batch data from stocks collection
         const qrCodeString = JSON.stringify({
           productId: batch.productId,
           productName: batch.productName || selectedProduct?.name,
           price: selectedProduct?.otcPrice || 0,
-          batchNumber: batch.batchNumber, // From product_batches
+          batchNumber: batch.batchNumber,
+          batchId: batch.batchId || batch.id,
           expirationDate: batch.expirationDate ? new Date(batch.expirationDate).toISOString() : null,
           branchId: batch.branchId,
           timestamp: Date.now()
@@ -751,38 +847,66 @@ const UpcGenerator = () => {
                 <p className="text-gray-900 bg-gray-50 p-3 rounded-lg">{selectedProduct.name}</p>
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Branch *</label>
-                <select
-                  value={generateForm.branchId}
-                  onChange={(e) => setGenerateForm(prev => ({ ...prev, branchId: e.target.value, batchId: '' }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                >
-                  <option value="">Select Branch</option>
-                  {branches.map(branch => (
-                    <option key={branch.id} value={branch.id}>{branch.name}</option>
-                  ))}
-                </select>
-              </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Batch *</label>
-                <select
-                  value={generateForm.batchId}
-                  onChange={(e) => setGenerateForm(prev => ({ ...prev, batchId: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                  disabled={!generateForm.branchId || selectedBatches.length === 0}
-                >
-                  <option value="">{selectedBatches.length === 0 ? 'No batches available' : 'Select Batch'}</option>
-                  {selectedBatches.map(batch => (
-                    <option key={batch.id} value={batch.id}>
-                      {batch.batchNumber} - Qty: {batch.remainingQuantity} 
-                      {batch.expirationDate ? ` - Exp: ${format(new Date(batch.expirationDate), 'MMM dd, yyyy')}` : ''}
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Batch * 
+                  {selectedBatches.length > 1 && (
+                    <span className="ml-2 text-xs text-blue-600 font-normal">
+                      ({selectedBatches.length} batches available - select one)
+                    </span>
+                  )}
+                </label>
+                {selectedBatches.length === 0 ? (
+                  <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500">
+                    No batches available for this product in the selected branch
+                  </div>
+                ) : selectedBatches.length === 1 ? (
+                  <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-900">
+                        {selectedBatches[0].batchNumber}
+                        {selectedBatches[0].expirationDate && (
+                          <span className="text-gray-600 ml-2">
+                            - Exp: {format(new Date(selectedBatches[0].expirationDate), 'MMM dd, yyyy')}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-sm text-gray-600">
+                        Qty: {selectedBatches[0].remainingQuantity || 0}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <select
+                    value={generateForm.batchId}
+                    onChange={(e) => setGenerateForm(prev => ({ ...prev, batchId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="">Select a batch to print sticker for...</option>
+                    {selectedBatches.map(batch => {
+                      const isActive = batch.status === 'active' && (batch.remainingQuantity || 0) > 0;
+                      const expirationDate = batch.expirationDate ? new Date(batch.expirationDate) : null;
+                      const isExpired = expirationDate && expirationDate < new Date();
+                      
+                      return (
+                        <option key={batch.id} value={batch.id}>
+                          {batch.batchNumber} 
+                          {expirationDate && ` - Exp: ${format(expirationDate, 'MMM dd, yyyy')}`}
+                          {` - Qty: ${batch.remainingQuantity || 0}`}
+                          {!isActive && ' (Inactive)'}
+                          {isExpired && ' (Expired)'}
+                        </option>
+                      );
+                    })}
+                  </select>
+                )}
+                {selectedBatches.length > 1 && generateForm.batchId && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Selected batch: {selectedBatches.find(b => b.id === generateForm.batchId)?.batchNumber}
+                  </p>
+                )}
               </div>
               
               <div className="grid grid-cols-2 gap-4">
@@ -928,9 +1052,25 @@ const UpcGenerator = () => {
                           {/* Logo */}
                           <div className="mb-2">
                             <img
-                              src="/logo.png"
+                              src="/logo.jpg"
                               alt="David's Salon Logo"
                               className="h-12 object-contain"
+                              onError={(e) => {
+                                // Fallback: try .png if .jpg fails
+                                if (e.target.src !== '/logo.png') {
+                                  e.target.src = '/logo.png';
+                                } else {
+                                  // If both fail, hide the image and show text
+                                  e.target.style.display = 'none';
+                                  const parent = e.target.parentElement;
+                                  if (parent && !parent.querySelector('.logo-fallback')) {
+                                    const fallback = document.createElement('div');
+                                    fallback.className = 'logo-fallback text-xs font-bold text-gray-700';
+                                    fallback.textContent = "David's Salon";
+                                    parent.appendChild(fallback);
+                                  }
+                                }
+                              }}
                             />
                           </div>
 

@@ -14,6 +14,8 @@ import { weeklyStockRecorder } from '../../services/weeklyStockRecorder';
 import { db, auth } from '../../config/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy, limit, startAfter, getCountFromServer, updateDoc, doc, getDoc, Timestamp } from 'firebase/firestore';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { verifyRolePassword } from '../../services/rolePasswordService';
+import { USER_ROLES } from '../../utils/constants';
 import { 
   Package, 
   Search,
@@ -52,6 +54,8 @@ import {
   PackageCheck
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { exportToExcel } from '../../utils/excelExport';
+import { toast } from 'react-hot-toast';
 
 const Stocks = () => {
   const { userData } = useAuth();
@@ -718,6 +722,68 @@ const Stocks = () => {
     }
   }, [filteredStocks.length, visibleEndIndex]);
 
+  // Export stocks to Excel
+  const handleExportStocks = () => {
+    if (!filteredStocks.length) {
+      toast.error('No stocks to export');
+      return;
+    }
+
+    try {
+      const headers = [
+        { key: 'productName', label: 'Product Name' },
+        { key: 'brand', label: 'Brand' },
+        { key: 'category', label: 'Category' },
+        { key: 'upc', label: 'UPC' },
+        { key: 'batchNumber', label: 'Batch Number' },
+        { key: 'beginningStock', label: 'Beginning Stock' },
+        { key: 'realTimeStock', label: 'Current Stock' },
+        { key: 'status', label: 'Status' },
+        { key: 'expirationDate', label: 'Expiration Date' },
+        { key: 'receivedDate', label: 'Received Date' },
+        { key: 'startPeriod', label: 'Start Period' },
+        { key: 'endPeriod', label: 'End Period' }
+      ];
+
+      // Prepare data with formatted dates and status
+      const exportData = filteredStocks.map(stock => {
+        const product = stock.product || {};
+        const isBatchStock = stock.stockType === 'batch' || stock.batchId || stock.batchNumber;
+        const currentStock = stock.realTimeStock || stock.weekFourStock || stock.beginningStock || 0;
+        const status = calculateStockStatus(stock);
+
+        return {
+          productName: stock.productName || product.name || 'Unknown',
+          brand: stock.brand || product.brand || '',
+          category: stock.category || product.category || '',
+          upc: stock.upc || product.upc || '',
+          batchNumber: isBatchStock ? (stock.batchNumber || 'N/A') : 'N/A',
+          beginningStock: stock.beginningStock || 0,
+          realTimeStock: currentStock,
+          status: status,
+          expirationDate: stock.expirationDate 
+            ? format(new Date(stock.expirationDate), 'MMM dd, yyyy')
+            : 'N/A',
+          receivedDate: stock.receivedDate
+            ? format(new Date(stock.receivedDate), 'MMM dd, yyyy')
+            : 'N/A',
+          startPeriod: stock.startPeriod
+            ? format(new Date(stock.startPeriod), 'MMM dd, yyyy')
+            : 'N/A',
+          endPeriod: stock.endPeriod
+            ? format(new Date(stock.endPeriod), 'MMM dd, yyyy')
+            : 'N/A'
+        };
+      });
+
+      exportToExcel(exportData, 'stocks_export', 'Stocks', headers);
+      toast.success('Stocks exported to Excel successfully');
+    } catch (error) {
+      console.error('Error exporting stocks:', error);
+      toast.error('Failed to export stocks');
+    }
+  };
+
   // Handle stock details
   const handleViewDetails = (stock) => {
     setSelectedStock(stock);
@@ -758,7 +824,7 @@ const Stocks = () => {
     setIsForceAdjustModalOpen(true);
   };
   
-  // Verify manager code by checking branch manager's password
+  // Verify manager code by checking branch manager's role password
   const verifyManagerCode = async (code, branchId) => {
     try {
       if (!branchId || !code) {
@@ -769,7 +835,7 @@ const Stocks = () => {
       const usersRef = collection(db, 'users');
       const q = query(
         usersRef,
-        where('role', '==', 'branchManager'),
+        where('role', '==', USER_ROLES.BRANCH_MANAGER),
         where('branchId', '==', branchId),
         where('active', '==', true)
       );
@@ -783,34 +849,38 @@ const Stocks = () => {
       // Get the first branch manager (should be only one per branch)
       const managerDoc = snapshot.docs[0];
       const managerData = managerDoc.data();
+      const managerId = managerDoc.id;
       
-      if (!managerData.email) {
-        console.error('Branch manager has no email');
+      if (!managerId) {
+        console.error('Branch manager has no ID');
         return false;
       }
 
-      // Try to sign in with branch manager's email and entered password
-      // This verifies the password is correct
-      // Note: This will temporarily sign in as the branch manager, then sign out
-      // The app's AuthContext will handle re-authentication automatically
-      try {
-        const userCredential = await signInWithEmailAndPassword(auth, managerData.email, code);
-        
-        // If successful, immediately sign out
-        // The AuthContext will handle redirecting the user to login if needed
-        if (userCredential.user) {
-          // Small delay to ensure sign-in is registered
-          await new Promise(resolve => setTimeout(resolve, 100));
-          await signOut(auth);
-          return true;
+      // Verify using the branch manager's role password
+      const isValid = await verifyRolePassword(managerId, USER_ROLES.BRANCH_MANAGER, code);
+      
+      if (isValid === null) {
+        // No role password set - fallback to Firebase Auth for backward compatibility
+        if (!managerData.email) {
+          console.error('Branch manager has no email and no role password set');
+          return false;
         }
         
-        return false;
-      } catch (authError) {
-        // Authentication failed - password is incorrect
-        console.error('Password verification failed:', authError);
-        return false;
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, managerData.email, code);
+          if (userCredential.user) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            await signOut(auth);
+            return true;
+          }
+          return false;
+        } catch (authError) {
+          console.error('Password verification failed:', authError);
+          return false;
+        }
       }
+      
+      return isValid;
     } catch (error) {
       console.error('Error verifying manager code:', error);
       return false;
@@ -1813,6 +1883,14 @@ const Stocks = () => {
               </Button>
               <Button
                 variant="outline"
+                onClick={handleExportStocks}
+                className="flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Export Excel
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => {
                   setFilters({
                     status: 'all',
@@ -1850,9 +1928,6 @@ const Stocks = () => {
                     </th>
                     <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                       Status
-                    </th>
-                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">
-                      Weekly
                     </th>
                     <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
@@ -1916,12 +1991,6 @@ const Stocks = () => {
                         {getStatusIcon(stock.status || 'In Stock')}
                         {stock.status || 'In Stock'}
                       </span>
-                    </td>
-                    <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
-                      <div className="text-sm font-medium text-gray-900">
-                        {stock.weekOneStock || 0} / {stock.weekTwoStock || 0} / {stock.weekThreeStock || 0} / {stock.weekFourStock || 0}
-                      </div>
-                      <div className="text-xs text-gray-500">W1 / W2 / W3 / W4</div>
                     </td>
                     <td className="px-3 md:px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex gap-2">
@@ -2592,10 +2661,6 @@ const Stocks = () => {
                           <tr>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beginning</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week 1</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week 2</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week 3</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Week 4</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Real-time</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ending Stock</th>
                           </tr>
@@ -2613,10 +2678,6 @@ const Stocks = () => {
                                   </div>
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{stock.beginningStock || 0}</td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{stock.weekOneStock || 0}</td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{stock.weekTwoStock || 0}</td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{stock.weekThreeStock || 0}</td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{stock.weekFourStock || 0}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-blue-600">{stock.realTimeStock || 0}</td>
                                 <td className="px-4 py-3 whitespace-nowrap">
                                   <div className="text-sm font-bold text-green-600">{endingStockValue}</div>

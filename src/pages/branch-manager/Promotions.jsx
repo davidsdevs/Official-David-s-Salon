@@ -7,7 +7,7 @@ import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
 
-import { getClientsByBranch } from '../../services/clientService';
+import { getClients, getClientsByBranch } from '../../services/clientService';
 import { sendPromotionEmail } from '../../services/emailService';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -143,10 +143,11 @@ const Promotions = () => {
     }
   };
 
-  // Load clients
+  // Load clients - Get ALL clients, not just those who visited this branch
   const loadClients = async () => {
     try {
-      const clientsList = await getClientsByBranch(userData?.branchId || '');
+      // Use getClients() to get all clients regardless of branch visits
+      const clientsList = await getClients();
       setClients(clientsList);
     } catch (err) {
       console.error('Error loading clients:', err);

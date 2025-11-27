@@ -784,7 +784,7 @@ const Deposits = () => {
       </Card>
 
       {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -828,6 +828,35 @@ const Deposits = () => {
               </p>
             </div>
             <TrendingUp className="h-8 w-8 text-purple-600" />
+          </div>
+        </Card>
+
+        {/* Net Sales Card - Total Sales - Justified Expenses */}
+        <Card className="p-6 bg-gradient-to-br from-green-50 to-blue-50 border-2 border-green-200">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-700 mb-1">Net Sales</p>
+              <p className="text-xs text-gray-600 mb-2">Sales - Expenses</p>
+              <p className="text-2xl font-bold text-green-700">
+                ₱{(() => {
+                  const totalSales = deposits.reduce((sum, d) => sum + (d.dailySalesTotal || 0), 0);
+                  const totalExpenses = deposits.reduce((sum, d) => sum + (d.totalExpenses || 0), 0);
+                  const netSales = totalSales - totalExpenses;
+                  return netSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                })()}
+              </p>
+              <div className="mt-2 space-y-1">
+                <p className="text-xs text-gray-600">
+                  Sales: ₱{deposits.reduce((sum, d) => sum + (d.dailySalesTotal || 0), 0).toLocaleString()}
+                </p>
+                <p className="text-xs text-orange-600">
+                  Expenses: ₱{deposits.reduce((sum, d) => sum + (d.totalExpenses || 0), 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+            <div className="bg-green-100 p-3 rounded-lg">
+              <TrendingDown className="h-8 w-8 text-green-600" />
+            </div>
           </div>
         </Card>
       </div>

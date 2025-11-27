@@ -1252,6 +1252,7 @@ class InventoryService {
 
       const batch = writeBatch(db);
       const { isNewProduct = false, newProductData = null } = returnData;
+      let originalBatchDoc = null; // Track if original batch exists
       
       // SCENARIO 3: New products returned (different from what was transferred)
       if (isNewProduct && newProductData) {
@@ -1286,7 +1287,7 @@ class InventoryService {
       } else {
         // SCENARIO 1 & 2: Try to restore to original batch
         const originalBatchRef = doc(db, this.productBatchesCollection, transferBatch.originalBatchId);
-        const originalBatchDoc = await getDoc(originalBatchRef);
+        originalBatchDoc = await getDoc(originalBatchRef);
         
         if (originalBatchDoc.exists()) {
           // SCENARIO 1: Original batch exists - restore quantity
@@ -1338,11 +1339,37 @@ class InventoryService {
         updatedAt: serverTimestamp()
       });
 
+      // IMPORTANT: Update main stock record at the lending branch (fromBranchId)
+      // This ensures the stock count is correct when products are returned
+      const stocksRef = collection(db, 'stocks');
+      const stockQuery = query(
+        stocksRef,
+        where('branchId', '==', transferBatch.fromBranchId), // Lending branch
+        where('productId', '==', transferBatch.productId),
+        where('status', '==', 'active')
+      );
+      const stockSnapshot = await getDocs(stockQuery);
+      
+      if (!stockSnapshot.empty) {
+        const stockDoc = stockSnapshot.docs[0];
+        const stockData = stockDoc.data();
+        const currentRealTimeStock = parseInt(stockData.realTimeStock || stockData.currentStock || stockData.beginningStock || 0);
+        const newRealTimeStock = currentRealTimeStock + quantity; // Add back the returned quantity
+        
+        batch.update(stockDoc.ref, {
+          realTimeStock: newRealTimeStock,
+          currentStock: newRealTimeStock, // Update both fields for compatibility
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        console.warn(`No active stock record found for product ${transferBatch.productId} in branch ${transferBatch.fromBranchId} when returning stock`);
+      }
+
       await batch.commit();
       return { 
         success: true, 
         message: `Returned ${quantity} units successfully`,
-        returnedToOriginal: originalBatchDoc.exists()
+        returnedToOriginal: originalBatchDoc?.exists() || false
       };
     } catch (error) {
       console.error('Error returning stock to batch:', error);

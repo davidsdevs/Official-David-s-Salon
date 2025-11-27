@@ -3,14 +3,15 @@
  * Design matches modern POS interface
  */
 
-import { useState, useEffect } from 'react';
-import { X, Banknote, Tag, Search, CreditCard, Wallet, Gift, Scissors, Package, Smartphone, Star, CheckCircle, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Banknote, Tag, Search, CreditCard, Wallet, Gift, Scissors, Package, Smartphone, Star, CheckCircle, AlertCircle, QrCode, Camera } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { PAYMENT_METHODS, calculateBillTotals } from '../../services/billingService';
 import { getLoyaltyPoints } from '../../services/loyaltyService';
 import { validatePromotionCode, calculatePromotionDiscount, trackPromotionUsage } from '../../services/promotionService';
 import { useAuth } from '../../context/AuthContext';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import toast from 'react-hot-toast';
 import { inventoryService } from '../../services/inventoryService';
@@ -73,6 +74,11 @@ const BillingModalPOS = ({
   // Products and stocks
   const [availableProducts, setAvailableProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  
+  // QR Code Scanner states
+  const [isScanning, setIsScanning] = useState(false);
+  const [scannerError, setScannerError] = useState('');
+  const qrCodeScannerRef = useRef(null);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -418,6 +424,203 @@ const BillingModalPOS = ({
       }));
     }
   };
+
+  // Handle QR code scan result
+  const handleQRCodeScanned = async (decodedText) => {
+    try {
+      // Parse QR code data (should be JSON from UPC generator)
+      let qrData;
+      try {
+        qrData = JSON.parse(decodedText);
+      } catch (e) {
+        // If not JSON, try to find product by UPC or other identifier
+        toast.error('Invalid QR code format');
+        return;
+      }
+
+      // QR code should contain: productId, productName, batchNumber, etc.
+      const productId = qrData.productId;
+      const batchNumber = qrData.batchNumber;
+
+      if (!productId) {
+        toast.error('QR code does not contain product information');
+        return;
+      }
+
+      // Find the product in available products
+      let product = availableProducts.find(p => p.id === productId);
+      
+      // If product not found in current branch, try to load it
+      if (!product && userBranch) {
+        try {
+          // Try to get product from inventory service
+          const stocksRef = collection(db, 'branch_stocks');
+          const stockQuery = query(
+            stocksRef,
+            where('branchId', '==', userBranch),
+            where('productId', '==', productId)
+          );
+          const stockSnapshot = await getDocs(stockQuery);
+          
+          if (!stockSnapshot.empty) {
+            const stockDoc = stockSnapshot.docs[0].data();
+            // Get product details
+            const productDocRef = doc(db, 'products', productId);
+            const productDoc = await getDoc(productDocRef);
+            
+            if (productDoc.exists()) {
+              const productData = productDoc.data();
+              product = {
+                id: productId,
+                name: productData.name || qrData.productName,
+                price: productData.otcPrice || productData.price || 0,
+                stock: stockDoc.realTimeStock || 0,
+                stockId: stockSnapshot.docs[0].id,
+                unitCost: stockDoc.unitCost || 0,
+                commissionPercentage: productData.commissionPercentage || 0
+              };
+            }
+          }
+        } catch (error) {
+          console.error('Error loading product from QR code:', error);
+        }
+      }
+
+      if (!product) {
+        toast.error(`Product not found in this branch. Product ID: ${productId}`);
+        return;
+      }
+
+      // Check stock
+      if (product.stock <= 0) {
+        toast.error(`${product.name} is out of stock`);
+        return;
+      }
+
+      // Check if product is already in cart
+      const existing = formData.items.find(item => item.id === product.id && item.type === 'product');
+      if (existing) {
+        // If already in cart, just increase quantity
+        const existingIndex = formData.items.findIndex(item => item.id === product.id && item.type === 'product');
+        handleUpdateItem(existingIndex, 'quantity', existing.quantity + 1);
+        toast.success(`Increased quantity of ${product.name}`);
+      } else {
+        // Add product to cart (similar to handleToggleProduct)
+        let batches = [];
+        try {
+          if (userBranch) {
+            const batchesResult = await inventoryService.getBatchesForSale({
+              branchId: userBranch,
+              productId: product.id,
+              quantity: 1
+            });
+            
+            if (batchesResult.success && batchesResult.batches.length > 0) {
+              // If QR code has batchNumber, try to match it
+              if (batchNumber) {
+                const matchedBatch = batchesResult.batches.find(b => b.batchNumber === batchNumber);
+                if (matchedBatch) {
+                  batches = [matchedBatch];
+                } else {
+                  batches = batchesResult.batches;
+                }
+              } else {
+                batches = batchesResult.batches;
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching batches:', error);
+        }
+
+        setFormData(prev => ({
+          ...prev,
+          items: [...prev.items, {
+            type: 'product',
+            id: product.id,
+            name: product.name || 'Unknown Product',
+            basePrice: product.price || 0,
+            price: product.price || 0,
+            quantity: 1,
+            stock: product.stock || 0,
+            stockId: product.stockId || null,
+            batches: batches,
+            unitCost: product.unitCost || 0,
+            commissionPercentage: product.commissionPercentage || 0,
+            commissionerId: '',
+            commissionerName: '',
+            commissionPoints: 0
+          }]
+        }));
+        
+        toast.success(`Added ${product.name} to cart`);
+      }
+
+      // Stop scanning after successful scan
+      stopQRScanner();
+    } catch (error) {
+      console.error('Error processing QR code:', error);
+      toast.error('Failed to process QR code: ' + error.message);
+    }
+  };
+
+  // Start QR code scanner
+  const startQRScanner = async () => {
+    try {
+      setScannerError('');
+      setIsScanning(true);
+
+      const scanner = new Html5Qrcode('qr-reader');
+      qrCodeScannerRef.current = scanner;
+
+      await scanner.start(
+        { facingMode: 'environment' }, // Use back camera
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 }
+        },
+        (decodedText) => {
+          // Successfully scanned
+          handleQRCodeScanned(decodedText);
+        },
+        (errorMessage) => {
+          // Ignore scanning errors (they're frequent during scanning)
+        }
+      );
+    } catch (error) {
+      console.error('Error starting QR scanner:', error);
+      setScannerError('Failed to start camera. Please check permissions.');
+      setIsScanning(false);
+      toast.error('Failed to start QR scanner. Please allow camera access.');
+    }
+  };
+
+  // Stop QR code scanner
+  const stopQRScanner = async () => {
+    try {
+      if (qrCodeScannerRef.current) {
+        await qrCodeScannerRef.current.stop();
+        await qrCodeScannerRef.current.clear();
+        qrCodeScannerRef.current = null;
+      }
+      setIsScanning(false);
+      setScannerError('');
+    } catch (error) {
+      console.error('Error stopping QR scanner:', error);
+    }
+  };
+
+  // Cleanup scanner on unmount or modal close
+  useEffect(() => {
+    if (!isOpen && isScanning) {
+      stopQRScanner();
+    }
+    return () => {
+      if (isScanning) {
+        stopQRScanner();
+      }
+    };
+  }, [isOpen]);
 
   const handleToggleProduct = async (product) => {
     // Check if product is in stock
@@ -1056,17 +1259,71 @@ const BillingModalPOS = ({
                   </div>
                 </div>
 
-                {/* Search Bar */}
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    value={serviceSearch}
-                    onChange={(e) => setServiceSearch(e.target.value)}
-                    placeholder={activeTab === 'service' ? 'Search services...' : 'Search products...'}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2D1B4E] focus:border-transparent text-sm"
-                  />
+                {/* Search Bar with QR Scanner Button (Products Tab Only) */}
+                <div className="relative mb-4 flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={serviceSearch}
+                      onChange={(e) => setServiceSearch(e.target.value)}
+                      placeholder={activeTab === 'service' ? 'Search services...' : 'Search products or scan QR code...'}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2D1B4E] focus:border-transparent text-sm"
+                    />
+                  </div>
+                  {activeTab === 'product' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isScanning) {
+                          stopQRScanner();
+                        } else {
+                          startQRScanner();
+                        }
+                      }}
+                      className={`px-4 py-2 rounded-lg border-2 transition-all flex items-center gap-2 ${
+                        isScanning
+                          ? 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100'
+                          : 'bg-[#2D1B4E] border-[#2D1B4E] text-white hover:bg-[#3D2B5E]'
+                      }`}
+                    >
+                      {isScanning ? (
+                        <>
+                          <X className="w-4 h-4" />
+                          <span className="text-sm font-medium">Stop Scan</span>
+                        </>
+                      ) : (
+                        <>
+                          <QrCode className="w-4 h-4" />
+                          <span className="text-sm font-medium">Scan QR</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
+                
+                {/* QR Code Scanner */}
+                {isScanning && activeTab === 'product' && (
+                  <div className="mb-4 p-4 bg-gray-900 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-white text-sm font-medium">Scan Product QR Code</p>
+                      <button
+                        type="button"
+                        onClick={stopQRScanner}
+                        className="text-white hover:text-gray-300"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <div id="qr-reader" className="w-full"></div>
+                    {scannerError && (
+                      <p className="text-red-400 text-xs mt-2">{scannerError}</p>
+                    )}
+                    <p className="text-gray-400 text-xs mt-2 text-center">
+                      Point camera at product QR code sticker
+                    </p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-5 gap-3">
                   {/* Services Tab */}

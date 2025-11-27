@@ -5,6 +5,7 @@ import ProtectedRoute from '../components/layout/ProtectedRoute';
 // Layouts
 import SystemAdminLayout from '../layouts/SystemAdminLayout';
 import OperationalManagerLayout from '../layouts/OperationalManagerLayout';
+import OverallInventoryControllerLayout from '../layouts/OverallInventoryControllerLayout';
 import BranchManagerLayout from '../layouts/BranchManagerLayout';
 import ReceptionistLayout from '../layouts/ReceptionistLayout';
 import StylistLayout from '../layouts/StylistLayout';
@@ -17,6 +18,7 @@ import SystemAdminLogin from '../pages/system-admin/Login';
 import BranchManagerLogin from '../pages/branch-manager/Login';
 import ReceptionistLogin from '../pages/receptionist/Login';
 import OperationalManagerLogin from '../pages/operational-manager/Login';
+import OverallInventoryControllerLogin from '../pages/overall-inventory/Login';
 import InventoryControllerLogin from '../pages/inventory/Login';
 import StylistLogin from '../pages/stylist/Login';
 import Register from '../pages/public/Register';
@@ -47,6 +49,8 @@ import OperationalManagerBranches from '../pages/operational-manager/Branches';
 import OperationalManagerActivityLogs from '../pages/operational-manager/ActivityLogs';
 import OperationalManagerInventory from '../pages/operational-manager/Inventory';
 import OperationalManagerPurchaseOrders from '../pages/operational-manager/PurchaseOrders';
+import OverallInventoryControllerDashboard from '../pages/overall-inventory/Dashboard';
+import OverallInventoryControllerInventory from '../pages/overall-inventory/Inventory';
 import OperationalManagerDeposits from '../pages/operational-manager/Deposits';
 import PriceHistoryAnalytics from '../pages/operational-manager/PriceHistoryAnalytics';
 import OperationalManagerPromotions from '../pages/operational-manager/Promotions';
@@ -112,6 +116,8 @@ const AppRoutes = () => {
         return ROUTES.ADMIN_DASHBOARD;
       case USER_ROLES.OPERATIONAL_MANAGER:
         return ROUTES.OPERATIONAL_MANAGER_DASHBOARD;
+      case USER_ROLES.OVERALL_INVENTORY_CONTROLLER:
+        return ROUTES.OVERALL_INVENTORY_DASHBOARD;
       case USER_ROLES.BRANCH_MANAGER:
         return ROUTES.MANAGER_DASHBOARD;
       case USER_ROLES.RECEPTIONIST:
@@ -159,6 +165,10 @@ const AppRoutes = () => {
       <Route 
         path="/operational-manager/login" 
         element={currentUser ? <Navigate to={getRoleBasedRoute()} replace /> : <OperationalManagerLogin />} 
+      />
+      <Route 
+        path="/overall-inventory/login" 
+        element={currentUser ? <Navigate to={getRoleBasedRoute()} replace /> : <OverallInventoryControllerLogin />} 
       />
       <Route 
         path="/inventory/login" 
@@ -224,6 +234,24 @@ const AppRoutes = () => {
         <Route path="promotions" element={<OperationalManagerPromotions />} />
         <Route path="calendar" element={<CalendarCombined />} />
         <Route path="leave-management" element={<OperationalManagerLeaveManagement />} />
+        <Route path="profile" element={<Profile />} />
+      </Route>
+
+      {/* Overall Inventory Controller routes */}
+      <Route
+        path="/overall-inventory"
+        element={
+          <ProtectedRoute allowedRoles={[USER_ROLES.OVERALL_INVENTORY_CONTROLLER]}>
+            <OverallInventoryControllerLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<OverallInventoryControllerDashboard />} />
+        <Route path="inventory" element={<OverallInventoryControllerInventory />} />
+        <Route path="purchase-orders" element={<OperationalManagerPurchaseOrders />} />
+        <Route path="reports" element={<InventoryReports />} />
+        <Route path="stock-alerts" element={<InventoryStockAlerts />} />
+        <Route path="expiry-tracker" element={<InventoryExpiryTracker />} />
         <Route path="profile" element={<Profile />} />
       </Route>
 

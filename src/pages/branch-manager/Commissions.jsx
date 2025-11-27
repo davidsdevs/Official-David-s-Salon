@@ -11,6 +11,7 @@ import { db } from '../../config/firebase';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { formatDate } from '../../utils/helpers';
 import toast from 'react-hot-toast';
+import { exportToExcel } from '../../utils/excelExport';
 
 const Commissions = () => {
   const { userBranch } = useAuth();
@@ -36,14 +37,64 @@ const Commissions = () => {
       setLoading(true);
       
       // Fetch all paid transactions for this branch
-      const billsRef = collection(db, 'bills');
-      const billsQuery = query(
-        billsRef,
-        where('branchId', '==', userBranch),
-        where('status', '==', 'paid')
-      );
+      // Note: The collection is 'transactions', not 'bills' (see billingService.js)
+      const billsRef = collection(db, 'transactions');
       
-      const billsSnapshot = await getDocs(billsQuery);
+      let billsSnapshot;
+      try {
+        // Try query with status filter and orderBy
+        const billsQuery = query(
+          billsRef,
+          where('branchId', '==', userBranch),
+          where('status', '==', 'paid'),
+          orderBy('createdAt', 'desc')
+        );
+        billsSnapshot = await getDocs(billsQuery);
+      } catch (queryError) {
+        console.warn('Query error (might need index), trying alternative:', queryError);
+        // Fallback: Query all transactions for branch and filter in memory
+        try {
+          const billsQuery = query(
+            billsRef,
+            where('branchId', '==', userBranch),
+            orderBy('createdAt', 'desc')
+          );
+          billsSnapshot = await getDocs(billsQuery);
+          // Filter for paid status in memory
+          const paidDocs = [];
+          billsSnapshot.forEach((doc) => {
+            if (doc.data().status === 'paid') {
+              paidDocs.push(doc);
+            }
+          });
+          // Create a mock snapshot-like object
+          billsSnapshot = {
+            size: paidDocs.length,
+            forEach: (callback) => paidDocs.forEach(callback),
+            docs: paidDocs
+          };
+        } catch (fallbackError) {
+          console.error('Fallback query also failed:', fallbackError);
+          // Last resort: query without orderBy
+          const billsQuery = query(
+            billsRef,
+            where('branchId', '==', userBranch)
+          );
+          billsSnapshot = await getDocs(billsQuery);
+          // Filter for paid status in memory
+          const paidDocs = [];
+          billsSnapshot.forEach((doc) => {
+            if (doc.data().status === 'paid') {
+              paidDocs.push(doc);
+            }
+          });
+          billsSnapshot = {
+            size: paidDocs.length,
+            forEach: (callback) => paidDocs.forEach(callback),
+            docs: paidDocs
+          };
+        }
+      }
       const transactionsData = [];
       
       billsSnapshot.forEach((doc) => {
@@ -51,24 +102,80 @@ const Commissions = () => {
         const items = billData.items || [];
         
         // Extract product items with commissions
-        items.forEach((item) => {
-          if (item.type === 'product' && item.commissionerId && item.commissionPoints > 0) {
-            transactionsData.push({
-              id: `${doc.id}-${item.id}`,
-              billId: doc.id,
-              transactionDate: billData.createdAt,
-              productName: item.name || 'Unknown Product',
-              productId: item.id,
-              quantity: item.quantity || 1,
-              unitCost: item.unitCost || 0,
-              commissionPercentage: item.commissionPercentage || 0,
-              commissionerId: item.commissionerId,
-              commissionerName: item.commissionerName || 'Unknown',
-              commissionPoints: item.commissionPoints || 0,
-              clientName: billData.clientName || 'Walk-in',
-              receiptNumber: billData.receiptNumber || 'N/A',
-              totalAmount: item.price || 0
-            });
+        items.forEach((item, itemIndex) => {
+          
+          if (item.type === 'product') {
+            // Commission data is stored at the ITEM level, not in batches
+            // Check if item has commission data
+            const hasCommissionData = item.commissionerId && item.commissionPoints != null && item.commissionPoints > 0;
+            
+            if (hasCommissionData) {
+              // Commission data is stored at item level
+              // If item has batches, distribute commission proportionally across batches
+              // Otherwise, create a single commission record
+              const batches = item.batches || [];
+              const totalItemQuantity = item.quantity || 1;
+              const totalCommissionPoints = item.commissionPoints || 0;
+              
+              if (batches.length > 0) {
+                // Calculate total quantity across all batches
+                const totalBatchQuantity = batches.reduce((sum, batch) => sum + (batch.quantity || 0), 0);
+                const quantityToUse = totalBatchQuantity > 0 ? totalBatchQuantity : totalItemQuantity;
+                
+                // Create commission record for each batch
+                batches.forEach((batch, batchIndex) => {
+                  const batchQuantity = batch.quantity || 0;
+                  
+                  // Distribute commission proportionally based on batch quantity
+                  const batchCommissionPoints = quantityToUse > 0 
+                    ? (totalCommissionPoints * batchQuantity) / quantityToUse
+                    : totalCommissionPoints / batches.length;
+                  
+                  const transaction = {
+                    id: `${doc.id}-${item.id}-${batchIndex}`,
+                    billId: doc.id,
+                    transactionDate: billData.createdAt,
+                    productName: item.name || 'Unknown Product',
+                    productId: item.id,
+                    batchId: batch.batchId || '',
+                    batchNumber: batch.batchNumber || '',
+                    quantity: batchQuantity,
+                    unitCost: batch.unitCost || item.unitCost || 0,
+                    commissionPercentage: item.commissionPercentage || 0,
+                    commissionerId: item.commissionerId,
+                    commissionerName: item.commissionerName || 'Unknown',
+                    commissionPoints: Math.round(batchCommissionPoints * 100) / 100, // Round to 2 decimals
+                    clientName: billData.clientName || 'Walk-in',
+                    receiptNumber: billData.receiptNumber || 'N/A',
+                    totalAmount: (batch.unitCost || item.unitCost || 0) * batchQuantity
+                  };
+                  
+                  transactionsData.push(transaction);
+                });
+              } else {
+                // No batches, use item-level data directly
+                const transaction = {
+                  id: `${doc.id}-${item.id}`,
+                  billId: doc.id,
+                  transactionDate: billData.createdAt,
+                  productName: item.name || 'Unknown Product',
+                  productId: item.id,
+                  batchId: '',
+                  batchNumber: '',
+                  quantity: totalItemQuantity,
+                  unitCost: item.unitCost || 0,
+                  commissionPercentage: item.commissionPercentage || 0,
+                  commissionerId: item.commissionerId,
+                  commissionerName: item.commissionerName || 'Unknown',
+                  commissionPoints: totalCommissionPoints,
+                  clientName: billData.clientName || 'Walk-in',
+                  receiptNumber: billData.receiptNumber || 'N/A',
+                  totalAmount: item.price || 0
+                };
+                
+                transactionsData.push(transaction);
+              }
+            }
           }
         });
       });
@@ -85,54 +192,64 @@ const Commissions = () => {
   const fetchStylists = async () => {
     try {
       // Fetch stylists from users collection
+      // Handle both legacy (role) and new (roles array) formats
       const usersRef = collection(db, 'users');
-      const usersQuery = query(
+      
+      // Query 1: Users with role == 'stylist' (legacy format)
+      const legacyQuery = query(
+        usersRef,
+        where('branchId', '==', userBranch),
+        where('role', '==', 'stylist')
+      );
+      
+      // Query 2: Users with roles array containing 'stylist' (new format)
+      const rolesQuery = query(
         usersRef,
         where('branchId', '==', userBranch),
         where('roles', 'array-contains', 'stylist')
       );
       
-      const usersSnapshot = await getDocs(usersQuery);
-      const stylistsData = [];
+      // Execute both queries
+      const [legacySnapshot, rolesSnapshot] = await Promise.all([
+        getDocs(legacyQuery),
+        getDocs(rolesQuery)
+      ]);
       
-      usersSnapshot.forEach((doc) => {
+      // Combine results and remove duplicates, filter for active users
+      const stylistsMap = new Map();
+      
+      legacySnapshot.forEach((doc) => {
         const userData = doc.data();
-        stylistsData.push({
-          id: doc.id,
-          name: `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email || 'Unknown',
-          email: userData.email || ''
-        });
+        // Filter for active users (check both isActive and active fields)
+        if (userData.isActive !== false && userData.active !== false) {
+          stylistsMap.set(doc.id, {
+            id: doc.id,
+            name: `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email || 'Unknown',
+            email: userData.email || ''
+          });
+        }
       });
       
-      setStylists(stylistsData);
+      rolesSnapshot.forEach((doc) => {
+        if (!stylistsMap.has(doc.id)) {
+          const userData = doc.data();
+          // Filter for active users (check both isActive and active fields)
+          if (userData.isActive !== false && userData.active !== false) {
+            stylistsMap.set(doc.id, {
+              id: doc.id,
+              name: `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email || 'Unknown',
+              email: userData.email || ''
+            });
+          }
+        }
+      });
+      
+      setStylists(Array.from(stylistsMap.values()));
     } catch (error) {
       console.error('Error fetching stylists:', error);
+      toast.error('Failed to load stylists');
     }
   };
-
-  // Calculate commission summary by stylist
-  const commissionSummary = useMemo(() => {
-    const summary = {};
-    
-    filteredTransactions.forEach((transaction) => {
-      const stylistId = transaction.commissionerId;
-      if (!summary[stylistId]) {
-        summary[stylistId] = {
-          stylistId,
-          stylistName: transaction.commissionerName,
-          totalCommission: 0,
-          transactionCount: 0,
-          totalSales: 0
-        };
-      }
-      
-      summary[stylistId].totalCommission += transaction.commissionPoints;
-      summary[stylistId].transactionCount += 1;
-      summary[stylistId].totalSales += transaction.totalAmount;
-    });
-    
-    return Object.values(summary).sort((a, b) => b.totalCommission - a.totalCommission);
-  }, [filteredTransactions]);
 
   // Filter transactions
   const filteredTransactions = useMemo(() => {
@@ -180,7 +297,32 @@ const Commissions = () => {
     });
   }, [transactions, searchTerm, selectedStylist, dateRange]);
 
+  // Calculate commission summary by stylist
+  const commissionSummary = useMemo(() => {
+    const summary = {};
+    
+    filteredTransactions.forEach((transaction) => {
+      const stylistId = transaction.commissionerId;
+      if (!summary[stylistId]) {
+        summary[stylistId] = {
+          stylistId,
+          stylistName: transaction.commissionerName,
+          totalCommission: 0,
+          transactionCount: 0,
+          totalSales: 0
+        };
+      }
+      
+      summary[stylistId].totalCommission += transaction.commissionPoints;
+      summary[stylistId].transactionCount += 1;
+      summary[stylistId].totalSales += transaction.totalAmount;
+    });
+    
+    return Object.values(summary).sort((a, b) => b.totalCommission - a.totalCommission);
+  }, [filteredTransactions]);
+
   const handleExportCSV = () => {
+    // Legacy CSV export (keeping for backward compatibility)
     const headers = ['Date', 'Stylist', 'Product', 'Quantity', 'Unit Cost', 'Commission %', 'Commission Amount', 'Total Sale', 'Client', 'Receipt #'];
     const rows = filteredTransactions.map(t => {
       const date = t.transactionDate?.toDate ? formatDate(t.transactionDate.toDate(), 'MMM dd, yyyy HH:mm') : 'N/A';
@@ -208,6 +350,49 @@ const Commissions = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    toast.success('Commissions exported to CSV');
+  };
+
+  const handleExportExcel = () => {
+    if (!filteredTransactions.length) {
+      toast.error('No commission data to export');
+      return;
+    }
+
+    try {
+      const headers = [
+        { key: 'transactionDate', label: 'Date' },
+        { key: 'commissionerName', label: 'Stylist' },
+        { key: 'productName', label: 'Product' },
+        { key: 'batchNumber', label: 'Batch Number' },
+        { key: 'quantity', label: 'Quantity' },
+        { key: 'unitCost', label: 'Unit Cost (₱)' },
+        { key: 'commissionPercentage', label: 'Commission %' },
+        { key: 'commissionPoints', label: 'Commission Amount (₱)' },
+        { key: 'totalAmount', label: 'Total Sale (₱)' },
+        { key: 'clientName', label: 'Client' },
+        { key: 'receiptNumber', label: 'Receipt #' }
+      ];
+
+      // Prepare data with formatted dates
+      const exportData = filteredTransactions.map(t => ({
+        ...t,
+        transactionDate: t.transactionDate?.toDate 
+          ? formatDate(t.transactionDate.toDate(), 'MMM dd, yyyy HH:mm')
+          : (t.transactionDate ? formatDate(new Date(t.transactionDate), 'MMM dd, yyyy HH:mm') : 'N/A'),
+        unitCost: t.unitCost || 0,
+        commissionPercentage: t.commissionPercentage || 0,
+        commissionPoints: t.commissionPoints || 0,
+        totalAmount: t.totalAmount || 0,
+        quantity: t.quantity || 0
+      }));
+
+      exportToExcel(exportData, 'commissions', 'Commissions', headers);
+      toast.success('Commissions exported to Excel successfully');
+    } catch (error) {
+      console.error('Error exporting commissions:', error);
+      toast.error('Failed to export commissions');
+    }
   };
 
   const totalCommission = filteredTransactions.reduce((sum, t) => sum + t.commissionPoints, 0);
@@ -232,13 +417,24 @@ const Commissions = () => {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Track stylist commissions from product sales</p>
         </div>
-        <button
-          onClick={handleExportCSV}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-        >
-          <Download className="h-4 w-4" />
-          Export CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+            title="Export to CSV"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">CSV</span>
+          </button>
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+            title="Export to Excel"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">Excel</span>
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}

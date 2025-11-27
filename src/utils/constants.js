@@ -2,6 +2,7 @@
 export const USER_ROLES = {
   SYSTEM_ADMIN: 'systemAdmin',
   OPERATIONAL_MANAGER: 'operationalManager',
+  OVERALL_INVENTORY_CONTROLLER: 'overallInventoryController',
   BRANCH_MANAGER: 'branchManager',
   RECEPTIONIST: 'receptionist',
   INVENTORY_CONTROLLER: 'inventoryController',
@@ -13,6 +14,7 @@ export const USER_ROLES = {
 export const ROLE_LABELS = {
   [USER_ROLES.SYSTEM_ADMIN]: 'System Administrator',
   [USER_ROLES.OPERATIONAL_MANAGER]: 'Operational Manager',
+  [USER_ROLES.OVERALL_INVENTORY_CONTROLLER]: 'Overall Inventory Controller',
   [USER_ROLES.BRANCH_MANAGER]: 'Branch Manager',
   [USER_ROLES.RECEPTIONIST]: 'Receptionist',
   [USER_ROLES.INVENTORY_CONTROLLER]: 'Inventory Controller',
@@ -96,6 +98,14 @@ export const ROUTES = {
   INVENTORY_REPORTS: '/inventory/reports',
   INVENTORY_COST_ANALYSIS: '/inventory/cost-analysis',
   INVENTORY_AUDIT: '/inventory/inventory-audit',
+  
+  // Overall Inventory Controller
+  OVERALL_INVENTORY_DASHBOARD: '/overall-inventory',
+  OVERALL_INVENTORY_OVERVIEW: '/overall-inventory/inventory',
+  OVERALL_INVENTORY_PURCHASE_ORDERS: '/overall-inventory/purchase-orders',
+  OVERALL_INVENTORY_REPORTS: '/overall-inventory/reports',
+  OVERALL_INVENTORY_ALERTS: '/overall-inventory/stock-alerts',
+  OVERALL_INVENTORY_EXPIRY: '/overall-inventory/expiry-tracker',
   
   // Stylist
   STYLIST_DASHBOARD: '/stylist',

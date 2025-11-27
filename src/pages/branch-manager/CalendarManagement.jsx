@@ -91,9 +91,45 @@ const CalendarManagement = () => {
     return d.toISOString().split('T')[0];
   };
 
+
+  // Helper function to check if a holiday is "All Saints' Day"
+  const isAllSaintsDay = (holiday) => {
+    if (!holiday) return false;
+    const holidayName = (holiday.name || '').toLowerCase();
+    const holidayLocalName = (holiday.localName || '').toLowerCase();
+    const combined = `${holidayName} ${holidayLocalName}`.toLowerCase();
+    
+    // Check for all possible variations
+    const allSaintsPatterns = [
+      'all saints',
+      'araw ng mga san',
+      'araw ng mga santo',
+      'araw ng mga santos',
+      'undas',
+      'all souls',
+      'araw ng mga kaluluwa'
+    ];
+    
+    return allSaintsPatterns.some(pattern => 
+      holidayName.includes(pattern) || 
+      holidayLocalName.includes(pattern) ||
+      combined.includes(pattern)
+    );
+  };
+
   // Helper function to categorize Philippine holidays
   const categorizePhilippineHoliday = (holiday) => {
     if (!holiday || !holiday.name) return { type: 'unknown', label: 'Holiday' };
+    
+    // If it's All Saints' Day, return a neutral/invisible style (no red badge)
+    if (isAllSaintsDay(holiday)) {
+      return { 
+        type: 'hidden', 
+        label: 'All Saints\' Day',
+        color: 'bg-transparent text-transparent border-transparent',
+        iconColor: 'text-transparent'
+      };
+    }
     
     const name = holiday.name.toLowerCase();
     const localName = holiday.localName?.toLowerCase() || '';
@@ -112,8 +148,7 @@ const CalendarManagement = () => {
     const specialNonWorkingKeywords = [
       'chinese new year', 'lunar new year',
       'black saturday', 'ninoy aquino day', 'ninoy aquino',
-      'all saints\' day', 'all saints day', 'all saints\'',
-      'all saints', 'feast of the immaculate conception',
+      'feast of the immaculate conception',
       'immaculate conception', 'christmas eve', 'december 24',
       'last day of the year', 'new year\'s eve', 'new year eve',
       'december 31', 'black nazarene', 'feast of the black nazarene',
@@ -202,6 +237,7 @@ const CalendarManagement = () => {
     try {
       setHolidaysLoading(true);
       const holidays = await getPublicHolidays(year, 'PH');
+      console.log(`Fetched ${holidays.length} holidays for year ${year}`);
       setHolidayCache(prev => ({
         ...prev,
         [year]: holidays
@@ -996,6 +1032,10 @@ const CalendarManagement = () => {
                     </span>
                     {holiday && (() => {
                       const holidayCategory = categorizePhilippineHoliday(holiday);
+                      // Hide All Saints' Day badge completely
+                      if (isAllSaintsDay(holiday)) {
+                        return null;
+                      }
                       return (
                         <span className={`text-[10px] font-semibold ${holidayCategory.iconColor} flex items-center gap-1 truncate max-w-[90px]`} title={holidayCategory.label}>
                           <Flag className="w-3 h-3" />
@@ -1007,6 +1047,10 @@ const CalendarManagement = () => {
                   <div className="flex-1 space-y-1 overflow-hidden">
                     {/* Holiday Badge */}
                     {holiday && inCurrentMonth && (() => {
+                      // Hide All Saints' Day badge completely
+                      if (isAllSaintsDay(holiday)) {
+                        return null;
+                      }
                       const holidayCategory = categorizePhilippineHoliday(holiday);
                       return (
                         <button
@@ -1167,10 +1211,22 @@ const CalendarManagement = () => {
               Special Working
             </div>
           </div>
+          {currentMonthHolidays.length === 0 && !holidaysLoading && (
+            <div className="text-sm text-gray-500 text-center py-4">
+              No holidays found for this month. Holidays are automatically loaded from the Philippine holidays API.
+            </div>
+          )}
           {currentMonthHolidays.length > 0 && (() => {
-            const regularHolidays = currentMonthHolidays.filter(h => categorizePhilippineHoliday(h).type === 'regular');
-            const specialNonWorking = currentMonthHolidays.filter(h => categorizePhilippineHoliday(h).type === 'special_non_working');
-            const specialWorking = currentMonthHolidays.filter(h => categorizePhilippineHoliday(h).type === 'special_working');
+            // Filter out All Saints' Day from all holiday lists
+            const regularHolidays = currentMonthHolidays.filter(h => 
+              !isAllSaintsDay(h) && categorizePhilippineHoliday(h).type === 'regular'
+            );
+            const specialNonWorking = currentMonthHolidays.filter(h => 
+              !isAllSaintsDay(h) && categorizePhilippineHoliday(h).type === 'special_non_working'
+            );
+            const specialWorking = currentMonthHolidays.filter(h => 
+              !isAllSaintsDay(h) && categorizePhilippineHoliday(h).type === 'special_working'
+            );
             
             return (
               <div className="space-y-3">
