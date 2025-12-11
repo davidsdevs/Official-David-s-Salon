@@ -31,50 +31,29 @@ export const LEAVE_TYPES = [
  */
 export const getLeaveRequestsByBranch = async (branchId) => {
   try {
-    // Try with orderBy first, fallback to without if index doesn't exist
-    try {
-      const q = query(
-        collection(db, LEAVE_COLLECTION),
-        where('branchId', '==', branchId),
-        orderBy('startDate', 'desc')
-      );
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        startDate: doc.data().startDate?.toDate(),
-        endDate: doc.data().endDate?.toDate(),
-        requestedAt: doc.data().requestedAt?.toDate(),
-        approvedAt: doc.data().approvedAt?.toDate(),
-        rejectedAt: doc.data().rejectedAt?.toDate(),
-        cancelledAt: doc.data().cancelledAt?.toDate(),
-      }));
-    } catch (orderByError) {
-      // If orderBy fails (index missing), fetch without it and sort in memory
-      console.warn('OrderBy failed, fetching without orderBy:', orderByError);
-      const q = query(
-        collection(db, LEAVE_COLLECTION),
-        where('branchId', '==', branchId)
-      );
-      const snapshot = await getDocs(q);
-      const requests = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        startDate: doc.data().startDate?.toDate(),
-        endDate: doc.data().endDate?.toDate(),
-        requestedAt: doc.data().requestedAt?.toDate(),
-        approvedAt: doc.data().approvedAt?.toDate(),
-        rejectedAt: doc.data().rejectedAt?.toDate(),
-        cancelledAt: doc.data().cancelledAt?.toDate(),
-      }));
-      
-      // Sort by startDate descending
-      return requests.sort((a, b) => {
-        const aTime = a.startDate?.getTime() || 0;
-        const bTime = b.startDate?.getTime() || 0;
-        return bTime - aTime;
-      });
-    }
+    // Fetch without orderBy to avoid index requirement, sort in memory
+    const q = query(
+      collection(db, LEAVE_COLLECTION),
+      where('branchId', '==', branchId)
+    );
+    const snapshot = await getDocs(q);
+    const requests = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      startDate: doc.data().startDate?.toDate(),
+      endDate: doc.data().endDate?.toDate(),
+      requestedAt: doc.data().requestedAt?.toDate(),
+      approvedAt: doc.data().approvedAt?.toDate(),
+      rejectedAt: doc.data().rejectedAt?.toDate(),
+      cancelledAt: doc.data().cancelledAt?.toDate(),
+    }));
+    
+    // Sort by startDate descending
+    return requests.sort((a, b) => {
+      const aTime = a.startDate?.getTime() || 0;
+      const bTime = b.startDate?.getTime() || 0;
+      return bTime - aTime;
+    });
   } catch (error) {
     console.error('Error fetching leave requests by branch:', error);
     toast.error('Failed to load leave requests');

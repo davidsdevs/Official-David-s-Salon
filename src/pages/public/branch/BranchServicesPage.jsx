@@ -1,7 +1,7 @@
 import Button from "../../../components/ui/Button"
 import { Card } from "../../../components/ui/Card"
 import { CTAButton, SecondaryButton } from "../../../components/ui/ConsistentButton"
-import { Clock, DollarSign, Filter } from "lucide-react"
+import { Clock, Banknote, Filter } from "lucide-react"
 import { useParams, Link } from "react-router-dom"
 import { useState, useEffect } from "react"
 import BranchNavigation from "../../../components/landing/BranchNavigation"
@@ -525,7 +525,7 @@ export default function BranchServicesPage() {
                       <span>{service.duration}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <DollarSign className="w-4 h-4" />
+                      <Banknote className="w-4 h-4" />
                       <span className="font-poppins font-semibold text-[#160B53]">{service.price}</span>
                     </div>
                   </div>
