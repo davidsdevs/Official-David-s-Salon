@@ -297,3 +297,53 @@ export const formatTime12Hour = (time) => {
   
   return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
 };
+
+/**
+ * Get relative time indicator (e.g., "just now", "1 min ago", "1 hr ago")
+ * @param {Date|string|Timestamp} date - Date to compare
+ * @returns {string} Relative time string
+ */
+export const getTimeAgo = (date) => {
+  if (!date) return '';
+  
+  try {
+    let dateObj;
+    // Handle Firestore Timestamp
+    if (date && typeof date === 'object' && 'toDate' in date) {
+      dateObj = date.toDate();
+    } else if (typeof date === 'string') {
+      dateObj = parseISO(date);
+      if (!isValid(dateObj)) {
+        dateObj = new Date(date);
+      }
+    } else if (date instanceof Date) {
+      dateObj = date;
+    } else {
+      return '';
+    }
+    
+    if (!isValid(dateObj)) return '';
+    
+    const now = new Date();
+    const diffMs = now - dateObj;
+    const diffSeconds = Math.floor(diffMs / 1000);
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    const diffHours = Math.floor(diffMinutes / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    if (diffSeconds < 60) {
+      return 'just now';
+    } else if (diffMinutes < 60) {
+      return `${diffMinutes} ${diffMinutes === 1 ? 'min' : 'mins'} ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours} ${diffHours === 1 ? 'hr' : 'hrs'} ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+    } else {
+      return formatDate(dateObj, 'MMM dd, yyyy');
+    }
+  } catch (error) {
+    console.error('Error calculating time ago:', error);
+    return '';
+  }
+};

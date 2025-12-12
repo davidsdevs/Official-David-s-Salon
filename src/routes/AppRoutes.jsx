@@ -92,6 +92,7 @@ import ClientDashboard from '../pages/client/Dashboard';
 import ClientAppointments from '../pages/client/Appointments';
 import ClientProducts from '../pages/client/Products';
 import ClientRewards from '../pages/client/Rewards';
+import ClientTransactions from '../pages/client/Transactions';
 import ClientProfile from '../pages/client/Profile';
 import Profile from '../pages/common/Profile';
 import InventoryDashboard from '../pages/inventory/Dashboard';
@@ -340,6 +341,7 @@ const AppRoutes = () => {
               <Route index element={<ClientDashboard />} />
               <Route path="appointments" element={<ClientAppointments />} />
               <Route path="products" element={<ClientProducts />} />
+              <Route path="transactions" element={<ClientTransactions />} />
               <Route path="rewards" element={<ClientRewards />} />
               <Route path="profile" element={<ClientProfile />} />
               <Route path="settings" element={<Profile />} />

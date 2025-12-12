@@ -445,6 +445,13 @@ const ReceptionistAppointments = () => {
   };
 
   const handleRescheduleAppointment = (appointment) => {
+    // Prevent reschedule if appointment is in service, completed or already paid
+    const isPaid = appointment.paymentStatus === true || appointment.paid === true || (typeof appointment.paymentStatus === 'string' && appointment.paymentStatus.toLowerCase() === 'paid');
+    if (appointment.status === APPOINTMENT_STATUS.IN_SERVICE || appointment.status === APPOINTMENT_STATUS.COMPLETED || isPaid) {
+      toast.error('Rescheduling is not allowed for this appointment');
+      return;
+    }
+
     setSelectedAppointment(appointment);
     setShowModal(true);
   };
@@ -1088,7 +1095,7 @@ const ReceptionistAppointments = () => {
                           </button>
                         )}
                         
-                        {apt.status !== APPOINTMENT_STATUS.COMPLETED && apt.status !== APPOINTMENT_STATUS.CANCELLED && (
+                        {apt.status !== APPOINTMENT_STATUS.COMPLETED && apt.status !== APPOINTMENT_STATUS.CANCELLED && apt.status !== APPOINTMENT_STATUS.IN_SERVICE && !(apt.paymentStatus === true || apt.paid === true || (typeof apt.paymentStatus === 'string' && apt.paymentStatus.toLowerCase() === 'paid')) && (
                           <>
                             <button
                               onClick={() => handleRescheduleAppointment(apt)}

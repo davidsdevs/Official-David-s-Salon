@@ -138,6 +138,16 @@ const Register = () => {
         updatedAt: Timestamp.now()
       });
 
+      // Set up role password for CLIENT role (required for login)
+      try {
+        const { initializeRolePasswords } = await import('../../services/rolePasswordService');
+        await initializeRolePasswords(user.uid, [USER_ROLES.CLIENT], formData.password);
+      } catch (passwordError) {
+        console.error('Error setting up role password:', passwordError);
+        // Don't fail registration if password setup fails, but log it
+        // The login flow will handle setting it up automatically if needed
+      }
+
       // Process referral code if provided (branch ID is automatically determined from referral code)
       const referralCodeToProcess = formData.referralCode || urlReferralCode;
       

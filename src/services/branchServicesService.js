@@ -36,29 +36,44 @@ import toast from 'react-hot-toast';
 export const getBranchServices = async (branchId) => {
   try {
     const servicesRef = collection(db, 'services');
-    // Get all active global services
+    
+    // Get all active services (without orderBy to avoid index requirement)
     const q = query(
       servicesRef,
-      where('isActive', '==', true),
-      orderBy('name', 'asc')
+      where('isActive', '==', true)
     );
+    
     const snapshot = await getDocs(q);
     
     // Filter to only those offered by this branch (has branchPricing[branchId])
-    return snapshot.docs
+    const branchServices = snapshot.docs
       .filter(doc => {
         const data = doc.data();
-        return data.branchPricing && data.branchPricing[branchId] !== undefined;
+        return data.branchPricing && data.branchPricing[branchId] !== undefined && data.branchPricing[branchId] !== null;
       })
       .map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
           ...data,
+          // Ensure serviceName field exists for compatibility (use name if serviceName doesn't exist)
+          serviceName: data.serviceName || data.name || 'Service',
+          name: data.name || data.serviceName || 'Service',
           // Include branch-specific price at top level for convenience
-          price: data.branchPricing[branchId]
+          price: data.branchPricing[branchId],
+          // Ensure enabled field exists (based on isActive and branchPricing)
+          enabled: data.isActive && data.branchPricing && data.branchPricing[branchId] !== undefined
         };
       });
+    
+    // Sort manually by name
+    branchServices.sort((a, b) => {
+      const nameA = (a.serviceName || a.name || '').toLowerCase();
+      const nameB = (b.serviceName || b.name || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+    
+    return branchServices;
   } catch (error) {
     console.error('Error fetching branch services:', error);
     throw error;

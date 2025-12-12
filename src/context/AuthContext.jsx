@@ -3,6 +3,7 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../config/firebase';
 import toast from 'react-hot-toast';
 import { getUserRoles, hasRole } from '../utils/helpers';
+import { USER_ROLES } from '../utils/constants';
 
 const AuthContext = createContext({});
 
@@ -145,24 +146,55 @@ export const AuthProvider = ({ children }) => {
       }
       
       // Check role-specific password from Firestore
-      const { verifyRolePassword, getRolePassword } = await import('../services/rolePasswordService');
+      const { verifyRolePassword, getRolePassword, setRolePassword } = await import('../services/rolePasswordService');
       
       // For role-specific login, use that role's password
       // For general login, use first role's password
       const roleToCheck = requiredRole || roles[0];
-      const hasRolePassword = await getRolePassword(userId, roleToCheck);
+      let hasRolePassword = await getRolePassword(userId, roleToCheck);
+      let passwordValidated = false;
       
+      // If no role password exists, try Firebase Auth as fallback (backward compatibility)
+      // This handles existing users who registered before role passwords were implemented
       if (!hasRolePassword) {
-        toast.error('No password configured for this role. Please contact administrator.');
-        throw new Error('NO_ROLE_PASSWORD');
+        // Only allow fallback for CLIENT role users
+        if (roleToCheck === USER_ROLES.CLIENT) {
+          try {
+            const { signInWithEmailAndPassword, signOut } = await import('firebase/auth');
+            const { auth } = await import('../config/firebase');
+            
+            // Try to authenticate with Firebase Auth
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            
+            // Authentication successful - set up role password for future logins
+            await setRolePassword(userId, roleToCheck, password);
+            
+            // Sign out from Firebase Auth (we use session-based auth, not Firebase Auth)
+            await signOut(auth);
+            
+            // Password is validated via Firebase Auth, no need to verify role password
+            passwordValidated = true;
+            toast.success('Password migrated successfully. Future logins will use the new system.');
+          } catch (firebaseAuthError) {
+            // Firebase Auth failed - invalid password
+            toast.error('Invalid email or password');
+            throw new Error('INVALID_ROLE_PASSWORD');
+          }
+        } else {
+          // For non-CLIENT roles, require role password to be set
+          toast.error('No password configured for this role. Please contact administrator.');
+          throw new Error('NO_ROLE_PASSWORD');
+        }
       }
       
-      // Verify role password
-      const rolePasswordValid = await verifyRolePassword(userId, roleToCheck, password);
-      
-      if (!rolePasswordValid) {
-        toast.error('Invalid password');
-        throw new Error('INVALID_ROLE_PASSWORD');
+      // If role password exists and hasn't been validated yet, verify it
+      if (hasRolePassword && !passwordValidated) {
+        const rolePasswordValid = await verifyRolePassword(userId, roleToCheck, password);
+        
+        if (!rolePasswordValid) {
+          toast.error('Invalid password');
+          throw new Error('INVALID_ROLE_PASSWORD');
+        }
       }
       
       // Password is correct - create session

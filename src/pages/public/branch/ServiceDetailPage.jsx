@@ -2,32 +2,81 @@ import Button from "../../../components/ui/Button"
 import { Clock, DollarSign, ArrowLeft, Check, ChevronDown, ChevronUp } from "lucide-react"
 import { useParams, Link } from "react-router-dom"
 import { useState, useEffect } from "react"
+import { collection, query, where, getDocs } from 'firebase/firestore'
+import { db } from '../../../config/firebase'
+import { getServiceById } from '../../../services/branchServicesService'
 import BranchNavigation from "../../../components/landing/BranchNavigation"
 import BranchFooter from "../../../components/landing/BranchFooter"
 
 export default function ServiceDetailPage() {
-  const { slug } = useParams()
+  const { slug, serviceId } = useParams()
   const branchName = slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
   
   const [isVisible, setIsVisible] = useState(false)
   const [openFAQ, setOpenFAQ] = useState(null)
+  const [branchId, setBranchId] = useState(null)
+  const [service, setService] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [notAvailable, setNotAvailable] = useState(false)
 
   useEffect(() => {
     setIsVisible(true)
   }, [])
 
-  // Mock service data - in real app, this would come from API/database
-  const service = {
-    id: 1,
-    name: "Hair Cut & Style",
-    category: "Cutting & Styling",
-    tag: "Popular",
-    duration: "45-60 min",
-    price: "₱350-800",
-    image: "https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800&h=400&fit=crop",
-    description: "Professional hair cutting and styling services tailored to your face shape and lifestyle",
-    longDescription: "Our expert stylist provided precision hair cutting and professional styling services designed to enhance your natural beauty. We consider your face shape, hair type, and personal preferences to create the perfect cut that's both stylish and manageable. Whether you're looking for a dramatic change or a subtle refresh, our skilled team will deliver exceptional results."
-  }
+  // Resolve branchId by slug
+  useEffect(() => {
+    const findBranch = async () => {
+      try {
+        const branchesRef = collection(db, 'branches')
+        const q = query(branchesRef, where('slug', '==', slug))
+        const querySnapshot = await getDocs(q)
+
+        if (!querySnapshot.empty) {
+          setBranchId(querySnapshot.docs[0].id)
+        } else {
+          setBranchId(slug)
+        }
+      } catch (err) {
+        console.error('Error finding branch by slug', err)
+        setBranchId(slug)
+      }
+    }
+
+    findBranch()
+  }, [slug])
+
+  // Load service details and check branch availability
+  useEffect(() => {
+    if (!branchId) return
+
+    const loadService = async () => {
+      setLoading(true)
+      try {
+        const s = await getServiceById(serviceId)
+        // Check if service is configured for this branch (branchPricing)
+        const hasForBranch = s.branchPricing && (s.branchPricing[branchId] !== undefined && s.branchPricing[branchId] !== null)
+        if (!hasForBranch) {
+          setNotAvailable(true)
+          setService(null)
+        } else {
+          // include branch-specific price for display convenience
+          const price = s.branchPricing[branchId]
+          setService({ id: s.id, ...s, price })
+          setNotAvailable(false)
+        }
+      } catch (err) {
+        console.error('Error loading service:', err)
+        setService(null)
+        setNotAvailable(true)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadService()
+  }, [branchId, serviceId])
+
+  // NOTE: the service data is now loaded from Firestore and validated for the current branch
 
   const whatsIncluded = [
     "Consultation with professional stylist",
@@ -121,6 +170,33 @@ export default function ServiceDetailPage() {
 
   const toggleFAQ = (index) => {
     setOpenFAQ(openFAQ === index ? null : index)
+  }
+
+  // Render different states: loading, not available, or show service details
+  if (loading) {
+    return (
+      <>
+        <BranchNavigation branchName={`${branchName} Branch`} />
+        <div className="py-40 text-center text-gray-500">Loading service details…</div>
+        <BranchFooter branchName={`${branchName} Branch`} branchPhone="+63 930 222 9659" branchAddress={`${branchName}, Philippines`} branchSlug={slug} />
+      </>
+    )
+  }
+
+  if (notAvailable) {
+    return (
+      <>
+        <BranchNavigation branchName={`${branchName} Branch`} />
+        <section className="py-40 px-6 text-center">
+          <div className="max-w-3xl mx-auto">
+            <h2 className="text-3xl font-poppins font-bold text-[#160B53] mb-4">Service not available</h2>
+            <p className="text-gray-600 mb-6">The service you requested is not offered at the {branchName} branch.</p>
+            <Link to={`/branch/${slug}/services`} className="inline-flex items-center gap-2 px-6 py-3 bg-[#160B53] text-white rounded-lg">Back to services</Link>
+          </div>
+        </section>
+        <BranchFooter branchName={`${branchName} Branch`} branchPhone="+63 930 222 9659" branchAddress={`${branchName}, Philippines`} branchSlug={slug} />
+      </>
+    )
   }
 
   return (

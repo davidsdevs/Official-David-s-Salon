@@ -4,6 +4,9 @@ import { CTAButton, SecondaryButton } from "../../../components/ui/ConsistentBut
 import { Clock, DollarSign, Filter } from "lucide-react"
 import { useParams, Link } from "react-router-dom"
 import { useState, useEffect } from "react"
+import { collection, query, where, getDocs } from 'firebase/firestore'
+import { db } from '../../../config/firebase'
+import { getBranchServices } from '../../../services/branchServicesService'
 import BranchNavigation from "../../../components/landing/BranchNavigation"
 import BranchFooter from "../../../components/landing/BranchFooter"
 
@@ -20,424 +23,64 @@ export default function BranchServicesPage() {
     setIsVisible(true)
   }, [])
 
-  const services = [
-    // HAIRCUT AND BLOWDRY
-    {
-      id: 1,
-      name: "Cut, Shampoo and Blowdry",
-      category: "Haircut & Blowdry",
-      duration: "60-90 min",
-      price: "₱400",
-      tag: "Popular",
-      tagColor: "bg-gray-100 text-gray-700",
-      description: "Complete hair service with cut, shampoo and professional blowdry"
-    },
-    {
-      id: 2,
-      name: "Kid's Haircut",
-      category: "Haircut & Blowdry",
-      duration: "30-45 min",
-      price: "₱500",
-      tag: "Family",
-      tagColor: "bg-blue-100 text-blue-700",
-      description: "Specialized haircut service for children"
-    },
-    {
-      id: 3,
-      name: "Shampoo and Blowdry",
-      category: "Haircut & Blowdry",
-      duration: "45-60 min",
-      price: "₱300",
-      tag: "Quick",
-      tagColor: "bg-green-100 text-green-700",
-      description: "Refreshing shampoo and professional blowdry"
-    },
-    {
-      id: 4,
-      name: "Shampoo and Iron",
-      category: "Haircut & Blowdry",
-      duration: "60-90 min",
-      price: "₱1,000",
-      tag: "Premium",
-      tagColor: "bg-[#160B53] text-white",
-      description: "Shampoo with professional flat iron styling"
-    },
+  // state for dynamic services (loaded from Firestore / branchServicesService)
+  const [branchId, setBranchId] = useState(null)
+  const [services, setServices] = useState([])
+  const [loadingServices, setLoadingServices] = useState(true)
 
-    // HAIR COLORING
-    {
-      id: 5,
-      name: "Tint",
-      category: "Hair Coloring",
-      duration: "2-3 hours",
-      price: "₱2,000",
-      tag: "Popular",
-      tagColor: "bg-gray-100 text-gray-700",
-      description: "Professional hair tinting service"
-    },
-    {
-      id: 6,
-      name: "Tint (Ammonia Free)",
-      category: "Hair Coloring",
-      duration: "2-3 hours",
-      price: "₱2,600",
-      tag: "Gentle",
-      tagColor: "bg-purple-100 text-purple-700",
-      description: "Gentle ammonia-free hair tinting for sensitive hair"
-    },
-    {
-      id: 7,
-      name: "Highlights Cap",
-      category: "Hair Coloring",
-      duration: "3-4 hours",
-      price: "₱2,600",
-      tag: "Classic",
-      tagColor: "bg-yellow-100 text-yellow-700",
-      description: "Traditional cap highlighting technique"
-    },
-    {
-      id: 8,
-      name: "Highlights Foil",
-      category: "Hair Coloring",
-      duration: "3-4 hours",
-      price: "₱2,600",
-      tag: "Modern",
-      tagColor: "bg-pink-100 text-pink-700",
-      description: "Modern foil highlighting for precise color placement"
-    },
-    {
-      id: 9,
-      name: "Color Conditioning",
-      category: "Hair Coloring",
-      duration: "2-3 hours",
-      price: "₱2,200",
-      tag: "Nourishing",
-      tagColor: "bg-orange-100 text-orange-700",
-      description: "Color service with deep conditioning treatment"
-    },
-    {
-      id: 10,
-      name: "Balayage",
-      category: "Hair Coloring",
-      duration: "4-6 hours",
-      price: "₱6,000",
-      tag: "Premium",
-      tagColor: "bg-[#160B53] text-white",
-      description: "Hand-painted balayage technique for natural-looking highlights"
-    },
+  // Find branchId by slug (branches collection is assumed to have a slug field)
+  useEffect(() => {
+    const findBranch = async () => {
+      try {
+        const branchesRef = collection(db, 'branches')
+        const q = query(branchesRef, where('slug', '==', slug))
+        const querySnapshot = await getDocs(q)
 
-    // HAIR TREATMENT
-    {
-      id: 11,
-      name: "Protein Treatment",
-      category: "Hair Treatment",
-      duration: "60-90 min",
-      price: "₱800",
-      tag: "Repair",
-      tagColor: "bg-red-100 text-red-700",
-      description: "Strengthening protein treatment for damaged hair"
-    },
-    {
-      id: 12,
-      name: "Moroccan Treatment",
-      category: "Hair Treatment",
-      duration: "90-120 min",
-      price: "₱1,200",
-      tag: "Luxury",
-      tagColor: "bg-amber-100 text-amber-700",
-      description: "Premium Moroccan oil treatment for silky smooth hair"
-    },
-    {
-      id: 13,
-      name: "Plarmia Full Head",
-      category: "Hair Treatment",
-      duration: "90-120 min",
-      price: "₱1,800",
-      tag: "Professional",
-      tagColor: "bg-indigo-100 text-indigo-700",
-      description: "Professional Plarmia treatment for full head coverage"
-    },
-    {
-      id: 14,
-      name: "Milbon",
-      category: "Hair Treatment",
-      duration: "90-120 min",
-      price: "₱1,800",
-      tag: "Japanese",
-      tagColor: "bg-teal-100 text-teal-700",
-      description: "Japanese Milbon treatment for hair restoration"
-    },
-    {
-      id: 15,
-      name: "OI Luster",
-      category: "Hair Treatment",
-      duration: "90-120 min",
-      price: "₱1,800",
-      tag: "Shine",
-      tagColor: "bg-cyan-100 text-cyan-700",
-      description: "OI Luster treatment for enhanced hair shine and luster"
-    },
-    {
-      id: 16,
-      name: "Foliage Booster",
-      category: "Hair Treatment",
-      duration: "120-150 min",
-      price: "₱2,400",
-      tag: "Advanced",
-      tagColor: "bg-emerald-100 text-emerald-700",
-      description: "Advanced Foliage Booster treatment for hair health"
-    },
-    {
-      id: 17,
-      name: "D2 Treatment",
-      category: "Hair Treatment",
-      duration: "120-150 min",
-      price: "₱2,400",
-      tag: "Repair",
-      tagColor: "bg-red-100 text-red-700",
-      description: "D2 treatment for intensive hair repair and restoration"
-    },
-    {
-      id: 18,
-      name: "Tailoring",
-      category: "Hair Treatment",
-      duration: "120-150 min",
-      price: "₱2,500",
-      tag: "Custom",
-      tagColor: "bg-violet-100 text-violet-700",
-      description: "Customized tailoring treatment for individual hair needs"
-    },
-
-    // STRAIGHTENING & FORMING
-    {
-      id: 19,
-      name: "Perm",
-      category: "Straightening & Forming",
-      duration: "3-4 hours",
-      price: "₱3,000",
-      tag: "Classic",
-      tagColor: "bg-yellow-100 text-yellow-700",
-      description: "Traditional perm for curly hair styling"
-    },
-    {
-      id: 20,
-      name: "Digital Perm",
-      category: "Straightening & Forming",
-      duration: "4-6 hours",
-      price: "₱6,000",
-      tag: "Premium",
-      tagColor: "bg-[#160B53] text-white",
-      description: "Modern digital perm technology for natural-looking curls"
-    },
-    {
-      id: 21,
-      name: "Relaxing",
-      category: "Straightening & Forming",
-      duration: "3-4 hours",
-      price: "₱3,800",
-      tag: "Smooth",
-      tagColor: "bg-slate-100 text-slate-700",
-      description: "Hair relaxing treatment for straight, smooth hair"
-    },
-    {
-      id: 22,
-      name: "Rebonding",
-      category: "Straightening & Forming",
-      duration: "4-6 hours",
-      price: "₱6,000",
-      tag: "Premium",
-      tagColor: "bg-[#160B53] text-white",
-      description: "Professional rebonding for permanently straight hair"
-    },
-    {
-      id: 23,
-      name: "Foliage",
-      category: "Straightening & Forming",
-      duration: "3-4 hours",
-      price: "₱3,000",
-      tag: "Modern",
-      tagColor: "bg-pink-100 text-pink-700",
-      description: "Modern Foliage straightening treatment"
-    },
-    {
-      id: 24,
-      name: "Keratherapy",
-      category: "Straightening & Forming",
-      duration: "3-4 hours",
-      price: "₱5,000",
-      tag: "Advanced",
-      tagColor: "bg-emerald-100 text-emerald-700",
-      description: "Advanced Keratherapy treatment for hair straightening"
-    },
-
-    // HAIR & MAKE UP
-    {
-      id: 25,
-      name: "Hair & Make Up",
-      category: "Hair & Make Up",
-      duration: "2-3 hours",
-      price: "₱1,700",
-      tag: "Complete",
-      tagColor: "bg-rose-100 text-rose-700",
-      description: "Complete hair styling and professional make-up service"
-    },
-    {
-      id: 26,
-      name: "Hair Setting",
-      category: "Hair & Make Up",
-      duration: "60-90 min",
-      price: "₱850-1,500",
-      tag: "Styling",
-      tagColor: "bg-fuchsia-100 text-fuchsia-700",
-      description: "Professional hair setting and styling service"
-    },
-
-    // NAIL CARE / WAXING / THREADING
-    {
-      id: 27,
-      name: "Manicure",
-      category: "Nail Care",
-      duration: "45-60 min",
-      price: "₱300",
-      tag: "Basic",
-      tagColor: "bg-gray-100 text-gray-700",
-      description: "Professional manicure service"
-    },
-    {
-      id: 28,
-      name: "Pedicure",
-      category: "Nail Care",
-      duration: "60-90 min",
-      price: "₱350",
-      tag: "Relaxing",
-      tagColor: "bg-blue-100 text-blue-700",
-      description: "Relaxing pedicure service"
-    },
-    {
-      id: 29,
-      name: "Nail Extension",
-      category: "Nail Care",
-      duration: "2-3 hours",
-      price: "₱1,500",
-      tag: "Luxury",
-      tagColor: "bg-amber-100 text-amber-700",
-      description: "Professional nail extension service"
-    },
-    {
-      id: 30,
-      name: "Footspa",
-      category: "Nail Care",
-      duration: "60-90 min",
-      price: "₱450",
-      tag: "Spa",
-      tagColor: "bg-green-100 text-green-700",
-      description: "Relaxing foot spa treatment"
-    },
-    {
-      id: 31,
-      name: "Gel FX",
-      category: "Nail Care",
-      duration: "90-120 min",
-      price: "₱600",
-      tag: "Modern",
-      tagColor: "bg-pink-100 text-pink-700",
-      description: "Modern gel nail art and design"
-    },
-    {
-      id: 32,
-      name: "Change Polish",
-      category: "Nail Care",
-      duration: "30-45 min",
-      price: "₱200",
-      tag: "Quick",
-      tagColor: "bg-green-100 text-green-700",
-      description: "Quick nail polish change service"
-    },
-    {
-      id: 33,
-      name: "Threading",
-      category: "Waxing & Threading",
-      duration: "15-30 min",
-      price: "₱300",
-      tag: "Precise",
-      tagColor: "bg-purple-100 text-purple-700",
-      description: "Precise threading for facial hair removal"
-    },
-    {
-      id: 34,
-      name: "Upperlip/Lowerlip",
-      category: "Waxing & Threading",
-      duration: "15-30 min",
-      price: "₱350",
-      tag: "Facial",
-      tagColor: "bg-rose-100 text-rose-700",
-      description: "Lip area hair removal service"
-    },
-    {
-      id: 35,
-      name: "Eyebrow Shave",
-      category: "Waxing & Threading",
-      duration: "15-30 min",
-      price: "₱250",
-      tag: "Brows",
-      tagColor: "bg-indigo-100 text-indigo-700",
-      description: "Professional eyebrow shaping and shaving"
-    },
-    {
-      id: 36,
-      name: "Underarm Waxing",
-      category: "Waxing & Threading",
-      duration: "30-45 min",
-      price: "₱400",
-      tag: "Smooth",
-      tagColor: "bg-slate-100 text-slate-700",
-      description: "Underarm hair waxing service"
-    },
-    {
-      id: 37,
-      name: "Half Leg Waxing",
-      category: "Waxing & Threading",
-      duration: "45-60 min",
-      price: "₱600",
-      tag: "Legs",
-      tagColor: "bg-cyan-100 text-cyan-700",
-      description: "Half leg hair waxing service"
-    },
-    {
-      id: 38,
-      name: "Full Leg Waxing",
-      category: "Waxing & Threading",
-      duration: "60-90 min",
-      price: "₱850",
-      tag: "Complete",
-      tagColor: "bg-teal-100 text-teal-700",
-      description: "Complete full leg hair waxing service"
-    },
-    {
-      id: 39,
-      name: "Foot Massage",
-      category: "Massage",
-      duration: "30-45 min",
-      price: "₱400",
-      tag: "Relaxing",
-      tagColor: "bg-blue-100 text-blue-700",
-      description: "Relaxing foot massage service"
-    },
-    {
-      id: 40,
-      name: "Head Massage",
-      category: "Massage",
-      duration: "30-45 min",
-      price: "₱400",
-      tag: "Relaxing",
-      tagColor: "bg-blue-100 text-blue-700",
-      description: "Relaxing head and scalp massage service"
+        if (!querySnapshot.empty) {
+          setBranchId(querySnapshot.docs[0].id)
+        } else {
+          // fallback - if branch doc doesn't exist, use slug as id
+          setBranchId(slug)
+        }
+      } catch (err) {
+        console.error('Error finding branch by slug:', err)
+        setBranchId(slug)
+      }
     }
+
+    findBranch()
+  }, [slug])
+
+  // Load services for the selected branch
+  useEffect(() => {
+    if (!branchId) return
+
+    const loadServices = async () => {
+      setLoadingServices(true)
+      try {
+        const results = await getBranchServices(branchId)
+        setServices(results)
+      } catch (err) {
+        console.error('Failed to load branch services:', err)
+        setServices([])
+      } finally {
+        setLoadingServices(false)
+      }
+    }
+
+    loadServices()
+  }, [branchId])
+
+  // derive categories from services but keep sensible defaults
+  const categories = [
+    'All',
+    ...Array.from(new Set(services.map(s => s.category).filter(Boolean)))
   ]
 
-  const categories = ["All", "Haircut & Blowdry", "Hair Coloring", "Hair Treatment", "Straightening & Forming", "Hair & Make Up", "Nail Care", "Waxing & Threading", "Massage"]
-
   const filteredServices = services.filter(service => {
-    return selectedCategory === "All" || service.category === selectedCategory
+    // If still loading or service entry doesn't have expected fields use safe values
+    const category = service.category || service.serviceType || 'Uncategorized'
+    return selectedCategory === 'All' || category === selectedCategory
   })
 
   // Pagination logic
@@ -486,7 +129,12 @@ export default function BranchServicesPage() {
       <section className="py-8 px-6 bg-white">
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {currentServices.map((service, index) => (
+            {loadingServices ? (
+              <div className="col-span-full text-center py-16">
+                <div className="text-2xl text-gray-500">Loading services…</div>
+              </div>
+            ) : (
+              currentServices.map((service, index) => (
               <Card 
                 key={service.id}
                 className="overflow-hidden border-0 p-0"
@@ -495,14 +143,14 @@ export default function BranchServicesPage() {
                 {/* Service Image */}
                 <div className="relative h-48 bg-gray-100 overflow-hidden">
                   <img
-                    src={service.image}
-                    alt={service.name}
+                    src={service.image || service.media?.[0]?.url || '/images/placeholder/service-default.jpg'}
+                    alt={service.name || service.serviceName}
                     className="w-full h-full object-cover"
                   />
                   {/* Service Tag */}
-                  {service.tag && (
+                    {(service.tag || service.tagLabel) && (
                     <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-sm font-poppins font-medium ${service.tagColor}`}>
-                      {service.tag}
+                      {service.tag || service.tagLabel}
                     </div>
                   )}
                   {/* Category Badge */}
@@ -513,10 +161,10 @@ export default function BranchServicesPage() {
 
                 <div className="p-6">
                   <h3 className="text-xl font-poppins font-bold mb-2 text-gray-900">
-                    {service.name}
+                    {service.name || service.serviceName}
                   </h3>
                   
-                  <p className="text-gray-600 text-sm mb-4 line-clamp-2">{service.description}</p>
+                    <p className="text-gray-600 text-sm mb-4 line-clamp-2">{service.description || service.shortDescription || ''}</p>
                   
                   {/* Service Details */}
                   <div className="flex items-center gap-4 mb-4 text-sm text-gray-500">
@@ -526,7 +174,7 @@ export default function BranchServicesPage() {
                     </div>
                     <div className="flex items-center gap-1">
                       <DollarSign className="w-4 h-4" />
-                      <span className="font-poppins font-semibold text-[#160B53]">{service.price}</span>
+                      <span className="font-poppins font-semibold text-[#160B53]">{service.price == null ? (service.branchPricing || '—') : service.price}</span>
                     </div>
                   </div>
                   
@@ -550,7 +198,8 @@ export default function BranchServicesPage() {
                   </div>
                 </div>
               </Card>
-            ))}
+              ))
+            )}
           </div>
 
           {/* Pagination */}

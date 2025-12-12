@@ -33,6 +33,8 @@ const Login = () => {
       // Error is already handled by AuthContext, but we can set a local error state
       if (error.message === 'INVALID_ROLE') {
         setError('This login page is for clients only. Staff members should use their role-specific login page.');
+      } else if (error.message === 'NO_ROLE_PASSWORD') {
+        setError('Account setup incomplete. Please contact administrator or try again later.');
       } else {
         setError(error.message || 'Invalid email or password');
       }

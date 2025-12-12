@@ -103,6 +103,13 @@ const AppointmentFormModal = ({
     }
   }, [appointment, isOpen, userBranch, clients]);
   
+  // Determine if editing is allowed (reschedule allowed only when appointment not in_service/completed/paid)
+  const allowReschedule = !appointment || (
+    appointment.status !== APPOINTMENT_STATUS.IN_SERVICE &&
+    appointment.status !== APPOINTMENT_STATUS.COMPLETED &&
+    !(appointment.paymentStatus === true || appointment.paid === true || appointment.isPaid === true || (typeof appointment.paymentStatus === 'string' && appointment.paymentStatus.toLowerCase() === 'paid'))
+  );
+
   // Fetch available time slots when date, services, and branch are selected
   useEffect(() => {
     let isCancelled = false;
@@ -755,9 +762,13 @@ const AppointmentFormModal = ({
                 required
                 value={formData.appointmentDate}
                 onChange={(e) => setFormData({ ...formData, appointmentDate: e.target.value, timeSlot: null })}
+                disabled={!allowReschedule}
                 min={getMinDateTime()}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
+              {!allowReschedule && (
+                <p className="text-xs text-amber-600 mt-2">Rescheduling is not allowed for appointments that are in-service, completed, or already paid.</p>
+              )}
             </div>
 
             {/* Time Slot Selection */}
@@ -784,8 +795,8 @@ const AppointmentFormModal = ({
                       <button
                         key={index}
                         type="button"
-                        onClick={() => slot.available && setFormData({ ...formData, timeSlot: slot })}
-                        disabled={!slot.available}
+                        onClick={() => allowReschedule && slot.available && setFormData({ ...formData, timeSlot: slot })}
+                        disabled={!allowReschedule || !slot.available}
                         className={`px-3 py-2 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap ${
                           formData.timeSlot?.time === slot.time
                             ? 'bg-[#2D1B4E] text-white border-[#2D1B4E]'

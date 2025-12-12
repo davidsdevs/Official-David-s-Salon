@@ -297,10 +297,6 @@ const Deliveries = () => {
             unitPrice: item.unitPrice || 0
           };
         }).filter(item => item.quantity > 0), // Only include items with received quantity > 0
-        receivedBy: userData.uid || userData.id,
-        receivedByName: (userData.firstName && userData.lastName 
-          ? `${userData.firstName} ${userData.lastName}`.trim() 
-          : (userData.email || 'Unknown')),
         receivedAt: new Date()
       });
 

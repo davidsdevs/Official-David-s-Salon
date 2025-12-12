@@ -22,6 +22,7 @@ import {
 import { db } from '../config/firebase';
 import { getBranchById } from './branchService';
 import { getBranchCalendar } from './branchCalendarService';
+import { getScheduleConfigurationsByBranch } from './scheduleService';
 import { logActivity } from './activityService';
 import { 
   storeAppointmentCreated, 
@@ -366,6 +367,75 @@ export const createAppointment = async (appointmentData, currentUser) => {
       throw new Error('Client name is required for guest client appointments');
     }
 
+    const appointmentsRef = collection(db, APPOINTMENTS_COLLECTION);
+
+    // Check for duplicate appointments - same client, date/time, service, and stylist
+    if (appointmentData.clientId) {
+      const appointmentDateTime = new Date(appointmentData.appointmentDate);
+      const appointmentStart = new Date(appointmentDateTime);
+      appointmentStart.setSeconds(0, 0);
+      const appointmentEnd = new Date(appointmentStart);
+      appointmentEnd.setMinutes(appointmentEnd.getMinutes() + (appointmentData.duration || 60));
+
+      // Get services to check
+      const servicesToCheck = appointmentData.services || (appointmentData.serviceId ? [{
+        serviceId: appointmentData.serviceId,
+        stylistId: appointmentData.stylistId || null
+      }] : []);
+
+      // Check for existing appointments with same client
+      const existingQuery = query(
+        appointmentsRef,
+        where('clientId', '==', appointmentData.clientId)
+      );
+
+      const existingSnapshot = await getDocs(existingQuery);
+      
+      for (const docSnap of existingSnapshot.docs) {
+        const existing = docSnap.data();
+        
+        // Skip cancelled and completed appointments
+        if (existing.status === APPOINTMENT_STATUS.CANCELLED || 
+            existing.status === APPOINTMENT_STATUS.COMPLETED ||
+            existing.status === APPOINTMENT_STATUS.NO_SHOW) {
+          continue;
+        }
+        
+        const existingDate = existing.appointmentDate?.toDate();
+        
+        if (existingDate) {
+          const existingStart = new Date(existingDate);
+          existingStart.setSeconds(0, 0);
+          const existingEnd = new Date(existingStart);
+          existingEnd.setMinutes(existingEnd.getMinutes() + (existing.duration || 60));
+
+          // Check if appointments overlap in time
+          const timeOverlaps = appointmentStart < existingEnd && appointmentEnd > existingStart;
+
+          if (timeOverlaps) {
+            // Check if same service and stylist
+            const existingServices = existing.services || (existing.serviceId ? [{
+              serviceId: existing.serviceId,
+              stylistId: existing.stylistId || null
+            }] : []);
+
+            for (const service of servicesToCheck) {
+              const hasSameService = existingServices.some(existingService => {
+                const sameService = existingService.serviceId === service.serviceId;
+                const sameStylist = (existingService.stylistId || null) === (service.stylistId || null);
+                return sameService && sameStylist;
+              });
+
+              if (hasSameService) {
+                toast.error('You already have an appointment for this service, time, and stylist');
+                throw new Error('Duplicate appointment detected');
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Check for double booking
     // For multi-service appointments, check each stylist's availability
     if (appointmentData.services && appointmentData.services.length > 0) {
@@ -398,7 +468,6 @@ export const createAppointment = async (appointmentData, currentUser) => {
       }
     }
 
-    const appointmentsRef = collection(db, APPOINTMENTS_COLLECTION);
     const defaultStatus = appointmentData.status || APPOINTMENT_STATUS.PENDING;
     
     // Build initial history entry
@@ -481,6 +550,19 @@ export const updateAppointment = async (appointmentId, updates, currentUser) => 
     // If rescheduling, check availability and time restrictions
     if (updates.appointmentDate) {
       const appointment = await getAppointmentById(appointmentId);
+
+      // If appointment is in_service or completed, disallow reschedule
+      if (appointment.status === APPOINTMENT_STATUS.IN_SERVICE || appointment.status === APPOINTMENT_STATUS.COMPLETED) {
+        toast.error('Rescheduling is not allowed once the service is in progress or completed.');
+        throw new Error('Reschedule not allowed - appointment in_service or completed');
+      }
+
+      // If appointment appears to be paid, disallow reschedule as well
+      const paidFlag = appointment.paymentStatus || appointment.paid || appointment.isPaid;
+      if (paidFlag === true || (typeof paidFlag === 'string' && paidFlag.toLowerCase() === 'paid')) {
+        toast.error('Rescheduling is not allowed for appointments that have already been paid.');
+        throw new Error('Reschedule not allowed - appointment paid');
+      }
       
       // Check availability for multi-service or single-service
       if (updates.services && updates.services.length > 0) {
@@ -1117,7 +1199,7 @@ export const checkStylistAvailability = async (stylistId, appointmentDate, durat
  */
 export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDuration = 60) => {
   try {
-    // Get branch data for operating hours
+    // Get branch data for operating hours (fallback)
     const branch = await getBranchById(branchId);
     if (!branch) {
       console.error('Branch not found:', branchId);
@@ -1126,22 +1208,72 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
 
     // Get day of week
     const selectedDate = new Date(date);
-    const dayOfWeek = selectedDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-    const dayName = selectedDate.toLocaleDateString('en-US', { weekday: 'long' });
+    const dayOfWeekName = selectedDate.toLocaleDateString('en-US', { weekday: 'long' });
+    const dayOfWeek = dayOfWeekName.toLowerCase();
+    const dayName = dayOfWeekName;
     
-    // Get operating hours for this day
-    const dayHours = branch.operatingHours?.[dayOfWeek];
-    if (!dayHours) {
-      return { slots: [], message: 'No operating hours configured for this branch' };
+    // Get schedule configurations for the branch
+    let scheduleConfig = null;
+    let stylistShift = null;
+    
+    try {
+      const scheduleConfigs = await getScheduleConfigurationsByBranch(branchId);
+      // Find the schedule configuration that applies to this date
+      const targetDate = new Date(date);
+      targetDate.setHours(0, 0, 0, 0);
+      
+      // Find the most recent schedule configuration with startDate <= targetDate
+      const applicableConfigs = scheduleConfigs
+        .filter(c => {
+          if (!c.startDate) return false;
+          const configStartDate = new Date(c.startDate);
+          configStartDate.setHours(0, 0, 0, 0);
+          return configStartDate <= targetDate && c.isActive;
+        })
+        .sort((a, b) => {
+          const aTime = new Date(a.startDate).getTime();
+          const bTime = new Date(b.startDate).getTime();
+          return bTime - aTime; // Most recent first
+        });
+      
+      scheduleConfig = applicableConfigs[0] || null;
+      
+      // If stylistId provided, get their shift for this day
+      if (stylistId && scheduleConfig && scheduleConfig.shifts && scheduleConfig.shifts[stylistId]) {
+        stylistShift = scheduleConfig.shifts[stylistId][dayOfWeek] || null;
+      }
+    } catch (scheduleError) {
+      console.warn('Error fetching schedules, falling back to branch operating hours:', scheduleError);
     }
     
-    // Check if branch is open (backwards compatible with old 'closed' field)
-    const isBranchOpen = dayHours.isOpen !== undefined 
-      ? dayHours.isOpen 
-      : !dayHours.closed; // Fallback to old field
+    // Determine working hours - prioritize schedules over branch operating hours
+    let startHour, startMinute, endHour, endMinute;
+    let workingHours = null;
     
-    if (!isBranchOpen) {
-      return { slots: [], message: `Branch is closed on ${dayName}s` };
+    if (stylistShift && stylistShift.start && stylistShift.end) {
+      // Use stylist-specific shift from schedules
+      [startHour, startMinute] = stylistShift.start.split(':').map(Number);
+      [endHour, endMinute] = stylistShift.end.split(':').map(Number);
+      workingHours = { open: stylistShift.start, close: stylistShift.end };
+    } else {
+      // Fall back to branch operating hours
+      const dayHours = branch.operatingHours?.[dayOfWeek];
+      if (!dayHours) {
+        return { slots: [], message: 'No operating hours configured for this branch' };
+      }
+      
+      // Check if branch is open (backwards compatible with old 'closed' field)
+      const isBranchOpen = dayHours.isOpen !== undefined 
+        ? dayHours.isOpen 
+        : !dayHours.closed; // Fallback to old field
+      
+      if (!isBranchOpen) {
+        return { slots: [], message: `Branch is closed on ${dayName}s` };
+      }
+      
+      workingHours = dayHours;
+      [startHour, startMinute] = workingHours.open.split(':').map(Number);
+      [endHour, endMinute] = workingHours.close.split(':').map(Number);
     }
 
     // Check calendar for holidays/closures
@@ -1163,13 +1295,17 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
       return { slots: [], message: `${reason}${title} - No appointments available` };
     }
 
-    // Check for special hours
+    // Check for special hours (override working hours)
     const specialHours = dayEvents.find(e => e.type === 'special_hours');
-    const workingHours = specialHours?.specialHours || dayHours;
+    if (specialHours && specialHours.specialHours) {
+      workingHours = specialHours.specialHours;
+      [startHour, startMinute] = workingHours.open.split(':').map(Number);
+      [endHour, endMinute] = workingHours.close.split(':').map(Number);
+    }
 
-    // Parse start and end times
-    const [startHour, startMinute] = workingHours.open.split(':').map(Number);
-    const [endHour, endMinute] = workingHours.close.split(':').map(Number);
+    // Get current time for disabling past slots
+    const now = new Date();
+    const isToday = selectedDate.toDateString() === now.toDateString();
 
     // OPTIMIZATION: Fetch ALL appointments for the day at once
     const dayStart = new Date(date);
@@ -1205,24 +1341,44 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
       
       // Check if slot end time is within working hours
       if (slotEnd.getTime() <= endTime.getTime()) {
-        // Check availability from in-memory appointments instead of database query
+        // Disable past times - if it's today and the slot time has passed
         let isAvailable = true;
         
-        if (stylistId) {
-          // Check if this specific stylist has conflicts
-          for (const apt of dayAppointments) {
-            const aptStart = apt.appointmentDate;
-            const aptEnd = new Date(aptStart.getTime() + (apt.duration || 60) * 60000);
-            
-            // Check if stylist is assigned to this appointment
-            const hasStylist = apt.services?.some(svc => svc.stylistId === stylistId);
-            if (hasStylist) {
-              // Check for time overlap
-              if (slotDate < aptEnd && slotEnd > aptStart) {
-                isAvailable = false;
-                break;
+        if (isToday && slotDate.getTime() <= now.getTime()) {
+          isAvailable = false;
+        }
+        
+        // Check availability from appointments
+        if (isAvailable) {
+          if (stylistId) {
+            // Check if this specific stylist has conflicts
+            for (const apt of dayAppointments) {
+              const aptStart = apt.appointmentDate;
+              const aptEnd = new Date(aptStart.getTime() + (apt.duration || 60) * 60000);
+              
+              // Check if stylist is assigned to this appointment
+              const hasStylist = apt.services?.some(svc => svc.stylistId === stylistId);
+              if (hasStylist) {
+                // Check for time overlap
+                if (slotDate < aptEnd && slotEnd > aptStart) {
+                  isAvailable = false;
+                  break;
+                }
               }
             }
+          } else {
+            // For general availability (no specific stylist), check overall branch capacity
+            // Count overlapping appointments
+            let overlappingCount = 0;
+            for (const apt of dayAppointments) {
+              const aptStart = apt.appointmentDate;
+              const aptEnd = new Date(aptStart.getTime() + (apt.duration || 60) * 60000);
+              if (slotDate < aptEnd && slotEnd > aptStart) {
+                overlappingCount++;
+              }
+            }
+            // You can set a maximum capacity per time slot if needed
+            // For now, we allow all slots if no stylist is specified
           }
         }
         

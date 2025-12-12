@@ -33,21 +33,34 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
 
   const formatTime = (time) => {
     if (!time) return 'N/A';
-    // If time is already in HH:MM format, convert to 12-hour format
-    if (typeof time === 'string' && time.match(/^\d{2}:\d{2}$/)) {
-      const [hours, minutes] = time.split(':');
-      const hour = parseInt(hours, 10);
-      const ampm = hour >= 12 ? 'PM' : 'AM';
-      const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-      return `${displayHour}:${minutes} ${ampm}`;
+    try {
+      // If time is already in HH:MM format, convert to 12-hour format
+      if (typeof time === 'string' && time.match(/^\d{2}:\d{2}$/)) {
+        const [hours, minutes] = time.split(':');
+        const hour = parseInt(hours, 10);
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+        return `${displayHour}:${minutes} ${ampm}`;
+      }
+      // If time is a timestamp, format it
+      let d;
+      if (time && typeof time === 'object' && 'toDate' in time) {
+        d = time.toDate();
+      } else if (time instanceof Date) {
+        d = time;
+      } else {
+        d = new Date(time);
+      }
+      if (isNaN(d.getTime())) return 'N/A';
+      return d.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (error) {
+      console.error('Error formatting time:', error, time);
+      return 'N/A';
     }
-    // If time is a timestamp, format it
-    const d = time.toDate ? time.toDate() : new Date(time);
-    return d.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
   };
 
   const formatDateTime = (timestamp) => {
@@ -113,7 +126,16 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
   // Extract date and time from appointmentDate if it's a full timestamp
   const appointmentDate = appointment.appointmentDate;
   const appointmentDateFormatted = appointmentDate ? formatDate(appointmentDate) : 'N/A';
-  const appointmentTimeFormatted = appointmentDate ? formatTime(appointmentDate) : (appointment.appointmentTime ? formatTime(appointment.appointmentTime) : 'N/A');
+  
+  // Try to get time from appointmentDate first, then appointmentTime, then appointmentDate as string
+  let appointmentTimeFormatted = 'N/A';
+  if (appointmentDate) {
+    appointmentTimeFormatted = formatTime(appointmentDate);
+  } else if (appointment.appointmentTime) {
+    appointmentTimeFormatted = formatTime(appointment.appointmentTime);
+  } else if (appointment.time) {
+    appointmentTimeFormatted = formatTime(appointment.time);
+  }
 
   return (
     <div 
@@ -143,13 +165,19 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
         </div>
 
         {/* Content - Scrollable */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-          <div className="space-y-6">
-            {/* Header with Client and Status */}
-            <div className="text-center mb-8">
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">{appointment.clientName || 'Guest Client'}</h3>
-              <p className="text-gray-600 mb-4">Appointment #{appointment.id?.slice(-8) || 'N/A'}</p>
-              <div className="flex justify-center">
+        <div className="flex-1 overflow-y-auto" style={{ 
+          maxHeight: 'calc(95vh - 200px)',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'thin'
+        }}>
+          <div className="p-4 sm:p-6 space-y-6">
+            {/* Header with Client and Status - Enhanced */}
+            <div className="text-center mb-8 pb-6 border-b-2 border-gray-200">
+              <div className="inline-block bg-gradient-to-r from-[#160B53]/10 to-[#2D1B69]/10 rounded-full px-6 py-3 mb-4">
+                <h3 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{appointment.clientName || 'Guest Client'}</h3>
+                <p className="text-sm text-gray-600">Appointment #{appointment.id?.slice(-8) || 'N/A'}</p>
+              </div>
+              <div className="flex justify-center mt-4">
                 {getStatusBadge(appointment.status)}
               </div>
             </div>
@@ -158,53 +186,78 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Left Column - Client & Appointment Info */}
               <div className="space-y-6">
-                {/* Client Information */}
-                <div className="bg-white border-2 border-gray-200 rounded-xl p-6 shadow-sm">
-                  <div className="flex items-center mb-4">
-                    <User className="w-5 h-5 text-[#160B53] mr-2" />
-                    <h4 className="text-lg font-semibold text-gray-900">Client Information</h4>
+                {/* Client Information - Enhanced */}
+                <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md hover:shadow-lg transition-shadow">
+                  <div className="flex items-center mb-5 pb-3 border-b-2 border-gray-200">
+                    <div className="p-2 bg-[#160B53]/10 rounded-lg mr-3">
+                      <User className="w-6 h-6 text-[#160B53]" />
+                    </div>
+                    <h4 className="text-xl font-bold text-gray-900">Client Information</h4>
                   </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                      <span className="font-medium text-gray-700">Name:</span>
-                      <span className="text-gray-900">{appointment.clientName || 'N/A'}</span>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center py-3 px-3 bg-white rounded-lg border border-gray-200">
+                      <span className="font-semibold text-gray-700 flex items-center gap-2">
+                        <span className="w-1 h-4 bg-[#160B53] rounded-full"></span>
+                        Name:
+                      </span>
+                      <span className="text-gray-900 font-medium">{appointment.clientName || 'N/A'}</span>
                     </div>
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                      <span className="font-medium text-gray-700">Phone:</span>
-                      <span className="text-gray-900">{appointment.clientPhone || 'N/A'}</span>
+                    <div className="flex justify-between items-center py-3 px-3 bg-white rounded-lg border border-gray-200">
+                      <span className="font-semibold text-gray-700 flex items-center gap-2">
+                        <span className="w-1 h-4 bg-[#160B53] rounded-full"></span>
+                        Phone:
+                      </span>
+                      <span className="text-gray-900 font-medium">{appointment.clientPhone || 'N/A'}</span>
                     </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="font-medium text-gray-700">Email:</span>
-                      <span className="text-gray-900">{appointment.clientEmail || 'N/A'}</span>
+                    <div className="flex justify-between items-center py-3 px-3 bg-white rounded-lg border border-gray-200">
+                      <span className="font-semibold text-gray-700 flex items-center gap-2">
+                        <span className="w-1 h-4 bg-[#160B53] rounded-full"></span>
+                        Email:
+                      </span>
+                      <span className="text-gray-900 font-medium text-sm break-all">{appointment.clientEmail || 'N/A'}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Appointment Details */}
-                <div className="bg-white border-2 border-gray-200 rounded-xl p-6 shadow-sm">
-                  <div className="flex items-center mb-4">
-                    <Calendar className="w-5 h-5 text-[#160B53] mr-2" />
-                    <h4 className="text-lg font-semibold text-gray-900">Appointment Details</h4>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                      <span className="font-medium text-gray-700">Date:</span>
-                      <span className="text-gray-900">{appointmentDateFormatted}</span>
+                {/* Appointment Details - Enhanced */}
+                <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md hover:shadow-lg transition-shadow">
+                  <div className="flex items-center mb-5 pb-3 border-b-2 border-gray-200">
+                    <div className="p-2 bg-[#160B53]/10 rounded-lg mr-3">
+                      <Calendar className="w-6 h-6 text-[#160B53]" />
                     </div>
-                    <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                      <span className="font-medium text-gray-700">Time:</span>
-                      <span className="text-gray-900">{appointmentTimeFormatted}</span>
+                    <h4 className="text-xl font-bold text-gray-900">Appointment Details</h4>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center py-3 px-3 bg-white rounded-lg border border-gray-200">
+                      <span className="font-semibold text-gray-700 flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-[#160B53]" />
+                        Date:
+                      </span>
+                      <span className="text-gray-900 font-medium">{appointmentDateFormatted}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-3 px-3 bg-white rounded-lg border border-gray-200">
+                      <span className="font-semibold text-gray-700 flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-[#160B53]" />
+                        Time:
+                      </span>
+                      <span className="text-gray-900 font-medium">{appointmentTimeFormatted}</span>
                     </div>
                     {appointment.branchName && (
-                      <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                        <span className="font-medium text-gray-700">Branch:</span>
-                        <span className="text-gray-900">{appointment.branchName}</span>
+                      <div className="flex justify-between items-center py-3 px-3 bg-white rounded-lg border border-gray-200">
+                        <span className="font-semibold text-gray-700 flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-[#160B53]" />
+                          Branch:
+                        </span>
+                        <span className="text-gray-900 font-medium">{appointment.branchName}</span>
                       </div>
                     )}
                     {appointment.notes && (
                       <div className="pt-2">
-                        <span className="font-medium text-gray-700 block mb-1">Notes:</span>
-                        <span className="text-gray-900 text-sm bg-gray-50 p-2 rounded block">{appointment.notes}</span>
+                        <div className="flex items-center gap-2 mb-2">
+                          <FileText className="w-4 h-4 text-[#160B53]" />
+                          <span className="font-semibold text-gray-700">Notes:</span>
+                        </div>
+                        <div className="text-gray-900 text-sm bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 p-4 rounded-lg">{appointment.notes}</div>
                       </div>
                     )}
                   </div>
@@ -213,61 +266,92 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
 
               {/* Right Column - Services & Stylists */}
               <div className="space-y-6">
-                {/* Services and Stylists */}
-                <div className="bg-white border-2 border-gray-200 rounded-xl p-6 shadow-sm">
-                  <div className="flex items-center mb-4">
-                    <Scissors className="w-5 h-5 text-[#160B53] mr-2" />
-                    <h4 className="text-lg font-semibold text-gray-900">Services & Stylists</h4>
+                {/* Services and Stylists - Enhanced */}
+                <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md hover:shadow-lg transition-shadow">
+                  <div className="flex items-center mb-5 pb-3 border-b-2 border-gray-200">
+                    <div className="p-2 bg-[#160B53]/10 rounded-lg mr-3">
+                      <Scissors className="w-6 h-6 text-[#160B53]" />
+                    </div>
+                    <h4 className="text-xl font-bold text-gray-900">Services & Stylists</h4>
+                    {selectedServices.length > 0 && (
+                      <span className="ml-auto px-3 py-1 bg-[#160B53]/10 text-[#160B53] rounded-full text-sm font-semibold">
+                        {selectedServices.length} {selectedServices.length === 1 ? 'Service' : 'Services'}
+                      </span>
+                    )}
                   </div>
                   <div className="space-y-4">
                     {selectedServices.length > 0 ? (
                       <>
                         {selectedServices.map((service, index) => (
-                          <div key={index} className="bg-gradient-to-r from-[#160B53]/5 to-[#2D1B69]/5 border border-[#160B53]/20 rounded-lg p-4">
-                            <div className="flex justify-between items-start mb-2">
+                          <div key={index} className="bg-white border-2 border-gray-200 rounded-xl p-5 hover:border-[#160B53]/30 transition-all shadow-sm">
+                            <div className="flex justify-between items-start">
                               <div className="flex-1">
-                                <h5 className="font-semibold text-gray-900 mb-1">{service.name}</h5>
-                                <div className="flex items-center text-sm text-gray-600">
-                                  <Scissors className="w-4 h-4 mr-1" />
-                                  <span>Stylist: {service.stylistName || 'Not assigned'}</span>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-8 h-8 bg-gradient-to-br from-[#160B53] to-[#2D1B69] rounded-lg flex items-center justify-center text-white font-bold text-sm">
+                                    {index + 1}
+                                  </div>
+                                  <h5 className="font-bold text-lg text-gray-900">{service.name}</h5>
+                                </div>
+                                <div className="flex items-center gap-2 text-sm text-gray-600 ml-10">
+                                  <User className="w-4 h-4 text-[#160B53]" />
+                                  <span className="font-medium">
+                                    {service.stylistName || 'Any available stylist'}
+                                  </span>
                                 </div>
                               </div>
-                              <div className="text-right ml-4">
-                                <p className="font-bold text-[#160B53] text-lg">₱{service.price.toLocaleString()}</p>
-                                <p className="text-sm text-gray-600">{service.duration || 30} min</p>
+                              <div className="text-right ml-4 border-l-2 border-gray-200 pl-4">
+                                <p className="font-bold text-[#160B53] text-xl mb-1">₱{service.price.toLocaleString()}</p>
+                                {service.duration && (
+                                  <p className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                                    {service.duration} min
+                                  </p>
+                                )}
                               </div>
                             </div>
                           </div>
                         ))}
                         
-                        {/* Total Summary */}
-                        <div className="bg-gradient-to-r from-[#160B53] to-[#2D1B69] rounded-lg p-4 text-white">
+                        {/* Total Summary - Enhanced */}
+                        <div className="bg-gradient-to-r from-[#160B53] to-[#2D1B69] rounded-xl p-5 text-white shadow-lg mt-6">
                           <div className="flex justify-between items-center">
-                            <span className="font-semibold text-lg">Total:</span>
+                            <div>
+                              <span className="font-semibold text-lg block mb-1">Total Amount</span>
+                              <span className="text-sm opacity-90">
+                                {totalDuration} minutes total
+                              </span>
+                            </div>
                             <div className="text-right">
-                              <div className="text-2xl font-bold">
+                              <div className="text-3xl font-bold">
                                 ₱{totalPrice.toLocaleString()}
                               </div>
-                              <div className="text-sm opacity-90">
-                                {totalDuration} minutes total
+                              <div className="text-xs opacity-75 mt-1">
+                                Estimated Price
                               </div>
                             </div>
                           </div>
                         </div>
                       </>
                     ) : (
-                      <p className="text-gray-500 text-center py-4">No services assigned</p>
+                      <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                        <Scissors className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                        <p className="text-gray-500 font-medium">No services assigned</p>
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
 
-              {/* Appointment History Timeline */}
+              {/* Appointment History Timeline - Enhanced */}
               {appointment.history && appointment.history.length > 0 && (
-                <div className="bg-white border-2 border-gray-200 rounded-xl p-6 shadow-sm col-span-1 lg:col-span-2">
-                  <div className="flex items-center mb-6">
-                    <History className="w-5 h-5 text-[#160B53] mr-2" />
-                    <h4 className="text-lg font-semibold text-gray-900">Appointment History</h4>
+                <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md col-span-1 lg:col-span-2">
+                  <div className="flex items-center mb-6 pb-3 border-b-2 border-gray-200">
+                    <div className="p-2 bg-[#160B53]/10 rounded-lg mr-3">
+                      <History className="w-6 h-6 text-[#160B53]" />
+                    </div>
+                    <h4 className="text-xl font-bold text-gray-900">Appointment History</h4>
+                    <span className="ml-auto px-3 py-1 bg-[#160B53]/10 text-[#160B53] rounded-full text-sm font-semibold">
+                      {appointment.history.length} {appointment.history.length === 1 ? 'Event' : 'Events'}
+                    </span>
                   </div>
                   
                   <div className="relative">
@@ -306,12 +390,12 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
                             
                             {/* Content */}
                             <div className="ml-4 flex-1 min-w-0">
-                              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                                <div className="flex justify-between items-start mb-2">
-                                  <h5 className="font-semibold text-gray-900 capitalize text-sm">
+                              <div className="bg-white rounded-lg p-4 border-2 border-gray-200 hover:border-[#160B53]/30 transition-colors shadow-sm">
+                                <div className="flex justify-between items-start mb-3">
+                                  <h5 className="font-bold text-gray-900 capitalize text-base">
                                     {entry.action?.replace(/_/g, ' ')}
                                   </h5>
-                                  <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded-full">
+                                  <span className="text-xs text-gray-600 bg-gray-100 px-3 py-1.5 rounded-full font-medium">
                                     {entry.timestamp ? new Date(entry.timestamp).toLocaleDateString('en-US', {
                                       month: 'short',
                                       day: 'numeric',
@@ -426,26 +510,27 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
           </div>
         </div>
 
-        {/* Footer Actions - Fixed at bottom */}
-        <div className="bg-gray-50 px-4 sm:px-6 py-3 sm:py-4 border-t flex-shrink-0">
+        {/* Footer Actions - Fixed at bottom - Enhanced */}
+        <div className="bg-gradient-to-r from-gray-50 to-white px-4 sm:px-6 py-4 border-t-2 border-gray-200 flex-shrink-0 shadow-lg">
           <div className="flex justify-end gap-3">
             {onEdit && (
-              <Button 
-                variant="primary"
+              <button
                 onClick={() => {
                   handleClose();
                   onEdit(appointment);
                 }}
+                className="px-6 py-2.5 bg-gradient-to-r from-[#160B53] to-[#2D1B69] text-white rounded-lg hover:from-[#1a0f63] hover:to-[#35207a] transition-all font-semibold shadow-md hover:shadow-lg flex items-center gap-2"
               >
-                Edit
-              </Button>
+                <Edit className="w-4 h-4" />
+                Edit Appointment
+              </button>
             )}
-            <Button 
-              variant="outline"
+            <button
               onClick={handleClose}
+              className="px-6 py-2.5 text-gray-700 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-semibold shadow-sm"
             >
               Close
-            </Button>
+            </button>
           </div>
         </div>
       </div>
