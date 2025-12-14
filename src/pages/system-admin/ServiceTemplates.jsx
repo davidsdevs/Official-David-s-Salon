@@ -28,6 +28,14 @@ const ServiceTemplates = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [showArchived, setShowArchived] = useState(false);
+
+  // Set page title with role prefix
+  useEffect(() => {
+    document.title = 'System Admin - Service Catalog | DSMS';
+    return () => {
+      document.title = 'DSMS - David\'s Salon Management System';
+    };
+  }, []);
   const [showModal, setShowModal] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -271,27 +279,27 @@ const ServiceTemplates = () => {
                     </div>
                   </td>
                 </tr>
-              ) : (
+        ) : (
                 paginatedServices.map(service => (
                   <tr key={service.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
                           {service.imageURL ? (
-                            <img
+                          <img 
                               className="h-10 w-10 rounded-lg object-cover"
-                              src={service.imageURL}
-                              alt={service.name}
-                            />
+                            src={service.imageURL} 
+                            alt={service.name}
+                          />
                           ) : (
                             <div className="h-10 w-10 rounded-lg bg-gray-200 flex items-center justify-center">
                               <Scissors className="h-5 w-5 text-gray-400" />
                             </div>
-                          )}
+                        )}
                         </div>
                         <div className="ml-4 min-w-0 flex-1">
                           <div className="text-sm font-medium text-gray-900 break-words">
-                            {service.name}
+                      {service.name}
                           </div>
                           {service.description && (
                             <div className="text-sm text-gray-500 break-words">
@@ -304,50 +312,50 @@ const ServiceTemplates = () => {
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <div className="space-y-1">
                         <div className="break-words">{service.category}</div>
-                        {service.isChemical && (
+                      {service.isChemical && (
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
                             Chemical
-                          </span>
-                        )}
-                      </div>
+                        </span>
+                      )}
+                    </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <div className="break-words">{service.duration} min</div>
                     </td>
                     <td className="px-6 py-4">
-                      <button
-                        onClick={() => handleToggle(service)}
+                    <button
+                      onClick={() => handleToggle(service)}
                         className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                          service.isActive
+                        service.isActive
                             ? 'bg-green-100 text-green-800 hover:bg-green-200'
                             : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                        }`}
-                      >
+                      }`}
+                    >
                         <Power className="w-3 h-3" />
                         {service.isActive ? 'Active' : 'Archived'}
-                      </button>
+                    </button>
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-medium">
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleEditService(service)}
+                  <button
+                    onClick={() => handleEditService(service)}
                           className="text-gray-600 hover:text-gray-900"
                           title="Edit"
-                        >
+                  >
                           <Edit className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(service)}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(service)}
                           className="text-red-600 hover:text-red-900"
                           title="Delete"
-                        >
+                  >
                           <Trash2 className="w-5 h-5" />
-                        </button>
-                      </div>
+                  </button>
+                </div>
                     </td>
                   </tr>
-                ))
-              )}
+          ))
+        )}
             </tbody>
           </table>
         </div>
@@ -434,7 +442,7 @@ const ServiceTemplates = () => {
                     </Button>
                   );
                 })}
-              </div>
+      </div>
 
               <Button
                 variant="outline"
@@ -454,9 +462,9 @@ const ServiceTemplates = () => {
               >
                 Last
               </Button>
-            </div>
           </div>
         </div>
+      </div>
       </Card>
 
 

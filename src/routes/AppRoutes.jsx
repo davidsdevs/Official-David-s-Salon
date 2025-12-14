@@ -51,6 +51,7 @@ import OperationalManagerInventory from '../pages/operational-manager/Inventory'
 import OperationalManagerPurchaseOrders from '../pages/operational-manager/PurchaseOrders';
 import OverallInventoryControllerDashboard from '../pages/overall-inventory/Dashboard';
 import OverallInventoryControllerInventory from '../pages/overall-inventory/Inventory';
+import OverallInventoryControllerPurchaseOrders from '../pages/overall-inventory/PurchaseOrders';
 import OperationalManagerDeposits from '../pages/operational-manager/Deposits';
 import PriceHistoryAnalytics from '../pages/operational-manager/PriceHistoryAnalytics';
 import OperationalManagerPromotions from '../pages/operational-manager/Promotions';
@@ -89,6 +90,9 @@ import StylistCheckIns from '../pages/stylist/CheckIns';
 import StylistServiceHistory from '../pages/stylist/ServiceHistory';
 import StylistLeaveManagement from '../pages/stylist/LeaveManagement';
 import StylistProfile from '../pages/stylist/Profile';
+import StylistMySchedule from '../pages/stylist/MySchedule';
+import StylistPortfolio from '../pages/stylist/Portfolio';
+import StylistNotifications from '../pages/stylist/Notifications';
 import ClientDashboard from '../pages/client/Dashboard';
 import ClientAppointments from '../pages/client/Appointments';
 import ClientProducts from '../pages/client/Products';
@@ -254,7 +258,7 @@ const AppRoutes = () => {
       >
         <Route index element={<OverallInventoryControllerDashboard />} />
         <Route path="inventory" element={<OverallInventoryControllerInventory />} />
-        <Route path="purchase-orders" element={<OperationalManagerPurchaseOrders />} />
+        <Route path="purchase-orders" element={<OverallInventoryControllerPurchaseOrders />} />
         <Route path="reports" element={<InventoryReports />} />
         <Route path="stock-alerts" element={<InventoryStockAlerts />} />
         <Route path="expiry-tracker" element={<InventoryExpiryTracker />} />
@@ -327,6 +331,9 @@ const AppRoutes = () => {
         <Route path="check-ins" element={<StylistCheckIns />} />
         <Route path="service-history" element={<StylistServiceHistory />} />
         <Route path="leave-management" element={<StylistLeaveManagement />} />
+        <Route path="schedule" element={<StylistMySchedule />} />
+        <Route path="portfolio" element={<StylistPortfolio />} />
+        <Route path="notifications" element={<StylistNotifications />} />
         <Route path="profile" element={<StylistProfile />} />
       </Route>
 

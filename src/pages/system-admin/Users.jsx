@@ -40,6 +40,7 @@ const UsersManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [branchFilter, setBranchFilter] = useState('all');
   const [showUserForm, setShowUserForm] = useState(false);
   const [showUserDetails, setShowUserDetails] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -62,6 +63,14 @@ const UsersManagement = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(5);
 
+  // Set page title with role prefix
+  useEffect(() => {
+    document.title = 'System Admin - User Management | DSMS';
+    return () => {
+      document.title = 'DSMS - David\'s Salon Management System';
+    };
+  }, []);
+
   // Fetch users and branches
   useEffect(() => {
     fetchUsers();
@@ -72,7 +81,7 @@ const UsersManagement = () => {
   useEffect(() => {
     applyFilters();
     setCurrentPage(1); // Reset to first page when filters change
-  }, [users, searchTerm, roleFilter, statusFilter]);
+  }, [users, searchTerm, roleFilter, statusFilter, branchFilter]);
 
   const fetchBranches = async () => {
     try {
@@ -124,6 +133,13 @@ const UsersManagement = () => {
       );
     }
 
+    // Branch filter
+    if (branchFilter !== 'all') {
+      filtered = filtered.filter(user => 
+        user.branchId === branchFilter
+      );
+    }
+
     // Sort: Staff first, then clients
     filtered.sort((a, b) => {
       const aIsClient = (a.role === USER_ROLES.CLIENT) || (a.roles?.includes(USER_ROLES.CLIENT));
@@ -165,13 +181,13 @@ const UsersManagement = () => {
     const actionText = currentStatus ? 'deactivate' : 'activate';
     
     setConfirmAction(() => async () => {
-      try {
-        await toggleUserStatus(userId, !currentStatus, currentUser);
-        await fetchUsers();
+    try {
+      await toggleUserStatus(userId, !currentStatus, currentUser);
+      await fetchUsers();
         toast.success(`User ${actionText}d successfully`);
-      } catch (error) {
-        // Error handled in service
-      }
+    } catch (error) {
+      // Error handled in service
+    }
       setShowConfirmDialog(false);
       setConfirmAction(null);
     });
@@ -238,7 +254,7 @@ const UsersManagement = () => {
         }
       } else {
         // Reset with manual/selected passwords
-        for (const role of userRoles) {
+      for (const role of userRoles) {
           const password = manualPasswords[role] || rolePasswords[role];
           if (!password || password.trim() === '') {
             toast.error(`Password required for ${ROLE_LABELS[role]}`);
@@ -431,7 +447,7 @@ const UsersManagement = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -458,6 +474,20 @@ const UsersManagement = () => {
               ))}
             </select>
           </div>
+
+          {/* Branch Filter */}
+          <select
+            value={branchFilter}
+            onChange={(e) => setBranchFilter(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          >
+            <option value="all">All Branches</option>
+            {branches.map(branch => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name || branch.branchName || branch.id}
+              </option>
+            ))}
+          </select>
 
           {/* Status Filter */}
           <select

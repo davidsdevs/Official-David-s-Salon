@@ -9,15 +9,18 @@ import { useAuth } from '../../context/AuthContext';
 import { getPortfoliosByStylist, createPortfolio, deletePortfolio } from '../../services/portfolioService';
 import { uploadToCloudinary } from '../../services/imageService';
 import { validateImageFile } from '../../services/imageService';
+import { getBranchServices } from '../../services/branchServicesService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 
 const Portfolio = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, userBranch } = useAuth();
   const [portfolios, setPortfolios] = useState([]);
+  const [branchServices, setBranchServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
   const [uploadForm, setUploadForm] = useState({
@@ -28,11 +31,34 @@ const Portfolio = () => {
     imagePreview: null
   });
 
+  // Set page title with role prefix
+  useEffect(() => {
+    document.title = 'Stylist - Portfolio | DSMS';
+    return () => {
+      document.title = 'DSMS - David\'s Salon Management System';
+    };
+  }, []);
+
   useEffect(() => {
     if (currentUser?.uid) {
       fetchPortfolios();
     }
-  }, [currentUser]);
+    if (userBranch) {
+      fetchBranchServices();
+    }
+  }, [currentUser, userBranch]);
+
+  const fetchBranchServices = async () => {
+    try {
+      if (userBranch) {
+        const services = await getBranchServices(userBranch);
+        setBranchServices(services);
+      }
+    } catch (error) {
+      console.error('Error fetching branch services:', error);
+      toast.error('Failed to load services');
+    }
+  };
 
   const fetchPortfolios = async () => {
     try {
@@ -74,6 +100,11 @@ const Portfolio = () => {
 
     if (!uploadForm.title.trim()) {
       toast.error('Please enter a title');
+      return;
+    }
+
+    if (!uploadForm.category.trim()) {
+      toast.error('Please select a service');
       return;
     }
 
@@ -155,17 +186,36 @@ const Portfolio = () => {
     });
   };
 
-  const filteredPortfolios = useMemo(() => {
-    if (statusFilter === 'all') {
-      return portfolios;
-    }
-    return portfolios.filter(p => {
-      if (statusFilter === 'approved') {
-        return p.status === 'active' || p.status === 'approved';
+  // Get unique categories from portfolios (services that have portfolios)
+  const servicesWithPortfolios = useMemo(() => {
+    const categories = new Set();
+    portfolios.forEach(p => {
+      if (p.category) {
+        categories.add(p.category);
       }
-      return p.status === statusFilter;
     });
-  }, [portfolios, statusFilter]);
+    return Array.from(categories).sort();
+  }, [portfolios]);
+
+  const filteredPortfolios = useMemo(() => {
+    let filtered = [...portfolios];
+
+    // Filter by status
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'approved') {
+        filtered = filtered.filter(p => p.status === 'active' || p.status === 'approved');
+      } else {
+        filtered = filtered.filter(p => p.status === statusFilter);
+      }
+    }
+
+    // Filter by category/service
+    if (categoryFilter !== 'all') {
+      filtered = filtered.filter(p => p.category === categoryFilter);
+    }
+
+    return filtered;
+  }, [portfolios, statusFilter, categoryFilter]);
 
   const stats = useMemo(() => {
     return {
@@ -237,20 +287,56 @@ const Portfolio = () => {
         </div>
       </div>
 
-      {/* Filter */}
+      {/* Filters */}
       <div className="bg-white rounded-lg p-4 border border-gray-200">
-        <div className="flex items-center gap-4">
-          <Filter className="w-5 h-5 text-gray-500" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          >
-            <option value="all">All Portfolios</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Filter className="w-5 h-5 text-gray-500" />
+            <span className="text-sm font-medium text-gray-700">Filters:</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label htmlFor="statusFilter" className="text-sm text-gray-600">Status:</label>
+              <select
+                id="statusFilter"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                <option value="all">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="categoryFilter" className="text-sm text-gray-600">Service:</label>
+              <select
+                id="categoryFilter"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent min-w-[200px]"
+              >
+                <option value="all">All Services</option>
+                {servicesWithPortfolios.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {(statusFilter !== 'all' || categoryFilter !== 'all') && (
+              <button
+                onClick={() => {
+                  setStatusFilter('all');
+                  setCategoryFilter('all');
+                }}
+                className="text-sm text-primary-600 hover:text-primary-700 underline"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -260,9 +346,9 @@ const Portfolio = () => {
           <ImageIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-gray-900 mb-2">No portfolios found</h3>
           <p className="text-gray-600 mb-4">
-            {statusFilter === 'all'
+            {statusFilter === 'all' && categoryFilter === 'all'
               ? "You haven't uploaded any portfolio images yet."
-              : `No ${statusFilter} portfolios found.`}
+              : `No portfolios found${statusFilter !== 'all' ? ` with status: ${statusFilter}` : ''}${categoryFilter !== 'all' ? ` for service: ${categoryFilter}` : ''}.`}
           </p>
           <button
             onClick={() => setShowUploadModal(true)}
@@ -432,18 +518,35 @@ const Portfolio = () => {
                   />
                 </div>
 
-                {/* Category */}
+                {/* Category/Service */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Category
+                    Service *
                   </label>
-                  <input
-                    type="text"
-                    value={uploadForm.category}
-                    onChange={(e) => setUploadForm(prev => ({ ...prev, category: e.target.value }))}
-                    placeholder="e.g., Haircut, Coloring, Styling"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  />
+                  {branchServices.length > 0 ? (
+                    <select
+                      value={uploadForm.category}
+                      onChange={(e) => setUploadForm(prev => ({ ...prev, category: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      required
+                    >
+                      <option value="">Select a service</option>
+                      {branchServices.map((service) => (
+                        <option key={service.id} value={service.name || service.serviceName}>
+                          {service.name || service.serviceName}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500 text-sm">
+                      {loading ? 'Loading services...' : 'No services available in your branch'}
+                    </div>
+                  )}
+                  {branchServices.length === 0 && !loading && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Please contact your branch manager to add services to your branch.
+                    </p>
+                  )}
                 </div>
 
                 {/* Description */}
@@ -464,7 +567,7 @@ const Portfolio = () => {
                 <div className="flex items-center gap-3 pt-4">
                   <button
                     onClick={handleUpload}
-                    disabled={uploading || !uploadForm.imageFile || !uploadForm.title.trim()}
+                    disabled={uploading || !uploadForm.imageFile || !uploadForm.title.trim() || !uploadForm.category.trim()}
                     className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {uploading ? 'Uploading...' : 'Upload Portfolio'}

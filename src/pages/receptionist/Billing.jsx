@@ -39,7 +39,110 @@ const ReceptionistBilling = () => {
   const [processing, setProcessing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState('today');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState('all');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
+  const [minAmountFilter, setMinAmountFilter] = useState('');
+  const [maxAmountFilter, setMaxAmountFilter] = useState('');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [dateFilterType, setDateFilterType] = useState('today'); // 'today', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth', 'thisYear', 'custom', 'monthYear'
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  // Helper function to get date range based on preset type
+  const getDateRange = (type, month = null, year = null) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    switch (type) {
+      case 'today':
+        return {
+          startDate: today.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      case 'thisWeek':
+        const thisWeekStart = new Date(today);
+        thisWeekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
+        return {
+          startDate: thisWeekStart.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      case 'lastWeek':
+        const lastWeekEnd = new Date(today);
+        lastWeekEnd.setDate(today.getDate() - today.getDay() - 1); // Last Saturday
+        const lastWeekStart = new Date(lastWeekEnd);
+        lastWeekStart.setDate(lastWeekEnd.getDate() - 6); // Start of last week
+        return {
+          startDate: lastWeekStart.toISOString().split('T')[0],
+          endDate: lastWeekEnd.toISOString().split('T')[0]
+        };
+      
+      case 'thisMonth':
+        const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        return {
+          startDate: thisMonthStart.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      case 'lastMonth':
+        const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+        return {
+          startDate: lastMonthStart.toISOString().split('T')[0],
+          endDate: lastMonthEnd.toISOString().split('T')[0]
+        };
+      
+      case 'thisYear':
+        const thisYearStart = new Date(today.getFullYear(), 0, 1);
+        return {
+          startDate: thisYearStart.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      case 'monthYear':
+        if (month && year) {
+          const monthStart = new Date(year, month - 1, 1);
+          const monthEnd = new Date(year, month, 0);
+          return {
+            startDate: monthStart.toISOString().split('T')[0],
+            endDate: monthEnd.toISOString().split('T')[0]
+          };
+        }
+        return { startDate: '', endDate: '' };
+      
+      default:
+        return { startDate: '', endDate: '' };
+    }
+  };
+
+  // Handle date filter type change
+  const handleDateFilterTypeChange = (type) => {
+    setDateFilterType(type);
+    if (type === 'monthYear') {
+      const range = getDateRange('monthYear', selectedMonth, selectedYear);
+      setStartDateFilter(range.startDate);
+      setEndDateFilter(range.endDate);
+    } else if (type !== 'custom') {
+      const range = getDateRange(type);
+      setStartDateFilter(range.startDate);
+      setEndDateFilter(range.endDate);
+    } else {
+      // Custom - don't auto-set dates
+      setStartDateFilter('');
+      setEndDateFilter('');
+    }
+  };
+
+  // Handle month/year change
+  const handleMonthYearChange = (month, year) => {
+    setSelectedMonth(month);
+    setSelectedYear(year);
+    const range = getDateRange('monthYear', month, year);
+    setStartDateFilter(range.startDate);
+    setEndDateFilter(range.endDate);
+  };
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [dailySummary, setDailySummary] = useState(null);
@@ -66,12 +169,16 @@ const ReceptionistBilling = () => {
   useEffect(() => {
     if (userBranch) {
       fetchData();
+      // Initialize with today's date range
+      const todayRange = getDateRange('today');
+      setStartDateFilter(todayRange.startDate);
+      setEndDateFilter(todayRange.endDate);
     }
   }, [userBranch]);
 
   useEffect(() => {
     applyFilters();
-  }, [bills, searchTerm, statusFilter, dateFilter]);
+  }, [bills, searchTerm, statusFilter, paymentMethodFilter, startDateFilter, endDateFilter, minAmountFilter, maxAmountFilter]);
 
   // Auto-minimize button after showing label initially
   useEffect(() => {
@@ -145,7 +252,8 @@ const ReceptionistBilling = () => {
       filtered = filtered.filter(bill =>
         bill.clientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         bill.clientPhone?.includes(searchTerm) ||
-        bill.id?.includes(searchTerm)
+        bill.id?.includes(searchTerm) ||
+        bill.receiptNumber?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
@@ -154,24 +262,43 @@ const ReceptionistBilling = () => {
       filtered = filtered.filter(bill => bill.status === statusFilter);
     }
 
-    // Date filter
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const weekFromNow = new Date(today);
-    weekFromNow.setDate(weekFromNow.getDate() + 7);
+    // Payment method filter
+    if (paymentMethodFilter !== 'all') {
+      filtered = filtered.filter(bill => bill.paymentMethod === paymentMethodFilter);
+    }
 
-    if (dateFilter === 'today') {
+    // Date range filter
+    if (startDateFilter) {
+      const filterDate = new Date(startDateFilter);
+      filterDate.setHours(0, 0, 0, 0);
       filtered = filtered.filter(bill => {
         const billDate = new Date(bill.createdAt);
         billDate.setHours(0, 0, 0, 0);
-        return billDate.getTime() === today.getTime();
+        return billDate >= filterDate;
       });
-    } else if (dateFilter === 'week') {
+    }
+
+    if (endDateFilter) {
+      const filterDate = new Date(endDateFilter);
+      filterDate.setHours(23, 59, 59, 999);
       filtered = filtered.filter(bill => {
         const billDate = new Date(bill.createdAt);
-        return billDate >= today && billDate <= weekFromNow;
+        return billDate <= filterDate;
+      });
+    }
+
+    // Amount filters
+    if (minAmountFilter) {
+      filtered = filtered.filter(bill => {
+        const billTotal = bill.total || 0;
+        return billTotal >= parseFloat(minAmountFilter);
+      });
+    }
+
+    if (maxAmountFilter) {
+      filtered = filtered.filter(bill => {
+        const billTotal = bill.total || 0;
+        return billTotal <= parseFloat(maxAmountFilter);
       });
     }
 
@@ -236,7 +363,7 @@ const ReceptionistBilling = () => {
     const labels = {
       [PAYMENT_METHODS.CASH]: 'Cash',
       [PAYMENT_METHODS.CARD]: 'Card',
-      [PAYMENT_METHODS.VOUCHER]: 'Voucher',
+      [PAYMENT_METHODS.VOUCHER]: 'E-Wallet',
       [PAYMENT_METHODS.GIFT_CARD]: 'Gift Card'
     };
     return labels[method] || method;
@@ -334,45 +461,338 @@ const ReceptionistBilling = () => {
       )}
 
 
-      {/* Filters */}
+      {/* Search and Filter Button */}
       <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Search */}
-          <div className="relative">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="Search by client, phone, bill ID..."
+              placeholder="Search by client, phone, bill ID, receipt number..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
-
-          {/* Status Filter */}
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          
+          {/* Filter Button */}
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Filter"
           >
-            <option value="all">All Status</option>
-            <option value={BILL_STATUS.PAID}>Paid</option>
-            <option value={BILL_STATUS.REFUNDED}>Refunded</option>
-            <option value={BILL_STATUS.VOIDED}>Voided</option>
-          </select>
-
-          {/* Date Filter */}
-          <select
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          >
-            <option value="all">All Time</option>
-            <option value="today">Today</option>
-            <option value="week">This Week</option>
-          </select>
+            <Filter className="w-5 h-5 text-gray-600" />
+            {(statusFilter !== 'all' || paymentMethodFilter !== 'all' || startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter) && (
+              <span className="bg-primary-600 text-white text-xs px-2 py-0.5 rounded-full">
+                {(statusFilter !== 'all' ? 1 : 0) + (paymentMethodFilter !== 'all' ? 1 : 0) + (startDateFilter || endDateFilter ? 1 : 0) + (minAmountFilter ? 1 : 0) + (maxAmountFilter ? 1 : 0)}
+              </span>
+            )}
+          </button>
         </div>
       </div>
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-900">Filter Bills</h2>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Status
+                </label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Status</option>
+                  <option value={BILL_STATUS.PAID}>Paid</option>
+                  <option value={BILL_STATUS.REFUNDED}>Refunded</option>
+                  <option value={BILL_STATUS.VOIDED}>Voided</option>
+                </select>
+              </div>
+
+              {/* Payment Method Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Method
+                </label>
+                <select
+                  value={paymentMethodFilter}
+                  onChange={(e) => setPaymentMethodFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Methods</option>
+                  <option value={PAYMENT_METHODS.CASH}>Cash</option>
+                  <option value={PAYMENT_METHODS.CARD}>Card</option>
+                  <option value={PAYMENT_METHODS.VOUCHER}>E-Wallet</option>
+                  <option value={PAYMENT_METHODS.GIFT_CARD}>Gift Card</option>
+                </select>
+              </div>
+
+              {/* Date Range */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Date Range
+                </label>
+                
+                {/* Quick Preset Buttons */}
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('today')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'today'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('thisWeek')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'thisWeek'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    This Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('lastWeek')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'lastWeek'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Last Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('thisMonth')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'thisMonth'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('lastMonth')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'lastMonth'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Last Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('thisYear')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'thisYear'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    This Year
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('monthYear')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'monthYear'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Select Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('custom')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'custom'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Custom Range
+                  </button>
+                </div>
+
+                {/* Month/Year Picker */}
+                {dateFilterType === 'monthYear' && (
+                  <div className="grid grid-cols-2 gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Month</label>
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => handleMonthYearChange(parseInt(e.target.value), selectedYear)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      >
+                        <option value={1}>January</option>
+                        <option value={2}>February</option>
+                        <option value={3}>March</option>
+                        <option value={4}>April</option>
+                        <option value={5}>May</option>
+                        <option value={6}>June</option>
+                        <option value={7}>July</option>
+                        <option value={8}>August</option>
+                        <option value={9}>September</option>
+                        <option value={10}>October</option>
+                        <option value={11}>November</option>
+                        <option value={12}>December</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Year</label>
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => handleMonthYearChange(selectedMonth, parseInt(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      >
+                        {Array.from({ length: 5 }, (_, i) => {
+                          const year = new Date().getFullYear() - 2 + i;
+                          return (
+                            <option key={year} value={year}>
+                              {year}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom Date Range Inputs */}
+                {dateFilterType === 'custom' && (
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Start Date</label>
+                      <input
+                        type="date"
+                        value={startDateFilter}
+                        onChange={(e) => setStartDateFilter(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">End Date</label>
+                      <input
+                        type="date"
+                        value={endDateFilter}
+                        onChange={(e) => setEndDateFilter(e.target.value)}
+                        min={startDateFilter || undefined}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Display Selected Range */}
+                {(dateFilterType !== 'custom' && dateFilterType !== 'monthYear') && (
+                  <div className="p-3 bg-primary-50 rounded-lg border border-primary-200">
+                    <p className="text-sm text-gray-700">
+                      <span className="font-medium">Selected:</span>{' '}
+                      {startDateFilter && endDateFilter
+                        ? `${new Date(startDateFilter).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${new Date(endDateFilter).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                        : 'No date range selected'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Amount Range */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Min Amount
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="0.00"
+                    value={minAmountFilter}
+                    onChange={(e) => setMinAmountFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Max Amount
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="0.00"
+                    value={maxAmountFilter}
+                    onChange={(e) => setMaxAmountFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setStatusFilter('all');
+                  setPaymentMethodFilter('all');
+                  setDateFilterType('today');
+                  setStartDateFilter('');
+                  setEndDateFilter('');
+                  setMinAmountFilter('');
+                  setMaxAmountFilter('');
+                  // Reset to today's date range
+                  const todayRange = getDateRange('today');
+                  setStartDateFilter(todayRange.startDate);
+                  setEndDateFilter(todayRange.endDate);
+                }}
+                className="text-sm text-gray-600 hover:text-gray-900"
+              >
+                Clear all filters
+              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowFilterModal(false)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => setShowFilterModal(false)}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bills Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
@@ -386,7 +806,7 @@ const ReceptionistBilling = () => {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Bill ID</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Transaction ID</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Date</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Client</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Services</th>
@@ -400,7 +820,7 @@ const ReceptionistBilling = () => {
                 {filteredBills.map((bill) => (
                   <tr key={bill.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <p className="text-sm font-medium text-gray-900">#{bill.id.slice(-8)}</p>
+                      <p className="text-sm font-medium text-gray-900">{bill.id}</p>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <p className="text-sm text-gray-900">{bill.createdAt?.toLocaleDateString()}</p>

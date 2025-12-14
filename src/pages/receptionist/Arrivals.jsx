@@ -33,6 +33,7 @@ import {
 } from '../../services/appointmentService';
 import { 
   getArrivalsByBranch,
+  getArrivalById,
   createWalkInArrival,
   createArrivalFromAppointment,
   updateArrivalStatus,
@@ -394,14 +395,14 @@ const ReceptionistArrivals = () => {
         services: pendingWalkInData.items
           .filter(item => item.type === 'service')
           .map(item => ({
-            serviceId: item.serviceId || null,
+            serviceId: item.serviceId || item.id || null, // Support both serviceId and id
             serviceName: item.name || '',
             price: item.price || 0,
             stylistId: item.stylistId || null,
             stylistName: item.stylistName || ''
           }))
           .filter(service => service.serviceId), // Remove services without serviceId
-        serviceId: firstService?.serviceId || null,
+        serviceId: firstService?.serviceId || firstService?.id || null,
         serviceName: firstService?.name || '',
         servicePrice: firstService?.price || 0,
         stylistId: firstService?.stylistId || null,
@@ -409,7 +410,7 @@ const ReceptionistArrivals = () => {
         products: pendingWalkInData.items
           .filter(item => item.type === 'product')
           .map(item => ({
-            productId: item.productId || null,
+            productId: item.productId || item.id || null, // Support both productId and id
             productName: item.name || '',
             price: item.price || 0,
             quantity: item.quantity || 1
@@ -463,14 +464,14 @@ const ReceptionistArrivals = () => {
           services: formData.items
             .filter(item => item.type === 'service')
             .map(item => ({
-              serviceId: item.serviceId || null,
+              serviceId: item.serviceId || item.id || null, // Support both serviceId and id
               serviceName: item.name || '',
               price: item.price || 0,
               stylistId: item.stylistId || null,
               stylistName: item.stylistName || ''
             }))
             .filter(service => service.serviceId), // Remove services without serviceId
-          serviceId: firstServiceCheckIn?.serviceId || null,
+          serviceId: firstServiceCheckIn?.serviceId || firstServiceCheckIn?.id || null,
           serviceName: firstServiceCheckIn?.name || '',
           servicePrice: firstServiceCheckIn?.price || 0,
           stylistId: firstServiceCheckIn?.stylistId || null,
@@ -478,7 +479,7 @@ const ReceptionistArrivals = () => {
           products: formData.items
             .filter(item => item.type === 'product')
             .map(item => ({
-              productId: item.productId || null,
+              productId: item.productId || item.id || null, // Support both productId and id
               productName: item.name || '',
               price: item.price || 0,
               quantity: item.quantity || 1
@@ -703,28 +704,70 @@ const ReceptionistArrivals = () => {
     try {
       setLoadingDetails(true);
       
+      // Always fetch fresh data from Firebase to ensure we have the latest services/products
+      let freshArrival = null;
+      try {
+        freshArrival = await getArrivalById(arrival.id);
+        console.log('🔍 handleViewDetails - Fresh arrival from Firebase:', freshArrival);
+        console.log('🔍 handleViewDetails - Fresh services:', freshArrival?.services);
+        console.log('🔍 handleViewDetails - Fresh products:', freshArrival?.products);
+      } catch (error) {
+        console.error('Error fetching fresh arrival data:', error);
+        // Fallback to cached data if fetch fails
+        freshArrival = arrival;
+      }
+      
+      // Use fresh data if available, otherwise use cached data
+      const arrivalData = freshArrival || arrival;
+      
       // If this is an appointment-based arrival, fetch the full appointment data
-      if (arrival.appointmentId && !arrival.isWalkIn) {
+      if (arrivalData.appointmentId && !arrivalData.isWalkIn) {
         try {
-          const fullAppointment = await getAppointmentById(arrival.appointmentId);
+          const fullAppointment = await getAppointmentById(arrivalData.appointmentId);
           setSelectedArrival(fullAppointment);
         } catch (error) {
           console.error('Error fetching appointment details:', error);
           // If fetching fails, use the arrival data as fallback
-          setSelectedArrival(arrival);
+          setSelectedArrival(arrivalData);
         }
       } else {
         // For walk-ins or if no appointmentId, use the arrival data directly
         // Transform arrival to appointment-like format for AppointmentDetails component
+        console.log('🔍 handleViewDetails - Using arrival data:', arrivalData);
+        console.log('🔍 handleViewDetails - Arrival services:', arrivalData.services);
+        console.log('🔍 handleViewDetails - Arrival services type:', typeof arrivalData.services, Array.isArray(arrivalData.services));
+        console.log('🔍 handleViewDetails - Arrival products:', arrivalData.products);
+        console.log('🔍 handleViewDetails - Arrival products type:', typeof arrivalData.products, Array.isArray(arrivalData.products));
+        
+        // Ensure services and products are arrays (handle Firestore data conversion)
+        const servicesArray = Array.isArray(arrivalData.services) 
+          ? arrivalData.services 
+          : (arrivalData.services ? [arrivalData.services] : []);
+        
+        const productsArray = Array.isArray(arrivalData.products) 
+          ? arrivalData.products 
+          : (arrivalData.products ? [arrivalData.products] : []);
+        
+        console.log('🔍 handleViewDetails - Processed services array:', servicesArray);
+        console.log('🔍 handleViewDetails - Processed products array:', productsArray);
+        
         const arrivalAsAppointment = {
-          ...arrival,
-          appointmentDate: arrival.arrivedAt || arrival.appointmentDate,
-          appointmentTime: arrival.arrivedAt 
-            ? (arrival.arrivedAt.toDate ? arrival.arrivedAt.toDate().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : new Date(arrival.arrivedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }))
-            : (arrival.appointmentTime || null),
-          status: arrival.status || APPOINTMENT_STATUS.CONFIRMED,
-          history: arrival.history || []
+          ...arrivalData,
+          appointmentDate: arrivalData.arrivedAt || arrivalData.appointmentDate,
+          appointmentTime: arrivalData.arrivedAt 
+            ? (arrivalData.arrivedAt.toDate ? arrivalData.arrivedAt.toDate().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : new Date(arrivalData.arrivedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }))
+            : (arrivalData.appointmentTime || null),
+          status: arrivalData.status || APPOINTMENT_STATUS.CONFIRMED,
+          history: arrivalData.history || [],
+          // Explicitly preserve services and products as arrays
+          services: servicesArray,
+          products: productsArray
         };
+        
+        console.log('🔍 handleViewDetails - Transformed arrivalAsAppointment:', arrivalAsAppointment);
+        console.log('🔍 handleViewDetails - Final services:', arrivalAsAppointment.services);
+        console.log('🔍 handleViewDetails - Final products:', arrivalAsAppointment.products);
+        
         setSelectedArrival(arrivalAsAppointment);
       }
       
@@ -1036,6 +1079,8 @@ const ReceptionistArrivals = () => {
             if (!processingBilling) {
               setShowBillingModal(false);
               setArrivalToBill(null);
+              // Reset processing state when modal is closed so checkout button can be clicked again
+              setProcessing(null);
             }
           }}
           onSubmit={handleSubmitBill}
@@ -1116,6 +1161,8 @@ const ReceptionistArrivals = () => {
           if (!processing) {
             setShowCompleteServiceConfirmModal(false);
             setArrivalToCompleteService(null);
+            // Reset processing state when modal is closed
+            setProcessing(null);
           }
         }}
         onConfirm={confirmCompleteService}

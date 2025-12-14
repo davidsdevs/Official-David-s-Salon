@@ -1,50 +1,53 @@
 /**
  * Email Service
- * Handles email notifications via Brevo (formerly Sendinblue)
+ * Handles email notifications via EmailJS
  * 
- * To use this service, configure Brevo API key in environment variables:
- * VITE_BREVO_API_KEY=your_api_key_here
- * VITE_BREVO_FROM_EMAIL=noreply@davidsalon.com
- * VITE_BREVO_FROM_NAME=David's Salon
+ * EmailJS Configuration:
+ * - Service ID: service_david_devs
+ * - Template ID: template_j6ktzo1
+ * - Public Key: Set in VITE_EMAILJS_PUBLIC_KEY environment variable
  */
 
 import { ROLE_LABELS } from '../utils/constants';
+import emailjs from '@emailjs/browser';
+
+// EmailJS configuration - using existing service and template
+const EMAILJS_SERVICE_ID = 'service_david_devs';
+const EMAILJS_TEMPLATE_ID = 'template_j6ktzo1';
 
 /**
- * Verify Brevo API configuration
+ * Verify EmailJS configuration
  * @returns {Object} Configuration status
  */
-export const verifyBrevoConfig = () => {
-  const apiKey = import.meta.env.VITE_BREVO_API_KEY;
-  const fromEmail = import.meta.env.VITE_BREVO_FROM_EMAIL || 'noreply@davidsalon.com';
-  const fromName = import.meta.env.VITE_BREVO_FROM_NAME || "David's Salon";
+export const verifyEmailJSConfig = () => {
+  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
   
   const config = {
-    apiKey: {
-      exists: !!apiKey,
-      length: apiKey?.length || 0,
-      format: apiKey?.startsWith('xkeysib-') ? 'correct' : 'unexpected format (should start with xkeysib-)'
-    },
-    fromEmail: fromEmail,
-    fromName: fromName,
-    endpoint: 'https://api.brevo.com/v3/smtp/email'
+    serviceId: EMAILJS_SERVICE_ID,
+    templateId: EMAILJS_TEMPLATE_ID,
+    publicKey: {
+      exists: !!publicKey,
+      value: publicKey ? `${publicKey.substring(0, 4)}...` : 'not set'
+    }
   };
   
-  console.log('🔍 [BREVO CONFIG] Configuration check:', config);
+  console.log('🔍 [EMAILJS CONFIG] Configuration check:', config);
   
-  if (!apiKey) {
-    console.error('❌ [BREVO CONFIG] API key is missing!');
-  } else if (!apiKey.startsWith('xkeysib-')) {
-    console.warn('⚠️ [BREVO CONFIG] API key format looks incorrect. Brevo API keys usually start with "xkeysib-"');
+  if (!publicKey) {
+    console.error('❌ [EMAILJS CONFIG] Missing public key!');
+    console.error('❌ [EMAILJS CONFIG] Required: VITE_EMAILJS_PUBLIC_KEY');
+    console.error('❌ [EMAILJS CONFIG] Service ID and Template ID are hardcoded, only public key is needed');
   } else {
-    console.log('✅ [BREVO CONFIG] API key format looks correct');
+    console.log('✅ [EMAILJS CONFIG] All configuration present');
+    console.log('✅ [EMAILJS CONFIG] Service ID:', EMAILJS_SERVICE_ID);
+    console.log('✅ [EMAILJS CONFIG] Template ID:', EMAILJS_TEMPLATE_ID);
   }
   
   return config;
 };
 
 /**
- * Send email via Brevo API
+ * Send email via EmailJS
  * @param {Object} emailData - Email data
  * @param {string} emailData.to - Recipient email
  * @param {string} emailData.subject - Email subject
@@ -55,155 +58,94 @@ export const verifyBrevoConfig = () => {
  */
 export const sendEmail = async ({ to, subject, text, html, toName }) => {
   console.log('📧 [EMAIL SERVICE] ========================================');
-  console.log('📧 [EMAIL SERVICE] Starting email send...');
+  console.log('📧 [EMAIL SERVICE] Starting email send via EmailJS...');
   console.log('📧 [EMAIL SERVICE] Recipient:', to);
   console.log('📧 [EMAIL SERVICE] Subject:', subject);
   
   // Verify configuration first
-  const config = verifyBrevoConfig();
+  const config = verifyEmailJSConfig();
   
-  const apiKey = import.meta.env.VITE_BREVO_API_KEY;
-  const fromEmail = import.meta.env.VITE_BREVO_FROM_EMAIL || 'noreply@davidsalon.com';
-  const fromName = import.meta.env.VITE_BREVO_FROM_NAME || "David's Salon";
+  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
   
-  console.log('📧 [EMAIL SERVICE] API Key configured:', apiKey ? '✅ Yes (length: ' + apiKey.length + ')' : '❌ No');
-  console.log('📧 [EMAIL SERVICE] API Key format:', config.apiKey.format);
-  console.log('📧 [EMAIL SERVICE] From Email:', fromEmail);
-  console.log('📧 [EMAIL SERVICE] From Name:', fromName);
+  console.log('📧 [EMAIL SERVICE] Service ID:', EMAILJS_SERVICE_ID);
+  console.log('📧 [EMAIL SERVICE] Template ID:', EMAILJS_TEMPLATE_ID);
+  console.log('📧 [EMAIL SERVICE] Public Key configured:', publicKey ? '✅ Yes' : '❌ No');
   
-  if (!apiKey) {
-    console.warn('⚠️ [EMAIL SERVICE] Brevo API key not configured. Email not sent.');
+  if (!publicKey) {
+    console.warn('⚠️ [EMAIL SERVICE] EmailJS public key not configured. Email not sent.');
     return {
       success: false,
-      error: 'Brevo API key not configured'
+      error: 'EmailJS not configured. Please set VITE_EMAILJS_PUBLIC_KEY'
     };
   }
 
   try {
-    const emailPayload = {
-      sender: {
-        name: fromName,
-        email: fromEmail
-      },
-      to: [{
-        email: to,
-        ...(toName ? { name: toName } : {})
-      }],
-      subject: subject,
-      htmlContent: html || text.replace(/\n/g, '<br>'),
-      textContent: text
+    // Initialize EmailJS with public key
+    emailjs.init(publicKey);
+
+    // Prepare template parameters for EmailJS
+    // Template format: {{name}}, {{time}}, {{message}}
+    const templateParams = {
+      to_email: to, // Recipient email - MUST be set in EmailJS service configuration as {{to_email}}
+      name: subject || 'Special Promotion', // Maps to {{name}} in template
+      time: new Date().toLocaleDateString(), // Maps to {{time}} in template
+      message: html || text.replace(/\n/g, '<br>'), // Maps to {{message}} in template
+      subject: subject // For EmailJS template subject line
     };
 
-    console.log('📧 [EMAIL SERVICE] Email payload prepared:', {
-      sender: emailPayload.sender,
-      to: emailPayload.to,
-      subject: emailPayload.subject,
-      hasHtml: !!emailPayload.htmlContent,
-      hasText: !!emailPayload.textContent
+    console.log('📧 [EMAIL SERVICE] EmailJS template params prepared:', {
+      to_email: templateParams.to_email,
+      name: templateParams.name,
+      time: templateParams.time,
+      message_length: templateParams.message.length,
+      subject: templateParams.subject
     });
 
-    console.log('📧 [EMAIL SERVICE] Sending request to Brevo API...');
-    console.log('📧 [EMAIL SERVICE] API Endpoint: https://api.brevo.com/v3/smtp/email');
-    console.log('📧 [EMAIL SERVICE] Request payload (sanitized):', {
-      sender: emailPayload.sender,
-      to: emailPayload.to,
-      subject: emailPayload.subject,
-      htmlContentLength: emailPayload.htmlContent?.length || 0,
-      textContentLength: emailPayload.textContent?.length || 0
-    });
+    console.log('📧 [EMAIL SERVICE] Sending request to EmailJS...');
+    console.log('📧 [EMAIL SERVICE] Service ID:', EMAILJS_SERVICE_ID);
+    console.log('📧 [EMAIL SERVICE] Template ID:', EMAILJS_TEMPLATE_ID);
     
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': apiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(emailPayload)
-    });
+    // Send email via EmailJS
+    const response = await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, templateParams);
     
-    console.log('📧 [EMAIL SERVICE] Response status:', response.status, response.statusText);
-    console.log('📧 [EMAIL SERVICE] Response ok?', response.ok);
-    console.log('📧 [EMAIL SERVICE] Response headers:', Object.fromEntries(response.headers.entries()));
+    console.log('📧 [EMAIL SERVICE] Response status:', response.status);
+    console.log('📧 [EMAIL SERVICE] Response text:', response.text);
     
-    // Get response body as text first to see what we're getting
-    const responseText = await response.text();
-    console.log('📧 [EMAIL SERVICE] Raw response body:', responseText);
-    console.log('📧 [EMAIL SERVICE] Response body length:', responseText.length);
-    
-    // Brevo returns 201 Created for successful sends
-    if (response.status === 201) {
-      console.log('✅ [EMAIL SERVICE] Brevo returned 201 Created - Email accepted by Brevo!');
-    } else if (!response.ok) {
-      console.error('❌ [EMAIL SERVICE] Brevo API error response:', responseText);
-      let errorMessage = `Brevo API error: ${response.status}`;
-      try {
-        const errorJson = JSON.parse(responseText);
-        errorMessage = errorJson.message || errorMessage;
-        console.error('❌ [EMAIL SERVICE] Parsed error message:', errorMessage);
-        console.error('❌ [EMAIL SERVICE] Error code:', errorJson.code);
-        console.error('❌ [EMAIL SERVICE] Full error object:', errorJson);
-        
-        // Common Brevo errors
-        if (errorMessage.includes('sender') || errorMessage.includes('verified')) {
-          console.error('⚠️ [EMAIL SERVICE] SENDER EMAIL NOT VERIFIED!');
-          console.error('⚠️ [EMAIL SERVICE] Go to Brevo dashboard > Senders and verify:', fromEmail);
-        }
-      } catch (e) {
-        errorMessage += ` - ${responseText}`;
-      }
-      throw new Error(errorMessage);
+    if (response.status === 200) {
+      console.log('✅ [EMAIL SERVICE] Email sent successfully via EmailJS!');
+      console.log('✅ [EMAIL SERVICE] Response:', response);
+      
+      return {
+        success: true,
+        message: 'Email sent successfully',
+        messageId: response.text || 'unknown',
+        response: response
+      };
+    } else {
+      throw new Error(`EmailJS returned status ${response.status}: ${response.text}`);
     }
-
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (e) {
-      console.warn('⚠️ [EMAIL SERVICE] Response is not JSON, treating as success:', responseText);
-      result = { messageId: responseText || 'unknown' };
-    }
-    
-    console.log('✅ [EMAIL SERVICE] Email sent successfully!');
-    console.log('✅ [EMAIL SERVICE] Message ID:', result.messageId);
-    console.log('✅ [EMAIL SERVICE] Full response:', JSON.stringify(result, null, 2));
-    
-    // Important note about email delivery
-    console.log('📬 [EMAIL SERVICE] IMPORTANT: Email accepted by Brevo API');
-    console.log('📬 [EMAIL SERVICE] Check the following if email not received:');
-    console.log('📬 [EMAIL SERVICE] 1. Check spam/junk folder');
-    console.log('📬 [EMAIL SERVICE] 2. Verify sender email is verified in Brevo dashboard');
-    console.log('📬 [EMAIL SERVICE] 3. Check Brevo dashboard > Logs for delivery status');
-    console.log('📬 [EMAIL SERVICE] 4. Verify recipient email is correct:', to);
-    
-    // Check for warnings in response
-    if (result.warnings && result.warnings.length > 0) {
-      console.warn('⚠️ [EMAIL SERVICE] Brevo warnings:', result.warnings);
-    }
-    
-    // Important: Even if Brevo returns 201, the email might not be delivered if:
-    // 1. Sender email is not verified in Brevo dashboard
-    // 2. Email goes to spam folder
-    // 3. Recipient email is invalid
-    console.log('📧 [EMAIL SERVICE] ⚠️ IMPORTANT: Check the following:');
-    console.log('📧 [EMAIL SERVICE] 1. Is sender email verified in Brevo? (SMTP & API > Senders)');
-    console.log('📧 [EMAIL SERVICE] 2. Check Brevo dashboard > Logs for delivery status');
-    console.log('📧 [EMAIL SERVICE] 3. Check spam/junk folder');
-    console.log('📧 [EMAIL SERVICE] 4. Verify recipient email is correct:', to);
-    
-    return {
-      success: true,
-      message: 'Email sent successfully',
-      messageId: result.messageId,
-      warnings: result.warnings || []
-    };
   } catch (error) {
     console.error('❌ [EMAIL SERVICE] Error sending email:', error);
     console.error('❌ [EMAIL SERVICE] Error details:', {
       message: error.message,
+      status: error.status,
+      text: error.text,
       stack: error.stack
     });
+    
+    // Provide helpful error messages
+    let errorMessage = error.message || 'Failed to send email';
+    if (error.status === 400) {
+      errorMessage = 'Invalid email template or parameters. Check EmailJS template configuration.';
+    } else if (error.status === 401) {
+      errorMessage = 'EmailJS authentication failed. Check your public key.';
+    } else if (error.status === 404) {
+      errorMessage = 'EmailJS service or template not found. Check your service ID and template ID.';
+    }
+    
     return {
       success: false,
-      error: error.message || 'Failed to send email'
+      error: errorMessage
     };
   }
 };
@@ -1223,7 +1165,41 @@ export const sendPromotionEmail = async (promotion, clientData) => {
       ? `${promotion.discountValue}% OFF`
       : `₱${promotion.discountValue} OFF`;
 
-    // Create email content
+    // Format date range for template {{time}} variable
+    const dateRange = `${startDateFormatted} to ${endDateFormatted}`;
+
+    // Create email message content for {{message}} variable
+    // This matches the template format: "✨ Enjoy Exclusive Salon Deals\nCome and experience..."
+    const emailMessage = `
+✨ ${promotion.title}
+
+${promotion.description || 'No description provided.'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DISCOUNT: ${discountText}
+${applicableText}
+${promotionCodeText ? promotionCodeText + '\n' : ''}${usageInfo}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VALIDITY PERIOD:
+Valid from: ${startDateFormatted}
+Valid until: ${endDateFormatted}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Branch: ${branchName}
+
+Don't miss out on this amazing offer! Visit us soon to take advantage of this promotion.
+
+We look forward to seeing you!
+
+---
+David's Salon
+    `.trim();
+
+    // Create email content (HTML version for sendEmail function)
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -1308,12 +1284,63 @@ We look forward to seeing you!
 David's Salon
     `;
 
-    const result = await sendEmail({
-      to: clientData.email,
-      subject: `Special Promotion: ${promotion.title}`,
-      text: textContent,
-      html: htmlContent
-    });
+    // Send via EmailJS using the existing template format
+    // Template uses: {{name}} = promotion title, {{time}} = date range, {{message}} = promotion details
+    try {
+      const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+      
+      if (!publicKey) {
+        return {
+          success: false,
+          message: 'EmailJS not configured. Please set VITE_EMAILJS_PUBLIC_KEY',
+          email: clientData.email
+        };
+      }
+
+      // Initialize EmailJS
+      emailjs.init(publicKey);
+
+      // Prepare template parameters matching the existing template format
+      const templateParams = {
+        to_email: clientData.email, // MUST be set in EmailJS service configuration
+        name: promotion.title, // Maps to {{name}} in template
+        time: dateRange, // Maps to {{time}} in template (e.g., "Dec 14, 2025 to Dec 31, 2025")
+        message: emailMessage, // Maps to {{message}} in template
+        subject: `Special Promotion: ${promotion.title}` // For EmailJS template subject
+      };
+
+      console.log('📧 [PROMOTION EMAIL] Sending via EmailJS...');
+      console.log('📧 [PROMOTION EMAIL] Service ID:', EMAILJS_SERVICE_ID);
+      console.log('📧 [PROMOTION EMAIL] Template ID:', EMAILJS_TEMPLATE_ID);
+      console.log('📧 [PROMOTION EMAIL] To Email:', clientData.email);
+      console.log('📧 [PROMOTION EMAIL] Template params:', {
+        to_email: templateParams.to_email,
+        name: templateParams.name,
+        time: templateParams.time,
+        message_length: templateParams.message.length
+      });
+
+      // Send email via EmailJS
+      const response = await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, templateParams);
+
+      console.log('✅ [PROMOTION EMAIL] Email sent successfully!');
+      console.log('✅ [PROMOTION EMAIL] Response:', response);
+
+      return {
+        success: true,
+        message: 'Promotion email sent successfully',
+        email: clientData.email,
+        messageId: response.text || 'unknown'
+      };
+    } catch (error) {
+      console.error('❌ [PROMOTION EMAIL] Error sending email:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to send promotion email',
+        email: clientData.email,
+        error: error.message
+      };
+    }
 
     return {
       success: result.success,

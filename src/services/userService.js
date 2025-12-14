@@ -335,7 +335,7 @@ export const updateUser = async (userId, updates, currentUser) => {
         } catch (emailError) {
           // Don't fail the update if email fails
           console.error('Error sending profile update email:', emailError);
-        }
+      }
       }
     }
     

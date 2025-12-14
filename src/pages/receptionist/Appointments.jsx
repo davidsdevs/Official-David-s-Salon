@@ -19,6 +19,8 @@ import { getBranchServices } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
 import { USER_ROLES } from '../../utils/constants';
 import { getArrivalsByBranch, ARRIVAL_STATUS } from '../../services/arrivalsService';
+import { triggerReminderCheck } from '../../services/appointmentReminderService';
+import { checkPendingAppointments, getPendingAppointmentsNeedingAttention } from '../../services/pendingAppointmentsService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import AppointmentFormModal from '../../components/appointment/AppointmentFormModal';
 import AppointmentDetails from '../../components/appointment/AppointmentDetails';
@@ -53,6 +55,94 @@ const ReceptionistAppointments = () => {
     return today.toISOString().split('T')[0];
   };
 
+  // Helper function to get date range based on preset type
+  const getDateRange = (type, month = null, year = null) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    switch (type) {
+      case 'today':
+        return {
+          startDate: today.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      case 'thisWeek':
+        const thisWeekStart = new Date(today);
+        thisWeekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
+        return {
+          startDate: thisWeekStart.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      case 'lastWeek':
+        const lastWeekEnd = new Date(today);
+        lastWeekEnd.setDate(today.getDate() - today.getDay() - 1); // Last Saturday
+        const lastWeekStart = new Date(lastWeekEnd);
+        lastWeekStart.setDate(lastWeekEnd.getDate() - 6); // Start of last week
+        return {
+          startDate: lastWeekStart.toISOString().split('T')[0],
+          endDate: lastWeekEnd.toISOString().split('T')[0]
+        };
+      
+      case 'thisMonth':
+        const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        return {
+          startDate: thisMonthStart.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      case 'lastMonth':
+        const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+        return {
+          startDate: lastMonthStart.toISOString().split('T')[0],
+          endDate: lastMonthEnd.toISOString().split('T')[0]
+        };
+      
+      case 'thisYear':
+        const thisYearStart = new Date(today.getFullYear(), 0, 1);
+        return {
+          startDate: thisYearStart.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      case 'monthYear':
+        if (month && year) {
+          const monthStart = new Date(year, month - 1, 1);
+          const monthEnd = new Date(year, month, 0);
+          return {
+            startDate: monthStart.toISOString().split('T')[0],
+            endDate: monthEnd.toISOString().split('T')[0]
+          };
+        }
+        return { startDate: '', endDate: '' };
+      
+      default:
+        return { startDate: '', endDate: '' };
+    }
+  };
+
+  // Handle date filter type change
+  const handleDateFilterTypeChange = (type) => {
+    setDateFilterType(type);
+    if (type === 'monthYear') {
+      const range = getDateRange('monthYear', selectedMonth, selectedYear);
+      setFilters(prev => ({ ...prev, startDate: range.startDate, endDate: range.endDate }));
+    } else if (type !== 'custom') {
+      const range = getDateRange(type);
+      setFilters(prev => ({ ...prev, startDate: range.startDate, endDate: range.endDate }));
+    }
+  };
+
+  // Handle month/year change
+  const handleMonthYearChange = (month, year) => {
+    setSelectedMonth(month);
+    setSelectedYear(year);
+    const range = getDateRange('monthYear', month, year);
+    setFilters(prev => ({ ...prev, startDate: range.startDate, endDate: range.endDate }));
+  };
+
   const [filters, setFilters] = useState({
     startDate: getTodayDate(),
     endDate: getTodayDate(),
@@ -62,6 +152,9 @@ const ReceptionistAppointments = () => {
     clientType: 'all', // 'all', 'registered', 'guest'
     status: 'all' // 'all', 'pending', 'confirmed', 'completed', 'cancelled', 'no-show'
   });
+  const [dateFilterType, setDateFilterType] = useState('today'); // 'today', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth', 'thisYear', 'custom', 'monthYear'
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showModal, setShowModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -401,6 +494,72 @@ const ReceptionistAppointments = () => {
       fetchAppointments();
       fetchFormData();
       fetchStats();
+      
+      // Check and send appointment reminders (runs once per day)
+      const checkReminders = async () => {
+        try {
+          // Check if reminders were already checked today (using localStorage)
+          const lastReminderCheck = localStorage.getItem('lastReminderCheck');
+          const today = new Date().toDateString();
+          
+          if (lastReminderCheck !== today) {
+            // Run reminder check in background (don't block UI)
+            triggerReminderCheck(userBranch).catch(error => {
+              console.error('Error checking reminders:', error);
+            });
+            
+            // Update last check date
+            localStorage.setItem('lastReminderCheck', today);
+          }
+        } catch (error) {
+          console.error('Error in reminder check:', error);
+        }
+      };
+      
+      // Check pending appointments that need attention
+      const checkPending = async () => {
+        try {
+          // Auto-handle expired pending appointments
+          await checkPendingAppointments(userBranch, true);
+          
+          // Get pending appointments needing attention
+          const result = await getPendingAppointmentsNeedingAttention(userBranch, 24);
+          if (result.success) {
+            setPendingAlerts({
+              approaching: result.approaching,
+              expired: result.expired
+            });
+            
+            // Show toast if there are expired appointments
+            if (result.expired.length > 0) {
+              toast.error(`${result.expired.length} pending appointment(s) have expired and were auto-cancelled`, {
+                duration: 5000
+              });
+            }
+            
+            // Show warning if there are approaching appointments
+            if (result.approaching.length > 0) {
+              toast(`⚠️ ${result.approaching.length} pending appointment(s) need confirmation within 24 hours`, {
+                icon: '⚠️',
+                duration: 4000
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Error checking pending appointments:', error);
+        }
+      };
+      
+      // Run checks after a short delay to not block initial load
+      setTimeout(() => {
+        checkReminders();
+        checkPending();
+      }, 2000);
+      
+      // Check pending appointments every 5 minutes
+      const pendingInterval = setInterval(checkPending, 5 * 60 * 1000);
+      
+      return () => clearInterval(pendingInterval);
     }
   }, [userBranch]);
 
@@ -445,6 +604,13 @@ const ReceptionistAppointments = () => {
   };
 
   const handleRescheduleAppointment = (appointment) => {
+    // Prevent reschedule if appointment is in service, completed or already paid
+    const isPaid = appointment.paymentStatus === true || appointment.paid === true || (typeof appointment.paymentStatus === 'string' && appointment.paymentStatus.toLowerCase() === 'paid');
+    if (appointment.status === APPOINTMENT_STATUS.IN_SERVICE || appointment.status === APPOINTMENT_STATUS.COMPLETED || isPaid) {
+      toast.error('Rescheduling is not allowed for this appointment');
+      return;
+    }
+
     setSelectedAppointment(appointment);
     setShowModal(true);
   };
@@ -838,21 +1004,26 @@ const ReceptionistAppointments = () => {
         </div>
         <button
           onClick={() => setShowFilterModal(true)}
-          className={`px-4 py-2.5 border rounded-lg transition-colors flex items-center gap-2 ${
+          className={`p-2.5 border rounded-lg transition-colors flex items-center justify-center relative ${
             (filters.startDate || filters.endDate || 
              filters.stylistId !== 'all' || filters.serviceId !== 'all' || filters.checkInStatus !== 'all' ||
              filters.clientType !== 'all' || filters.status !== 'all')
               ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
               : 'border-gray-300 text-gray-700 hover:bg-gray-50'
           }`}
+          title="Filter"
         >
           <Filter className="w-5 h-5" />
-          Filters
           {((filters.startDate || filters.endDate || 
              filters.stylistId !== 'all' || filters.serviceId !== 'all' || filters.checkInStatus !== 'all' ||
              filters.clientType !== 'all' || filters.status !== 'all')) && (
-            <span className="px-2 py-0.5 text-xs bg-primary-600 text-white rounded-full">
-              Active
+            <span className="absolute -top-1 -right-1 bg-primary-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+              {((filters.startDate || filters.endDate) ? 1 : 0) + 
+               (filters.stylistId !== 'all' ? 1 : 0) + 
+               (filters.serviceId !== 'all' ? 1 : 0) + 
+               (filters.checkInStatus !== 'all' ? 1 : 0) + 
+               (filters.clientType !== 'all' ? 1 : 0) + 
+               (filters.status !== 'all' ? 1 : 0)}
             </span>
           )}
         </button>
@@ -1095,7 +1266,7 @@ const ReceptionistAppointments = () => {
                           )
                         )}
                         
-                        {apt.status !== APPOINTMENT_STATUS.COMPLETED && apt.status !== APPOINTMENT_STATUS.CANCELLED && (
+                        {apt.status !== APPOINTMENT_STATUS.COMPLETED && apt.status !== APPOINTMENT_STATUS.CANCELLED && apt.status !== APPOINTMENT_STATUS.IN_SERVICE && !(apt.paymentStatus === true || apt.paid === true || (typeof apt.paymentStatus === 'string' && apt.paymentStatus.toLowerCase() === 'paid')) && (
                           <>
                             <button
                               onClick={() => handleRescheduleAppointment(apt)}
@@ -1278,29 +1449,182 @@ const ReceptionistAppointments = () => {
             <div className="p-6 space-y-4">
               {/* Date Range */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
                   Date Range
                 </label>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Start Date</label>
-                    <input
-                      type="date"
-                      value={filters.startDate}
-                      onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">End Date</label>
-                    <input
-                      type="date"
-                      value={filters.endDate}
-                      onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    />
-                  </div>
+                
+                {/* Quick Preset Buttons */}
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('today')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'today'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('thisWeek')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'thisWeek'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    This Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('lastWeek')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'lastWeek'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Last Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('thisMonth')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'thisMonth'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('lastMonth')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'lastMonth'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Last Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('thisYear')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'thisYear'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    This Year
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('monthYear')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'monthYear'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Select Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDateFilterTypeChange('custom')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilterType === 'custom'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Custom Range
+                  </button>
                 </div>
+
+                {/* Month/Year Picker */}
+                {dateFilterType === 'monthYear' && (
+                  <div className="grid grid-cols-2 gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Month</label>
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => handleMonthYearChange(parseInt(e.target.value), selectedYear)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      >
+                        <option value={1}>January</option>
+                        <option value={2}>February</option>
+                        <option value={3}>March</option>
+                        <option value={4}>April</option>
+                        <option value={5}>May</option>
+                        <option value={6}>June</option>
+                        <option value={7}>July</option>
+                        <option value={8}>August</option>
+                        <option value={9}>September</option>
+                        <option value={10}>October</option>
+                        <option value={11}>November</option>
+                        <option value={12}>December</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Year</label>
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => handleMonthYearChange(selectedMonth, parseInt(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      >
+                        {Array.from({ length: 5 }, (_, i) => {
+                          const year = new Date().getFullYear() - 2 + i;
+                          return (
+                            <option key={year} value={year}>
+                              {year}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom Date Range Inputs */}
+                {dateFilterType === 'custom' && (
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Start Date</label>
+                      <input
+                        type="date"
+                        value={filters.startDate}
+                        onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">End Date</label>
+                      <input
+                        type="date"
+                        value={filters.endDate}
+                        onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))}
+                        min={filters.startDate || undefined}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Display Selected Range */}
+                {(dateFilterType !== 'custom' && dateFilterType !== 'monthYear') && (
+                  <div className="p-3 bg-primary-50 rounded-lg border border-primary-200">
+                    <p className="text-sm text-gray-700">
+                      <span className="font-medium">Selected:</span>{' '}
+                      {filters.startDate && filters.endDate
+                        ? `${new Date(filters.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${new Date(filters.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                        : 'No date range selected'}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Status & Client Type */}

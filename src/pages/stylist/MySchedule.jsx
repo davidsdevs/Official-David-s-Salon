@@ -1,132 +1,84 @@
 /**
  * My Schedule Page - Stylist
- * View of stylist's shifts and leave requests with date range and PNG export
+ * Calendar view showing schedules, leave requests, and stylist lending
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Clock, Download } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { useState, useEffect, useMemo } from 'react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, Building2, CalendarDays, MapPin } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getAllScheduleConfigurations } from '../../services/scheduleService';
 import { getLeaveRequestsByEmployee } from '../../services/leaveManagementService';
-import { getFullName, getInitials, formatTime12Hour } from '../../utils/helpers';
+import { getActiveLending } from '../../services/stylistLendingService';
+import { getBranchById } from '../../services/branchService';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { formatDate, formatTime12Hour, getFullName } from '../../utils/helpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { Card } from '../../components/ui/Card';
+import Button from '../../components/ui/Button';
 import toast from 'react-hot-toast';
-
-const DAYS_OF_WEEK = [
-  { key: 'monday', label: 'Monday', short: 'Mon' },
-  { key: 'tuesday', label: 'Tuesday', short: 'Tue' },
-  { key: 'wednesday', label: 'Wednesday', short: 'Wed' },
-  { key: 'thursday', label: 'Thursday', short: 'Thu' },
-  { key: 'friday', label: 'Friday', short: 'Fri' },
-  { key: 'saturday', label: 'Saturday', short: 'Sat' },
-  { key: 'sunday', label: 'Sunday', short: 'Sun' }
-];
 
 const MySchedule = () => {
   const { currentUser, userBranch, userData } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [allScheduleConfigs, setAllScheduleConfigs] = useState([]);
-  const [dateSpecificShifts, setDateSpecificShifts] = useState({}); // { dateString: { start, end, date } }
-  const [leaveRequests, setLeaveRequests] = useState([]);
-  const [myLeaveMap, setMyLeaveMap] = useState([]); // Array of leave periods
-  const [startDate, setStartDate] = useState(() => {
-    const date = new Date();
-    const day = date.getDay();
-    const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday
-    const monday = new Date(date.setDate(diff));
-    monday.setHours(0, 0, 0, 0);
-    return monday.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState(() => {
-    const date = new Date();
-    const day = date.getDay();
-    const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday
-    const monday = new Date(date.setDate(diff));
-    monday.setDate(monday.getDate() + 6); // Sunday
-    monday.setHours(23, 59, 59, 999);
-    return monday.toISOString().split('T')[0];
-  });
-  const [exporting, setExporting] = useState(false);
-  const scheduleRef = useRef(null);
+  const [view, setView] = useState('week'); // 'day', 'week', 'month'
+  const [currentDate, setCurrentDate] = useState(new Date());
 
-  const dateRangeStart = useMemo(() => new Date(startDate), [startDate]);
-  const dateRangeEnd = useMemo(() => new Date(endDate), [endDate]);
+  // Set page title with role prefix
+  useEffect(() => {
+    document.title = 'Stylist - My Schedule | DSMS';
+    return () => {
+      document.title = 'DSMS - David\'s Salon Management System';
+    };
+  }, []);
+
+  // Debug: Log component mount and props
+  useEffect(() => {
+    console.log('MySchedule component mounted', { 
+      hasCurrentUser: !!currentUser, 
+      userBranch, 
+      hasUserData: !!userData 
+    });
+  }, []);
+  
+  // Data
+  const [allScheduleConfigs, setAllScheduleConfigs] = useState([]);
+  const [dateSpecificShifts, setDateSpecificShifts] = useState({});
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [lendingPeriods, setLendingPeriods] = useState([]);
+  const [branchCache, setBranchCache] = useState({});
+  const [currentBranchName, setCurrentBranchName] = useState('');
 
   useEffect(() => {
     if (currentUser && userBranch) {
-      fetchScheduleData();
-      fetchLeaveRequests();
+      fetchAllData();
+      fetchCurrentBranchName();
+    } else if (currentUser && !userBranch) {
+      // If user is logged in but no branch, still stop loading
+      setLoading(false);
     }
-  }, [currentUser, userBranch, startDate, endDate]);
+  }, [currentUser, userBranch]);
 
-  const fetchScheduleData = async () => {
+  const fetchCurrentBranchName = async () => {
+    try {
+      if (userBranch) {
+        const branch = await getBranchById(userBranch);
+        setCurrentBranchName(branch?.branchName || branch?.name || 'Your Branch');
+      }
+    } catch (error) {
+      console.error('Error fetching current branch name:', error);
+      setCurrentBranchName('Your Branch');
+    }
+  };
+
+  const fetchAllData = async () => {
     try {
       setLoading(true);
-      if (userBranch && currentUser?.uid) {
-        // Get all schedule configurations for date-based lookup
-        const configs = await getAllScheduleConfigurations(userBranch);
-        setAllScheduleConfigs(configs);
-        
-        // Get date range boundaries
-        const rangeStartDate = new Date(startDate);
-        rangeStartDate.setHours(0, 0, 0, 0);
-        const rangeEndDate = new Date(endDate);
-        rangeEndDate.setHours(23, 59, 59, 999);
-        
-        // Fetch date-specific shifts directly from schedules collection
-        // This ensures we get all shifts within the date range
-        const schedulesRef = collection(db, 'schedules');
-        
-        // Query all schedules for this branch and employee
-        const dateSpecificQuery = query(
-          schedulesRef,
-          where('branchId', '==', userBranch),
-          where('employeeId', '==', currentUser.uid)
-        );
-        
-        const dateSpecificSnapshot = await getDocs(dateSpecificQuery);
-        const dateSpecificMap = {};
-        
-        dateSpecificSnapshot.forEach((doc) => {
-          const data = doc.data();
-          
-          // Only process date-specific shifts (has date field)
-          if (data.date) {
-            let scheduleDate;
-            if (data.date?.toDate) {
-              scheduleDate = data.date.toDate();
-            } else if (data.date instanceof Date) {
-              scheduleDate = new Date(data.date);
-            } else {
-              scheduleDate = new Date(data.date);
-            }
-            
-            // Normalize to start of day for comparison
-            const scheduleDateOnly = new Date(scheduleDate);
-            scheduleDateOnly.setHours(0, 0, 0, 0);
-            
-            // Only include shifts within the date range
-            if (scheduleDateOnly >= rangeStartDate && scheduleDateOnly <= rangeEndDate) {
-              const dateStr = scheduleDateOnly.toISOString().split('T')[0];
-              
-              // Date-specific shifts override recurring shifts
-              if (data.startTime && data.endTime) {
-                dateSpecificMap[dateStr] = {
-                  start: data.startTime,
-                  end: data.endTime,
-                  date: scheduleDateOnly,
-                  isDateSpecific: true
-                };
-              }
-            }
-          }
-        });
-        
-        setDateSpecificShifts(dateSpecificMap);
-      }
+      await Promise.all([
+        fetchScheduleData(),
+        fetchLeaveRequests(),
+        fetchLendingPeriods()
+      ]);
     } catch (error) {
       console.error('Error fetching schedule data:', error);
       toast.error('Failed to load schedule data');
@@ -135,491 +87,745 @@ const MySchedule = () => {
     }
   };
 
-  const fetchLeaveRequests = async () => {
+  const fetchScheduleData = async () => {
     try {
-      if (currentUser?.uid) {
-        const result = await getLeaveRequestsByEmployee(currentUser.uid, 1000); // Get all for schedule view
-        const leaves = result.requests || result; // Handle both new format and backward compatibility
-        setLeaveRequests(Array.isArray(leaves) ? leaves : []);
-
-        // Create leave map for quick lookup
-        const leaveMap = [];
-        const rangeStartDate = new Date(startDate);
-        const rangeEndDate = new Date(endDate);
-        rangeStartDate.setHours(0, 0, 0, 0);
-        rangeEndDate.setHours(23, 59, 59, 999);
-        
-        // Debug: Log all leave requests
-        console.log('All leave requests fetched:', leaves.length);
-        leaves.forEach((leave, idx) => {
-          console.log(`Leave ${idx + 1}:`, {
-            id: leave.id,
-            status: leave.status,
-            type: leave.type,
-            startDate: leave.startDate,
-            endDate: leave.endDate,
-            reason: leave.reason
-          });
-        });
-        
-        leaves.forEach(leave => {
-          // Explicitly exclude rejected, cancelled, and pending leaves
-          // Only show approved leaves on the schedule
-          if (leave.status === 'rejected' || leave.status === 'cancelled' || leave.status === 'pending') {
-            return; // Skip rejected/cancelled/pending leaves
+      if (!userBranch) {
+        console.warn('userBranch is not available');
+        setAllScheduleConfigs([]);
+        return;
+      }
+      if (!currentUser?.uid) {
+        setAllScheduleConfigs([]);
+        return;
+      }
+      // Get all schedule configurations
+      const configs = await getAllScheduleConfigurations(userBranch);
+      setAllScheduleConfigs(Array.isArray(configs) ? configs : []);
+      
+      // Get date-specific shifts
+      const schedulesRef = collection(db, 'schedules');
+      if (!userBranch || !currentUser?.uid) {
+        return;
+      }
+      
+      const dateSpecificQuery = query(
+        schedulesRef,
+        where('branchId', '==', userBranch),
+        where('employeeId', '==', currentUser.uid)
+      );
+      
+      const dateSpecificSnapshot = await getDocs(dateSpecificQuery);
+      const dateSpecificMap = {};
+      
+      dateSpecificSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.date && data.startTime && data.endTime) {
+          let scheduleDate;
+          if (data.date?.toDate) {
+            scheduleDate = data.date.toDate();
+          } else {
+            scheduleDate = new Date(data.date);
           }
           
-          // Only include approved leaves
-          if (leave.status === 'approved') {
-            let leaveStartDate, leaveEndDate;
-            
-            if (leave.startDate instanceof Date) {
-              leaveStartDate = new Date(leave.startDate);
-            } else if (leave.startDate && typeof leave.startDate.toDate === 'function') {
-              leaveStartDate = leave.startDate.toDate();
-            } else if (leave.startDate) {
-              leaveStartDate = new Date(leave.startDate);
-            } else {
-              console.warn('Invalid leave startDate:', leave);
-              return; // Skip invalid leave
-            }
-            
-            if (leave.endDate instanceof Date) {
-              leaveEndDate = new Date(leave.endDate);
-            } else if (leave.endDate && typeof leave.endDate.toDate === 'function') {
-              leaveEndDate = leave.endDate.toDate();
-            } else if (leave.endDate) {
-              leaveEndDate = new Date(leave.endDate);
-            } else {
-              console.warn('Invalid leave endDate:', leave);
-              return; // Skip invalid leave
-            }
-            
-            // Normalize dates to start of day
-            leaveStartDate.setHours(0, 0, 0, 0);
-            leaveEndDate.setHours(23, 59, 59, 999);
-            
-            // Validate that start date is before or equal to end date
-            if (leaveStartDate > leaveEndDate) {
-              console.warn('Leave has invalid date range (start > end):', leave);
-              return; // Skip invalid date range
-            }
-            
-            // Only include leaves that overlap with the date range
-            if (leaveEndDate >= rangeStartDate && leaveStartDate <= rangeEndDate) {
-              console.log('Adding leave to map:', {
-                status: leave.status,
-                type: leave.type,
-                startDate: leaveStartDate.toISOString().split('T')[0],
-                endDate: leaveEndDate.toISOString().split('T')[0],
-                reason: leave.reason
-              });
-              leaveMap.push({
-                startDate: leaveStartDate,
-                endDate: leaveEndDate,
-                status: leave.status,
-                type: leave.type,
-                reason: leave.reason
-              });
-            }
-          }
-        });
-        
-        console.log('Final leave map:', leaveMap.map(l => ({
-          status: l.status,
-          type: l.type,
-          startDate: l.startDate.toISOString().split('T')[0],
-          endDate: l.endDate.toISOString().split('T')[0]
-        })));
-        
-        setMyLeaveMap(leaveMap);
+          const dateStr = scheduleDate.toISOString().split('T')[0];
+          dateSpecificMap[dateStr] = {
+            start: data.startTime,
+            end: data.endTime,
+            date: scheduleDate,
+            isDateSpecific: true
+          };
+        }
+      });
+      
+      setDateSpecificShifts(dateSpecificMap);
+    } catch (error) {
+      console.error('Error fetching schedule data:', error);
+    }
+  };
+
+  const fetchLeaveRequests = async () => {
+    try {
+      if (!currentUser?.uid) {
+        return;
       }
+      const requests = await getLeaveRequestsByEmployee(currentUser.uid);
+      const leaves = Array.isArray(requests) ? requests : [];
+      
+      // Filter to only approved leaves and safely convert dates
+      const approvedLeaves = leaves
+        .filter(leave => leave && leave.status === 'approved')
+        .map(leave => {
+          try {
+            let startDate, endDate;
+            
+            if (leave.startDate) {
+              if (leave.startDate?.toDate && typeof leave.startDate.toDate === 'function') {
+                startDate = leave.startDate.toDate();
+              } else if (leave.startDate instanceof Date) {
+                startDate = leave.startDate;
+              } else {
+                startDate = new Date(leave.startDate);
+              }
+            }
+            
+            if (leave.endDate) {
+              if (leave.endDate?.toDate && typeof leave.endDate.toDate === 'function') {
+                endDate = leave.endDate.toDate();
+              } else if (leave.endDate instanceof Date) {
+                endDate = leave.endDate;
+              } else {
+                endDate = new Date(leave.endDate);
+              }
+            }
+            
+            if (!startDate || !endDate || isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+              return null;
+            }
+            
+            return {
+              ...leave,
+              startDate,
+              endDate
+            };
+          } catch (err) {
+            console.warn('Error processing leave request:', err, leave);
+            return null;
+          }
+        })
+        .filter(leave => leave !== null);
+      
+      setLeaveRequests(approvedLeaves);
     } catch (error) {
       console.error('Error fetching leave requests:', error);
-      toast.error('Failed to load leave requests');
+      setLeaveRequests([]);
     }
   };
 
-  const getDateRangeDates = () => {
-    const dates = [];
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-    
-    const current = new Date(start);
-    while (current <= end) {
-      dates.push(new Date(current));
-      current.setDate(current.getDate() + 1);
-    }
-    return dates;
-  };
-
-  const getDayKey = (date) => {
-    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    return days[date.getDay()];
-  };
-
-  // Helper function to find the schedule configuration that applies to a specific date
-  const getScheduleForDate = (configs, targetDate) => {
-    if (!targetDate || !configs || configs.length === 0) return null;
-    
-    const targetDateObj = new Date(targetDate);
-    targetDateObj.setHours(0, 0, 0, 0);
-    const targetTime = targetDateObj.getTime();
-    
-    const applicableConfigs = configs
-      .filter(c => {
-        if (!c.startDate) return false;
-        const configStartDate = new Date(c.startDate);
-        configStartDate.setHours(0, 0, 0, 0);
-        const configStartTime = configStartDate.getTime();
-        return configStartTime <= targetTime;
-      })
-      .sort((a, b) => {
-        const aTime = new Date(a.startDate).getTime();
-        const bTime = new Date(b.startDate).getTime();
-        return bTime - aTime; // Most recent first
+  const fetchLendingPeriods = async () => {
+    try {
+      if (!currentUser?.uid) {
+        setLendingPeriods([]);
+        return;
+      }
+      const lendingRef = collection(db, 'stylist_lending');
+      const approvedQuery = query(
+        lendingRef,
+        where('stylistId', '==', currentUser.uid),
+        where('status', '==', 'approved')
+      );
+      const activeQuery = query(
+        lendingRef,
+        where('stylistId', '==', currentUser.uid),
+        where('status', '==', 'active')
+      );
+      
+      const [approvedSnapshot, activeSnapshot] = await Promise.all([
+        getDocs(approvedQuery),
+        getDocs(activeQuery)
+      ]);
+      
+      const allLendings = [];
+      const branchIds = new Set();
+      
+      [...approvedSnapshot.docs, ...activeSnapshot.docs].forEach((doc) => {
+        const data = doc.data();
+        const startDate = data.startDate?.toDate();
+        const endDate = data.endDate?.toDate();
+        
+        if (startDate && endDate) {
+          allLendings.push({
+            id: doc.id,
+            startDate,
+            endDate,
+            toBranchId: data.toBranchId,
+            fromBranchId: data.fromBranchId,
+            status: data.status,
+            reason: data.reason
+          });
+          
+          if (data.toBranchId) branchIds.add(data.toBranchId);
+          if (data.fromBranchId) branchIds.add(data.fromBranchId);
+        }
       });
-    
-    return applicableConfigs.length > 0 ? applicableConfigs[0] : null;
+      
+      // Fetch branch names
+      const branchMap = {};
+      await Promise.all(
+        Array.from(branchIds).map(async (branchId) => {
+          try {
+            const branch = await getBranchById(branchId);
+            branchMap[branchId] = branch?.branchName || branch?.name || 'Unknown Branch';
+          } catch (error) {
+            branchMap[branchId] = 'Unknown Branch';
+          }
+        })
+      );
+      
+      setBranchCache(branchMap);
+      setLendingPeriods(allLendings);
+    } catch (error) {
+      console.error('Error fetching lending periods:', error);
+    }
   };
 
-  const getShiftForDay = (dayKey, date) => {
+  // Get schedule for a specific date
+  const getScheduleForDate = (date) => {
     if (!date || !currentUser?.uid) return null;
-
-    // First check for date-specific shift (these override recurring shifts)
-    if (dateSpecificShifts && date) {
+    
+    try {
+      if (!(date instanceof Date) || isNaN(date.getTime())) {
+        return null;
+      }
       const dateStr = date.toISOString().split('T')[0];
+    
+      // Check date-specific shift first
       if (dateSpecificShifts[dateStr]) {
         return dateSpecificShifts[dateStr];
       }
-    }
 
-    // Then check for recurring shift from schedule configuration
-    if (allScheduleConfigs.length > 0) {
-      // Find the schedule configuration that applies to this specific date
-      const configForDate = getScheduleForDate(allScheduleConfigs, date);
+      // Check recurring shift from schedule configuration
+      const dayKey = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
       
-      if (configForDate && configForDate.shifts) {
-        const employeeId = currentUser.uid;
-        
-        // Try to find shifts using the employee ID
-        let employeeShifts = null;
-        
-        // Try direct match
-        if (configForDate.shifts[employeeId]) {
-          employeeShifts = configForDate.shifts[employeeId];
-        } else {
-          // Try partial matching
-          const availableIds = Object.keys(configForDate.shifts);
-          const matchingId = availableIds.find(id => 
-            id === employeeId || 
-            id.includes(employeeId) || 
-            employeeId.includes(id)
-          );
-          
-          if (matchingId) {
-            employeeShifts = configForDate.shifts[matchingId];
+      // Find the most recent config that applies to this date
+      const applicableConfig = allScheduleConfigs
+        .filter(c => {
+          if (!c || !c.startDate) return false;
+          try {
+            const configStart = new Date(c.startDate);
+            if (isNaN(configStart.getTime())) return false;
+            configStart.setHours(0, 0, 0, 0);
+            const checkDate = new Date(date);
+            checkDate.setHours(0, 0, 0, 0);
+            return configStart <= checkDate;
+          } catch (err) {
+            return false;
           }
-        }
-        
-        if (employeeShifts && employeeShifts[dayKey] && employeeShifts[dayKey].start && employeeShifts[dayKey].end) {
-          return {
-            start: employeeShifts[dayKey].start,
-            end: employeeShifts[dayKey].end,
-            isRecurring: true
-          };
-        }
+        })
+        .sort((a, b) => {
+          try {
+            return new Date(b.startDate) - new Date(a.startDate);
+          } catch (err) {
+            return 0;
+          }
+        })[0];
+
+      if (applicableConfig?.shifts?.[currentUser.uid]?.[dayKey]) {
+        const shift = applicableConfig.shifts[currentUser.uid][dayKey];
+        return {
+          start: shift.start,
+          end: shift.end,
+          isRecurring: true
+        };
       }
-    }
-    
-    return null;
-  };
 
-  // Helper function to check if stylist is on leave on a specific date
-  const isOnLeave = (date) => {
-    if (!date || myLeaveMap.length === 0) return false;
-    
-    const checkDate = new Date(date);
-    checkDate.setHours(0, 0, 0, 0);
-    const checkTime = checkDate.getTime();
-    
-    return myLeaveMap.some(leave => {
-      if (!leave.startDate || !leave.endDate) return false;
-      
-      const startTime = leave.startDate.getTime();
-      const endTime = leave.endDate.getTime();
-      
-      return checkTime >= startTime && checkTime <= endTime;
-    });
-  };
-
-  // Helper function to get leave info for a specific date
-  const getLeaveInfoForDate = (date) => {
-    if (!date || myLeaveMap.length === 0) return null;
-    
-    const checkDate = new Date(date);
-    checkDate.setHours(0, 0, 0, 0);
-    
-    return myLeaveMap.find(leave => {
-      if (!leave.startDate || !leave.endDate) return false;
-      
-      return checkDate >= leave.startDate && checkDate <= leave.endDate;
-    }) || null;
-  };
-
-  const handleExportPNG = async () => {
-    if (!scheduleRef.current) {
-      toast.error('No schedule to export');
-      return;
-    }
-
-    try {
-      setExporting(true);
-      toast.loading('Generating PNG...', { id: 'export' });
-
-      // Wait a bit for any animations to complete
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      // Capture the schedule as canvas
-      const canvas = await html2canvas(scheduleRef.current, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: false,
-        logging: false,
-        backgroundColor: '#ffffff',
-        windowWidth: scheduleRef.current.scrollWidth,
-        windowHeight: scheduleRef.current.scrollHeight,
-      });
-
-      // Convert canvas to PNG blob
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          toast.error('Failed to generate PNG', { id: 'export' });
-          setExporting(false);
-          return;
-        }
-
-        // Create download link
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `My_Schedule_${startDate}_to_${endDate}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-
-        toast.success('Schedule exported as PNG!', { id: 'export' });
-        setExporting(false);
-      }, 'image/png', 1.0);
+      return null;
     } catch (error) {
-      console.error('Error exporting PNG:', error);
-      toast.error('Failed to export schedule. Please try again.', { id: 'export' });
-      setExporting(false);
+      console.error('Error in getScheduleForDate:', error);
+      return null;
     }
   };
 
-  const dateRangeDates = useMemo(() => getDateRangeDates(), [startDate, endDate]);
+  // Get leave info for a date
+  const getLeaveForDate = (date) => {
+    if (!date || !leaveRequests || leaveRequests.length === 0) return null;
+    
+    try {
+      const checkDate = new Date(date);
+      if (isNaN(checkDate.getTime())) return null;
+      checkDate.setHours(0, 0, 0, 0);
+      
+      return leaveRequests.find(leave => {
+        if (!leave || !leave.startDate || !leave.endDate) return false;
+        try {
+          const start = new Date(leave.startDate);
+          if (isNaN(start.getTime())) return false;
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(leave.endDate);
+          if (isNaN(end.getTime())) return false;
+          end.setHours(23, 59, 59, 999);
+          return checkDate >= start && checkDate <= end;
+        } catch (err) {
+          return false;
+        }
+      });
+    } catch (error) {
+      console.error('Error in getLeaveForDate:', error);
+      return null;
+    }
+  };
 
-  // Count shifts for stats
-  const shiftsCount = useMemo(() => {
-    return dateRangeDates.filter(date => {
-      const dayKey = getDayKey(date);
-      return getShiftForDay(dayKey, date) !== null;
-    }).length;
-  }, [dateRangeDates, allScheduleConfigs, currentUser, dateSpecificShifts]);
+  // Get lending info for a date
+  const getLendingForDate = (date) => {
+    if (!date || !lendingPeriods || lendingPeriods.length === 0) return null;
+    
+    try {
+      const checkDate = new Date(date);
+      if (isNaN(checkDate.getTime())) return null;
+      checkDate.setHours(0, 0, 0, 0);
+      
+      return lendingPeriods.find(lending => {
+        if (!lending || !lending.startDate || !lending.endDate) return false;
+        try {
+          const start = new Date(lending.startDate);
+          if (isNaN(start.getTime())) return false;
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(lending.endDate);
+          if (isNaN(end.getTime())) return false;
+          end.setHours(23, 59, 59, 999);
+          return checkDate >= start && checkDate <= end;
+        } catch (err) {
+          return false;
+        }
+      });
+    } catch (error) {
+      console.error('Error in getLendingForDate:', error);
+      return null;
+    }
+  };
+
+  // Calendar helpers
+  const getDaysInMonth = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+    
+    const days = [];
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null);
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    return days;
+  };
+
+  const getWeekDates = (date) => {
+    const startOfWeek = new Date(date);
+    const day = startOfWeek.getDay();
+    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // Monday
+    startOfWeek.setDate(diff);
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    const week = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(startOfWeek);
+      day.setDate(startOfWeek.getDate() + i);
+      week.push(day);
+    }
+    return week;
+  };
+
+  const navigateDate = (direction) => {
+    const newDate = new Date(currentDate);
+    if (view === 'day') {
+      newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
+    } else if (view === 'week') {
+      newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
+    } else if (view === 'month') {
+      newDate.setMonth(newDate.getMonth() + (direction === 'next' ? 1 : -1));
+    }
+    setCurrentDate(newDate);
+  };
+
+  const goToToday = () => {
+    setCurrentDate(new Date());
+  };
 
   if (loading) {
     return <LoadingSpinner />;
   }
 
+  // Show message if branch is not available
+  if (!userBranch) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">My Schedule</h1>
+          <p className="text-gray-600">View your shifts, leaves, and lending assignments</p>
+        </div>
+        <Card>
+          <div className="p-6 text-center">
+            <p className="text-gray-500">Branch information not available. Please contact your administrator.</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">My Schedule</h1>
-          <p className="text-gray-600 mt-1">View your shifts and availability</p>
+          <p className="text-gray-600">View your shifts, leaves, and lending assignments</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleExportPNG}
-            disabled={exporting}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={goToToday}
           >
-            <Download className="w-4 h-4" />
-            {exporting ? 'Exporting...' : 'Export as PNG'}
-          </button>
+            Today
+          </Button>
         </div>
       </div>
 
-      {/* Date Range Picker */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+      {/* View Toggle */}
+      <Card>
+        <div className="p-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-gray-500" />
-            <span className="text-sm font-medium text-gray-700">Date Range:</span>
+            <Button
+              variant={view === 'day' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setView('day')}
+            >
+              Daily
+            </Button>
+            <Button
+              variant={view === 'week' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setView('week')}
+            >
+              Weekly
+            </Button>
+            <Button
+              variant={view === 'month' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setView('month')}
+            >
+              Monthly
+            </Button>
           </div>
-          <div className="flex items-center gap-4 flex-1">
-            <div className="flex items-center gap-2">
-              <label htmlFor="startDate" className="text-sm text-gray-600">From:</label>
-              <input
-                type="date"
-                id="startDate"
-                value={startDate}
-                onChange={(e) => {
-                  const newStart = e.target.value;
-                  if (newStart <= endDate) {
-                    setStartDate(newStart);
-                  } else {
-                    toast.error('Start date must be before end date');
-                  }
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label htmlFor="endDate" className="text-sm text-gray-600">To:</label>
-              <input
-                type="date"
-                id="endDate"
-                value={endDate}
-                onChange={(e) => {
-                  const newEnd = e.target.value;
-                  if (newEnd >= startDate) {
-                    setEndDate(newEnd);
-                  } else {
-                    toast.error('End date must be after start date');
-                  }
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-            <div className="text-sm text-gray-500">
-              {dateRangeDates.length} day{dateRangeDates.length !== 1 ? 's' : ''}
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Shifts in Range</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{shiftsCount}</p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigateDate('prev')}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <div className="text-sm font-medium text-gray-700 min-w-[200px] text-center">
+              {view === 'day' && formatDate(currentDate, 'MMMM dd, yyyy')}
+              {view === 'week' && (() => {
+                const week = getWeekDates(currentDate);
+                return `${formatDate(week[0], 'MMM dd')} - ${formatDate(week[6], 'MMM dd, yyyy')}`;
+              })()}
+              {view === 'month' && formatDate(currentDate, 'MMMM yyyy')}
             </div>
-            <Clock className="w-8 h-8 text-primary-600" />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigateDate('next')}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
         </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Leave Requests</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{leaveRequests.length}</p>
-            </div>
-            <Calendar className="w-8 h-8 text-blue-600" />
-          </div>
-        </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Days on Leave</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
-                {dateRangeDates.filter(date => isOnLeave(date)).length}
-              </p>
-            </div>
-            <Calendar className="w-8 h-8 text-orange-600" />
-          </div>
-        </div>
-      </div>
+      </Card>
 
-      {/* Schedule Table */}
-      <div ref={scheduleRef} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        {/* User Info Header */}
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-3">
-            <div className="flex-shrink-0 w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-semibold">
-              {userData ? getInitials(userData) : 'U'}
+      {/* Calendar Views */}
+      {view === 'day' && (
+        <Card>
+          <div className="p-6">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900">
+                {formatDate(currentDate, 'EEEE, MMMM dd, yyyy')}
+              </h2>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-900">
-                {userData ? getFullName(userData) : currentUser?.displayName || 'You'}
-              </div>
-              <div className="text-xs text-gray-500">
-                {currentUser?.email}
-              </div>
-            </div>
-          </div>
-        </div>
 
-        {/* Schedule Grid - Wraps to new lines */}
-        <div className="p-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-4">
-            {dateRangeDates.map((date, index) => {
-              const isToday = date.toDateString() === new Date().toDateString();
-              const dayKey = getDayKey(date);
-              const dayInfo = DAYS_OF_WEEK.find(d => d.key === dayKey);
-              const shift = getShiftForDay(dayKey, date);
-              const onLeave = isOnLeave(date);
-              const leaveInfo = getLeaveInfoForDate(date);
-              
-              return (
-                <div
-                  key={index}
-                  className={`border rounded-lg p-3 ${
-                    isToday ? 'bg-primary-50 border-primary-200' : 'border-gray-200'
-                  }`}
-                >
-                  {/* Date Header */}
-                  <div className={`text-center mb-3 pb-2 border-b ${
-                    isToday ? 'border-primary-200' : 'border-gray-200'
-                  }`}>
-                    <div className="text-xs font-semibold text-gray-500 uppercase">
-                      {dayInfo?.short}
-                    </div>
-                    <div className={`text-sm font-medium mt-1 ${
-                      isToday ? 'text-primary-700' : 'text-gray-900'
-                    }`}>
-                      {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </div>
-                  </div>
-
-                  {/* Shift/Leave Info */}
-                  <div className="text-center">
-                    {onLeave ? (
-                      <div className="space-y-1">
-                        <div className="px-2 py-1.5 rounded-lg text-xs font-medium bg-red-100 text-red-800">
-                          ON LEAVE
+            <div className="space-y-4">
+              {/* Schedule */}
+              {(() => {
+                const schedule = getScheduleForDate(currentDate);
+                const leave = getLeaveForDate(currentDate);
+                const lending = getLendingForDate(currentDate);
+                
+                return (
+                  <div className="space-y-3">
+                    {schedule && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Clock className="w-5 h-5 text-blue-600" />
+                          <h3 className="font-semibold text-blue-900">Shift Schedule</h3>
                         </div>
-                        {leaveInfo && (
-                          <div className="text-xs text-red-600 mt-1">
-                            {leaveInfo.type}
+                        <div className="space-y-1">
+                          <p className="text-blue-800 font-medium">
+                            {formatTime12Hour(schedule.start)} - {formatTime12Hour(schedule.end)}
+                          </p>
+                          <p className="text-sm text-blue-700">
+                            {schedule.isRecurring ? 'Recurring Schedule' : 'Date-Specific Shift'}
+                          </p>
+                          {currentBranchName && (
+                            <p className="text-xs text-blue-600 mt-2">
+                              Branch: {currentBranchName}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {leave && (
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <CalendarDays className="w-5 h-5 text-orange-600" />
+                          <h3 className="font-semibold text-orange-900">On Leave</h3>
+                        </div>
+                        <div className="space-y-2">
+                          <div>
+                            <p className="text-orange-800 font-medium">
+                              Leave Type: {leave.type || 'N/A'}
+                            </p>
+                            {leave.reason && (
+                              <p className="text-sm text-orange-700 mt-1">
+                                Reason: {leave.reason}
+                              </p>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    ) : shift ? (
-                      <div className="px-2 py-1.5 rounded-lg bg-primary-100 text-primary-800 text-xs font-medium">
-                        <div className="flex flex-col items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          <span className="text-center leading-tight">
-                            {formatTime12Hour(shift.start)} - {formatTime12Hour(shift.end)}
-                          </span>
+                          <div className="pt-2 border-t border-orange-200">
+                            <p className="text-sm text-orange-700">
+                              <span className="font-medium">Period:</span> {formatDate(leave.startDate)} to {formatDate(leave.endDate)}
+                            </p>
+                            {leave.status && (
+                              <p className="text-xs text-orange-600 mt-1">
+                                Status: {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    ) : (
-                      <div className="text-xs text-gray-400">No shift</div>
+                    )}
+
+                    {lending && (
+                      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Building2 className="w-5 h-5 text-purple-600" />
+                          <h3 className="font-semibold text-purple-900">Lent to Branch</h3>
+                        </div>
+                        <div className="space-y-2">
+                          <div>
+                            <p className="text-xs text-purple-600 mb-1">Destination Branch:</p>
+                            <p className="text-purple-800 font-semibold text-lg">
+                              {branchCache[lending.toBranchId] || 'Unknown Branch'}
+                            </p>
+                          </div>
+                          <div className="pt-2 border-t border-purple-200">
+                            <p className="text-sm text-purple-700">
+                              <span className="font-medium">Period:</span> {formatDate(lending.startDate)} to {formatDate(lending.endDate)}
+                            </p>
+                            {lending.reason && (
+                              <p className="text-sm text-purple-700 mt-1">
+                                <span className="font-medium">Reason:</span> {lending.reason}
+                              </p>
+                            )}
+                            {lending.status && (
+                              <p className="text-xs text-purple-600 mt-1">
+                                Status: {lending.status.charAt(0).toUpperCase() + lending.status.slice(1)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {!schedule && !leave && !lending && (
+                      <div className="text-center py-8 text-gray-500">
+                        <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                        <p>No schedule, leave, or lending assignment for this day</p>
+                      </div>
                     )}
                   </div>
+                );
+              })()}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {view === 'week' && (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                  {getWeekDates(currentDate).map((date, idx) => {
+                    const isToday = date.toDateString() === today.toDateString();
+                    return (
+                      <th
+                        key={idx}
+                        className={`px-4 py-3 text-center text-xs font-medium uppercase ${
+                          isToday ? 'bg-primary-50 text-primary-700' : 'text-gray-500'
+                        }`}
+                      >
+                        <div>{formatDate(date, 'EEE')}</div>
+                        <div className={`text-sm font-bold mt-1 ${isToday ? 'text-primary-900' : 'text-gray-900'}`}>
+                          {formatDate(date, 'dd')}
+                        </div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {Array.from({ length: 24 }, (_, hour) => (
+                  <tr key={hour}>
+                    <td className="px-4 py-2 text-xs text-gray-500 border-r border-gray-200">
+                      {hour.toString().padStart(2, '0')}:00
+                    </td>
+                    {getWeekDates(currentDate).map((date, dayIdx) => {
+                      const schedule = getScheduleForDate(date);
+                      const leave = getLeaveForDate(date);
+                      const lending = getLendingForDate(date);
+                      const isToday = date.toDateString() === today.toDateString();
+                      
+                      // Check if this hour is within schedule
+                      const hourStr = hour.toString().padStart(2, '0');
+                      let isInSchedule = false;
+                      if (schedule && schedule.start && schedule.end) {
+                        try {
+                          const startHour = parseInt(schedule.start.split(':')[0]);
+                          const endHour = parseInt(schedule.end.split(':')[0]);
+                          if (!isNaN(startHour) && !isNaN(endHour)) {
+                            isInSchedule = startHour <= hour && endHour > hour;
+                          }
+                        } catch (err) {
+                          // Ignore parsing errors
+                        }
+                      }
+                      
+                      return (
+                        <td
+                          key={dayIdx}
+                          className={`px-2 py-1 border-r border-gray-200 ${
+                            isToday ? 'bg-primary-50' : ''
+                          }`}
+                        >
+                          {hour === 0 && (
+                            <div className="space-y-1">
+                              {schedule && (
+                                <div className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                                  <Clock className="w-3 h-3 inline mr-1" />
+                                  {formatTime12Hour(schedule.start)} - {formatTime12Hour(schedule.end)}
+                                </div>
+                              )}
+                              {leave && (
+                                <div className="bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded" title={`Leave: ${leave.type}${leave.reason ? ' - ' + leave.reason : ''}`}>
+                                  <CalendarDays className="w-3 h-3 inline mr-1" />
+                                  Leave: {leave.type}
+                                </div>
+                              )}
+                              {lending && (
+                                <div className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded" title={`Lent to: ${branchCache[lending.toBranchId] || 'Unknown Branch'}`}>
+                                  <Building2 className="w-3 h-3 inline mr-1" />
+                                  {branchCache[lending.toBranchId]?.substring(0, 15) || 'Lent'}...
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {isInSchedule && (
+                            <div className="h-full bg-blue-200 rounded"></div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {view === 'month' && (
+        <Card>
+          <div className="p-4">
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                <div key={day} className="text-center text-xs font-semibold text-gray-500 py-2">
+                  {day}
                 </div>
-              );
-            })}
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {getDaysInMonth(currentDate).map((date, idx) => {
+                if (!date) {
+                  return <div key={idx} className="aspect-square"></div>;
+                }
+                
+                const isToday = date.toDateString() === today.toDateString();
+                const schedule = getScheduleForDate(date);
+                const leave = getLeaveForDate(date);
+                const lending = getLendingForDate(date);
+                const isCurrentMonth = date.getMonth() === currentDate.getMonth();
+                
+                return (
+                  <div
+                    key={idx}
+                    className={`aspect-square border border-gray-200 rounded-lg p-2 ${
+                      isToday ? 'bg-primary-50 border-primary-300' : ''
+                    } ${!isCurrentMonth ? 'opacity-40' : ''}`}
+                  >
+                    <div className={`text-xs font-medium mb-1 ${
+                      isToday ? 'text-primary-700' : 'text-gray-700'
+                    }`}>
+                      {formatDate(date, 'd')}
+                    </div>
+                    <div className="space-y-1">
+                      {schedule && (
+                        <div className="bg-blue-100 text-blue-800 text-[10px] px-1 py-0.5 rounded truncate">
+                          <Clock className="w-2 h-2 inline mr-0.5" />
+                          {formatTime12Hour(schedule.start)}-{formatTime12Hour(schedule.end)}
+                        </div>
+                      )}
+                      {leave && (
+                        <div className="bg-orange-100 text-orange-800 text-[10px] px-1 py-0.5 rounded truncate">
+                          <CalendarDays className="w-2 h-2 inline mr-0.5" />
+                          Leave
+                        </div>
+                      )}
+                      {lending && (
+                        <div className="bg-purple-100 text-purple-800 text-[10px] px-1 py-0.5 rounded truncate" title={`Lent to: ${branchCache[lending.toBranchId] || 'Unknown Branch'}`}>
+                          <Building2 className="w-2 h-2 inline mr-0.5" />
+                          {branchCache[lending.toBranchId]?.substring(0, 10) || 'Lent'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Legend */}
+      <Card>
+        <div className="p-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Legend</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-blue-100 border border-blue-200 rounded"></div>
+              <span className="text-sm text-gray-700">Shift Schedule</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-orange-100 border border-orange-200 rounded"></div>
+              <span className="text-sm text-gray-700">On Leave</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-purple-100 border border-purple-200 rounded"></div>
+              <span className="text-sm text-gray-700">Lent to Branch</span>
+            </div>
           </div>
         </div>
-      </div>
+      </Card>
     </div>
   );
 };

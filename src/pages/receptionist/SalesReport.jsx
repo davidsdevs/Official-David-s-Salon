@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  DollarSign, 
+  Banknote, 
   TrendingUp, 
   ShoppingCart, 
   Calendar, 
@@ -13,7 +13,6 @@ import {
   Filter,
   Receipt,
   CreditCard,
-  Banknote,
   Gift,
   FileText,
   RefreshCw
@@ -388,7 +387,7 @@ const ReceptionistSalesReport = () => {
               </p>
             </div>
             <div className="p-3 bg-green-100 rounded-lg">
-              <DollarSign className="w-6 h-6 text-green-600" />
+              <Banknote className="w-6 h-6 text-green-600" />
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2">

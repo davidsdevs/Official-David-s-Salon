@@ -28,6 +28,14 @@ const StaffManagement = () => {
   const { currentUser, userBranch } = useAuth();
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Set page title with role prefix
+  useEffect(() => {
+    document.title = 'Branch Manager - Staff Management | DSMS';
+    return () => {
+      document.title = 'DSMS - David\'s Salon Management System';
+    };
+  }, []);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -298,8 +306,15 @@ const StaffManagement = () => {
     // Status filter
     if (statusFilter !== 'all') {
       filtered = filtered.filter(member => {
-        if (statusFilter === 'active') return member.isActive === true;
-        if (statusFilter === 'inactive') return member.isActive === false;
+        // Treat undefined/null as inactive (default behavior)
+        // Explicitly check for true to be active, everything else is inactive
+        if (statusFilter === 'active') {
+          return member.isActive === true;
+        }
+        if (statusFilter === 'inactive') {
+          // Include if explicitly false, undefined, or null
+          return member.isActive === false || member.isActive === undefined || member.isActive === null;
+        }
         return true;
       });
     }

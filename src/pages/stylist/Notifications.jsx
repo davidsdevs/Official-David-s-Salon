@@ -23,6 +23,14 @@ const StylistNotifications = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
+  // Set page title with role prefix
+  useEffect(() => {
+    document.title = 'Stylist - Notifications | DSMS';
+    return () => {
+      document.title = 'DSMS - David\'s Salon Management System';
+    };
+  }, []);
+
   useEffect(() => {
     if (currentUser?.uid) {
       fetchNotifications();

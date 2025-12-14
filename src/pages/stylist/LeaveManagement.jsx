@@ -27,6 +27,14 @@ const StylistLeaveManagement = () => {
   const [requestToCancel, setRequestToCancel] = useState(null);
   const [requestToEdit, setRequestToEdit] = useState(null);
   const [processing, setProcessing] = useState(null);
+
+  // Set page title with role prefix
+  useEffect(() => {
+    document.title = 'Stylist - Leave Management | DSMS';
+    return () => {
+      document.title = 'DSMS - David\'s Salon Management System';
+    };
+  }, []);
   
   // Pagination
   const [lastDoc, setLastDoc] = useState(null);
@@ -56,22 +64,36 @@ const StylistLeaveManagement = () => {
         setLoadingMore(true);
       }
 
-      const result = await getLeaveRequestsByEmployee(
-        currentUser.uid,
-        pageSize,
-        reset ? null : lastDoc
-      );
+      // getLeaveRequestsByEmployee returns an array directly, not a paginated result
+      const requests = await getLeaveRequestsByEmployee(currentUser.uid);
+
+      // Ensure requests is an array
+      const requestsArray = Array.isArray(requests) ? requests : [];
 
       if (reset) {
-        setLeaveRequests(result.requests);
+        setLeaveRequests(requestsArray);
       } else {
-        setLeaveRequests(prev => [...prev, ...result.requests]);
+        // For pagination, slice the array if needed
+        const currentLength = leaveRequests.length;
+        const nextBatch = requestsArray.slice(currentLength, currentLength + pageSize);
+        if (nextBatch.length > 0) {
+          setLeaveRequests(prev => [...prev, ...nextBatch]);
+          setHasMore(requestsArray.length > currentLength + nextBatch.length);
+        } else {
+          setHasMore(false);
+        }
       }
 
-      setLastDoc(result.lastDoc);
-      setHasMore(result.hasMore);
+      // Since we're getting all requests at once, pagination is handled client-side
+      // Set hasMore based on whether we've shown all items
+      if (reset) {
+        setHasMore(requestsArray.length > pageSize);
+      }
     } catch (error) {
       console.error('Error fetching leave requests:', error);
+      // Set empty array on error to prevent "not iterable" error
+      setLeaveRequests([]);
+      toast.error('Failed to load leave requests');
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -79,6 +101,10 @@ const StylistLeaveManagement = () => {
   };
 
   const filteredRequests = useMemo(() => {
+    // Ensure leaveRequests is always an array
+    if (!Array.isArray(leaveRequests)) {
+      return [];
+    }
     let filtered = [...leaveRequests];
 
     // Apply status filter - Default: pending and approved
@@ -200,12 +226,14 @@ const StylistLeaveManagement = () => {
   };
 
   const stats = useMemo(() => {
+    // Ensure leaveRequests is always an array
+    const requests = Array.isArray(leaveRequests) ? leaveRequests : [];
     return {
-      pending: leaveRequests.filter(r => r.status === 'pending').length,
-      approved: leaveRequests.filter(r => r.status === 'approved').length,
-      rejected: leaveRequests.filter(r => r.status === 'rejected').length,
-      cancelled: leaveRequests.filter(r => r.status === 'cancelled').length,
-      total: leaveRequests.length,
+      pending: requests.filter(r => r.status === 'pending').length,
+      approved: requests.filter(r => r.status === 'approved').length,
+      rejected: requests.filter(r => r.status === 'rejected').length,
+      cancelled: requests.filter(r => r.status === 'cancelled').length,
+      total: requests.length,
     };
   }, [leaveRequests]);
 

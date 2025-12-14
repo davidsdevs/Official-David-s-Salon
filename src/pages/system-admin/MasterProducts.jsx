@@ -47,6 +47,14 @@ const MasterProducts = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+
+  // Set page title with role prefix
+  useEffect(() => {
+    document.title = 'System Admin - Master Products | DSMS';
+    return () => {
+      document.title = 'DSMS - David\'s Salon Management System';
+    };
+  }, []);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -90,6 +98,14 @@ const MasterProducts = () => {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  // Category states
+  const [showOtherCategoryInput, setShowOtherCategoryInput] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+
+  // Brand states
+  const [showOtherBrandInput, setShowOtherBrandInput] = useState(false);
+  const [newBrandName, setNewBrandName] = useState('');
 
   // Service mapping states
   const [serviceMappings, setServiceMappings] = useState([]); // Array of {serviceId, serviceName, instructions: [{instruction, quantity, unit, percentage}]}
@@ -429,6 +445,10 @@ const MasterProducts = () => {
       commissionPercentage: 0
     });
     setServiceMappings([]);
+    setShowOtherCategoryInput(false);
+    setNewCategoryName('');
+    setShowOtherBrandInput(false);
+    setNewBrandName('');
     setModalMode('create');
     setSelectedProduct(null);
     setShowModal(true);
@@ -458,6 +478,10 @@ const MasterProducts = () => {
       status: product.status || 'Active',
       commissionPercentage: product.commissionPercentage || 0
     });
+    setShowOtherCategoryInput(false);
+    setNewCategoryName('');
+    setShowOtherBrandInput(false);
+    setNewBrandName('');
     setModalMode('edit');
     setSelectedProduct(product);
     setShowModal(true);
@@ -545,6 +569,92 @@ const MasterProducts = () => {
   // Form handlers
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
+    
+    // Handle category selection
+    if (name === 'category') {
+      if (value === 'Other') {
+        setShowOtherCategoryInput(true);
+        setFormData(prev => ({
+          ...prev,
+          category: ''
+        }));
+      } else {
+        setShowOtherCategoryInput(false);
+        setNewCategoryName('');
+        setFormData(prev => ({
+          ...prev,
+          category: value
+        }));
+      }
+      setTouched(prev => ({
+        ...prev,
+        category: true
+      }));
+      return;
+    }
+    
+    // Handle new category name input
+    if (name === 'newCategoryName') {
+      setNewCategoryName(value);
+      setFormData(prev => ({
+        ...prev,
+        category: value
+      }));
+      setTouched(prev => ({
+        ...prev,
+        category: true
+      }));
+      // Validate the new category
+      const error = validateField('category', value);
+      setErrors(prev => ({
+        ...prev,
+        category: error
+      }));
+      return;
+    }
+
+    // Handle brand selection
+    if (name === 'brand') {
+      if (value === 'Other') {
+        setShowOtherBrandInput(true);
+        setFormData(prev => ({
+          ...prev,
+          brand: ''
+        }));
+      } else {
+        setShowOtherBrandInput(false);
+        setNewBrandName('');
+        setFormData(prev => ({
+          ...prev,
+          brand: value
+        }));
+      }
+      setTouched(prev => ({
+        ...prev,
+        brand: true
+      }));
+      return;
+    }
+    
+    // Handle new brand name input
+    if (name === 'newBrandName') {
+      setNewBrandName(value);
+      setFormData(prev => ({
+        ...prev,
+        brand: value
+      }));
+      setTouched(prev => ({
+        ...prev,
+        brand: true
+      }));
+      // Validate the new brand
+      const error = validateField('brand', value);
+      setErrors(prev => ({
+        ...prev,
+        brand: error
+      }));
+      return;
+    }
     
     // Handle checkbox for suppliers
     if (name === 'supplierCheckbox') {
@@ -1682,21 +1792,66 @@ const MasterProducts = () => {
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                               Category <span className="text-red-500">*</span>
                             </label>
-                            <input
-                              type="text"
-                              name="category"
-                              value={formData.category}
-                              onChange={handleInputChange}
-                              onBlur={handleBlur}
-                              required
-                              disabled={modalMode === 'view'}
-                              placeholder="Enter category"
-                              className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 ${
-                                errors.category && touched.category 
-                                  ? 'border-red-500' 
-                                  : 'border-gray-300'
-                              }`}
-                            />
+                            {!showOtherCategoryInput ? (
+                              <select
+                                name="category"
+                                value={formData.category}
+                                onChange={handleInputChange}
+                                onBlur={handleBlur}
+                                required
+                                disabled={modalMode === 'view'}
+                                className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 ${
+                                  errors.category && touched.category 
+                                    ? 'border-red-500' 
+                                    : 'border-gray-300'
+                                }`}
+                              >
+                                <option value="">Select a category</option>
+                                {categories.filter(cat => cat !== 'All').map((category) => (
+                                  <option key={category} value={category}>
+                                    {category}
+                                  </option>
+                                ))}
+                                <option value="Other">Other (Add New Category)</option>
+                              </select>
+                            ) : (
+                              <div>
+                                <input
+                                  type="text"
+                                  name="newCategoryName"
+                                  value={newCategoryName}
+                                  onChange={handleInputChange}
+                                  onBlur={handleBlur}
+                                  required
+                                  disabled={modalMode === 'view'}
+                                  placeholder="Enter new category name"
+                                  className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 ${
+                                    errors.category && touched.category 
+                                      ? 'border-red-500' 
+                                      : 'border-gray-300'
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowOtherCategoryInput(false);
+                                    setNewCategoryName('');
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      category: ''
+                                    }));
+                                    setErrors(prev => ({
+                                      ...prev,
+                                      category: ''
+                                    }));
+                                  }}
+                                  className="mt-2 text-sm text-blue-600 hover:text-blue-800"
+                                  disabled={modalMode === 'view'}
+                                >
+                                  Cancel - Select from existing
+                                </button>
+                              </div>
+                            )}
                             {errors.category && touched.category && (
                               <p className="mt-1 text-sm text-red-600">{errors.category}</p>
                             )}
@@ -1706,21 +1861,66 @@ const MasterProducts = () => {
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                               Brand <span className="text-red-500">*</span>
                             </label>
-                            <input
-                              type="text"
-                              name="brand"
-                              value={formData.brand}
-                              onChange={handleInputChange}
-                              onBlur={handleBlur}
-                              required
-                              disabled={modalMode === 'view'}
-                              placeholder="Enter brand name"
-                              className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 ${
-                                errors.brand && touched.brand 
-                                  ? 'border-red-500' 
-                                  : 'border-gray-300'
-                              }`}
-                            />
+                            {!showOtherBrandInput ? (
+                              <select
+                                name="brand"
+                                value={formData.brand}
+                                onChange={handleInputChange}
+                                onBlur={handleBlur}
+                                required
+                                disabled={modalMode === 'view'}
+                                className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 ${
+                                  errors.brand && touched.brand 
+                                    ? 'border-red-500' 
+                                    : 'border-gray-300'
+                                }`}
+                              >
+                                <option value="">Select a brand</option>
+                                {brands.filter(brand => brand !== 'All').map((brand) => (
+                                  <option key={brand} value={brand}>
+                                    {brand}
+                                  </option>
+                                ))}
+                                <option value="Other">Other (Add New Brand)</option>
+                              </select>
+                            ) : (
+                              <div>
+                                <input
+                                  type="text"
+                                  name="newBrandName"
+                                  value={newBrandName}
+                                  onChange={handleInputChange}
+                                  onBlur={handleBlur}
+                                  required
+                                  disabled={modalMode === 'view'}
+                                  placeholder="Enter new brand name"
+                                  className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 ${
+                                    errors.brand && touched.brand 
+                                      ? 'border-red-500' 
+                                      : 'border-gray-300'
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowOtherBrandInput(false);
+                                    setNewBrandName('');
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      brand: ''
+                                    }));
+                                    setErrors(prev => ({
+                                      ...prev,
+                                      brand: ''
+                                    }));
+                                  }}
+                                  className="mt-2 text-sm text-blue-600 hover:text-blue-800"
+                                  disabled={modalMode === 'view'}
+                                >
+                                  Cancel - Select from existing
+                                </button>
+                              </div>
+                            )}
                             {errors.brand && touched.brand && (
                               <p className="mt-1 text-sm text-red-600">{errors.brand}</p>
                             )}
