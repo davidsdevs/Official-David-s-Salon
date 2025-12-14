@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Open access - no restrictions
+    // WARNING: This allows anyone to read and write to your database
+    // Only use this for development/testing purposes
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+    }
