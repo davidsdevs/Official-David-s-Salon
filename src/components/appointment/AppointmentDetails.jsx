@@ -595,3 +595,4 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
 
 export default AppointmentDetails;
 
+
