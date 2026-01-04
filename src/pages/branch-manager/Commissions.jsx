@@ -12,7 +12,6 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import PDFPreviewModal from '../../components/ui/PDFPreviewModal';
 import { formatDate } from '../../utils/helpers';
 import toast from 'react-hot-toast';
-import { exportToExcel } from '../../utils/excelExport';
 
 const Commissions = () => {
   const { userBranch } = useAuth();
@@ -21,7 +20,6 @@ const Commissions = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStylist, setSelectedStylist] = useState('all');
-  const [selectedStylistForSummary, setSelectedStylistForSummary] = useState(null);
   const [dateRange, setDateRange] = useState({
     start: '',
     end: ''
@@ -325,32 +323,58 @@ const Commissions = () => {
     return Object.values(summary).sort((a, b) => b.totalCommission - a.totalCommission);
   }, [filteredTransactions]);
 
-  // Get summary for selected stylist
-  const selectedStylistSummary = useMemo(() => {
-    if (!selectedStylistForSummary) return null;
-    return commissionSummary.find(s => s.stylistId === selectedStylistForSummary);
-  }, [commissionSummary, selectedStylistForSummary]);
 
   const handleExportCSV = () => {
-    // Legacy CSV export (keeping for backward compatibility)
-    const headers = ['Date', 'Stylist', 'Product', 'Quantity', 'Unit Cost', 'Commission %', 'Commission Amount', 'Total Sale', 'Client', 'Receipt #'];
-    const rows = filteredTransactions.map(t => {
-      const date = t.transactionDate?.toDate ? formatDate(t.transactionDate.toDate(), 'MMM dd, yyyy HH:mm') : 'N/A';
-      return [
-        date,
-        t.commissionerName,
-        t.productName,
-        t.quantity,
-        `₱${t.unitCost.toFixed(2)}`,
-        `${t.commissionPercentage}%`,
-        `₱${t.commissionPoints.toFixed(2)}`,
-        `₱${t.totalAmount.toFixed(2)}`,
-        t.clientName,
-        t.receiptNumber
-      ];
-    });
-    
-    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
+    if (!filteredTransactions.length && commissionSummary.length === 0) {
+      toast.error('No commission data to export');
+      return;
+    }
+
+    let csvContent = '';
+
+    // Commission Summary Section
+    if (commissionSummary.length > 0) {
+      csvContent += 'Commission Summary\n';
+      const summaryHeaders = ['Stylist', 'Transactions', 'Total Sales (₱)', 'Total Commission (₱)', 'Avg Commission %'];
+      const summaryRows = commissionSummary.map(summary => {
+        const avgCommissionPercent = summary.totalSales > 0
+          ? (summary.totalCommission / summary.totalSales) * 100
+          : 0;
+        return [
+          summary.stylistName,
+          summary.transactionCount,
+          summary.totalSales.toFixed(2),
+          summary.totalCommission.toFixed(2),
+          `${avgCommissionPercent.toFixed(1)}%`
+        ];
+      });
+
+      csvContent += [summaryHeaders, ...summaryRows].map(row => row.join(',')).join('\n') + '\n\n';
+    }
+
+    // Commission Transaction Section
+    if (filteredTransactions.length > 0) {
+      csvContent += 'Commission Transaction\n';
+      const transactionHeaders = ['Date', 'Stylist', 'Product', 'Quantity', 'Unit Cost (₱)', 'Commission %', 'Commission Amount (₱)', 'Total Sale (₱)', 'Client', 'Receipt #'];
+      const transactionRows = filteredTransactions.map(t => {
+        const date = t.transactionDate?.toDate ? formatDate(t.transactionDate.toDate(), 'MMM dd, yyyy HH:mm') : 'N/A';
+        return [
+          date,
+          t.commissionerName,
+          t.productName,
+          t.quantity,
+          t.unitCost.toFixed(2),
+          `${t.commissionPercentage}%`,
+          t.commissionPoints.toFixed(2),
+          t.totalAmount.toFixed(2),
+          t.clientName,
+          t.receiptNumber
+        ];
+      });
+
+      csvContent += [transactionHeaders, ...transactionRows].map(row => row.join(',')).join('\n');
+    }
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -363,47 +387,6 @@ const Commissions = () => {
     toast.success('Commissions exported to CSV');
   };
 
-  const handleExportExcel = () => {
-    if (!filteredTransactions.length) {
-      toast.error('No commission data to export');
-      return;
-    }
-
-    try {
-      const headers = [
-        { key: 'transactionDate', label: 'Date' },
-        { key: 'commissionerName', label: 'Stylist' },
-        { key: 'productName', label: 'Product' },
-        { key: 'batchNumber', label: 'Batch Number' },
-        { key: 'quantity', label: 'Quantity' },
-        { key: 'unitCost', label: 'Unit Cost (₱)' },
-        { key: 'commissionPercentage', label: 'Commission %' },
-        { key: 'commissionPoints', label: 'Commission Amount (₱)' },
-        { key: 'totalAmount', label: 'Total Sale (₱)' },
-        { key: 'clientName', label: 'Client' },
-        { key: 'receiptNumber', label: 'Receipt #' }
-      ];
-
-      // Prepare data with formatted dates
-      const exportData = filteredTransactions.map(t => ({
-        ...t,
-        transactionDate: t.transactionDate?.toDate 
-          ? formatDate(t.transactionDate.toDate(), 'MMM dd, yyyy HH:mm')
-          : (t.transactionDate ? formatDate(new Date(t.transactionDate), 'MMM dd, yyyy HH:mm') : 'N/A'),
-        unitCost: t.unitCost || 0,
-        commissionPercentage: t.commissionPercentage || 0,
-        commissionPoints: t.commissionPoints || 0,
-        totalAmount: t.totalAmount || 0,
-        quantity: t.quantity || 0
-      }));
-
-      exportToExcel(exportData, 'commissions', 'Commissions', headers);
-      toast.success('Commissions exported to Excel successfully');
-    } catch (error) {
-      console.error('Error exporting commissions:', error);
-      toast.error('Failed to export commissions');
-    }
-  };
 
   const handlePrint = () => {
     if (!printRef.current) {
@@ -486,19 +469,11 @@ const Commissions = () => {
           </button>
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
             title="Export to CSV"
           >
             <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">CSV</span>
-          </button>
-          <button
-            onClick={handleExportExcel}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            title="Export to Excel"
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Excel</span>
+            <span className="hidden sm:inline">Export CSV</span>
           </button>
         </div>
       </div>
@@ -516,7 +491,7 @@ const Commissions = () => {
             <Banknote className="h-10 w-10 text-purple-200" />
           </div>
         </div>
-        
+
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -528,7 +503,7 @@ const Commissions = () => {
             <TrendingUp className="h-10 w-10 text-green-200" />
           </div>
         </div>
-        
+
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -539,6 +514,68 @@ const Commissions = () => {
             </div>
             <Receipt className="h-10 w-10 text-blue-200" />
           </div>
+        </div>
+      </div>
+
+      {/* Commission Summary */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="p-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">Commission Summary</h2>
+          <p className="text-sm text-gray-500 mt-1">Breakdown of commissions earned by each stylist</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stylist</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Transactions</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sales</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Commission</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Commission %</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {commissionSummary.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="px-6 py-12 text-center">
+                    <User className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-500">No commission data available</p>
+                  </td>
+                </tr>
+              ) : (
+                commissionSummary.map((summary) => {
+                  const avgCommissionPercent = summary.totalSales > 0
+                    ? (summary.totalCommission / summary.totalSales) * 100
+                    : 0;
+
+                  return (
+                    <tr key={summary.stylistId} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <User className="h-5 w-5 text-gray-400 mr-3" />
+                          <div className="text-sm font-medium text-gray-900">
+                            {summary.stylistName}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
+                        {summary.transactionCount}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
+                        ₱{summary.totalSales.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-semibold text-purple-600">
+                        ₱{summary.totalCommission.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
+                        {avgCommissionPercent.toFixed(1)}%
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -597,91 +634,51 @@ const Commissions = () => {
         </div>
       </div>
 
-      {/* Commission Summary by Stylist - Only shown when stylist is clicked */}
-      {selectedStylistForSummary && selectedStylistSummary && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Commission Summary - {selectedStylistSummary.stylistName}
-            </h2>
-            <button
-              onClick={() => setSelectedStylistForSummary(null)}
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              Close
-            </button>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-500">Transactions</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {selectedStylistSummary.transactionCount}
-                </p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-500">Total Sales</p>
-                <p className="text-2xl font-bold text-green-600 mt-1">
-                  ₱{selectedStylistSummary.totalSales.toFixed(2)}
-                </p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-500">Total Commission</p>
-                <p className="text-2xl font-bold text-purple-600 mt-1">
-                  ₱{selectedStylistSummary.totalCommission.toFixed(2)}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Transactions Table */}
+      {/* Commission Transaction */}
       <div className="bg-white rounded-lg shadow">
         <div className="p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Commission Transactions</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Commission Transaction</h2>
         </div>
         <div className="overflow-x-auto">
-          {filteredTransactions.length === 0 ? (
-            <div className="text-center py-12">
-              <Banknote className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-              <p className="text-gray-500">No commission transactions found</p>
-            </div>
-          ) : (
-            <table className="w-full">
-              <thead className="bg-gray-50">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stylist</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Cost</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commission %</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sale</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Receipt #</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredTransactions.length === 0 ? (
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stylist</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Cost</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commission %</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sale</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Receipt #</th>
+                  <td colSpan="10" className="px-6 py-12 text-center">
+                    <Banknote className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-500">No commission transactions found</p>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredTransactions.map((transaction) => {
-                  const date = transaction.transactionDate?.toDate 
+              ) : (
+                filteredTransactions.map((transaction) => {
+                  const date = transaction.transactionDate?.toDate
                     ? formatDate(transaction.transactionDate.toDate(), 'MMM dd, yyyy HH:mm')
                     : formatDate(transaction.transactionDate, 'MMM dd, yyyy HH:mm');
-                  
+
                   return (
                     <tr key={transaction.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{date}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => setSelectedStylistForSummary(transaction.commissionerId)}
-                          className="flex items-center hover:text-purple-600 transition-colors"
-                        >
+                        <div className="flex items-center">
                           <User className="h-4 w-4 text-gray-400 mr-2" />
-                          <span className="text-sm text-gray-900 hover:text-purple-600 font-medium cursor-pointer">
+                          <span className="text-sm text-gray-900 font-medium">
                             {transaction.commissionerName}
                           </span>
-                        </button>
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{transaction.productName}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">{transaction.quantity}</td>
@@ -695,10 +692,10 @@ const Commissions = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{transaction.receiptNumber}</td>
                     </tr>
                   );
-                })}
-              </tbody>
-            </table>
-          )}
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -766,10 +763,10 @@ const Commissions = () => {
             </div>
           </div>
 
-          {/* Commission Summary by Stylist */}
+          {/* Commission Summary */}
           {commissionSummary.length > 0 && (
             <div className="mb-4 print-avoid-break" style={{ marginBottom: '16px' }}>
-              <h2 className="font-bold mb-2" style={{ fontSize: '14px', marginBottom: '8px' }}>Commission Summary by Stylist</h2>
+              <h2 className="font-bold mb-2" style={{ fontSize: '14px', marginBottom: '8px' }}>Commission Summary</h2>
               <table className="w-full" style={{ fontSize: '12px', borderCollapse: 'collapse', width: '100%', lineHeight: '1.5' }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid #000' }}>
@@ -795,7 +792,7 @@ const Commissions = () => {
 
           {/* Transactions Table */}
           <div className="print-avoid-break" style={{ pageBreakInside: 'avoid' }}>
-            <h2 className="font-bold mb-2" style={{ fontSize: '14px', marginBottom: '8px' }}>Commission Transactions</h2>
+            <h2 className="font-bold mb-2" style={{ fontSize: '14px', marginBottom: '8px' }}>Commission Transaction</h2>
             <table className="w-full" style={{ fontSize: '12px', borderCollapse: 'collapse', width: '100%', lineHeight: '1.5' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #000' }}>

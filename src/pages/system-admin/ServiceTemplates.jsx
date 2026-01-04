@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit, Trash2, Power, Search, Scissors } from 'lucide-react';
+import { Plus, Edit, Trash2, Power, Search, Scissors, Upload } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
   getAllServices,
@@ -16,9 +16,11 @@ import {
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ServiceModal from '../../components/service/ServiceModal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import ImportModal from '../../components/ImportModal';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
 
 const ServiceTemplates = () => {
   const { currentUser } = useAuth();
@@ -42,6 +44,7 @@ const ServiceTemplates = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [serviceToDelete, setServiceToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -158,6 +161,120 @@ const ServiceTemplates = () => {
     }
   };
 
+  // Download service import template
+  const downloadServiceTemplate = () => {
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      // Headers
+      ['Service Name', 'Category', 'Duration (minutes)', 'Description', 'Is Chemical (Yes/No)', 'Status (Active/Inactive)', 'Image URL'],
+      // Sample data rows
+      ['Basic Haircut', 'Haircut and Blowdry', '30', 'Standard haircut service', 'No', 'Active', ''],
+      ['Hair Color Treatment', 'Hair Coloring', '120', 'Full hair coloring service', 'Yes', 'Active', ''],
+      ['Manicure', 'Nail Care / Waxing / Threading', '45', 'Nail care service', 'No', 'Active', '']
+    ]);
+
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 25 }, // Service Name
+      { wch: 30 }, // Category
+      { wch: 20 }, // Duration
+      { wch: 40 }, // Description
+      { wch: 20 }, // Is Chemical
+      { wch: 20 }, // Status
+      { wch: 50 }  // Image URL
+    ];
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Services');
+
+    // Generate filename with date
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `Service_Import_Template_${dateStr}.xlsx`;
+
+    // Download file
+    XLSX.writeFile(workbook, filename);
+
+    toast.success('Template downloaded successfully!');
+  };
+
+  // Handle service import
+  const handleImportServices = async (importData) => {
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+      const errors = [];
+
+      const validCategories = getServiceCategories();
+
+      for (let i = 0; i < importData.length; i++) {
+        const row = importData[i];
+        try {
+          // Map Excel columns to service data structure (case-insensitive)
+          const serviceName = (row['Service Name'] || row['service name'] || '').trim();
+          const category = (row['Category'] || row['category'] || '').trim();
+          const duration = parseInt(row['Duration (minutes)'] || row['Duration'] || row['duration (minutes)'] || row['duration'] || 30);
+          const description = (row['Description'] || row['description'] || '').trim();
+          const isChemicalInput = (row['Is Chemical (Yes/No)'] || row['Is Chemical'] || row['is chemical'] || row['IsChemical'] || 'No').trim().toLowerCase();
+          const statusInput = (row['Status (Active/Inactive)'] || row['Status'] || row['status'] || 'Active').trim();
+          const imageURL = (row['Image URL'] || row['Image'] || row['image url'] || row['ImageURL'] || '').trim();
+
+          // Validate required fields
+          if (!serviceName) {
+            throw new Error('Service Name is required');
+          }
+          if (!category) {
+            throw new Error('Category is required');
+          }
+          if (!validCategories.includes(category)) {
+            throw new Error(`Invalid category. Valid categories are: ${validCategories.join(', ')}`);
+          }
+          if (isNaN(duration) || duration <= 0) {
+            throw new Error('Duration must be a positive number');
+          }
+
+          // Parse boolean fields
+          const isChemical = isChemicalInput === 'yes' || isChemicalInput === 'y' || isChemicalInput === 'true' || isChemicalInput === '1';
+          const isActive = statusInput.toLowerCase() === 'active' || statusInput.toLowerCase() === 'true' || statusInput === '1';
+
+          // Create service data
+          const serviceData = {
+            name: serviceName,
+            category: category,
+            duration: duration,
+            description: description || '',
+            isChemical: isChemical,
+            isActive: isActive,
+            imageURL: imageURL || ''
+          };
+
+          // Save service
+          await saveService(serviceData, currentUser);
+          successCount++;
+        } catch (err) {
+          errorCount++;
+          errors.push(`Row ${i + 2}: ${err.message || 'Unknown error'}`);
+        }
+      }
+
+      // Reload services
+      await fetchServices();
+
+      if (errorCount > 0) {
+        const errorMessage = `Imported ${successCount} services successfully. ${errorCount} errors occurred:\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? `\n... and ${errors.length - 10} more errors` : ''}`;
+        toast.error(errorMessage, { duration: 8000 });
+        return { success: false, error: errorMessage };
+      }
+
+      toast.success(`Successfully imported ${successCount} services!`);
+      setShowImportModal(false);
+      return { success: true };
+    } catch (err) {
+      console.error('Import error:', err);
+      toast.error(`Import failed: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  };
+
   if (loading) {
     return <LoadingSpinner message="Loading services..." />;
   }
@@ -172,13 +289,22 @@ const ServiceTemplates = () => {
           <h1 className="text-2xl font-bold text-gray-900">Services</h1>
           <p className="text-gray-600">Master catalog of services for all branches</p>
         </div>
-        <button
-          onClick={handleCreateService}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          Add Service
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <Upload className="w-5 h-5" />
+            Import Services
+          </button>
+          <button
+            onClick={handleCreateService}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Add Service
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -498,6 +624,59 @@ const ServiceTemplates = () => {
           This will permanently remove the service from all branches. This action cannot be undone.
         </p>
       </ConfirmModal>
+
+      {/* Import Services Modal */}
+      <ImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImport={handleImportServices}
+        templateColumns={[
+          'Service Name',
+          'Category',
+          'Duration (minutes)',
+          'Description',
+          'Is Chemical (Yes/No)',
+          'Status (Active/Inactive)',
+          'Image URL'
+        ]}
+        templateName="Service_Import"
+        sampleData={[
+          {
+            'Service Name': 'Basic Haircut',
+            'Category': 'Haircut and Blowdry',
+            'Duration (minutes)': '30',
+            'Description': 'Standard haircut service',
+            'Is Chemical (Yes/No)': 'No',
+            'Status (Active/Inactive)': 'Active',
+            'Image URL': ''
+          },
+          {
+            'Service Name': 'Hair Color Treatment',
+            'Category': 'Hair Coloring',
+            'Duration (minutes)': '120',
+            'Description': 'Full hair coloring service',
+            'Is Chemical (Yes/No)': 'Yes',
+            'Status (Active/Inactive)': 'Active',
+            'Image URL': ''
+          },
+          {
+            'Service Name': 'Manicure',
+            'Category': 'Nail Care / Waxing / Threading',
+            'Duration (minutes)': '45',
+            'Description': 'Nail care service',
+            'Is Chemical (Yes/No)': 'No',
+            'Status (Active/Inactive)': 'Active',
+            'Image URL': ''
+          }
+        ]}
+        validationRules={{
+          'Service Name': { required: true },
+          'Category': { required: true },
+          'Duration (minutes)': { required: true, type: 'number' }
+        }}
+        title="Import Services"
+        customDownloadTemplate={downloadServiceTemplate}
+      />
     </div>
   );
 };

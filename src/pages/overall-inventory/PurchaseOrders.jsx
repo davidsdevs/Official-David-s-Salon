@@ -30,7 +30,6 @@ import { inventoryService } from '../../services/inventoryService';
 
 const OverallInventoryControllerPurchaseOrders = () => {
   const { userData } = useAuth();
-
   // Data states
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -74,6 +73,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
         ordersList.push({
           id: doc.id,
           ...data,
+          status: data.status ? String(data.status).trim() : data.status,
           orderDate: data.orderDate?.toDate ? data.orderDate.toDate() : new Date(data.orderDate),
           expectedDelivery: data.expectedDelivery?.toDate ? data.expectedDelivery.toDate() : new Date(data.expectedDelivery),
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
@@ -118,7 +118,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
   const orderStats = useMemo(() => {
     return {
       totalOrders: purchaseOrders.length,
-      pendingApproval: purchaseOrders.filter(o => o.status === 'Received').length,
+      pendingApproval: purchaseOrders.filter(o => o.status === 'Pending').length,
       approvedOrders: purchaseOrders.filter(o => o.status === 'Approved' || o.status === 'In Transit').length,
       rejectedOrders: purchaseOrders.filter(o => o.status === 'Rejected').length,
       totalValue: purchaseOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0)
@@ -315,12 +315,12 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
   return (
     <>
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6 p-4 md:p-0">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Purchase Orders Approval</h1>
-          <p className="text-gray-600">Review and approve/reject purchase orders from Inventory Controllers</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Purchase Orders Approval</h1>
+          <p className="text-sm md:text-base text-gray-600 mt-1">Review and approve/reject purchase orders from Inventory Controllers</p>
         </div>
       </div>
 
@@ -338,8 +338,8 @@ const OverallInventoryControllerPurchaseOrders = () => {
       )}
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+        <Card className="p-3 md:p-4">
           <div className="flex items-center">
             <ShoppingCart className="h-8 w-8 text-blue-600" />
             <div className="ml-3">
@@ -391,8 +391,8 @@ const OverallInventoryControllerPurchaseOrders = () => {
       </div>
 
       {/* Search and Filters */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row gap-4">
+      <Card className="p-4 md:p-6">
+        <div className="flex flex-col md:flex-row gap-3 md:gap-4">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
@@ -400,14 +400,14 @@ const OverallInventoryControllerPurchaseOrders = () => {
               placeholder="Search by order ID, supplier, or notes..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10"
+              className="w-full pl-10 text-sm md:text-base"
             />
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2 md:gap-3">
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+              className="flex-1 md:flex-none px-3 py-2 text-sm md:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
             >
               <option value="all">All Status</option>
               <option value="Pending">Pending</option>
@@ -426,10 +426,10 @@ const OverallInventoryControllerPurchaseOrders = () => {
                 setSearchTerm('');
                 setSelectedStatus('all');
               }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 px-3 md:px-4"
             >
               <RefreshCw className="h-4 w-4" />
-              Reset
+              <span className="hidden sm:inline">Reset</span>
             </Button>
           </div>
         </div>
@@ -441,28 +441,28 @@ const OverallInventoryControllerPurchaseOrders = () => {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Order ID
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Supplier
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
                   Order Date
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                   Expected Delivery
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Total Amount
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                   Created By
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -470,52 +470,53 @@ const OverallInventoryControllerPurchaseOrders = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan="8" className="px-4 md:px-6 py-8 text-center text-gray-500">
                     No purchase orders found
                   </td>
                 </tr>
               ) : (
                 filteredOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{order.orderId || order.id}</div>
+                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm font-medium text-gray-900">{order.orderId || order.id}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{order.supplierName || 'Unknown'}</div>
+                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm text-gray-900 truncate max-w-[120px] md:max-w-none">{order.supplierName || 'Unknown'}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
+                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap hidden md:table-cell">
+                      <div className="text-xs md:text-sm text-gray-900">
                         {order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
+                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap hidden lg:table-cell">
+                      <div className="text-xs md:text-sm text-gray-900">
                         {order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(order.status)}`}>
+                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1 px-2 md:px-3 py-1 rounded-full text-xs md:text-sm font-medium border ${getStatusColor(order.status)}`}>
                         {getStatusIcon(order.status)}
-                        {order.status}
+                        <span className="hidden sm:inline">{order.status}</span>
+                        <span className="sm:hidden">{order.status.split(' ')[0]}</span>
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">₱{(order.totalAmount || 0).toLocaleString()}</div>
+                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm font-medium text-gray-900">₱{(order.totalAmount || 0).toLocaleString()}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{order.createdByName || 'Unknown'}</div>
+                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap hidden lg:table-cell">
+                      <div className="text-xs md:text-sm text-gray-900">{order.createdByName || 'Unknown'}</div>
                       <div className="text-xs text-gray-500">Inventory Controller</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex items-center gap-2">
+                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap text-xs md:text-sm font-medium">
+                      <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => handleOpenDetailsModal(order)}
-                          className="flex items-center gap-1"
+                          className="flex items-center gap-1 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
                         >
-                          <Eye className="h-3 w-3" />
-                          View
+                          <Eye className="h-3 w-3 md:h-4 md:w-4" />
+                          <span className="hidden sm:inline">View</span>
                         </Button>
                         {canApproveOrReject(order) && (
                           <>
@@ -523,7 +524,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
                               size="sm"
                               onClick={() => handleOpenApproveModal(order.id)}
                               disabled={isProcessing}
-                              className="bg-green-600 text-white hover:bg-green-700"
+                              className="bg-green-600 text-white hover:bg-green-700 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
                             >
                               Approve
                             </Button>
@@ -531,7 +532,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
                               size="sm"
                               onClick={() => handleOpenRejectModal(order)}
                               disabled={isProcessing}
-                              className="bg-red-600 text-white hover:bg-red-700"
+                              className="bg-red-600 text-white hover:bg-red-700 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
                             >
                               Reject
                             </Button>
@@ -550,18 +551,18 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
     {/* Order Details Modal */}
     {isDetailsModalOpen && selectedOrder && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-3 md:p-4">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col transform transition-all duration-300 scale-100">
           {/* Modal Header */}
-          <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-6">
+          <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-4 md:p-6">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <FileText className="h-6 w-6" />
+              <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
+                <div className="p-1.5 md:p-2 bg-white/20 rounded-lg flex-shrink-0">
+                  <FileText className="h-5 w-5 md:h-6 md:w-6" />
                 </div>
-                <div>
-                  <h2 className="text-2xl font-bold">Purchase Order Details</h2>
-                  <p className="text-white/80 text-sm mt-1">{selectedOrder.orderId || selectedOrder.id}</p>
+                <div className="min-w-0">
+                  <h2 className="text-lg md:text-2xl font-bold truncate">Purchase Order Details</h2>
+                  <p className="text-white/80 text-xs md:text-sm mt-1 truncate">{selectedOrder.orderId || selectedOrder.id}</p>
                 </div>
               </div>
               <Button
@@ -571,7 +572,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
                   setSelectedOrder(null);
                   setBranchStocks([]);
                 }}
-                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors flex-shrink-0 ml-2"
               >
                 <X className="h-5 w-5" />
               </Button>
@@ -579,22 +580,22 @@ const OverallInventoryControllerPurchaseOrders = () => {
           </div>
 
           {/* Modal Content */}
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="space-y-6">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6">
+            <div className="space-y-4 md:space-y-6">
               {/* Order Header */}
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">{selectedOrder.supplierName || 'Unknown Supplier'}</h3>
-                  <p className="text-gray-600">Order Date: {selectedOrder.orderDate ? format(new Date(selectedOrder.orderDate), 'MMM dd, yyyy') : 'N/A'}</p>
+              <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg md:text-xl font-bold text-gray-900 truncate">{selectedOrder.supplierName || 'Unknown Supplier'}</h3>
+                  <p className="text-sm md:text-base text-gray-600">Order Date: {selectedOrder.orderDate ? format(new Date(selectedOrder.orderDate), 'MMM dd, yyyy') : 'N/A'}</p>
                 </div>
-                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(selectedOrder.status)}`}>
+                <span className={`inline-flex items-center gap-1 px-2 md:px-3 py-1 rounded-full text-xs md:text-sm font-medium border flex-shrink-0 ${getStatusColor(selectedOrder.status)}`}>
                   {getStatusIcon(selectedOrder.status)}
                   {selectedOrder.status}
                 </span>
               </div>
 
               {/* Order Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                 <div className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-gray-500">Expected Delivery</label>
@@ -685,16 +686,16 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
               {/* Order Items */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Items</h3>
+                <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-3 md:mb-4">Order Items</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Ordered Qty</th>
-                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Current Stock</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                        <th className="px-3 md:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                        <th className="px-3 md:px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Ordered Qty</th>
+                        <th className="px-3 md:px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Current Stock</th>
+                        <th className="px-3 md:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
+                        <th className="px-3 md:px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -705,41 +706,41 @@ const OverallInventoryControllerPurchaseOrders = () => {
                             
                           return (
                             <tr key={index} className={currentStock !== null && currentStock <= (branchStocks.find(s => s.productId === item.productId)?.minStock || 0) ? 'bg-red-50' : ''}>
-                              <td className="px-4 py-3">
-                                <div className="font-medium text-gray-900">{item.productName}</div>
+                              <td className="px-3 md:px-4 py-2 md:py-3">
+                                <div className="font-medium text-gray-900 text-sm">{item.productName}</div>
                                 {item.sku && (
                                   <div className="text-xs text-gray-500">SKU: {item.sku}</div>
                                 )}
                               </td>
-                              <td className="px-4 py-3 text-center">
-                                <div className="text-gray-900 font-medium">{item.quantity}</div>
+                              <td className="px-3 md:px-4 py-2 md:py-3 text-center">
+                                <div className="text-gray-900 font-medium text-sm">{item.quantity}</div>
                               </td>
-                              <td className="px-4 py-3 text-center">
+                              <td className="px-3 md:px-4 py-2 md:py-3 text-center">
                                 {loadingStocks ? (
                                   <RefreshCw className="h-4 w-4 animate-spin text-gray-400 mx-auto" />
                                 ) : (
                                   <div className={`flex items-center justify-center gap-1 ${stockStatus.color}`}>
                                     {stockStatus.icon}
-                                    <span className="text-sm font-medium">{stockStatus.text}</span>
+                                    <span className="text-xs md:text-sm font-medium">{stockStatus.text}</span>
                                   </div>
                                 )}
                               </td>
-                              <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
-                              <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
+                              <td className="px-3 md:px-4 py-2 md:py-3 text-gray-900 text-sm">₱{(item.unitPrice || 0).toLocaleString()}</td>
+                              <td className="px-3 md:px-4 py-2 md:py-3 text-right font-semibold text-gray-900 text-sm">₱{(item.totalPrice || 0).toLocaleString()}</td>
                             </tr>
                           );
                         })
                       ) : (
                         <tr>
-                          <td colSpan="5" className="px-4 py-4 text-center text-gray-500">No items</td>
+                          <td colSpan="5" className="px-3 md:px-4 py-4 text-center text-gray-500">No items</td>
                         </tr>
                       )}
                     </tbody>
                     {selectedOrder.items && selectedOrder.items.length > 0 && (
                       <tfoot className="bg-gray-50">
                         <tr>
-                          <td colSpan="4" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
-                          <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
+                          <td colSpan="4" className="px-3 md:px-4 py-2 md:py-3 text-right font-semibold text-gray-900 text-sm md:text-base">Total:</td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-right font-bold text-[#160B53] text-base md:text-lg">
                             ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
                           </td>
                         </tr>
@@ -752,21 +753,21 @@ const OverallInventoryControllerPurchaseOrders = () => {
           </div>
 
           {/* Modal Footer */}
-          <div className="border-t border-gray-200 p-6 bg-gray-50">
-            <div className="flex justify-end gap-3">
+          <div className="border-t border-gray-200 p-4 md:p-6 bg-gray-50">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 md:gap-3">
               {canApproveOrReject(selectedOrder) && (
                 <>
                   <Button
                     onClick={() => handleOpenRejectModal(selectedOrder)}
                     disabled={isProcessing}
-                    className="bg-red-600 text-white hover:bg-red-700"
+                    className="bg-red-600 text-white hover:bg-red-700 w-full sm:w-auto"
                   >
                     Reject
                   </Button>
                   <Button
                     onClick={() => handleOpenApproveModal(selectedOrder.id)}
                     disabled={isProcessing}
-                    className="bg-green-600 text-white hover:bg-green-700"
+                    className="bg-green-600 text-white hover:bg-green-700 w-full sm:w-auto"
                   >
                     Approve
                   </Button>
@@ -779,7 +780,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
                   setSelectedOrder(null);
                   setBranchStocks([]);
                 }}
-                className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                className="border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
               >
                 Close
               </Button>
@@ -791,18 +792,18 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
     {/* Rejection Modal */}
     {isRejectModalOpen && selectedOrder && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-3 md:p-4">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300 scale-100">
           {/* Modal Header */}
-          <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-6">
+          <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-4 md:p-6">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <XCircle className="h-6 w-6" />
+              <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
+                <div className="p-1.5 md:p-2 bg-white/20 rounded-lg flex-shrink-0">
+                  <XCircle className="h-5 w-5 md:h-6 md:w-6" />
                 </div>
-                <div>
-                  <h2 className="text-2xl font-bold">Reject Purchase Order</h2>
-                  <p className="text-white/80 text-sm mt-1">{selectedOrder.orderId || selectedOrder.id}</p>
+                <div className="min-w-0">
+                  <h2 className="text-lg md:text-2xl font-bold truncate">Reject Purchase Order</h2>
+                  <p className="text-white/80 text-xs md:text-sm mt-1 truncate">{selectedOrder.orderId || selectedOrder.id}</p>
                 </div>
               </div>
               <Button
@@ -812,7 +813,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
                   setRejectionNote('');
                   setError(null);
                 }}
-                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors flex-shrink-0 ml-2"
               >
                 <X className="h-5 w-5" />
               </Button>
@@ -820,7 +821,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
           </div>
 
           {/* Modal Content */}
-          <div className="p-6">
+          <div className="p-4 md:p-6">
             {error && (
               <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0" />
@@ -856,8 +857,8 @@ const OverallInventoryControllerPurchaseOrders = () => {
           </div>
 
           {/* Modal Footer */}
-          <div className="border-t border-gray-200 p-6 bg-gray-50">
-            <div className="flex justify-end gap-3">
+          <div className="border-t border-gray-200 p-4 md:p-6 bg-gray-50">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 md:gap-3">
               <Button
                 variant="outline"
                 onClick={() => {
@@ -866,14 +867,14 @@ const OverallInventoryControllerPurchaseOrders = () => {
                   setError(null);
                 }}
                 disabled={isProcessing}
-                className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                className="border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleRejectOrderConfirm}
                 disabled={isProcessing || !rejectionNote.trim()}
-                className="bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto justify-center"
               >
                 <XCircle className="h-4 w-4" />
                 Continue to Confirm
@@ -890,18 +891,18 @@ const OverallInventoryControllerPurchaseOrders = () => {
       if (!orderToApprove) return null;
       
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-3 md:p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300 scale-100">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-6">
+            <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-4 md:p-6">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="p-2 bg-white/20 rounded-lg">
-                    <CheckCircle className="h-6 w-6" />
+                <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
+                  <div className="p-1.5 md:p-2 bg-white/20 rounded-lg flex-shrink-0">
+                    <CheckCircle className="h-5 w-5 md:h-6 md:w-6" />
                   </div>
-                  <div>
-                    <h2 className="text-2xl font-bold">Confirm Approval</h2>
-                    <p className="text-white/90 text-sm mt-1">Are you sure you want to approve this purchase order?</p>
+                  <div className="min-w-0">
+                    <h2 className="text-lg md:text-2xl font-bold">Confirm Approval</h2>
+                    <p className="text-white/90 text-xs md:text-sm mt-1">Are you sure you want to approve this purchase order?</p>
                   </div>
                 </div>
                 <Button
@@ -910,7 +911,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
                     setIsConfirmApproveModalOpen(false);
                     setPendingOrderId(null);
                   }}
-                  className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+                  className="text-white hover:bg-white/20 rounded-full p-2 transition-colors flex-shrink-0 ml-2"
                 >
                   <X className="h-5 w-5" />
                 </Button>
@@ -918,7 +919,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
             </div>
 
             {/* Modal Content */}
-            <div className="p-6">
+            <div className="p-4 md:p-6">
               <div className="space-y-4">
                 {/* Order Summary */}
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
@@ -965,8 +966,8 @@ const OverallInventoryControllerPurchaseOrders = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="border-t border-gray-200 p-6 bg-gray-50">
-              <div className="flex justify-end gap-3">
+            <div className="border-t border-gray-200 p-4 md:p-6 bg-gray-50">
+              <div className="flex flex-col sm:flex-row justify-end gap-2 md:gap-3">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -974,14 +975,14 @@ const OverallInventoryControllerPurchaseOrders = () => {
                     setPendingOrderId(null);
                   }}
                   disabled={isProcessing}
-                  className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                  className="border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleApproveOrder}
                   disabled={isProcessing}
-                  className="bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed justify-center w-full sm:w-auto"
                 >
                   {isProcessing ? (
                     <>
@@ -1004,18 +1005,18 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
     {/* Reject Confirmation Modal */}
     {isConfirmRejectModalOpen && selectedOrder && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-3 md:p-4">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300 scale-100">
           {/* Modal Header */}
-          <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-6">
+          <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-4 md:p-6">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <XCircle className="h-6 w-6" />
+              <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
+                <div className="p-1.5 md:p-2 bg-white/20 rounded-lg flex-shrink-0">
+                  <XCircle className="h-5 w-5 md:h-6 md:w-6" />
                 </div>
-                <div>
-                  <h2 className="text-2xl font-bold">Confirm Rejection</h2>
-                  <p className="text-white/90 text-sm mt-1">Are you sure you want to reject this purchase order?</p>
+                <div className="min-w-0">
+                  <h2 className="text-lg md:text-2xl font-bold">Confirm Rejection</h2>
+                  <p className="text-white/90 text-xs md:text-sm mt-1">Are you sure you want to reject this purchase order?</p>
                 </div>
               </div>
               <Button
@@ -1023,7 +1024,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
                 onClick={() => {
                   setIsConfirmRejectModalOpen(false);
                 }}
-                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors flex-shrink-0 ml-2"
               >
                 <X className="h-5 w-5" />
               </Button>
@@ -1031,7 +1032,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
           </div>
 
           {/* Modal Content */}
-          <div className="p-6">
+          <div className="p-4 md:p-6">
             <div className="space-y-4">
               {/* Order Summary */}
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
@@ -1071,22 +1072,22 @@ const OverallInventoryControllerPurchaseOrders = () => {
           </div>
 
           {/* Modal Footer */}
-          <div className="border-t border-gray-200 p-6 bg-gray-50">
-            <div className="flex justify-end gap-3">
+          <div className="border-t border-gray-200 p-4 md:p-6 bg-gray-50">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 md:gap-3">
               <Button
                 variant="outline"
                 onClick={() => {
                   setIsConfirmRejectModalOpen(false);
                 }}
                 disabled={isProcessing}
-                className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                className="border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleRejectOrder}
                 disabled={isProcessing}
-                className="bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed justify-center w-full sm:w-auto"
               >
                 {isProcessing ? (
                   <>

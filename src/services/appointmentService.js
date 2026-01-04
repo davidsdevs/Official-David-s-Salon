@@ -468,6 +468,21 @@ export const createAppointment = async (appointmentData, currentUser) => {
       }
     }
 
+    // Validate appointment time is within operating hours
+    const appointmentDateTime = new Date(appointmentData.appointmentDate);
+    const duration = appointmentData.duration || 60;
+
+    const timeValidation = await validateAppointmentTime(
+      appointmentData.branchId,
+      appointmentDateTime,
+      duration
+    );
+
+    if (!timeValidation.isValid) {
+      toast.error(timeValidation.message);
+      throw new Error(timeValidation.message);
+    }
+
     const defaultStatus = appointmentData.status || APPOINTMENT_STATUS.PENDING;
     
     // Build initial history entry
@@ -597,7 +612,22 @@ export const updateAppointment = async (appointmentId, updates, currentUser) => 
         }
       }
 
-      updates.appointmentDate = Timestamp.fromDate(new Date(updates.appointmentDate));
+      // Validate new appointment time is within operating hours
+      const newAppointmentDateTime = new Date(updates.appointmentDate);
+      const newDuration = updates.duration || appointment.duration || 60;
+
+      const timeValidation = await validateAppointmentTime(
+        appointment.branchId,
+        newAppointmentDateTime,
+        newDuration
+      );
+
+      if (!timeValidation.isValid) {
+        toast.error(timeValidation.message);
+        throw new Error(timeValidation.message);
+      }
+
+      updates.appointmentDate = Timestamp.fromDate(newAppointmentDateTime);
     }
 
     // Filter out undefined values from updates
@@ -772,6 +802,210 @@ export const updateAppointment = async (appointmentId, updates, currentUser) => 
       toast.error('Failed to update appointment');
     }
     throw error;
+  }
+};
+
+/**
+ * Automatically cancel appointments based on criteria (optimized for minimal reads)
+ * @param {string} branchId - Branch ID
+ * @returns {Promise<Array>} - Array of cancelled appointments
+ */
+export const autoCancelAppointments = async (branchId) => {
+  try {
+    const now = new Date();
+    const cancelledAppointments = [];
+
+    // Strategy: Only check appointments that are likely to need cancellation
+    // 1. Appointments from yesterday or earlier (past due)
+    // 2. Appointments created more than 7 days ago
+
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const weekAgo = new Date(now);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    console.log(`🔍 Checking for auto-cancellable appointments for branch ${branchId}`);
+
+    // Query 1: Past due appointments (appointment date <= yesterday)
+    const pastDueQuery = query(
+      collection(db, APPOINTMENTS_COLLECTION),
+      where('branchId', '==', branchId),
+      where('status', '==', APPOINTMENT_STATUS.PENDING),
+      where('appointmentDate', '<=', Timestamp.fromDate(yesterday)),
+      limit(10) // Limit to avoid too many reads
+    );
+
+    const pastDueSnapshot = await getDocs(pastDueQuery);
+    console.log(`📅 Found ${pastDueSnapshot.size} potentially past-due appointments`);
+
+    // Query 2: Old pending appointments (created > 7 days ago)
+    const oldPendingQuery = query(
+      collection(db, APPOINTMENTS_COLLECTION),
+      where('branchId', '==', branchId),
+      where('status', '==', APPOINTMENT_STATUS.PENDING),
+      where('createdAt', '<=', Timestamp.fromDate(weekAgo)),
+      limit(10) // Limit to avoid too many reads
+    );
+
+    const oldPendingSnapshot = await getDocs(oldPendingQuery);
+    console.log(`⏰ Found ${oldPendingSnapshot.size} old pending appointments`);
+
+    // Combine and deduplicate appointments to check
+    const appointmentsToCheck = new Map();
+
+    // Add past due appointments
+    pastDueSnapshot.docs.forEach(doc => {
+      appointmentsToCheck.set(doc.id, { id: doc.id, ...doc.data() });
+    });
+
+    // Add old pending appointments (will overwrite if duplicate)
+    oldPendingSnapshot.docs.forEach(doc => {
+      appointmentsToCheck.set(doc.id, { id: doc.id, ...doc.data() });
+    });
+
+    const uniqueAppointments = Array.from(appointmentsToCheck.values());
+    console.log(`🎯 Checking ${uniqueAppointments.length} unique appointments for cancellation`);
+
+    // Process each appointment (limited to avoid overwhelming the system)
+    for (const appointment of uniqueAppointments.slice(0, 5)) { // Max 5 cancellations per run
+      let shouldCancel = false;
+      let cancelReason = '';
+
+      // Check if appointment date has passed (with buffer)
+      if (appointment.appointmentDate) {
+        const appointmentDate = appointment.appointmentDate.toDate ? appointment.appointmentDate.toDate() : new Date(appointment.appointmentDate);
+        const hoursAgo = (now - appointmentDate) / (1000 * 60 * 60);
+
+        // Cancel if more than 2 hours past appointment time
+        if (hoursAgo > 2) {
+          shouldCancel = true;
+          cancelReason = 'Auto-cancelled: Appointment time has passed';
+        }
+      }
+
+      // Check if created too long ago
+      if (!shouldCancel && appointment.createdAt) {
+        const createdDate = appointment.createdAt.toDate ? appointment.createdAt.toDate() : new Date(appointment.createdAt);
+        const daysOld = (now - createdDate) / (1000 * 60 * 60 * 24);
+
+        if (daysOld > 7) {
+          shouldCancel = true;
+          cancelReason = 'Auto-cancelled: Pending booking expired';
+        }
+      }
+
+      if (shouldCancel) {
+        console.log(`🚫 Auto-cancelling appointment ${appointment.id}: ${cancelReason}`);
+
+        try {
+          await updateAppointmentStatus(appointment.id, APPOINTMENT_STATUS.CANCELLED, 'system', cancelReason);
+          cancelledAppointments.push({
+            id: appointment.id,
+            clientName: appointment.clientName,
+            reason: cancelReason
+          });
+        } catch (error) {
+          console.error(`❌ Failed to cancel appointment ${appointment.id}:`, error);
+        }
+      }
+    }
+
+    console.log(`✅ Auto-cancelled ${cancelledAppointments.length} appointments (limited processing)`);
+    return cancelledAppointments;
+
+  } catch (error) {
+    console.error('❌ Error in optimized auto-cancel appointments:', error);
+    throw error;
+  }
+};
+
+/**
+ * Validate if an appointment time is within branch operating hours
+ * @param {string} branchId - Branch ID
+ * @param {Date} appointmentDate - Appointment date and time
+ * @param {number} duration - Appointment duration in minutes
+ * @returns {Promise<Object>} - { isValid: boolean, message: string }
+ */
+export const validateAppointmentTime = async (branchId, appointmentDate, duration = 60) => {
+  try {
+    // Get branch data
+    const branch = await getBranchById(branchId);
+    if (!branch) {
+      return { isValid: false, message: 'Branch not found' };
+    }
+
+    // Get day of week
+    const dayOfWeek = appointmentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    const dayName = appointmentDate.toLocaleDateString('en-US', { weekday: 'long' });
+
+    // Get operating hours for the day
+    const dayHours = branch.operatingHours?.[dayOfWeek];
+    if (!dayHours) {
+      return { isValid: false, message: `No operating hours configured for ${dayName}` };
+    }
+
+    // Check if branch is open
+    const isBranchOpen = dayHours.isOpen !== undefined
+      ? dayHours.isOpen
+      : !dayHours.closed;
+
+    if (!isBranchOpen) {
+      return { isValid: false, message: `Branch is closed on ${dayName}s` };
+    }
+
+    // Parse operating hours
+    const [startHour, startMinute] = dayHours.open.split(':').map(Number);
+    const [endHour, endMinute] = dayHours.close.split(':').map(Number);
+
+    // Create operating hour boundaries
+    const operatingStart = new Date(appointmentDate);
+    operatingStart.setHours(startHour, startMinute, 0, 0);
+
+    const operatingEnd = new Date(appointmentDate);
+    operatingEnd.setHours(endHour, endMinute, 0, 0);
+
+    // Calculate appointment end time
+    const appointmentEnd = new Date(appointmentDate.getTime() + duration * 60000);
+
+    // Validate appointment fits within operating hours
+    if (appointmentDate < operatingStart) {
+      return {
+        isValid: false,
+        message: `Appointment starts before opening time (${dayHours.open}). Branch opens at ${dayHours.open} on ${dayName}s.`
+      };
+    }
+
+    if (appointmentEnd > operatingEnd) {
+      return {
+        isValid: false,
+        message: `Appointment ends after closing time (${dayHours.close}). Branch closes at ${dayHours.close} on ${dayName}s.`
+      };
+    }
+
+    // Check calendar for holidays/closures
+    const calendar = await getBranchCalendar(branchId);
+    const dateString = appointmentDate.toISOString().split('T')[0];
+
+    const dayEvents = calendar.filter(entry => {
+      const entryDate = entry.date instanceof Date ? entry.date : new Date(entry.date);
+      const entryDateString = entryDate.toISOString().split('T')[0];
+      return entryDateString === dateString;
+    });
+
+    // Check for holidays/closures
+    const closureEvent = dayEvents.find(e => e.type === 'holiday' || e.type === 'closure');
+    if (closureEvent) {
+      const reason = closureEvent.type === 'holiday' ? 'Holiday' : 'Temporary Closure';
+      const title = closureEvent.title ? ` (${closureEvent.title})` : '';
+      return { isValid: false, message: `${reason}${title} - No appointments available on this date` };
+    }
+
+    return { isValid: true, message: 'Appointment time is within operating hours' };
+
+  } catch (error) {
+    console.error('Error validating appointment time:', error);
+    return { isValid: false, message: 'Error validating appointment time' };
   }
 };
 

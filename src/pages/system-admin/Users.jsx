@@ -28,6 +28,7 @@ import { setRolePassword } from '../../services/rolePasswordService';
 import { sendPasswordResetEmail } from '../../services/emailService';
 import UserFormModal from '../../components/users/UserFormModal';
 import UserDetailsModal from '../../components/users/UserDetailsModal';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import RoleBadges from '../../components/ui/RoleBadges';
 import toast from 'react-hot-toast';
@@ -39,7 +40,7 @@ const UsersManagement = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('active');
   const [branchFilter, setBranchFilter] = useState('all');
   const [showUserForm, setShowUserForm] = useState(false);
   const [showUserDetails, setShowUserDetails] = useState(false);
@@ -47,6 +48,7 @@ const UsersManagement = () => {
   const [branches, setBranches] = useState([]);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
+  const [toggling, setToggling] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
   const [resetUserInfo, setResetUserInfo] = useState(null);
@@ -177,19 +179,22 @@ const UsersManagement = () => {
 
   const handleToggleStatus = async (userId, currentStatus) => {
     const user = users.find(u => u.id === userId);
-    const action = currentStatus ? 'deactivate' : 'activate';
     const actionText = currentStatus ? 'deactivate' : 'activate';
     
     setConfirmAction(() => async () => {
-    try {
-      await toggleUserStatus(userId, !currentStatus, currentUser);
-      await fetchUsers();
+      try {
+        setToggling(true);
+        await toggleUserStatus(userId, !currentStatus, currentUser);
+        await fetchUsers();
         toast.success(`User ${actionText}d successfully`);
-    } catch (error) {
-      // Error handled in service
-    }
-      setShowConfirmDialog(false);
-      setConfirmAction(null);
+        setShowConfirmDialog(false);
+        setConfirmAction(null);
+        setSelectedUser(null);
+      } catch (error) {
+        // Error handled in service
+      } finally {
+        setToggling(false);
+      }
     });
     
     setSelectedUser(user);
@@ -380,27 +385,27 @@ const UsersManagement = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6 p-4 md:p-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-          <p className="text-gray-600 mt-1">Manage system users and their roles</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">User Management</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">Manage system users and their roles</p>
         </div>
         <button
           onClick={() => {
             setSelectedUser(null);
             setShowUserForm(true);
           }}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors w-full sm:w-auto"
         >
           <Plus className="w-5 h-5" />
-          Add User
+          <span>Add User</span>
         </button>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <div className="bg-white rounded-lg p-4 border border-gray-200">
           <div className="flex items-center justify-between">
             <div>
@@ -446,8 +451,8 @@ const UsersManagement = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="bg-white rounded-lg border border-gray-200 p-3 md:p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -502,8 +507,8 @@ const UsersManagement = () => {
         </div>
       </div>
 
-      {/* Users Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      {/* Users Table - Desktop View */}
+      <div className="hidden lg:block bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -584,28 +589,28 @@ const UsersManagement = () => {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleViewUser(user)}
-                          className="text-blue-600 hover:text-blue-900"
+                          className="text-blue-600 hover:text-blue-900 p-1"
                           title="View Details"
                         >
                           <Eye className="w-5 h-5" />
                         </button>
                         <button
                           onClick={() => handleEditUser(user)}
-                          className="text-gray-600 hover:text-gray-900"
+                          className="text-gray-600 hover:text-gray-900 p-1"
                           title="Edit User"
                         >
                           <Edit className="w-5 h-5" />
                         </button>
                         <button
                           onClick={() => handleOpenResetPasswordModal(user)}
-                          className="text-purple-600 hover:text-purple-900"
+                          className="text-purple-600 hover:text-purple-900 p-1"
                           title="Reset Role Passwords"
                         >
                           <Key className="w-5 h-5" />
                         </button>
                         <button
                           onClick={() => handleToggleStatus(user.id, user.isActive)}
-                          className={user.isActive ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}
+                          className={user.isActive ? 'text-red-600 hover:text-red-900 p-1' : 'text-green-600 hover:text-green-900 p-1'}
                           title={user.isActive ? 'Deactivate' : 'Activate'}
                         >
                           <Power className="w-5 h-5" />
@@ -618,13 +623,12 @@ const UsersManagement = () => {
             </tbody>
           </table>
         </div>
-        
-        {/* Pagination Controls */}
+        {/* Desktop Pagination - Attached to Table */}
         {totalItems > 0 && (
-          <div className="bg-white px-4 py-3 border-t border-gray-200">
+          <div className="px-4 py-3 border-t border-gray-200">
             <div className="flex flex-col space-y-3">
               {/* Top row: Items per page and page info */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex flex-row items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-600">Show</span>
                   <select
@@ -633,7 +637,7 @@ const UsersManagement = () => {
                       setItemsPerPage(Number(e.target.value));
                       setCurrentPage(1);
                     }}
-                    className="border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                    className="border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                   >
                     <option value={5}>5</option>
                     <option value={10}>10</option>
@@ -662,7 +666,7 @@ const UsersManagement = () => {
                 <button
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage === 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
                   title="First page"
                 >
                   <ChevronsLeft className="w-4 h-4" />
@@ -671,7 +675,7 @@ const UsersManagement = () => {
                 <button
                   onClick={() => setCurrentPage(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
                   title="Previous page"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -698,7 +702,7 @@ const UsersManagement = () => {
                           <button
                             key={pageNum}
                             onClick={() => setCurrentPage(pageNum)}
-                            className={`px-3 py-1 text-xs min-w-[32px] rounded border transition-colors ${
+                            className={`px-3 py-1.5 text-xs min-w-[32px] rounded border transition-colors ${
                               currentPage === pageNum 
                                 ? 'bg-primary-600 text-white border-primary-600 font-semibold' 
                                 : 'border-gray-300 hover:bg-gray-50 text-gray-700'
@@ -740,7 +744,7 @@ const UsersManagement = () => {
                 <button
                   onClick={() => setCurrentPage(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
                   title="Next page"
                 >
                   Next
@@ -749,7 +753,7 @@ const UsersManagement = () => {
                 <button
                   onClick={() => setCurrentPage(totalPages)}
                   disabled={currentPage === totalPages}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
                   title="Last page"
                 >
                   Last
@@ -760,6 +764,250 @@ const UsersManagement = () => {
           </div>
         )}
       </div>
+
+      {/* Users Cards - Mobile/Tablet View */}
+      <div className="lg:hidden space-y-3">
+        {paginatedUsers.length === 0 ? (
+          <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-500">
+            No users found
+          </div>
+        ) : (
+          paginatedUsers.map((user) => (
+            <div key={user.id} className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {user.photoURL ? (
+                    <img 
+                      src={user.photoURL} 
+                      alt={getFullName(user)}
+                      className="flex-shrink-0 w-12 h-12 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex-shrink-0 w-12 h-12 bg-primary-600 rounded-full flex items-center justify-center text-white font-semibold">
+                      {getInitials(user)}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-base font-semibold text-gray-900 truncate">
+                      {getFullName(user)}
+                    </div>
+                    <div className="text-sm text-gray-500 truncate">{user.email}</div>
+                  </div>
+                </div>
+                <span className={`px-2.5 py-1 inline-flex text-xs font-semibold rounded-full flex-shrink-0 ${
+                  user.isActive 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-red-100 text-red-800'
+                }`}>
+                  {user.isActive ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+
+              <div className="space-y-2 mb-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-500">Role:</span>
+                  <div className="flex-1 ml-2">
+                    <RoleBadges user={user} size="sm" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-500">Branch:</span>
+                  <span className="text-sm text-gray-900 text-right">
+                    {user.branchId ? (() => {
+                      const branch = branches.find(b => b.id === user.branchId);
+                      return branch ? (branch.name || branch.branchName) : user.branchId;
+                    })() : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-500">Created:</span>
+                  <span className="text-sm text-gray-900">{formatDate(user.createdAt)}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+                <button
+                  onClick={() => handleViewUser(user)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="View Details"
+                >
+                  <Eye className="w-4 h-4" />
+                  <span className="hidden sm:inline">View</span>
+                </button>
+                <button
+                  onClick={() => handleEditUser(user)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  title="Edit User"
+                >
+                  <Edit className="w-4 h-4" />
+                  <span className="hidden sm:inline">Edit</span>
+                </button>
+                <button
+                  onClick={() => handleOpenResetPasswordModal(user)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                  title="Reset Passwords"
+                >
+                  <Key className="w-4 h-4" />
+                  <span className="hidden sm:inline">Reset</span>
+                </button>
+                <button
+                  onClick={() => handleToggleStatus(user.id, user.isActive)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg transition-colors ${
+                    user.isActive 
+                      ? 'text-red-600 hover:bg-red-50' 
+                      : 'text-green-600 hover:bg-green-50'
+                  }`}
+                  title={user.isActive ? 'Deactivate' : 'Activate'}
+                >
+                  <Power className="w-4 h-4" />
+                  <span className="hidden sm:inline">{user.isActive ? 'Deactivate' : 'Activate'}</span>
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+        
+        {/* Pagination Controls - Mobile/Tablet */}
+      {totalItems > 0 && (
+        <div className="lg:hidden bg-white rounded-lg border border-gray-200 px-3 md:px-4 py-3">
+            <div className="flex flex-col space-y-3">
+              {/* Top row: Items per page and page info */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-3">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-start">
+                  <span className="text-xs text-gray-600">Show</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                  </select>
+                  <span className="text-xs text-gray-600">per page</span>
+                </div>
+
+                <div className="text-xs text-gray-600 text-center sm:text-left">
+                  Showing <span className="font-semibold text-gray-900">{startIndex + 1}</span> to{' '}
+                  <span className="font-semibold text-gray-900">{Math.min(endIndex, totalItems)}</span> of{' '}
+                  <span className="font-semibold text-gray-900">{totalItems.toLocaleString()}</span> users
+                  {totalItems > 1000 && (
+                    <span className="hidden sm:inline-block ml-2 text-blue-600 font-medium">
+                      (Large dataset - use filters to narrow results)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Bottom row: Navigation buttons */}
+              <div className="flex items-center justify-center gap-1 flex-wrap">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-2 sm:px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[50px] sm:min-w-[60px] justify-center touch-manipulation"
+                  title="First page"
+                >
+                  <ChevronsLeft className="w-4 h-4" />
+                  <span className="hidden sm:inline">First</span>
+                </button>
+                <button
+                  onClick={() => setCurrentPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-2 sm:px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[50px] sm:min-w-[60px] justify-center touch-manipulation"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  <span className="hidden sm:inline">Prev</span>
+                </button>
+                
+                {/* Page numbers */}
+                <div className="flex items-center gap-1">
+                  {totalPages > 0 && (
+                    <>
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`px-2 sm:px-3 py-1.5 text-xs min-w-[32px] rounded border transition-colors touch-manipulation ${
+                              currentPage === pageNum 
+                                ? 'bg-primary-600 text-white border-primary-600 font-semibold' 
+                                : 'border-gray-300 hover:bg-gray-50 text-gray-700'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      
+                      {totalPages > 5 && (
+                        <span className="px-2 text-xs text-gray-500">
+                          ... of {totalPages}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+                
+                {/* Page number input for large datasets */}
+                {totalPages > 10 && (
+                  <div className="hidden md:flex items-center gap-2 ml-2 pl-2 border-l border-gray-300">
+                    <span className="text-xs text-gray-600">Go to:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max={totalPages}
+                      value={currentPage}
+                      onChange={(e) => {
+                        const page = Math.max(1, Math.min(totalPages, parseInt(e.target.value) || 1));
+                        setCurrentPage(page);
+                      }}
+                      className="w-16 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-primary-500 focus:border-primary-500 text-center"
+                    />
+                    <span className="text-xs text-gray-600">/ {totalPages}</span>
+                  </div>
+                )}
+                
+                <button
+                  onClick={() => setCurrentPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-2 sm:px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[50px] sm:min-w-[60px] justify-center touch-manipulation"
+                  title="Next page"
+                >
+                  <span className="hidden sm:inline">Next</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-2 sm:px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[50px] sm:min-w-[60px] justify-center touch-manipulation"
+                  title="Last page"
+                >
+                  <span className="hidden sm:inline">Last</span>
+                  <ChevronsRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       {/* Modals */}
       {showUserForm && (
@@ -789,54 +1037,34 @@ const UsersManagement = () => {
       )}
 
       {/* Confirmation Dialog */}
-      {showConfirmDialog && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">
-              Are You Sure?
-            </h3>
-            <p className="text-gray-600 mb-6">
-              {selectedUser.isActive 
-                ? `Are you sure you want to deactivate ${getFullName(selectedUser)}? They will no longer be able to access the system.`
-                : `Are you sure you want to activate ${getFullName(selectedUser)}? They will be able to access the system.`
-              }
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => {
-                  setShowConfirmDialog(false);
-                  setConfirmAction(null);
-                  setSelectedUser(null);
-                }}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (confirmAction) {
-                    confirmAction();
-                  }
-                }}
-                className={`px-4 py-2 rounded-lg text-white ${
-                  selectedUser.isActive 
-                    ? 'bg-red-600 hover:bg-red-700' 
-                    : 'bg-green-600 hover:bg-green-700'
-                }`}
-              >
-                {selectedUser.isActive ? 'Deactivate' : 'Activate'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmModal
+        isOpen={showConfirmDialog}
+        onClose={() => {
+          if (!toggling) {
+            setShowConfirmDialog(false);
+            setConfirmAction(null);
+            setSelectedUser(null);
+          }
+        }}
+        onConfirm={() => {
+          if (confirmAction) {
+            confirmAction();
+          }
+        }}
+        title={selectedUser?.isActive ? 'Deactivate User' : 'Activate User'}
+        message={selectedUser ? `Are you sure you want to ${selectedUser.isActive ? 'deactivate' : 'activate'} ${getFullName(selectedUser)}? ${selectedUser.isActive ? 'They will no longer be able to access the system.' : 'They will be able to access the system.'}` : ''}
+        confirmText={selectedUser?.isActive ? 'Deactivate' : 'Activate'}
+        cancelText="Cancel"
+        type={selectedUser?.isActive ? 'danger' : 'default'}
+        loading={toggling}
+      />
 
       {/* Reset Password Modal */}
       {showResetPasswordModal && passwordResetData.user && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-900">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-4 sm:mb-6 gap-3">
+              <h3 className="text-lg sm:text-xl font-bold text-gray-900 flex-1">
                 Reset Passwords for {getFullName(passwordResetData.user)}
               </h3>
               <button
@@ -844,7 +1072,7 @@ const UsersManagement = () => {
                   setShowResetPasswordModal(false);
                   setPasswordResetData({ user: null, rolePasswords: {}, manualPasswords: {} });
                 }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0 touch-manipulation"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -885,7 +1113,7 @@ const UsersManagement = () => {
                         type="text"
                         value={displayPassword}
                         onChange={(e) => handleUpdateManualPassword(role, e.target.value)}
-                        className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm"
+                        className="flex-1 px-3 sm:px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-xs sm:text-sm"
                         placeholder={`Auto-generated: ${role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, '')}123!`}
                       />
                       <button
@@ -894,7 +1122,7 @@ const UsersManagement = () => {
                           navigator.clipboard.writeText(displayPassword);
                           toast.success(`${ROLE_LABELS[role]} password copied!`);
                         }}
-                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700 transition-colors"
+                        className="px-3 sm:px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700 transition-colors touch-manipulation flex-shrink-0"
                         title="Copy password"
                       >
                         📋
@@ -927,13 +1155,13 @@ const UsersManagement = () => {
               </ul>
             </div>
 
-            <div className="flex gap-2 justify-end flex-wrap">
+            <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
               <button
                 onClick={() => {
                   setShowResetPasswordModal(false);
                   setPasswordResetData({ user: null, rolePasswords: {}, manualPasswords: {} });
                 }}
-                className="px-4 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors whitespace-nowrap"
+                className="px-4 py-2.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors touch-manipulation"
               >
                 Cancel
               </button>
@@ -942,7 +1170,7 @@ const UsersManagement = () => {
                   setPendingResetAction(() => () => handleResetRolePasswords(true));
                   setShowResetConfirmModal(true);
                 }}
-                className="px-4 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium transition-colors whitespace-nowrap"
+                className="px-4 py-2.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium transition-colors touch-manipulation"
               >
                 Reset All Auto-Generate
               </button>
@@ -951,7 +1179,7 @@ const UsersManagement = () => {
                   setPendingResetAction(() => () => handleResetRolePasswords(false));
                   setShowResetConfirmModal(true);
                 }}
-                className="px-4 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors whitespace-nowrap"
+                className="px-4 py-2.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors touch-manipulation"
               >
                 Reset with Current Passwords
               </button>
@@ -962,31 +1190,31 @@ const UsersManagement = () => {
 
       {/* Reset Password Confirmation Modal */}
       {showResetConfirmModal && passwordResetData.user && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full mx-4">
+            <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-3 sm:mb-4">
               Confirm Password Reset
             </h3>
-            <p className="text-gray-600 mb-6">
+            <p className="text-sm sm:text-base text-gray-600 mb-4 sm:mb-6">
               Are you sure you want to reset passwords for <strong>{getFullName(passwordResetData.user)}</strong>?
             </p>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-              <p className="text-sm font-semibold text-yellow-900 mb-2">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6">
+              <p className="text-xs sm:text-sm font-semibold text-yellow-900 mb-2">
                 ⚠️ This action will:
               </p>
-              <ul className="text-sm text-yellow-800 space-y-1 list-disc list-inside">
+              <ul className="text-xs sm:text-sm text-yellow-800 space-y-1 list-disc list-inside">
                 <li>Update all role passwords in the system</li>
                 <li>Send the new passwords to {passwordResetData.user.email}</li>
                 <li>Require the user to change password on first login</li>
               </ul>
             </div>
-            <div className="flex gap-3 justify-end">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:justify-end">
               <button
                 onClick={() => {
                   setShowResetConfirmModal(false);
                   setPendingResetAction(null);
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-semibold transition-colors"
+                className="px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-semibold transition-colors touch-manipulation"
               >
                 Cancel
               </button>
@@ -999,7 +1227,7 @@ const UsersManagement = () => {
                   setShowResetPasswordModal(false);
                   setPendingResetAction(null);
                 }}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-semibold transition-colors"
+                className="px-4 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-semibold transition-colors touch-manipulation"
               >
                 Yes, Reset Passwords
               </button>
@@ -1010,30 +1238,30 @@ const UsersManagement = () => {
 
       {/* Password Display Modal - Big Display */}
       {showPasswordModal && resetUserInfo && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 md:p-8 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="text-center">
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">
+              <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
                 Password Reset Successful!
               </h3>
-              <p className="text-gray-600 mb-6">
+              <p className="text-sm sm:text-base text-gray-600 mb-4 sm:mb-6">
                 Password has been reset for <strong>{resetUserInfo.name}</strong>
               </p>
               
               {/* Role Passwords Display */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 text-left">
-                <p className="text-sm font-semibold text-blue-900 mb-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 text-left">
+                <p className="text-xs sm:text-sm font-semibold text-blue-900 mb-2 sm:mb-3">
                   Passwords for each role:
                 </p>
-                <div className="space-y-3">
+                <div className="space-y-2 sm:space-y-3">
                   {Object.entries(resetUserInfo.passwords).map(([role, password]) => (
-                    <div key={role} className="bg-white border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-gray-700 capitalize">
+                    <div key={role} className="bg-white border border-blue-200 rounded-lg p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <span className="text-xs sm:text-sm font-semibold text-gray-700 capitalize">
                           {ROLE_LABELS[role] || role.replace(/_/g, ' ')}:
                         </span>
                         <div className="flex items-center gap-2">
-                          <span className="text-lg font-mono font-bold text-blue-600 select-all">
+                          <span className="text-base sm:text-lg font-mono font-bold text-blue-600 select-all break-all">
                             {password}
                           </span>
                           <button
@@ -1041,7 +1269,7 @@ const UsersManagement = () => {
                               navigator.clipboard.writeText(password);
                               toast.success(`${ROLE_LABELS[role] || role} password copied!`);
                             }}
-                            className="px-3 py-1 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm font-medium text-blue-700 transition-colors"
+                            className="px-2 sm:px-3 py-1 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm font-medium text-blue-700 transition-colors touch-manipulation flex-shrink-0"
                             title="Copy password"
                           >
                             📋
@@ -1053,11 +1281,11 @@ const UsersManagement = () => {
                 </div>
               </div>
 
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 text-left">
-                <p className="text-sm font-semibold text-yellow-900 mb-2">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 text-left">
+                <p className="text-xs sm:text-sm font-semibold text-yellow-900 mb-2">
                   ⚠️ Important:
                 </p>
-                <ul className="text-sm text-yellow-800 space-y-1 list-disc list-inside">
+                <ul className="text-xs sm:text-sm text-yellow-800 space-y-1 list-disc list-inside">
                   <li>This password has been sent to {resetUserInfo.email}</li>
                   <li>User should change this password after first login</li>
                   <li>Do not share this password with anyone</li>
@@ -1071,7 +1299,7 @@ const UsersManagement = () => {
                     setResetPassword('');
                     setResetUserInfo(null);
                   }}
-                  className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-semibold"
+                  className="px-6 py-2.5 sm:py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-semibold transition-colors touch-manipulation"
                 >
                   Close
                 </button>

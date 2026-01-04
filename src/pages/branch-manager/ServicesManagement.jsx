@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Edit, Trash2, Package, ArrowLeft, Printer, Download, FileText, Palette, Sparkles, X, GripVertical, Image as ImageIcon, Eye, Save, Edit2, Upload, Grid3x3, Columns, Rows, Minus } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Package, ArrowLeft, Printer, Download, FileText, Sparkles, X, GripVertical, Image as ImageIcon, Save, Edit2, Upload, Grid3x3, Minus, ChevronDown, ChevronUp, EyeIcon } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getBranchServices, 
@@ -255,7 +255,6 @@ const ServicesManagement = () => {
   const [showCatalogModal, setShowCatalogModal] = useState(false);
   const [branch, setBranch] = useState(null);
   const printRef = useRef();
-  const mockupPrintRef = useRef();
   const [catalogStyle, setCatalogStyle] = useState({
     theme: 'elegant', // 'elegant', 'modern', 'classic'
     showDescriptions: true,
@@ -265,7 +264,7 @@ const ServicesManagement = () => {
     gridRows: null // Auto-calculated based on categories
   });
   const [isEditMode, setIsEditMode] = useState(false);
-  const [showMockup, setShowMockup] = useState(false);
+  const [showAdvancedLayout, setShowAdvancedLayout] = useState(false); // Collapsible advanced layout section
   const [catalogData, setCatalogData] = useState(null); // Stores ordered categories and services with icons
   const [savingCatalog, setSavingCatalog] = useState(false);
   const [gridLayout, setGridLayout] = useState(null); // Stores grid positions: { categoryId: { row, col } }
@@ -287,6 +286,13 @@ const ServicesManagement = () => {
   useEffect(() => {
     applyFilters();
   }, [allServices, offeredServices, searchTerm, categoryFilter, filterMode]);
+
+  // Ensure grid layout matches current column count whenever data or columns change
+  useEffect(() => {
+    if (catalogData && catalogStyle.gridColumns) {
+      recalcGridLayout(catalogStyle.gridColumns);
+    }
+  }, [catalogData, catalogStyle.gridColumns]);
 
   const fetchServices = async () => {
     try {
@@ -1070,70 +1076,37 @@ const ServicesManagement = () => {
     }
   };
 
-  const handleAddRow = () => {
-    if (!gridLayout || !catalogData) return;
-    
-    const maxRow = Math.max(...Object.values(gridLayout).map(pos => pos.row), -1);
-    const newRow = maxRow + 1;
-    
-    // Add empty cells for the new row
-    const updatedLayout = { ...gridLayout };
-    for (let col = 0; col < catalogStyle.gridColumns; col++) {
-      // Create a placeholder ID for empty cells
-      const placeholderId = `empty-${newRow}-${col}`;
-      updatedLayout[placeholderId] = { row: newRow, col };
-    }
-    
-    setGridLayout(updatedLayout);
+  const recalcGridLayout = (columns) => {
+    if (!catalogData) return;
+    const layout = {};
+    catalogData.forEach((cat, index) => {
+      layout[cat.id] = {
+        row: Math.floor(index / columns),
+        col: index % columns
+      };
+    });
+    setGridLayout(layout);
   };
 
   const handleAddColumn = () => {
+    const nextColumns = (catalogStyle.gridColumns || 2) + 1;
     setCatalogStyle(prev => ({
       ...prev,
-      gridColumns: (prev.gridColumns || 2) + 1
+      gridColumns: nextColumns
     }));
-    
-    // Recalculate grid positions for all categories
-    if (catalogData && gridLayout) {
-      const updatedLayout = {};
-      catalogData.forEach((cat, index) => {
-        const currentPos = gridLayout[cat.id] || { row: 0, col: 0 };
-        updatedLayout[cat.id] = {
-          row: currentPos.row,
-          col: currentPos.col
-        };
-      });
-      setGridLayout(updatedLayout);
-    }
+    recalcGridLayout(nextColumns);
   };
 
   const handleRemoveColumn = () => {
     const currentColumns = catalogStyle.gridColumns || 2;
     if (currentColumns <= 1) return;
-    
+
+    const nextColumns = currentColumns - 1;
     setCatalogStyle(prev => ({
       ...prev,
-      gridColumns: (prev.gridColumns || 2) - 1
+      gridColumns: nextColumns
     }));
-    
-    // Move categories that are in the removed column
-    if (catalogData && gridLayout) {
-      const updatedLayout = { ...gridLayout };
-      const maxCol = currentColumns - 1;
-      
-      catalogData.forEach(cat => {
-        const pos = updatedLayout[cat.id];
-        if (pos && pos.col >= maxCol) {
-          // Move to previous column or wrap to next row
-          updatedLayout[cat.id] = {
-            row: pos.row + 1,
-            col: 0
-          };
-        }
-      });
-      
-      setGridLayout(updatedLayout);
-    }
+    recalcGridLayout(nextColumns);
   };
 
   const handleCategoryPositionChange = (categoryId, newRow, newCol) => {
@@ -1533,106 +1506,18 @@ const ServicesManagement = () => {
                 <h2 className="text-2xl font-bold">Service Catalog Generator</h2>
                 <p className="text-white/80 text-sm mt-1">Create a printable menu/poster for your branch</p>
               </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setIsEditMode(!isEditMode)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                    isEditMode 
-                      ? 'bg-white text-[#160B53]' 
-                      : 'bg-white/20 text-white hover:bg-white/30'
-                  }`}
-                >
-                  {isEditMode ? <Save className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
-                  {isEditMode ? 'Save Changes' : 'Edit Mode'}
-                </button>
-                <button
-                  onClick={() => setShowMockup(!showMockup)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                    showMockup 
-                      ? 'bg-white text-[#160B53]' 
-                      : 'bg-white/20 text-white hover:bg-white/30'
-                  }`}
-                >
-                  <Eye className="h-4 w-4" />
-                  {showMockup ? 'Hide Mockup' : 'Show Mockup'}
-                </button>
-                <button
-                  onClick={() => setShowCatalogModal(false)}
-                  className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
+              <button
+                onClick={() => setShowCatalogModal(false)}
+                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
             {/* Catalog Controls */}
-            <div className="p-6 border-b border-gray-200">
-              {/* Grid Layout Controls (Edit Mode Only) */}
-              {isEditMode && (
-                <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Grid3x3 className="w-5 h-5 text-gray-600" />
-                      <h3 className="font-semibold text-gray-900">Grid Layout</h3>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-gray-600">
-                      <span>Columns: {catalogStyle.gridColumns || 2}</span>
-                      {gridLayout && catalogData && (
-                        <span>Rows: {Math.max(...Object.values(gridLayout).map(pos => pos.row), -1) + 1 || 1}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleAddColumn}
-                      className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                      title="Add Column"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <Columns className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={handleRemoveColumn}
-                      disabled={(catalogStyle.gridColumns || 2) <= 1}
-                      className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                      title="Remove Column"
-                    >
-                      <Minus className="w-4 h-4" />
-                      <Columns className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={handleAddRow}
-                      className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                      title="Add Row"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <Rows className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Drag categories to reposition them in the grid. Use buttons above to adjust grid size.
-                  </p>
-                </div>
-              )}
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Theme */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <Palette className="inline h-4 w-4 mr-1" />
-                    Color Theme
-                  </label>
-                  <select
-                    value={catalogStyle.theme}
-                    onChange={(e) => setCatalogStyle({ ...catalogStyle, theme: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                  >
-                    <option value="elegant">Elegant (Purple)</option>
-                    <option value="modern">Modern (Blue)</option>
-                    <option value="classic">Classic (Amber)</option>
-                  </select>
-                </div>
-
+            <div className="p-6 border-b border-gray-200 space-y-6">
+              {/* Main Quick Settings */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Font Size */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1679,40 +1564,106 @@ const ServicesManagement = () => {
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex gap-3 mt-6">
-                {isEditMode && (
-                  <Button
-                    onClick={handleSaveCatalog}
-                    disabled={savingCatalog}
-                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+              {/* Advanced Layout Controls - Collapsible */}
+              {isEditMode && (
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setShowAdvancedLayout(!showAdvancedLayout)}
+                    className="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between text-left"
                   >
-                    <Save className="h-4 w-4" />
-                    {savingCatalog ? 'Saving...' : 'Save Configuration'}
+                    <div className="flex items-center gap-2">
+                      <Grid3x3 className="w-4 h-4 text-gray-600" />
+                      <span className="font-medium text-gray-900">Advanced Layout Options</span>
+                      <span className="text-xs text-gray-500 ml-2">
+                        ({catalogStyle.gridColumns || 2} columns
+                        {gridLayout && catalogData && `, ${Math.max(...Object.values(gridLayout).map(pos => pos.row), -1) + 1 || 1} rows`})
+                      </span>
+                    </div>
+                    {showAdvancedLayout ? (
+                      <ChevronUp className="w-4 h-4 text-gray-500" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-gray-500" />
+                    )}
+                  </button>
+                  {showAdvancedLayout && (
+                    <div className="p-4 bg-white border-t border-gray-200">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm text-gray-600 font-medium">Grid Columns:</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleRemoveColumn}
+                            disabled={(catalogStyle.gridColumns || 2) <= 1}
+                            className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Remove Column"
+                          >
+                            <Minus className="w-4 h-4 text-gray-700" />
+                          </button>
+                          <span className="text-sm font-semibold text-gray-900 w-8 text-center">
+                            {catalogStyle.gridColumns || 2}
+                          </span>
+                          <button
+                            onClick={handleAddColumn}
+                            className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                            title="Add Column"
+                          >
+                            <Plus className="w-4 h-4 text-gray-700" />
+                          </button>
+                        </div>
+                        <span className="text-xs text-gray-500 ml-auto">
+                          Tip: Drag and drop categories to reorder them
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => setIsEditMode(!isEditMode)}
+                    className="flex items-center gap-2"
+                    variant={isEditMode ? "default" : "outline"}
+                  >
+                    {isEditMode ? <EyeIcon className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
+                    {isEditMode ? 'View Mode' : 'Edit Mode'}
                   </Button>
-                )}
-                <Button
-                  onClick={handlePrint}
-                  className="flex items-center gap-2 bg-[#160B53] hover:bg-[#1a0f6b]"
-                >
-                  <Printer className="h-4 w-4" />
-                  Print Catalog
-                </Button>
-                <Button
-                  onClick={handleDownloadPDF}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <Download className="h-4 w-4" />
-                  Download PDF
-                </Button>
+                  {isEditMode && (
+                    <Button
+                      onClick={handleSaveCatalog}
+                      disabled={savingCatalog}
+                      className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+                    >
+                      <Save className="h-4 w-4" />
+                      {savingCatalog ? 'Saving...' : 'Save'}
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <Button
+                    onClick={handlePrint}
+                    className="flex items-center gap-2 bg-[#160B53] hover:bg-[#1a0f6b] text-sm"
+                  >
+                    <Printer className="h-4 w-4" />
+                    Print
+                  </Button>
+                  <Button
+                    onClick={handleDownloadPDF}
+                    variant="outline"
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download PDF
+                  </Button>
+                </div>
               </div>
             </div>
 
             {/* Catalog Preview */}
             <div className="p-6 overflow-y-auto flex-1 min-h-0">
-              {/* Always render regular preview for printing (hidden when mockup is shown) */}
-              <div className={showMockup ? 'hidden' : ''}>
+              {/* Preview for printing and download */}
+              <div>
                 <div className="bg-white rounded-lg shadow-lg p-12 print-content" ref={printRef} key="regular-preview">
                   {/* Header - Salon Name and Branch */}
                   <div className="text-center mb-12 border-b-2 border-gray-300 pb-8">
@@ -1751,7 +1702,7 @@ const ServicesManagement = () => {
                           <div 
                             className="grid gap-6"
                             style={{ 
-                              gridTemplateColumns: `repeat(${catalogStyle.gridColumns || 2}, 1fr)`,
+                              gridTemplateColumns: `repeat(${catalogStyle.gridColumns || 2}, minmax(0, 1fr))`,
                               gridAutoRows: 'min-content'
                             }}
                           >
@@ -1786,7 +1737,7 @@ const ServicesManagement = () => {
                       <div 
                         className="grid gap-6"
                         style={{ 
-                          gridTemplateColumns: `repeat(${catalogStyle.gridColumns || 2}, 1fr)`,
+                          gridTemplateColumns: `repeat(${catalogStyle.gridColumns || 2}, minmax(0, 1fr))`,
                           gridAutoRows: 'min-content'
                         }}
                       >
@@ -1871,174 +1822,6 @@ const ServicesManagement = () => {
                 </div>
               </div>
 
-              {showMockup ? (
-                /* Mockup Frame Preview */
-                <div className="flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 p-12 rounded-lg">
-                  <div className="relative">
-                    {/* Frame */}
-                    <div className="bg-amber-900 rounded-lg p-4 shadow-2xl">
-                      <div className="bg-amber-800 rounded p-2">
-                        <div className="bg-white rounded-lg shadow-inner p-8" style={{ width: '21cm', minHeight: '29.7cm' }}>
-                          {/* Header - Salon Name and Branch */}
-                          <div className="text-center mb-12 border-b-2 border-gray-300 pb-8">
-                            <h1 className={`${fontSizes.header} font-bold text-gray-900 mb-3`}>
-                              David Salon
-                            </h1>
-                            <h2 className={`${fontSizes.category} font-semibold ${currentTheme.accent} mb-4`}>
-                              {branch?.name || branch?.branchName || 'Branch'}
-                            </h2>
-                            {(branch?.address || branch?.contact) && (
-                              <div className="flex flex-wrap justify-center gap-4 text-sm text-gray-600 mt-4">
-                                {branch?.address && (
-                                  <span>{branch.address}</span>
-                                )}
-                                {branch?.contact && (
-                                  <span>{branch.contact}</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Services by Category */}
-                          {!catalogData || catalogData.length === 0 ? (
-                            <div className="text-center py-12">
-                              <p className="text-gray-500 text-lg">No services available. Please add services first.</p>
-                            </div>
-                          ) : (isEditMode && gridLayout) || (gridLayout && (catalogStyle.gridColumns || 2) > 1) ? (
-                            /* Grid Layout (Edit Mode or if grid is configured) */
-                            isEditMode ? (
-                              <DndContext
-                                sensors={sensors}
-                                collisionDetection={closestCenter}
-                                onDragEnd={handleCategoryDragEnd}
-                              >
-                                <SortableContext items={categoryIds} strategy={verticalListSortingStrategy}>
-                                  <div 
-                                  className="grid gap-6"
-                                  style={{ 
-                                    gridTemplateColumns: `repeat(${catalogStyle.gridColumns || 2}, 1fr)`,
-                                    gridAutoRows: 'min-content'
-                                  }}
-                                  >
-                                    {catalogData.map((category) => {
-                                      const pos = gridLayout[category.id] || { row: 0, col: 0 };
-                                      return (
-                                        <div
-                                          key={category.id}
-                                          style={{
-                                            gridRow: pos.row + 1,
-                                            gridColumn: pos.col + 1
-                                          }}
-                                        >
-                                          <SortableCategory
-                                            category={category}
-                                            isEditMode={isEditMode}
-                                            onServiceDragEnd={handleServiceDragEnd}
-                                            onIconUpload={handleIconUpload}
-                                            catalogStyle={catalogStyle}
-                                            fontSizes={fontSizes}
-                                            currentTheme={currentTheme}
-                                            serviceSensors={sensors}
-                                          />
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </SortableContext>
-                              </DndContext>
-                            ) : (
-                              /* Grid Layout (View Mode - for mockup) */
-                              <div 
-                                  className="grid gap-6"
-                                  style={{ 
-                                    gridTemplateColumns: `repeat(${catalogStyle.gridColumns || 2}, 1fr)`,
-                                    gridAutoRows: 'min-content'
-                                  }}
-                              >
-                                {catalogData.map((category) => {
-                                  const pos = gridLayout[category.id] || { row: 0, col: 0 };
-                                  return (
-                                    <div
-                                      key={category.id}
-                                      style={{
-                                        gridRow: pos.row + 1,
-                                        gridColumn: pos.col + 1
-                                      }}
-                                    >
-                                      <SortableCategory
-                                        category={category}
-                                        isEditMode={false}
-                                        onServiceDragEnd={handleServiceDragEnd}
-                                        onIconUpload={handleIconUpload}
-                                        catalogStyle={catalogStyle}
-                                        fontSizes={fontSizes}
-                                        currentTheme={currentTheme}
-                                        serviceSensors={sensors}
-                                      />
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )
-                          ) : (
-                            /* Regular List Layout */
-                            isEditMode ? (
-                              <DndContext
-                                sensors={sensors}
-                                collisionDetection={closestCenter}
-                                onDragEnd={handleCategoryDragEnd}
-                              >
-                                <SortableContext items={categoryIds} strategy={verticalListSortingStrategy}>
-                                  <div className="space-y-10">
-                                    {catalogData.map((category) => (
-                                      <SortableCategory
-                                        key={category.id}
-                                        category={category}
-                                        isEditMode={isEditMode}
-                                        onServiceDragEnd={handleServiceDragEnd}
-                                        onIconUpload={handleIconUpload}
-                                        catalogStyle={catalogStyle}
-                                        fontSizes={fontSizes}
-                                        currentTheme={currentTheme}
-                                        serviceSensors={sensors}
-                                      />
-                                    ))}
-                                  </div>
-                                </SortableContext>
-                              </DndContext>
-                            ) : (
-                              <div className="space-y-10">
-                                {catalogData.map((category) => (
-                                  <SortableCategory
-                                    key={category.id}
-                                    category={category}
-                                    isEditMode={false}
-                                    onServiceDragEnd={handleServiceDragEnd}
-                                    onIconUpload={handleIconUpload}
-                                    catalogStyle={catalogStyle}
-                                    fontSizes={fontSizes}
-                                    currentTheme={currentTheme}
-                                    serviceSensors={sensors}
-                                  />
-                                ))}
-                              </div>
-                            )
-                          )}
-
-                          {/* Footer - Optional */}
-                          {catalogStyle.showDescriptions && (
-                            <div className="mt-12 pt-8 border-t-2 border-gray-300 text-center">
-                              <p className="text-sm text-gray-600 italic">
-                                For inquiries, please contact us at {branch?.contact || 'our branch'}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
             </div>
           </div>
         </div>

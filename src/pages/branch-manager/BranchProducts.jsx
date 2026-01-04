@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, ArrowLeft, Package, Filter, Eye, Image as ImageIcon, Plus, Trash2, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Download, FileText, Palette, Sparkles, Grid3x3, Columns, Rows, Minus, Save, Edit2, Upload, Eye as EyeIcon } from 'lucide-react';
+import { Search, ArrowLeft, Package, Filter, Eye, Image as ImageIcon, Plus, Trash2, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Download, FileText, Sparkles, Grid3x3, Columns, Rows, Minus, Save, Edit2, Upload, Eye as EyeIcon } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -121,7 +121,6 @@ const BranchProducts = () => {
   const printRef = useRef();
   const mockupPrintRef = useRef();
   const [catalogStyle, setCatalogStyle] = useState({
-    theme: 'elegant', // 'elegant', 'modern', 'classic'
     showDescriptions: true,
     showPrice: true,
     fontSize: 'medium', // 'small', 'medium', 'large'
@@ -964,94 +963,6 @@ const BranchProducts = () => {
     }
   });
 
-  const handlePrintPreview = () => {
-    if (!printRef.current) {
-      toast.error('No catalog content to preview');
-      return;
-    }
-
-    // Create a new window for print preview
-    const printWindow = window.open('', '_blank', 'width=900,height=700');
-    if (!printWindow) {
-      toast.error('Please allow pop-ups to view print preview');
-      return;
-    }
-
-    const printContent = printRef.current.cloneNode(true);
-    
-    // Get all style sheets from the main document
-    const styles = Array.from(document.styleSheets)
-      .map((sheet) => {
-        try {
-          return Array.from(sheet.cssRules || [])
-            .map((rule) => rule.cssText)
-            .join('\n');
-        } catch (e) {
-          return '';
-        }
-      })
-      .join('\n');
-    
-    // Add print styles to the preview window
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Print Preview - ${branch?.name || branch?.branchName || 'David Salon'} - Product Catalog</title>
-          <style>
-            ${styles}
-            * {
-              box-sizing: border-box;
-            }
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-              background: #f5f5f5;
-              padding: 20px;
-              margin: 0;
-            }
-            .preview-container {
-              background: white;
-              max-width: 800px;
-              margin: 0 auto;
-              padding: 40px;
-              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            }
-            @media print {
-              body {
-                background: white;
-                padding: 0;
-              }
-              .preview-container {
-                box-shadow: none;
-                padding: 0;
-                max-width: 100%;
-              }
-              .print-preview-actions {
-                display: none !important;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="print-preview-actions" style="position: fixed; top: 10px; right: 10px; z-index: 9999; display: flex; gap: 10px;">
-            <button onclick="window.print()" style="padding: 10px 20px; background: #160B53; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">
-              Print
-            </button>
-            <button onclick="window.close()" style="padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">
-              Close
-            </button>
-          </div>
-          <div class="preview-container">
-            ${printContent.innerHTML}
-          </div>
-        </body>
-      </html>
-    `);
-    
-    printWindow.document.close();
-    toast.success('Print preview opened in new window');
-  };
-
   const handleDownloadPDF = () => {
     handlePrint();
   };
@@ -1691,22 +1602,7 @@ const BranchProducts = () => {
             {/* Catalog Controls */}
             <div className="p-6 border-b border-gray-200 space-y-6">
               {/* Main Quick Settings */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <Palette className="inline h-4 w-4 mr-1.5 text-gray-500" />
-                    Color Theme
-                  </label>
-                  <select
-                    value={catalogStyle.theme}
-                    onChange={(e) => setCatalogStyle({ ...catalogStyle, theme: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] text-sm"
-                  >
-                    <option value="elegant">Elegant (Purple)</option>
-                    <option value="modern">Modern (Blue)</option>
-                    <option value="classic">Classic (Amber)</option>
-                  </select>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     <FileText className="inline h-4 w-4 mr-1.5 text-gray-500" />
@@ -1827,14 +1723,6 @@ const BranchProducts = () => {
                   )}
                 </div>
                 <div className="flex items-center gap-2 ml-auto">
-                  <Button
-                    onClick={handlePrintPreview}
-                    variant="outline"
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <EyeIcon className="h-4 w-4" />
-                    Preview
-                  </Button>
                   <Button
                     onClick={handleDownloadPDF}
                     variant="outline"

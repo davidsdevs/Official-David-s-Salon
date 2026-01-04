@@ -493,14 +493,14 @@ const StaffLending = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
           >
             <Printer className="w-4 h-4" />
             Print Lending Report
           </button>
           <button
             onClick={() => setShowRequestModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
             Request Help From Another Branch
@@ -608,6 +608,110 @@ const StaffLending = () => {
         </div>
       </div>
 
+      {/* Table view (big-data friendly) */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stylist</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">From</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">To</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Start</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">End</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {paginatedRequests.length === 0 ? (
+                <tr>
+                  <td colSpan="8" className="px-6 py-10 text-center text-gray-500">
+                    No requests found. Try adjusting search or filters.
+                  </td>
+                </tr>
+              ) : (
+                paginatedRequests.map((request) => {
+                  const stylist = stylistCache[request.stylistId];
+                  const fromBranch = branchCache[request.fromBranchId];
+                  const toBranch = branchCache[request.toBranchId];
+                  const isIncoming = request.type === 'incoming';
+                  const canApprove = isIncoming && request.status === 'pending';
+                  const canReject = isIncoming && request.status === 'pending';
+                  const canCancel = !isIncoming && (request.status === 'pending' || request.status === 'approved');
+
+                  return (
+                    <tr key={request.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-semibold text-gray-900">
+                        {isIncoming ? 'Incoming' : 'Outgoing'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div className="flex flex-col">
+                          <span className="font-medium">{stylist ? getFullName(stylist) : 'Unknown Stylist'}</span>
+                          <span className="text-xs text-gray-500">{stylist?.email || 'N/A'}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {fromBranch?.branchName || fromBranch?.name || 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {toBranch?.branchName || toBranch?.name || 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                        {request.startDate ? formatDate(request.startDate, 'MMM dd, yyyy') : 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                        {request.endDate ? formatDate(request.endDate, 'MMM dd, yyyy') : 'N/A'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 inline-flex items-center gap-1 rounded-full text-xs font-medium ${getStatusBadge(request.status)}`}>
+                          {getStatusIcon(request.status)}
+                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {canApprove && (
+                            <button
+                              onClick={() => handleApprove(request)}
+                              disabled={processing === request.id}
+                              className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                            >
+                              Approve
+                            </button>
+                          )}
+                          {canReject && (
+                            <button
+                              onClick={() => handleReject(request)}
+                              disabled={processing === request.id}
+                              className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          )}
+                          {canCancel && (
+                            <button
+                              onClick={() => handleCancel(request)}
+                              disabled={processing === request.id}
+                              className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                          {!canApprove && !canReject && !canCancel && (
+                            <span className="text-xs text-gray-400">No actions</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg p-4 border border-gray-200">
@@ -1276,6 +1380,8 @@ const StaffLending = () => {
           </div>
         );
       })()}
+
+      )}
 
       {/* Pagination Controls */}
       {totalPages > 1 && (

@@ -4,6 +4,8 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import { 
   Search, 
   Clock, 
@@ -25,14 +27,15 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../../utils/constants';
-import { 
+import {
   getAppointmentsByDateRange,
   checkInAppointment,
   getAppointmentById,
-  APPOINTMENT_STATUS 
+  APPOINTMENT_STATUS
 } from '../../services/appointmentService';
-import { 
+import {
   getArrivalsByBranch,
+  getArrivalsByAppointmentIds,
   getArrivalById,
   createWalkInArrival,
   createArrivalFromAppointment,
@@ -63,6 +66,48 @@ const ReceptionistArrivals = () => {
   const [processing, setProcessing] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('upcoming'); // upcoming, arrived, in-service
+  const [dateFilter, setDateFilter] = useState('today'); // 'today', 'tomorrow', 'week', 'custom'
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+
+  // Helper function to get date range based on filter
+  const getDateRange = (filterType) => {
+    const now = new Date();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    switch (filterType) {
+      case 'today':
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return { startDate: today, endDate: tomorrow };
+
+      case 'tomorrow':
+        const tomorrowStart = new Date(today);
+        tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+        const tomorrowEnd = new Date(tomorrowStart);
+        tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+        return { startDate: tomorrowStart, endDate: tomorrowEnd };
+
+      case 'week':
+        const weekEnd = new Date(today);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+        return { startDate: today, endDate: weekEnd };
+
+      case 'custom':
+        if (customStartDate && customEndDate) {
+          const start = new Date(customStartDate);
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(customEndDate);
+          end.setHours(23, 59, 59, 999);
+          return { startDate: start, endDate: end };
+        }
+        return { startDate: today, endDate: new Date(today.getTime() + 24 * 60 * 60 * 1000) };
+
+      default:
+        return { startDate: today, endDate: new Date(today.getTime() + 24 * 60 * 60 * 1000) };
+    }
+  };
   const [services, setServices] = useState([]);
   const [stylists, setStylists] = useState([]);
   const [clients, setClients] = useState([]);
@@ -96,6 +141,13 @@ const ReceptionistArrivals = () => {
     }
   }, [userBranch]);
 
+  // Refetch when date filter changes
+  useEffect(() => {
+    if (userBranch && activeTab === 'upcoming') {
+      fetchArrivals();
+    }
+  }, [dateFilter, customStartDate, customEndDate]);
+
   const fetchServicesAndStylists = async () => {
     try {
       console.log('🔍 fetchServicesAndStylists called, userBranch:', userBranch);
@@ -126,36 +178,33 @@ const ReceptionistArrivals = () => {
   const fetchArrivals = async () => {
     try {
       setLoading(true);
-      
+
       console.log('🔍 fetchArrivals called, userBranch value:', userBranch, 'type:', typeof userBranch);
-      
+
       // Guard: Don't fetch if branch is not loaded yet
       if (!userBranch || typeof userBranch !== 'string' || userBranch.trim() === '') {
         console.log('⚠️ Branch not loaded yet or invalid, skipping fetch. userBranch:', userBranch);
         setLoading(false);
         return;
       }
-      
+
       const now = new Date();
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      console.log('📅 Fetching data for:', { now, today, tomorrow, branchId: userBranch });
-      
-      // Fetch all upcoming appointments starting from now (not from today 00:00:00)
-      // This ensures we get appointments scheduled for later today and future dates
-      const appointmentsData = await getAppointmentsByDateRange(userBranch, now, null);
+      const dateRange = getDateRange(dateFilter);
+
+      console.log('📅 Fetching data for:', { now, dateRange, branchId: userBranch, filter: dateFilter });
+
+      // Fetch appointments based on date filter
+      const appointmentsData = await getAppointmentsByDateRange(userBranch, dateRange.startDate, dateRange.endDate);
       console.log('📋 Appointments fetched:', appointmentsData.length);
-      
-      // Fetch arrivals from check-in collection (both checked-in appointments and walk-ins) - today only
-      const arrivalsData = await getArrivalsByBranch(userBranch, today, tomorrow);
-      console.log('✅ Arrivals fetched:', arrivalsData.length, arrivalsData);
-      
-      // Filter out completed and cancelled arrivals (only show active ones for today)
-      const activeArrivals = arrivalsData.filter(arr => 
-        arr.status !== ARRIVAL_STATUS.COMPLETED && 
+
+      // Fetch ALL active arrivals regardless of date (for Arrived and In-service tabs)
+      // The Arrived tab should show everyone who's checked in and waiting, like a hotel
+      const allArrivalsData = await getArrivalsByBranch(userBranch); // No date filter = get all
+      console.log('✅ All arrivals fetched (no date filter):', allArrivalsData.length, allArrivalsData);
+
+      // Filter out completed and cancelled arrivals (only show active ones)
+      const activeArrivals = allArrivalsData.filter(arr =>
+        arr.status !== ARRIVAL_STATUS.COMPLETED &&
         arr.status !== ARRIVAL_STATUS.CANCELLED
       );
       console.log('🟢 Active arrivals:', activeArrivals.length, activeArrivals);
@@ -168,24 +217,22 @@ const ReceptionistArrivals = () => {
       );
       console.log('🔗 Checked-in appointment IDs:', Array.from(checkedInAppointmentIds));
       
-      // Filter upcoming appointments: confirmed, scheduled for today, and not yet in check-in collection
+      // Filter upcoming appointments: confirmed, scheduled within date range, and not yet in check-in collection
       // Note: We check check-in collection instead of appointment.arrivedAt
       const upcomingAppointments = appointmentsData.filter(apt => {
         if (apt.status !== APPOINTMENT_STATUS.CONFIRMED) return false;
         if (checkedInAppointmentIds.has(apt.id)) return false;
-        
-        // Only show appointments scheduled for today (up to end of day)
+
+        // Show appointments scheduled within the selected date range
         if (apt.appointmentDate) {
-          const aptDate = apt.appointmentDate instanceof Date 
-            ? apt.appointmentDate 
+          const aptDate = apt.appointmentDate instanceof Date
+            ? apt.appointmentDate
             : (apt.appointmentDate.toDate ? apt.appointmentDate.toDate() : new Date(apt.appointmentDate));
-          const aptDateOnly = new Date(aptDate);
-          aptDateOnly.setHours(0, 0, 0, 0);
-          
-          // Include if appointment is scheduled for today
-          return aptDateOnly.getTime() === today.getTime();
+
+          // Include if appointment is scheduled within the date range
+          return aptDate >= dateRange.startDate && aptDate <= dateRange.endDate;
         }
-        
+
         return false;
       });
       console.log('⏰ Upcoming appointments:', upcomingAppointments.length);
@@ -328,6 +375,7 @@ const ReceptionistArrivals = () => {
           stylistId: appointmentToCheckIn.stylistId || null,
           stylistName: appointmentToCheckIn.stylistName || ''
         }] : []),
+        products: appointmentToCheckIn.products || [], // Include pre-selected products
         serviceId: appointmentToCheckIn.serviceId || null,
         serviceName: appointmentToCheckIn.serviceName || '',
         servicePrice: appointmentToCheckIn.servicePrice || 0,
@@ -398,6 +446,8 @@ const ReceptionistArrivals = () => {
             serviceId: item.serviceId || item.id || null, // Support both serviceId and id
             serviceName: item.name || '',
             price: item.price || 0,
+            duration: item.duration || 30, // Add duration
+            quantity: item.quantity || 1, // Add quantity
             stylistId: item.stylistId || null,
             stylistName: item.stylistName || ''
           }))
@@ -419,7 +469,10 @@ const ReceptionistArrivals = () => {
         notes: pendingWalkInData.notes || '',
         status: ARRIVAL_STATUS.ARRIVED
       };
-      
+
+      console.log('🏪 Creating walk-in with services:', walkInArrival.services);
+      console.log('🏪 Creating walk-in with products:', walkInArrival.products);
+
       await createWalkInArrival(walkInArrival, currentUser);
       toast.success('Walk-in client added successfully!');
       
@@ -491,6 +544,22 @@ const ReceptionistArrivals = () => {
         
         const newArrival = await createArrivalFromAppointment(checkInData.appointmentId, arrivalData, currentUser);
         console.log('✅ Created arrival from check-in:', newArrival);
+
+        // Also update the appointment to include the products for record keeping
+        if (arrivalData.products && arrivalData.products.length > 0) {
+          try {
+            const appointmentRef = doc(db, 'appointments', checkInData.appointmentId);
+            await updateDoc(appointmentRef, {
+              products: arrivalData.products,
+              updatedAt: serverTimestamp()
+            });
+            console.log('✅ Updated appointment with products:', arrivalData.products);
+          } catch (error) {
+            console.error('Error updating appointment with products:', error);
+            // Don't fail the check-in if appointment update fails
+          }
+        }
+
         toast.success('Client checked in successfully!');
       }
       
@@ -555,6 +624,21 @@ const ReceptionistArrivals = () => {
       setShowCompleteServiceConfirmModal(false);
       
       // Convert arrival to appointment-like format for billing modal
+      let products = arrivalToCompleteService.products || [];
+
+      // If arrival doesn't have products but is linked to an appointment, try to get products from the appointment
+      if ((!products || products.length === 0) && arrivalToCompleteService.appointmentId) {
+        try {
+          const appointment = await getAppointmentById(arrivalToCompleteService.appointmentId);
+          if (appointment && appointment.products) {
+            products = appointment.products;
+            console.log('📦 Loaded products from associated appointment:', products);
+          }
+        } catch (error) {
+          console.error('Error loading products from appointment:', error);
+        }
+      }
+
       const arrivalForBilling = {
         id: arrivalToCompleteService.appointmentId || arrivalToCompleteService.id,
         arrivalId: arrivalToCompleteService.id, // Store arrival ID for status update
@@ -574,7 +658,7 @@ const ReceptionistArrivals = () => {
           stylistId: arrivalToCompleteService.stylistId || null,
           stylistName: arrivalToCompleteService.stylistName || ''
         }] : []),
-        products: arrivalToCompleteService.products || [], // Include products
+        products: products, // Include products from arrival or appointment
         serviceId: arrivalToCompleteService.serviceId || null,
         serviceName: arrivalToCompleteService.serviceName || '',
         servicePrice: arrivalToCompleteService.servicePrice || 0,
@@ -583,6 +667,7 @@ const ReceptionistArrivals = () => {
       };
       
       // Open billing modal (status will be updated after payment)
+      console.log('💰 Opening billing modal with products:', arrivalForBilling.products);
       setArrivalToBill(arrivalForBilling);
       setShowBillingModal(true);
       setArrivalToCompleteService(null);
@@ -669,6 +754,15 @@ const ReceptionistArrivals = () => {
     const now = new Date();
     const arrived = arrivedAt.toDate ? arrivedAt.toDate() : new Date(arrivedAt);
     const diffMs = now - arrived;
+    const diffMins = Math.floor(diffMs / 60000);
+    return diffMins;
+  };
+
+  const getServiceTime = (startedAt) => {
+    if (!startedAt) return null;
+    const now = new Date();
+    const started = startedAt.toDate ? startedAt.toDate() : new Date(startedAt);
+    const diffMs = now - started;
     const diffMins = Math.floor(diffMs / 60000);
     return diffMins;
   };
@@ -891,6 +985,183 @@ const ReceptionistArrivals = () => {
           </button>
         </div>
 
+        {/* Analytics for Upcoming Tab */}
+        {activeTab === 'upcoming' && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Active Clients</p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    {stats.arrived + stats.inService}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {stats.arrived} waiting, {stats.inService} in service
+                  </p>
+                </div>
+                <Calendar className="h-8 w-8 text-blue-600" />
+              </div>
+            </Card>
+
+            <Card className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Service Efficiency</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {(() => {
+                      const completed = arrivals.filter(a => a.status === ARRIVAL_STATUS.COMPLETED).length;
+                      const totalProcessed = arrivals.length;
+                      if (totalProcessed === 0) return '0%';
+                      return Math.round((completed / totalProcessed) * 100) + '%';
+                    })()}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {arrivals.filter(a => a.status === ARRIVAL_STATUS.COMPLETED).length} completed today
+                  </p>
+                </div>
+                <CheckCircle className="h-8 w-8 text-green-600" />
+              </div>
+            </Card>
+
+            <Card className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Queue Status</p>
+                  <p className="text-2xl font-bold text-orange-600">
+                    {(() => {
+                      const waiting = arrivals.filter(a =>
+                        a.isUpcoming === false &&
+                        a.status === ARRIVAL_STATUS.ARRIVED
+                      ).length;
+                      const inService = stats.inService;
+
+                      if (waiting === 0 && inService === 0) return 'Clear';
+                      if (waiting <= 2) return 'Light';
+                      if (waiting <= 5) return 'Busy';
+                      return 'Heavy';
+                    })()}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {arrivals.filter(a => a.status === ARRIVAL_STATUS.ARRIVED).length} waiting
+                  </p>
+                </div>
+                <Timer className="h-8 w-8 text-orange-600" />
+              </div>
+            </Card>
+
+            <Card className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Avg Wait Time</p>
+                  <p className="text-2xl font-bold text-purple-600">
+                    {(() => {
+                      const waitingArrivals = arrivals.filter(a =>
+                        a.isUpcoming === false &&
+                        a.status === ARRIVAL_STATUS.ARRIVED &&
+                        a.arrivedAt
+                      );
+
+                      if (waitingArrivals.length === 0) return '0min';
+
+                      const totalWait = waitingArrivals.reduce((sum, arr) => {
+                        return sum + (getWaitTime(arr.arrivedAt) || 0);
+                      }, 0);
+
+                      const avgWait = Math.round(totalWait / waitingArrivals.length);
+                      return avgWait + 'min';
+                    })()}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">Average waiting time</p>
+                </div>
+                <Timer className="h-8 w-8 text-purple-600" />
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Date Filter for Upcoming Tab */}
+        {activeTab === 'upcoming' && (
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-gray-700">Filter by Date</h3>
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <Calendar className="w-4 h-4" />
+                <span>{stats.upcoming} appointments</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setDateFilter('today')}
+                className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                  dateFilter === 'today'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => setDateFilter('tomorrow')}
+                className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                  dateFilter === 'tomorrow'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Tomorrow
+              </button>
+              <button
+                type="button"
+                onClick={() => setDateFilter('week')}
+                className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                  dateFilter === 'week'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                This Week
+              </button>
+              <button
+                type="button"
+                onClick={() => setDateFilter('custom')}
+                className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                  dateFilter === 'custom'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Custom
+              </button>
+            </div>
+
+            {dateFilter === 'custom' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">To Date</label>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Search */}
         <div className="bg-white p-4 rounded-lg shadow">
           <SearchInput
@@ -915,7 +1186,20 @@ const ReceptionistArrivals = () => {
           ) : (
             filteredArrivals.map((arrival) => {
               const isProcessing = processing === arrival.id;
-              const waitTime = arrival.isUpcoming === false ? getWaitTime(arrival.arrivedAt) : null;
+              // Calculate appropriate time based on status
+              let displayTime = null;
+              let timeLabel = '';
+              if (arrival.isUpcoming === false) {
+                if (arrival.status === ARRIVAL_STATUS.IN_SERVICE && arrival.startedAt) {
+                  // Show service time for customers in service
+                  displayTime = getServiceTime(arrival.startedAt);
+                  timeLabel = 'service';
+                } else if (arrival.status === ARRIVAL_STATUS.ARRIVED && arrival.arrivedAt) {
+                  // Show wait time for customers waiting
+                  displayTime = getWaitTime(arrival.arrivedAt);
+                  timeLabel = 'waiting';
+                }
+              }
               const timeUntil = activeTab === 'upcoming' && arrival.isUpcoming === true && arrival.appointmentDate ? getTimeUntilAppointment(arrival.appointmentDate) : null;
               const isWalkIn = arrival.isWalkIn === true;
 
@@ -938,11 +1222,24 @@ const ReceptionistArrivals = () => {
                               Walk-in
                             </span>
                           )}
-                          {waitTime !== null && waitTime > 0 && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                              <Timer className="h-3 w-3" />
-                              {waitTime} min
-                            </span>
+                          {displayTime !== null && displayTime >= 0 && (
+                            <>
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                timeLabel === 'waiting' && displayTime >= 60
+                                  ? 'bg-red-100 text-red-800 animate-pulse'
+                                  : timeLabel === 'service'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                <Timer className="h-3 w-3" />
+                                {displayTime} min {timeLabel === 'service' ? '(service)' : timeLabel === 'waiting' ? '(waiting)' : ''}
+                              </span>
+                              {timeLabel === 'waiting' && displayTime >= 60 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white animate-pulse">
+                                  ACTION REQUIRED
+                                </span>
+                              )}
+                            </>
                           )}
                         </div>
                         

@@ -36,9 +36,14 @@ import {
   QrCode,
   Sparkles,
   Copy,
-  ScanLine
+  ScanLine,
+  Upload,
+  Download
 } from 'lucide-react';
 import { getAllServices } from '../../services/serviceManagementService';
+import ImportModal from '../../components/ImportModal';
+import * as XLSX from 'xlsx';
+import toast from 'react-hot-toast';
 
 const MasterProducts = () => {
   const { userData } = useAuth();
@@ -70,6 +75,7 @@ const MasterProducts = () => {
   // Modal states
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [modalMode, setModalMode] = useState('create'); // 'create', 'edit', 'view'
   
@@ -359,10 +365,221 @@ const MasterProducts = () => {
     return upc;
   };
 
-  // Load services when modal opens
+  // Download Excel template for product import
+  const downloadProductTemplate = () => {
+    const templateColumns = [
+      'Product Name',
+      'Category',
+      'Brand',
+      'Suppliers (comma-separated supplier names)',
+      'Description',
+      'UPC Code',
+      'Unit Cost',
+      'OTC Price',
+      'Product Variants',
+      'Shelf Life',
+      'Commission Percentage',
+      'Status',
+      'Image URL'
+    ];
+
+    // Sample data
+    const sampleData = [
+      {
+        'Product Name': 'Hair Color Treatment',
+        'Category': 'Hair Color',
+        'Brand': 'Schwarzkopf',
+        'Suppliers (comma-separated supplier names)': 'Schwarzkopf Professional PH',
+        'Description': 'Professional hair color treatment',
+        'UPC Code': 'DS-HAIR-SCHW-1234',
+        'Unit Cost': '500',
+        'OTC Price': '800',
+        'Product Variants': '250ml, 500ml',
+        'Shelf Life': '24 months',
+        'Commission Percentage': '10',
+        'Status': 'Active',
+        'Image URL': 'https://example.com/image.jpg'
+      },
+      {
+        'Product Name': 'Hair Shampoo',
+        'Category': 'Hair Care',
+        'Brand': 'Matrix',
+        'Suppliers (comma-separated supplier names)': 'Matrix Professional Supplies',
+        'Description': 'Professional hair shampoo',
+        'UPC Code': 'DS-SHAM-MATR-5678',
+        'Unit Cost': '300',
+        'OTC Price': '500',
+        'Product Variants': '500ml, 1L',
+        'Shelf Life': '36 months',
+        'Commission Percentage': '8',
+        'Status': 'Active',
+        'Image URL': ''
+      }
+    ];
+
+    // Create workbook
+    const workbook = XLSX.utils.book_new();
+    
+    // Create worksheet from sample data
+    const worksheet = XLSX.utils.json_to_sheet(sampleData);
+    
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 20 }, // Product Name
+      { wch: 15 }, // Category
+      { wch: 15 }, // Brand
+      { wch: 40 }, // Suppliers
+      { wch: 30 }, // Description
+      { wch: 20 }, // UPC Code
+      { wch: 12 }, // Unit Cost
+      { wch: 12 }, // OTC Price
+      { wch: 20 }, // Product Variants
+      { wch: 15 }, // Shelf Life
+      { wch: 20 }, // Commission Percentage
+      { wch: 12 }, // Status
+      { wch: 30 }  // Image URL
+    ];
+    
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Products');
+    
+    // Generate filename with date
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `Product_Import_Template_${dateStr}.xlsx`;
+    
+    // Download file
+    XLSX.writeFile(workbook, filename);
+    
+    toast.success('Template downloaded successfully!');
+  };
+
+  // Handle product import
+  const handleImportProducts = async (importData) => {
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+      const errors = [];
+
+      for (let i = 0; i < importData.length; i++) {
+        const row = importData[i];
+        try {
+          // Map Excel columns to product data structure
+          const productName = (row['Product Name'] || row['product name'] || '').trim();
+          const category = (row['Category'] || row['category'] || '').trim();
+          const brand = (row['Brand'] || row['brand'] || '').trim();
+          const suppliersInput = (row['Suppliers (comma-separated supplier names)'] || row['Suppliers'] || row['suppliers'] || '').trim();
+          const description = (row['Description'] || row['description'] || '').trim();
+          const upc = (row['UPC Code'] || row['UPC'] || row['upc'] || '').trim();
+          const unitCost = parseFloat(row['Unit Cost'] || row['unit cost'] || 0);
+          const otcPrice = parseFloat(row['OTC Price'] || row['OTC Price'] || row['otc price'] || 0);
+          const variants = (row['Product Variants'] || row['Variants'] || row['variants'] || '').trim();
+          const shelfLife = (row['Shelf Life'] || row['shelf life'] || '').trim();
+          const commissionPercentage = parseFloat(row['Commission Percentage'] || row['Commission'] || row['commission percentage'] || 0);
+          const status = (row['Status'] || row['status'] || 'Active').trim();
+          const imageUrl = (row['Image URL'] || row['Image'] || row['image url'] || '').trim();
+
+          // Validate required fields
+          if (!productName) {
+            throw new Error('Product Name is required');
+          }
+          if (!category) {
+            throw new Error('Category is required');
+          }
+          if (!brand) {
+            throw new Error('Brand is required');
+          }
+          if (!upc) {
+            throw new Error('UPC Code is required');
+          }
+          if (!/^DS-[A-Z]{4}-[A-Z]{4}-\d{4}$/.test(upc)) {
+            throw new Error('UPC Code must be in format: DS-XXXX-XXXX-XXXX');
+          }
+
+          // Process suppliers - find supplier IDs by name
+          let suppliersArray = [];
+          if (suppliersInput) {
+            const supplierNames = suppliersInput.split(',').map(s => s.trim()).filter(Boolean);
+            suppliersArray = supplierNames.map(supplierName => {
+              const supplier = suppliers.find(s => s.name === supplierName);
+              if (!supplier) {
+                throw new Error(`Supplier "${supplierName}" not found. Please use exact supplier name.`);
+              }
+              return supplier.id;
+            });
+          }
+
+          if (suppliersArray.length === 0) {
+            throw new Error('At least one supplier is required');
+          }
+
+          // Validate numeric fields
+          if (isNaN(unitCost) || unitCost <= 0) {
+            throw new Error('Unit Cost must be a positive number');
+          }
+          if (isNaN(otcPrice) || otcPrice <= 0) {
+            throw new Error('OTC Price must be a positive number');
+          }
+          if (isNaN(commissionPercentage) || commissionPercentage < 0 || commissionPercentage > 100) {
+            throw new Error('Commission Percentage must be between 0 and 100');
+          }
+
+          // Validate status
+          const validStatuses = ['Active', 'Inactive', 'Discontinued'];
+          const finalStatus = validStatuses.includes(status) ? status : 'Active';
+
+          // Create product data
+          const productData = {
+            name: productName,
+            category: category,
+            brand: brand,
+            suppliers: suppliersArray,
+            description: description || '',
+            upc: upc,
+            unitCost: unitCost,
+            otcPrice: otcPrice,
+            variants: variants || '',
+            shelfLife: shelfLife || '',
+            commissionPercentage: commissionPercentage,
+            status: finalStatus,
+            imageUrl: imageUrl || ''
+          };
+
+          // Create product
+          const result = await productService.createProduct(productData);
+          if (result.success) {
+            successCount++;
+          } else {
+            errorCount++;
+            errors.push(`Row ${i + 2}: ${result.message || result.error || 'Failed to create product'}`);
+          }
+        } catch (err) {
+          errorCount++;
+          errors.push(`Row ${i + 2}: ${err.message || 'Unknown error'}`);
+        }
+      }
+
+      // Reload products
+      await loadProducts();
+
+      if (errorCount > 0) {
+        const errorMessage = `Imported ${successCount} products successfully. ${errorCount} errors occurred:\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? `\n... and ${errors.length - 10} more errors` : ''}`;
+        toast.error(errorMessage, { duration: 8000 });
+        return { success: false, error: errorMessage };
+      }
+
+      toast.success(`Successfully imported ${successCount} products!`);
+      return { success: true };
+    } catch (err) {
+      console.error('Import error:', err);
+      toast.error(`Import failed: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  };
+
+  // Load services when modal opens (for create, edit, or view)
   useEffect(() => {
     const loadServices = async () => {
-      if (showModal) {
+      if (showModal && (modalMode === 'create' || modalMode === 'edit' || modalMode === 'view')) {
         try {
           const services = await getAllServices();
           setAllServices(services);
@@ -372,12 +589,12 @@ const MasterProducts = () => {
       }
     };
     loadServices();
-  }, [showModal]);
+  }, [showModal, modalMode]);
 
-  // Load existing service mappings when editing a product
+  // Load existing service mappings when editing or viewing a product
   useEffect(() => {
     const loadServiceMappings = async () => {
-      if (modalMode === 'edit' && selectedProduct?.id) {
+      if ((modalMode === 'edit' || modalMode === 'view') && selectedProduct?.id) {
         try {
           const services = await getAllServices();
           // Find services that use this product
@@ -392,6 +609,7 @@ const MasterProducts = () => {
                   mappings.push({
                     serviceId: service.id,
                     serviceName: service.name,
+                    serviceCategory: service.category,
                     instructions: mapping.instructions
                   });
                 } else {
@@ -399,6 +617,7 @@ const MasterProducts = () => {
                   mappings.push({
                     serviceId: service.id,
                     serviceName: service.name,
+                    serviceCategory: service.category,
                     instructions: [{
                       instruction: 'Default',
                       quantity: mapping.quantity || 0,
@@ -1229,21 +1448,43 @@ const MasterProducts = () => {
 
         {/* === Filter + Actions === */}
         <Card className="p-4">
-          <div className="flex flex-col lg:flex-row lg:items-end gap-4">
-            {/* Left Side: Add Product Button */}
-            <div className="flex-shrink-0">
-              <Button
-                className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A] transition-colors shadow-sm"
-                onClick={openCreateModal}
-              >
-                <Plus className="h-4 w-4" /> Add Product
-              </Button>
-            </div>
+          <div className="space-y-4">
+            {/* Top Row: Add Product Button and Status Info */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Button
+                  className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A] transition-colors shadow-sm"
+                  onClick={openCreateModal}
+                >
+                  <Plus className="h-4 w-4" /> Add Product
+                </Button>
+                <Button
+                  className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
+                  onClick={downloadProductTemplate}
+                >
+                  <Download className="h-4 w-4" /> Download Template
+                </Button>
+                <Button
+                  className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
+                  onClick={() => setShowImportModal(true)}
+                >
+                  <Upload className="h-4 w-4" /> Import Products
+                </Button>
+              </div>
               
-            {/* Center: Search and Filters */}
-            <div className="flex-1 flex flex-col sm:flex-row gap-3">
+              <div className="text-sm text-gray-600 bg-gray-50 px-3 py-2 rounded-lg">
+                Showing <span className="font-semibold text-gray-900">{paginatedProducts.length}</span> of <span className="font-semibold text-gray-900">{filteredProducts.length}</span> products
+                {filteredProducts.length !== products.length && (
+                  <span className="text-blue-600"> (filtered)</span>
+                )}
+                {searchTerm && ` for "${searchTerm}"`}
+              </div>
+            </div>
+
+            {/* Bottom Row: Search and Filters */}
+            <div className="space-y-3">
               {/* Search Input */}
-              <div className="relative flex-1 min-w-[200px]">
+              <div className="relative">
                 <label className="block text-xs font-medium text-gray-700 mb-1">Search</label>
                 <Search className="absolute left-3 top-8 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
@@ -1255,75 +1496,64 @@ const MasterProducts = () => {
                 />
               </div>
               
-              {/* Filters Row */}
-              <div className="flex gap-2 flex-wrap">
-              {/* Category Filter */}
-                <div className="min-w-[100px]">
+              {/* Filters Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                {/* Category Filter */}
+                <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
-              <select
-                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-[#160B53] focus:border-[#160B53]"
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                {categories.map(category => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
-              </select>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                  >
+                    {categories.map(category => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
                 </div>
               
-              {/* Brand Filter */}
-                <div className="min-w-[100px]">
+                {/* Brand Filter */}
+                <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Brand</label>
-              <select
-                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-[#160B53] focus:border-[#160B53]"
-                value={brandFilter}
-                onChange={(e) => setBrandFilter(e.target.value)}
-              >
-                {brands.map(brand => (
-                  <option key={brand} value={brand}>{brand}</option>
-                ))}
-              </select>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                    value={brandFilter}
+                    onChange={(e) => setBrandFilter(e.target.value)}
+                  >
+                    {brands.map(brand => (
+                      <option key={brand} value={brand}>{brand}</option>
+                    ))}
+                  </select>
                 </div>
               
-              {/* Supplier Filter */}
-                <div className="min-w-[100px]">
+                {/* Supplier Filter */}
+                <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Supplier</label>
-              <select
-                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-[#160B53] focus:border-[#160B53]"
-                value={supplierFilter}
-                onChange={(e) => setSupplierFilter(e.target.value)}
-              >
-                {supplierNames.map(supplier => (
-                  <option key={supplier} value={supplier}>{supplier}</option>
-                ))}
-              </select>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                    value={supplierFilter}
+                    onChange={(e) => setSupplierFilter(e.target.value)}
+                  >
+                    {supplierNames.map(supplier => (
+                      <option key={supplier} value={supplier}>{supplier}</option>
+                    ))}
+                  </select>
                 </div>
               
-              {/* Status Filter */}
-                <div className="min-w-[100px]">
+                {/* Status Filter */}
+                <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
-              <select
-                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-[#160B53] focus:border-[#160B53]"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="All">All Status</option>
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-                <option value="Discontinued">Discontinued</option>
-              </select>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="All">All Status</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Discontinued">Discontinued</option>
+                  </select>
                 </div>
-              </div>
-            </div>
-
-            {/* Right Side: Status Info */}
-            <div className="flex-shrink-0">
-              <div className="text-sm text-gray-600 bg-gray-50 px-3 py-2 rounded-lg whitespace-nowrap">
-                Showing <span className="font-semibold text-gray-900">{paginatedProducts.length}</span> of <span className="font-semibold text-gray-900">{filteredProducts.length}</span> products
-                {filteredProducts.length !== products.length && (
-                  <span className="text-blue-600"> (filtered)</span>
-                )}
-                {searchTerm && ` for "${searchTerm}"`}
               </div>
             </div>
           </div>
@@ -1587,13 +1817,13 @@ const MasterProducts = () => {
 
         {/* Simple Create/Edit/View Modal */}
         {showModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className={`bg-white rounded-lg shadow-lg w-full mx-4 max-h-[90vh] overflow-hidden ${
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className={`bg-white rounded-lg shadow-lg w-full mx-4 max-h-[90vh] flex flex-col overflow-hidden ${
               modalMode === 'view' ? 'max-w-4xl' : 'max-w-3xl'
             }`}>
               
               {/* Simple Modal Header */}
-              <div className="bg-[#160B53] text-white p-6">
+              <div className="bg-[#160B53] text-white p-6 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     {modalMode === 'create' && <Plus className="h-5 w-5 text-white" />}
@@ -1616,7 +1846,7 @@ const MasterProducts = () => {
                 </div>
               </div>
               
-              <div className="p-8 max-h-[calc(95vh-120px)] overflow-y-auto">
+              <div className="p-8 overflow-y-auto flex-1 min-h-0">
 
                 {modalMode === 'view' ? (
                   /* Clean View Modal Layout */
@@ -1734,6 +1964,81 @@ const MasterProducts = () => {
                                     </div>
                       </div>
                     </div>
+
+                    {/* Service-Product Mapping Section */}
+                    {serviceMappings.length > 0 && (
+                      <div className="border border-gray-200 rounded-lg p-6">
+                        <h4 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+                          <Scissors className="h-5 w-5 text-purple-600 mr-2" />
+                          Service-Product Mapping
+                        </h4>
+                        <p className="text-sm text-gray-600 mb-4">
+                          This product is mapped to the following services with specific usage instructions:
+                        </p>
+                        <div className="space-y-4 max-h-96 overflow-y-auto">
+                          {serviceMappings.map((mapping) => {
+                            return (
+                              <div key={mapping.serviceId} className="border border-gray-200 rounded-lg overflow-hidden">
+                                {/* Service Header */}
+                                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                                  <h5 className="font-semibold text-gray-900 text-sm">
+                                    {mapping.serviceName || 'Unknown Service'}
+                                  </h5>
+                                  {mapping.serviceCategory && (
+                                    <p className="text-xs text-gray-500 mt-1">Category: {mapping.serviceCategory}</p>
+                                  )}
+                                </div>
+                                
+                                {/* Instructions Table */}
+                                <div className="overflow-x-auto">
+                                  <table className="w-full">
+                                    <thead className="bg-gray-50">
+                                      <tr>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Instruction</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Quantity</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Percentage</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Unit</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                      {(mapping.instructions || []).map((instruction, instIdx) => (
+                                        <tr key={instIdx} className="hover:bg-gray-50">
+                                          <td className="px-4 py-2 text-sm text-gray-900">
+                                            {instruction.instruction || 'Default Instruction'}
+                                          </td>
+                                          <td className="px-4 py-2 text-sm text-gray-700">
+                                            {instruction.quantity || 0}
+                                          </td>
+                                          <td className="px-4 py-2 text-sm text-gray-700">
+                                            {instruction.percentage || 0}%
+                                          </td>
+                                          <td className="px-4 py-2 text-sm text-gray-700">
+                                            {instruction.unit || 'ml'}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-4 italic">
+                          Note: When a service is performed, the appropriate quantity will be deducted from salon-use batches based on the instruction selected.
+                        </p>
+                      </div>
+                    )}
+
+                    {serviceMappings.length === 0 && (
+                      <div className="border border-gray-200 rounded-lg p-6">
+                        <h4 className="text-lg font-medium text-gray-900 mb-2 flex items-center">
+                          <Scissors className="h-5 w-5 text-purple-600 mr-2" />
+                          Service-Product Mapping
+                        </h4>
+                        <p className="text-sm text-gray-500">This product is not mapped to any services.</p>
+                      </div>
+                    )}
                   </div>
                   ) : (
                     /* Enhanced Create/Edit Form Layout */
@@ -2642,6 +2947,57 @@ const MasterProducts = () => {
             </div>
           </div>
         )}
+
+        {/* Import Products Modal */}
+        <ImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onImport={handleImportProducts}
+          templateColumns={[
+            'Product Name',
+            'Category',
+            'Brand',
+            'Suppliers (comma-separated supplier names)',
+            'Description',
+            'UPC Code',
+            'Unit Cost',
+            'OTC Price',
+            'Product Variants',
+            'Shelf Life',
+            'Commission Percentage',
+            'Status',
+            'Image URL'
+          ]}
+          templateName="Product_Import"
+          sampleData={[
+            {
+              'Product Name': 'Hair Color Treatment',
+              'Category': 'Hair Color',
+              'Brand': 'Schwarzkopf',
+              'Suppliers (comma-separated supplier names)': 'Schwarzkopf Professional PH',
+              'Description': 'Professional hair color treatment',
+              'UPC Code': 'DS-HAIR-SCHW-1234',
+              'Unit Cost': '500',
+              'OTC Price': '800',
+              'Product Variants': '250ml, 500ml',
+              'Shelf Life': '24 months',
+              'Commission Percentage': '10',
+              'Status': 'Active',
+              'Image URL': 'https://example.com/image.jpg'
+            }
+          ]}
+          validationRules={{
+            'Product Name': { required: true },
+            'Category': { required: true },
+            'Brand': { required: true },
+            'UPC Code': { required: true },
+            'Unit Cost': { required: true, type: 'number' },
+            'OTC Price': { required: true, type: 'number' },
+            'Commission Percentage': { type: 'number' }
+          }}
+          title="Import Products"
+          customDownloadTemplate={downloadProductTemplate}
+        />
       </div>
     );
 };

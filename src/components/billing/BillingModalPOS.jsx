@@ -41,13 +41,14 @@ const BillingModalPOS = ({
     receiptNumber: '', // Receipt number from physical receipt
     notes: '',
     amountReceived: '',
-    tax: '',
     // Client info for walk-in customers
     clientName: '',
     clientPhone: '',
     clientEmail: '',
     clientId: ''
   });
+
+  // Tax is removed - always 0
 
   const [totals, setTotals] = useState({
     subtotal: 0,
@@ -63,7 +64,8 @@ const BillingModalPOS = ({
   const [matchedClient, setMatchedClient] = useState(null);
   const [clientSearch, setClientSearch] = useState('');
   const [showClientList, setShowClientList] = useState(false);
-  const [activeTab, setActiveTab] = useState('service'); // 'service' or 'product'
+  const [isGuestCustomer, setIsGuestCustomer] = useState(false);
+  const [activeTab, setActiveTab] = useState(mode === 'products-only' ? 'product' : 'service'); // 'service' or 'product'
   const [clientLoyaltyPoints, setClientLoyaltyPoints] = useState(0);
   
   // Promotion code states
@@ -76,6 +78,7 @@ const BillingModalPOS = ({
   // Products and stocks
   const [availableProducts, setAvailableProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [stocksData, setStocksData] = useState([]);
   
   // QR Code Scanner states
   const [isScanning, setIsScanning] = useState(false);
@@ -237,6 +240,7 @@ const BillingModalPOS = ({
     const fetchProductsAndStocks = async () => {
       if (!isOpen || !userBranch) return;
 
+
       try {
         setLoadingProducts(true);
 
@@ -278,7 +282,7 @@ const BillingModalPOS = ({
           where('status', '==', 'active')
         );
         const stocksSnapshot = await getDocs(stocksQuery);
-        
+
         const stocks = [];
         stocksSnapshot.forEach((doc) => {
           const stockData = doc.data();
@@ -292,16 +296,46 @@ const BillingModalPOS = ({
           });
         });
 
-        // Merge products with stock data
-        const productsWithStock = branchProducts.map(product => {
+        // THIRD: Merge products with stock data (using the local stocks variable)
+        const productsWithStock = branchProducts.map((product) => {
+          console.log('🔍 Processing product:', product.name, product.id);
+          console.log('📊 stocks:', stocks);
+
+          // Get ALL non-salon-use batches for this product from stocks collection
+          const productAllBatches = stocks.filter(stock => {
+            const matches = stock.productId === product.id &&
+                           stock.status === 'active' &&
+                           stock.usageType !== 'salon-use' && // Exclude salon-use batches
+                           (stock.realTimeStock || 0) > 0;
+            console.log('🔎 Stock check:', stock.productId, stock.realTimeStock, stock.status, stock.usageType, '→ matches:', matches);
+            return matches;
+          });
+
+          console.log('✅ Filtered batches:', productAllBatches);
+
+          // Calculate total stock (sum of all batches for this product)
+          const totalStock = productAllBatches.reduce((total, batch) => total + (batch.realTimeStock || 0), 0);
+
+          console.log('💰 Total stock for', product.name, ':', totalStock);
+
+          // Get stock record for additional info
           const stock = stocks.find(s => s.productId === product.id);
+
           return {
             ...product,
-            stock: stock?.realTimeStock || 0,
+            stock: totalStock,
             stockId: stock?.id || null,
-            stockStatus: stock?.status || 'Out of Stock'
+            stockStatus: totalStock > 10 ? 'High Stock' :
+                        totalStock > 0 ? 'Low Stock' : 'Out of Stock',
+            allBatches: productAllBatches // Store all non-salon-use batches for display
           };
         });
+
+        // Set stocks data for use in other functions
+        console.log('=== STOCKS FETCH DEBUG ===');
+        console.log('Raw stocks from Firestore:', stocks);
+        setStocksData(stocks);
+        console.log('Stocks data set to state, will be available on next render');
 
         // Only show active products
         setAvailableProducts(productsWithStock.filter(p => p.status === 'Active'));
@@ -309,6 +343,7 @@ const BillingModalPOS = ({
         console.error('Error fetching products and stocks:', error);
         toast.error('Failed to load products');
         setAvailableProducts([]);
+        setStocksData([]);
       } finally {
         setLoadingProducts(false);
       }
@@ -323,15 +358,31 @@ const BillingModalPOS = ({
   }, [isOpen, userBranch]);
 
   useEffect(() => {
-    if (isOpen) {
-      // Initialize client info (for walk-in or from appointment)
-      const isWalkIn = appointment?.isWalkIn || !appointment?.clientId;
-      // Check if this is a checkout with existing services (from arrivals - walk-in or appointment)
-      const hasExistingServices = appointment?.services?.length > 0 || appointment?.serviceName;
-      // For walk-in checkout, we should pre-fill with arrival data
-      const isWalkInCheckout = isWalkIn && hasExistingServices && mode === 'billing';
-      
-      if (isWalkIn && !isWalkInCheckout) {
+    const initializeForm = async () => {
+      if (isOpen) {
+        // Initialize client info (for walk-in or from appointment)
+        const isWalkIn = appointment?.isWalkIn || !appointment?.clientId;
+        // Check if this is a checkout with existing services (from arrivals - walk-in or appointment)
+        const hasExistingServices = appointment?.services?.length > 0 || appointment?.serviceName;
+        // For walk-in checkout, we should pre-fill with arrival data
+        const isWalkInCheckout = isWalkIn && hasExistingServices && mode === 'billing';
+        // For check-in mode, always use appointment data regardless of client type
+        const isCheckInMode = mode === 'checkin';
+
+      if (isCheckInMode) {
+        // For check-in mode (new appointments or walk-ins), use appointment data
+        setClientSearch(appointment?.clientName || '');
+        setFormData(prev => ({
+          ...prev,
+          clientName: appointment?.clientName || '',
+          clientPhone: appointment?.clientPhone || '',
+          clientEmail: appointment?.clientEmail || '',
+          clientId: appointment?.clientId || '',
+          items: []
+        }));
+        setMatchedClient(null);
+        setShowClientList(false);
+      } else if (isWalkIn && !isWalkInCheckout) {
         // For new walk-in (no existing services), start with empty fields
         setFormData(prev => ({
           ...prev,
@@ -373,8 +424,8 @@ const BillingModalPOS = ({
       }
 
       // If appointment/arrival exists and has services/products, load them
-      // This now includes walk-in checkouts with existing services
-      if (appointment && (!isWalkIn || isWalkInCheckout)) {
+      // This includes walk-in checkouts and regular billing with existing data
+      if (appointment) {
         // Load services
         const serviceItems = appointment.services && appointment.services.length > 0
           ? appointment.services.map(svc => {
@@ -390,7 +441,7 @@ const BillingModalPOS = ({
                 name: svc.serviceName,
                 basePrice: basePrice,
                 price: adjustedPrice, // Use adjusted price if available
-                quantity: 1,
+                quantity: svc.quantity || 1, // Read quantity from appointment service
                 stylistId: svc.stylistId,
                 stylistName: svc.stylistName,
                 originalStylistId: svc.stylistId, // Store original stylist for restoration
@@ -418,15 +469,91 @@ const BillingModalPOS = ({
             }]
           : [];
 
-        // Load products
+        // Load products with stock information
+        console.log('🔍 Loading products from appointment:', appointment.products);
         const productItems = appointment.products && appointment.products.length > 0
-          ? appointment.products.map(prod => ({
-              type: 'product',
-              id: prod.productId,
-              name: prod.productName,
-              basePrice: prod.price,
-              price: prod.total || (prod.price * (prod.quantity || 1)),
-              quantity: prod.quantity || 1
+          ? await Promise.all(appointment.products.map(async (prod) => {
+            console.log('📦 Processing product:', prod);
+              // Fetch stock information for each product
+              let stock = 0;
+              let allBatches = [];
+              try {
+                if (userBranch) {
+                  // Get all available OTC batches for this product
+                  const batchesResult = await inventoryService.getBatchesForSale({
+                    branchId: userBranch,
+                    productId: prod.productId,
+                    quantity: 9999, // Very large number to get all available batches
+                    saleType: 'otc'
+                  });
+
+                  if (batchesResult.success && batchesResult.batches.length > 0) {
+                    // The getBatchesForSale already filters for OTC, so all returned batches are OTC
+                    const otcBatches = batchesResult.batches;
+
+                    // Calculate total available stock from all OTC batches
+                    stock = otcBatches.reduce((total, batch) => total + (batch.remainingQuantity || batch.available || 0), 0);
+
+                    // Store all batch information for display
+                    allBatches = otcBatches.map(batch => ({
+                      id: batch.batchId,
+                      batchNumber: batch.batchNumber,
+                      remainingQuantity: batch.remainingQuantity || batch.available || 0,
+                      expirationDate: batch.expirationDate,
+                      receivedDate: batch.receivedDate
+                    }));
+                  }
+                }
+              } catch (error) {
+                console.error('Error fetching stock for product:', prod.productId, error);
+              }
+
+              // Get allocated batches for the current quantity
+              let allocatedBatches = [];
+              try {
+                const allocationResult = await inventoryService.getBatchesForSale({
+                  branchId: userBranch,
+                  productId: prod.productId,
+                  quantity: prod.quantity || 1,
+                  saleType: 'otc'
+                });
+                if (allocationResult.success) {
+                  allocatedBatches = allocationResult.batches;
+                }
+              } catch (error) {
+                console.error('Error getting allocated batches:', error);
+              }
+
+              // Get ALL non-salon-use batches for this product from stocks collection
+              const productAllBatches = stocksData.filter(stockItem =>
+                stockItem.productId === prod.productId &&
+                stockItem.status === 'active' &&
+                stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
+                (stockItem.realTimeStock || 0) > 0
+              );
+
+              return {
+                type: 'product',
+                id: prod.productId,
+                name: prod.productName,
+                basePrice: prod.price,
+                price: prod.total || (prod.price * (prod.quantity || 1)),
+                quantity: prod.quantity || 1,
+                stock: stock, // Add stock information
+                batches: allocatedBatches, // Add allocated batches
+                allBatches: productOtcBatches.map(batch => ({
+                  id: batch.id,  // Use document id
+                  batchNumber: batch.batchNumber,
+                  remainingQuantity: batch.realTimeStock || 0,  // Use realTimeStock
+                  expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
+                  receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
+                })), // Add all batch information from stocks
+                unitCost: 0,
+                commissionPercentage: 0,
+                commissionerId: '',
+                commissionerName: '',
+                commissionPoints: 0
+              };
             }))
           : [];
 
@@ -453,13 +580,18 @@ const BillingModalPOS = ({
         paymentReference: '',
         notes: '',
         amountReceived: '',
-        tax: '',
         clientName: '',
         clientPhone: '',
         clientEmail: '',
         clientId: ''
       });
+
+      // Reset guest customer state
+      setIsGuestCustomer(false);
     }
+    };
+
+    initializeForm();
   }, [appointment, isOpen]);
 
   useEffect(() => {
@@ -480,13 +612,12 @@ const BillingModalPOS = ({
       items: formData.items,
       discount: parseFloat(formData.discount) || 0,
       discountType: formData.discountType,
-      taxRate: parseFloat(formData.tax) || 0,
       serviceChargeRate: 0,
       loyaltyPointsUsed: parseInt(formData.loyaltyPointsUsed) || 0,
       promotionDiscount: promoDiscount // Add promotion discount
     });
     setTotals(calculated);
-  }, [formData.items, formData.discount, formData.discountType, formData.loyaltyPointsUsed, formData.tax, appliedPromotion]);
+  }, [formData.items, formData.discount, formData.discountType, formData.loyaltyPointsUsed, appliedPromotion]);
 
   const handleToggleService = (service) => {
     const existing = formData.items.find(item => item.id === service.id && item.type === 'service');
@@ -517,8 +648,32 @@ const BillingModalPOS = ({
     }
   };
 
+  const handleUpdateServiceQuantity = (serviceId, newQuantity) => {
+    setFormData(prev => ({
+      ...prev,
+      items: prev.items.map(item =>
+        item.id === serviceId && item.type === 'service'
+          ? { ...item, quantity: newQuantity }
+          : item
+      )
+    }));
+  };
+
+  const handleRemoveService = (serviceId) => {
+    setFormData(prev => ({
+      ...prev,
+      items: prev.items.filter(item => !(item.id === serviceId && item.type === 'service'))
+    }));
+  };
+
   // Handle QR code scan result
   const handleQRCodeScanned = async (decodedText) => {
+    // Check if stocks data is loaded
+    if (!stocksData || stocksData.length === 0) {
+      toast.error('Product data not loaded yet. Please wait.');
+      return;
+    }
+
     try {
       // Parse QR code data (should be JSON from UPC generator)
       let qrData;
@@ -539,9 +694,22 @@ const BillingModalPOS = ({
         return;
       }
 
+      // Initialize productOtcBatches
+      let productOtcBatches = [];
+
       // Find the product in available products
       let product = availableProducts.find(p => p.id === productId);
-      
+
+      // If product found in available products, get its ALL non-salon-use batches
+      if (product) {
+        productOtcBatches = stocksData.filter(stockItem =>
+          stockItem.productId === productId &&
+          stockItem.status === 'active' &&
+          stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
+          (stockItem.realTimeStock || 0) > 0
+        );
+      }
+
       // If product not found in current branch, try to load it
       if (!product && userBranch) {
         try {
@@ -571,6 +739,14 @@ const BillingModalPOS = ({
                 unitCost: stockDoc.unitCost || 0,
                 commissionPercentage: productData.commissionPercentage || 0
               };
+
+              // Try to get ALL non-salon-use batches for this manually loaded product
+              productOtcBatches = stocksData.filter(stockItem =>
+                stockItem.productId === productId &&
+                stockItem.status === 'active' &&
+                stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
+                (stockItem.realTimeStock || 0) > 0
+              );
             }
           }
         } catch (error) {
@@ -599,25 +775,46 @@ const BillingModalPOS = ({
       } else {
         // Add product to cart (similar to handleToggleProduct)
         let batches = [];
+        let totalStock = product.stock || 0;
         try {
           if (userBranch) {
+            // Get all available OTC batches for this product
             const batchesResult = await inventoryService.getBatchesForSale({
               branchId: userBranch,
               productId: product.id,
-              quantity: 1
+              quantity: 9999, // Very large number to get all available batches
+              saleType: 'otc'
             });
-            
+
             if (batchesResult.success && batchesResult.batches.length > 0) {
-              // If QR code has batchNumber, try to match it
-              if (batchNumber) {
-                const matchedBatch = batchesResult.batches.find(b => b.batchNumber === batchNumber);
-                if (matchedBatch) {
-                  batches = [matchedBatch];
+              // getBatchesForSale already filters for OTC batches
+              const otcBatches = batchesResult.batches;
+
+              // Calculate total available stock from all OTC batches
+              totalStock = otcBatches.reduce((total, batch) => total + (batch.remainingQuantity || batch.available || 0), 0);
+
+              // Store otcBatches for later use
+              var availableOtcBatches = otcBatches;
+
+              // Now fetch batches for quantity 1 (for initial display)
+              const batchesResult = await inventoryService.getBatchesForSale({
+                branchId: userBranch,
+                productId: product.id,
+                quantity: 1
+              });
+
+              if (batchesResult.success && batchesResult.batches.length > 0) {
+                // If QR code has batchNumber, try to match it
+                if (batchNumber) {
+                  const matchedBatch = batchesResult.batches.find(b => b.batchNumber === batchNumber);
+                  if (matchedBatch) {
+                    batches = [matchedBatch];
+                  } else {
+                    batches = batchesResult.batches;
+                  }
                 } else {
                   batches = batchesResult.batches;
                 }
-              } else {
-                batches = batchesResult.batches;
               }
             }
           }
@@ -634,9 +831,16 @@ const BillingModalPOS = ({
             basePrice: product.price || 0,
             price: product.price || 0,
             quantity: 1,
-            stock: product.stock || 0,
+            stock: totalStock,
             stockId: product.stockId || null,
             batches: batches,
+            allBatches: productOtcBatches.map(batch => ({
+              id: batch.id,
+              batchNumber: batch.batchNumber,
+              remainingQuantity: batch.realTimeStock || 0,
+              expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
+              receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
+            })),
             unitCost: product.unitCost || 0,
             commissionPercentage: product.commissionPercentage || 0,
             commissionerId: '',
@@ -715,6 +919,12 @@ const BillingModalPOS = ({
   }, [isOpen]);
 
   const handleToggleProduct = async (product) => {
+    // Check if stocks data is loaded
+    if (!stocksData || stocksData.length === 0) {
+      toast.error('Loading product data, please wait...');
+      return;
+    }
+
     // Check if product is in stock
     if (product.stock <= 0) {
       toast.error(`${product.name} is out of stock`);
@@ -728,7 +938,15 @@ const BillingModalPOS = ({
         items: prev.items.filter(item => !(item.id === product.id && item.type === 'product'))
       }));
     } else {
-      // Fetch batch information for FIFO tracking
+      // Get ALL non-salon-use batches for this product from stocks collection
+      const productAllBatches = stocksData.filter(stockItem =>
+        stockItem.productId === product.id &&
+        stockItem.status === 'active' &&
+        stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
+        (stockItem.realTimeStock || 0) > 0
+      );
+
+      // Get allocated batches for quantity 1
       let batches = [];
       try {
         if (userBranch) {
@@ -737,7 +955,7 @@ const BillingModalPOS = ({
             productId: product.id,
             quantity: 1
           });
-          
+
           if (batchesResult.success && batchesResult.batches.length > 0) {
             batches = batchesResult.batches;
           }
@@ -759,6 +977,13 @@ const BillingModalPOS = ({
           stock: product.stock || 0,
           stockId: product.stockId || null,
           batches: batches, // Store batch information for FIFO tracking
+          allBatches: productAllBatches.map(batch => ({
+            id: batch.id,
+            batchNumber: batch.batchNumber,
+            remainingQuantity: batch.realTimeStock || 0,
+            expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
+            receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
+          })), // Store all available batches for display
           unitCost: product.unitCost || 0, // Store unit cost for commission calculation
           commissionPercentage: product.commissionPercentage || 0, // Store commission percentage
           commissionerId: '', // Will be set when commissioner is selected
@@ -814,23 +1039,43 @@ const BillingModalPOS = ({
           updatedItems[index].commissionPoints = (unitCost * quantity) * (commissionPercentage / 100);
         }
         
-        // Fetch updated batch information for the new quantity
+        // Update batch information for the new quantity
         if (userBranch && updatedItems[index].id) {
+          // Get ALL non-salon-use batches from stocks collection
+          const productOtcBatches = stocksData.filter(stockItem =>
+            stockItem.productId === updatedItems[index].id &&
+            stockItem.status === 'active' &&
+            stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
+            (stockItem.realTimeStock || 0) > 0
+          );
+
+          // Calculate total stock
+          const totalStock = productOtcBatches.reduce((total, batch) => total + (batch.realTimeStock || 0), 0);
+
+          // Get allocated batches for current quantity
           inventoryService.getBatchesForSale({
             branchId: userBranch,
             productId: updatedItems[index].id,
-            quantity: quantity
-          }).then(batchesResult => {
-            if (batchesResult.success && batchesResult.batches.length > 0) {
-              updatedItems[index].batches = batchesResult.batches;
-              setFormData(prev => {
-                const newItems = [...prev.items];
-                newItems[index] = updatedItems[index];
-                return { ...prev, items: newItems };
-              });
-            }
+            quantity: quantity,
+            saleType: 'otc'
+          }).then(allocatedResult => {
+            updatedItems[index].batches = allocatedResult.success ? allocatedResult.batches : [];
+            updatedItems[index].stock = totalStock;
+            updatedItems[index].allBatches = productOtcBatches.map(batch => ({
+              id: batch.id,
+              batchNumber: batch.batchNumber,
+              remainingQuantity: batch.realTimeStock || 0,
+              expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
+              receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
+            }));
+
+            setFormData(prev => {
+              const newItems = [...prev.items];
+              newItems[index] = { ...updatedItems[index] };
+              return { ...prev, items: newItems };
+            });
           }).catch(error => {
-            console.error('Error fetching batches for quantity update:', error);
+            console.error('Error fetching allocated batches:', error);
           });
         }
       }
@@ -1047,7 +1292,11 @@ const BillingModalPOS = ({
     e.preventDefault();
     
     // Validate client name for service transactions
-    if (formData.items.length > 0 && !formData.clientName.trim()) {
+    // For product-only transactions, allow empty client name (will default to Guest)
+    const hasServices = formData.items.some(item => item.type === 'service');
+    const hasProductsOnly = formData.items.length > 0 && !hasServices;
+
+    if (hasServices && !formData.clientName.trim()) {
       toast.error('Client name is required for service transactions');
       return;
     }
@@ -1101,8 +1350,8 @@ const BillingModalPOS = ({
       }
     }
 
-    // Validate amount received for cash payments (only in billing mode)
-    if (mode === 'billing' && formData.paymentMethod === PAYMENT_METHODS.CASH) {
+    // Validate amount received for cash payments (in billing and products-only modes)
+    if ((mode === 'billing' || mode === 'products-only') && formData.paymentMethod === PAYMENT_METHODS.CASH) {
       const amountReceived = parseFloat(formData.amountReceived) || 0;
       if (!formData.amountReceived || amountReceived < totals.total) {
         toast.error(`Insufficient amount received! Required: ₱${totals.total.toFixed(2)}`);
@@ -1112,14 +1361,14 @@ const BillingModalPOS = ({
 
     const isWalkIn = appointment?.isWalkIn || !appointment?.clientId;
 
-    // Validate receipt number for billing mode
-    if (mode === 'billing' && !formData.receiptNumber.trim()) {
+    // Validate receipt number for billing and products-only modes
+    if ((mode === 'billing' || mode === 'products-only') && !formData.receiptNumber.trim()) {
       toast.error('Receipt number is required');
       return;
     }
 
     // Check for duplicate receipt number before submitting
-    if (mode === 'billing' && formData.receiptNumber.trim()) {
+    if ((mode === 'billing' || mode === 'products-only') && formData.receiptNumber.trim()) {
       const existing = await checkReceiptNumberExists(formData.receiptNumber.trim(), userBranch);
       if (existing) {
         toast.error(`Receipt number "${formData.receiptNumber.trim()}" already exists! Please use a different receipt number.`, {
@@ -1131,12 +1380,27 @@ const BillingModalPOS = ({
       }
     }
 
+    // For product-only transactions, use Guest client if no client selected
+
+    let clientName = formData.clientName;
+    let clientPhone = formData.clientPhone || '';
+    let clientEmail = formData.clientEmail || '';
+    let clientId = formData.clientId || null;
+
+    // Default to Guest client for product-only walk-in transactions
+    if (hasProductsOnly && !clientName.trim()) {
+      clientName = 'Guest';
+      clientPhone = '';
+      clientEmail = '';
+      clientId = null;
+    }
+
     const billData = {
       appointmentId: isWalkIn ? null : appointment?.id,
-      clientId: formData.clientId || null,
-      clientName: formData.clientName,
-      clientPhone: formData.clientPhone || '',
-      clientEmail: formData.clientEmail || '',
+      clientId: clientId,
+      clientName: clientName,
+      clientPhone: clientPhone,
+      clientEmail: clientEmail,
       branchId: appointment?.branchId,
       branchName: appointment?.branchName,
       stylistId: appointment?.stylistId || formData.items[0]?.stylistId,
@@ -1149,8 +1413,8 @@ const BillingModalPOS = ({
       promotionId: appliedPromotion?.id || null,
       promotionDiscount: promotionDiscount || 0,
       loyaltyPointsUsed: parseInt(formData.loyaltyPointsUsed) || 0,
-      tax: totals.tax, // Computed tax amount (for billing)
-      taxRate: parseFloat(formData.tax) || 0, // Tax rate (for storing in appointment)
+      tax: 0, // Tax removed - always 0
+      taxRate: 0, // Tax rate removed - always 0
       total: totals.total,
       paymentMethod: formData.paymentMethod,
       paymentReference: formData.paymentReference,
@@ -1192,10 +1456,12 @@ const BillingModalPOS = ({
             <h2 className="text-2xl font-bold text-white mb-1">
               {mode === 'checkin'
                 ? (appointment?.isWalkIn ? 'Add Walk-in Client' : 'Check-in Client')
-                : mode === 'start-service' 
-                ? 'Start Service' 
-                : appointment?.isWalkIn || !appointment?.clientId 
-                  ? 'Walk-in Customer' 
+                : mode === 'start-service'
+                ? 'Start Service'
+                : mode === 'products-only'
+                ? 'Quick POS - Products Only'
+                : appointment?.isWalkIn || !appointment?.clientId
+                  ? (formData.clientName || 'Walk-in Customer')
                   : 'Process Payment'}
             </h2>
             <p className="text-white/70 text-sm">
@@ -1203,7 +1469,9 @@ const BillingModalPOS = ({
                 ? 'Add services, products, and adjust details before confirming arrival'
                 : mode === 'start-service'
                 ? 'Add services/products and adjust prices before starting service'
-                : appointment?.isWalkIn || !appointment?.clientId 
+                : mode === 'products-only'
+                ? 'Quick product sales with instant checkout'
+                : appointment?.isWalkIn || !appointment?.clientId
                   ? 'Create new transaction for walk-in customer'
                   : `Complete payment for pending invoice • Transaction #${appointment?.id?.slice(-8).toUpperCase() || 'Pending'}`
               }
@@ -1232,8 +1500,9 @@ const BillingModalPOS = ({
                           <input
                             type="text"
                             value={formData.clientName}
-                            onChange={handleClientNameChange}
+                            onChange={isGuestCustomer ? undefined : handleClientNameChange}
                             onFocus={() => {
+                              if (isGuestCustomer) return;
                               const isWalkIn = appointment?.isWalkIn || !appointment?.clientId;
                               if (isWalkIn && clients && Array.isArray(clients) && clients.length > 0) {
                                 const currentSearch = (clientSearch || formData.clientName || '').trim();
@@ -1242,11 +1511,12 @@ const BillingModalPOS = ({
                                 }
                               }
                             }}
+                            disabled={isGuestCustomer}
                             className={`w-full pl-10 pr-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-[#2D1B4E] focus:border-transparent text-sm ${
-                              matchedClient ? 'bg-green-50 border-green-300' : ''
+                              matchedClient ? 'bg-green-50 border-green-300' : isGuestCustomer ? 'bg-gray-100 text-gray-500' : ''
                             }`}
-                            placeholder="Search or enter client name"
-                            required
+                            placeholder={isGuestCustomer ? "Guest Customer" : "Search or enter client name"}
+                            required={!isGuestCustomer}
                           />
                           {/* Profile Picture next to input */}
                           {matchedClient && (
@@ -1321,18 +1591,58 @@ const BillingModalPOS = ({
                             )}
                           </>
                         )}
-                        
+
+                        {/* Guest Customer Checkbox */}
+                        <div className="mt-2">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isGuestCustomer}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setIsGuestCustomer(checked);
+                                if (checked) {
+                                  // Set to guest customer
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    clientName: 'Guest',
+                                    clientPhone: '',
+                                    clientEmail: '',
+                                    clientId: null
+                                  }));
+                                  setMatchedClient(null);
+                                  setClientSearch('');
+                                  setShowClientList(false);
+                                } else {
+                                  // Clear guest status, reset to empty
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    clientName: '',
+                                    clientPhone: '',
+                                    clientEmail: '',
+                                    clientId: null
+                                  }));
+                                  setMatchedClient(null);
+                                }
+                              }}
+                              className="w-4 h-4 text-[#2D1B4E] border-gray-300 rounded focus:ring-[#2D1B4E]"
+                            />
+                            <span className="text-xs font-medium text-gray-700">Guest Customer</span>
+                          </label>
+                        </div>
+
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Phone Number</label>
                         <input
                           type="tel"
                           value={formData.clientPhone}
-                          onChange={handleClientPhoneChange}
+                          onChange={isGuestCustomer ? undefined : handleClientPhoneChange}
+                          disabled={isGuestCustomer}
                           className={`w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-[#2D1B4E] focus:border-transparent text-sm ${
-                            matchedClient ? 'bg-green-50 border-green-300' : ''
+                            matchedClient ? 'bg-green-50 border-green-300' : isGuestCustomer ? 'bg-gray-100 text-gray-500' : ''
                           }`}
-                          placeholder="Enter phone number"
+                          placeholder={isGuestCustomer ? "Not required for guests" : "Enter phone number"}
                         />
                       </div>
                       <div>
@@ -1340,11 +1650,12 @@ const BillingModalPOS = ({
                         <input
                           type="email"
                           value={formData.clientEmail}
-                          onChange={(e) => setFormData(prev => ({ ...prev, clientEmail: e.target.value }))}
+                          onChange={isGuestCustomer ? undefined : (e) => setFormData(prev => ({ ...prev, clientEmail: e.target.value }))}
+                          disabled={isGuestCustomer}
                           className={`w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-[#2D1B4E] focus:border-transparent text-sm ${
-                            matchedClient ? 'bg-green-50 border-green-300' : ''
+                            matchedClient ? 'bg-green-50 border-green-300' : isGuestCustomer ? 'bg-gray-100 text-gray-500' : ''
                           }`}
-                          placeholder="Enter email address"
+                          placeholder={isGuestCustomer ? "Not required for guests" : "Enter email address"}
                         />
                       </div>
                     </div>
@@ -1379,23 +1690,27 @@ const BillingModalPOS = ({
                 <div className="flex items-center justify-between mb-4 pb-2 border-b-2 border-[#2D1B4E]">
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 bg-[#2D1B4E] text-white rounded-full flex items-center justify-center text-sm font-bold">2</div>
-                    <h3 className="text-base font-bold text-gray-900">Services & Products</h3>
+                    <h3 className="text-base font-bold text-gray-900">
+                      {mode === 'products-only' ? 'Products' : 'Services & Products'}
+                    </h3>
                   </div>
                   
                   {/* Tab Buttons */}
                   <div className="flex space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('service')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
-                        activeTab === 'service'
-                          ? 'bg-[#2D1B4E] text-white shadow-md'
-                          : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      <Scissors className="w-4 h-4" />
-                      <span className="text-sm font-medium">Services</span>
-                    </button>
+                    {mode !== 'products-only' && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('service')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                          activeTab === 'service'
+                            ? 'bg-[#2D1B4E] text-white shadow-md'
+                            : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Scissors className="w-4 h-4" />
+                        <span className="text-sm font-medium">Services</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setActiveTab('product')}
@@ -1480,34 +1795,75 @@ const BillingModalPOS = ({
                 <div className="grid grid-cols-5 gap-3">
                   {/* Services Tab */}
                   {activeTab === 'service' && services
-                    .filter(service => 
+                    .filter(service =>
                       service?.serviceName?.toLowerCase().includes(serviceSearch.toLowerCase()) ||
                       service?.name?.toLowerCase().includes(serviceSearch.toLowerCase())
                     )
                     .map((service) => {
-                    const isSelected = formData.items.some(item => item.id === service.id && item.type === 'service');
+                    const existingItem = formData.items.find(item => item.id === service.id && item.type === 'service');
+                    const isSelected = !!existingItem;
+                    const quantity = existingItem?.quantity || 1;
+
                     return (
-                      <button
+                      <div
                         key={service.id}
-                        type="button"
-                        onClick={() => handleToggleService(service)}
-                        className={`px-3 py-2.5 rounded-lg border-2 text-left transition-all ${
+                        className={`relative px-3 py-2.5 rounded-lg border-2 text-left transition-all ${
                           isSelected
                             ? 'border-[#2D1B4E] bg-purple-50 shadow-md'
-                            : 'border-gray-300 bg-white hover:border-gray-400'
+                            : 'border-gray-300 bg-white hover:border-gray-400 cursor-pointer'
                         }`}
                       >
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <Scissors className="w-3 h-3 text-blue-600" />
-                          <p className={`font-semibold text-sm ${isSelected ? 'text-[#2D1B4E]' : 'text-gray-900'}`}>
-                            {service.serviceName || service.name || 'Unknown Service'}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isSelected) {
+                              handleToggleService(service);
+                            }
+                          }}
+                          className={`w-full text-left ${isSelected ? 'cursor-default' : ''}`}
+                          disabled={isSelected}
+                        >
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <Scissors className="w-3 h-3 text-blue-600" />
+                            <p className={`font-semibold text-sm ${isSelected ? 'text-[#2D1B4E]' : 'text-gray-900'}`}>
+                              {service.serviceName || service.name || 'Unknown Service'}
+                            </p>
+                          </div>
+                          <p className={`text-base font-bold mb-0.5 ${isSelected ? 'text-purple-700' : 'text-gray-900'}`}>
+                            ₱{service.price}
                           </p>
-                        </div>
-                        <p className={`text-base font-bold mb-0.5 ${isSelected ? 'text-purple-700' : 'text-gray-900'}`}>
-                          ₱{service.price}
-                        </p>
-                        <p className="text-xs text-gray-500">{service.duration || '30'} m</p>
-                      </button>
+                          <p className="text-xs text-gray-500">{service.duration || '30'} m</p>
+                        </button>
+
+                        {isSelected && (mode === 'checkin' || mode === 'billing') && (
+                          <div className="absolute top-1 right-1 flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateServiceQuantity(service.id, Math.max(1, quantity - 1))}
+                              className="w-5 h-5 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center text-xs font-medium"
+                            >
+                              −
+                            </button>
+                            <span className="text-xs font-medium bg-[#2D1B4E] text-white px-2 py-0.5 rounded min-w-[20px] text-center">
+                              {quantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateServiceQuantity(service.id, quantity + 1)}
+                              className="w-5 h-5 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center text-xs font-medium"
+                            >
+                              +
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveService(service.id)}
+                              className="w-5 h-5 bg-red-200 hover:bg-red-300 text-red-700 rounded flex items-center justify-center text-xs"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                   
@@ -1525,7 +1881,7 @@ const BillingModalPOS = ({
                       </div>
                     ) : (
                       availableProducts
-                        .filter(product => 
+                        .filter(product =>
                           product?.name?.toLowerCase().includes(serviceSearch.toLowerCase())
                         )
                         .map((product) => {
@@ -1538,10 +1894,12 @@ const BillingModalPOS = ({
                               key={product.id}
                               type="button"
                               onClick={() => handleToggleProduct(product)}
-                              disabled={isOutOfStock}
+                              disabled={isOutOfStock || loadingProducts}
                               className={`px-3 py-2.5 rounded-lg border-2 text-left transition-all ${
                                 isOutOfStock
                                   ? 'border-red-300 bg-red-50 opacity-60 cursor-not-allowed'
+                                  : loadingProducts
+                                  ? 'border-gray-300 bg-gray-50 opacity-60 cursor-wait'
                                   : isSelected
                                   ? 'border-[#2D1B4E] bg-purple-50 shadow-md'
                                   : 'border-gray-300 bg-white hover:border-gray-400'
@@ -1621,7 +1979,7 @@ const BillingModalPOS = ({
               {/* Scrollable Content */}
                 <div className="space-y-2 flex-1 overflow-y-auto">
                     {formData.items.map((item, index) => (
-                    <div key={index} className="bg-white p-3 rounded border">
+                    <div key={`${item.id}-${index}`} className="bg-white p-3 rounded border">
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex-1">
                           <div className="flex items-center space-x-2">
@@ -1630,57 +1988,122 @@ const BillingModalPOS = ({
                             ) : (
                               <Scissors className="h-3 w-3 text-blue-600" />
                             )}
-                            <h5 className="font-medium text-gray-900 text-sm">{item.name}</h5>
+                            <h5 className="font-medium text-gray-900 text-sm">{item.name || 'Unknown Item'}</h5>
                             {item.type === 'product' && (
                               <span className="text-xs text-gray-500">(Product)</span>
                             )}
                           </div>
-                          <div className="text-sm text-gray-600">
-                            {item.type === 'product' ? (
-                              <>
-                                <span>₱{item.basePrice} x {item.quantity}</span>
-                                <span className="ml-2 font-semibold text-green-600">
-                                  = ₱{item.price}
-                                </span>
-                                {/* Display batch information for FIFO tracking */}
-                                {item.batches && item.batches.length > 0 && (
-                                  <div className="mt-1 text-xs text-gray-500">
-                                    <span className="font-medium">Batch(es): </span>
-                                    {item.batches.map((batch, idx) => {
-                                      const expirationDate = batch.expirationDate 
-                                        ? (batch.expirationDate instanceof Date 
-                                            ? batch.expirationDate 
-                                            : batch.expirationDate.toDate 
-                                            ? batch.expirationDate.toDate() 
-                                            : new Date(batch.expirationDate))
-                                        : null;
-                                      const formattedDate = expirationDate 
-                                        ? formatDate(expirationDate, 'MMM dd, yyyy')
-                                        : 'N/A';
-                                      
-                                      return (
-                                        <div key={idx} className="mt-1">
-                                          <span className="font-medium">{batch.batchNumber}</span>
-                                          <span className="ml-1">({batch.quantity} unit{batch.quantity !== 1 ? 's' : ''})</span>
-                                          {expirationDate && (
-                                            <span className="ml-2 text-orange-600">
-                                              • Expires: {formattedDate}
-                                            </span>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </>
-                            ) : (
+                           <div className="text-sm text-gray-600">
+                             {item.type === 'product' ? (
+                               <>
+                                 <span>₱{item.basePrice} x {item.quantity}</span>
+                                 <span className="ml-2 font-semibold text-green-600">
+                                   = ₱{item.price}
+                                 </span>
+                                 {/* Display all available OTC batches for inventory visibility */}
+                                 {item.allBatches && Array.isArray(item.allBatches) && item.allBatches.length > 0 && (
+                                   <div className="mt-2 space-y-1">
+                                     <div className="text-xs font-medium text-gray-600">Available Stock Batches:</div>
+                                     {/* Sort batches by batch number (FIFO - incremental order) */}
+                                     {[...(item.allBatches || [])].sort((a, b) => {
+                                       // Sort by batch number for FIFO (lower numbers first)
+                                       return a.batchNumber.localeCompare(b.batchNumber);
+                                     }).map((batch, idx) => {
+                                       // Check if this batch is allocated for current sale
+                                       const allocatedBatch = item.batches?.find(b => b.batchId === batch.id);
+                                       const allocatedQuantity = allocatedBatch?.quantity || 0;
+
+                                       // Calculate how many units will be taken from this batch for current quantity
+                                       let willBeAllocated = 0;
+                                       if (item.quantity > 0) {
+                                         let remainingToAllocate = item.quantity;
+                                         // Go through batches in FIFO order (by batch number)
+                                         const sortedBatches = [...(item.allBatches || [])].sort((a, b) => {
+                                           return a.batchNumber.localeCompare(b.batchNumber);
+                                         });
+
+                                         for (const sortedBatch of sortedBatches) {
+                                           if (remainingToAllocate <= 0) break;
+                                           if (sortedBatch.id === batch.id) {
+                                             willBeAllocated = Math.min(remainingToAllocate, batch.realTimeStock || batch.remainingQuantity);
+                                             break;
+                                           }
+                                           remainingToAllocate -= Math.min(remainingToAllocate, sortedBatch.realTimeStock || sortedBatch.remainingQuantity);
+                                         }
+                                       }
+
+                                       return (
+                                         <div key={idx} className={`text-xs p-1.5 rounded border ${
+                                           allocatedQuantity > 0
+                                             ? 'bg-blue-50 border-blue-200'
+                                             : willBeAllocated > 0
+                                             ? 'bg-green-50 border-green-200'
+                                             : 'bg-gray-50 border-gray-200'
+                                         }`}>
+                                           <div className="space-y-1">
+                                             <div className="flex justify-between items-center">
+                                               <div className="flex items-center gap-2">
+                                                 <span className="font-medium text-sm">{batch.batchNumber}</span>
+                                                 {allocatedQuantity > 0 && (
+                                                   <span className="bg-blue-500 text-white text-xs px-1 py-0.5 rounded">
+                                                     {allocatedQuantity}
+                                                   </span>
+                                                 )}
+                                               </div>
+                                               <span className="text-sm font-medium text-gray-700">
+                                                 {batch.realTimeStock || batch.remainingQuantity} units available
+                                               </span>
+                                             </div>
+
+                                             {willBeAllocated > 0 && allocatedQuantity === 0 && (
+                                               <div className="text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded border border-green-200">
+                                                 → {willBeAllocated} unit{willBeAllocated !== 1 ? 's' : ''} will be used (FIFO)
+                                               </div>
+                                             )}
+
+                                             {allocatedQuantity > 0 && (
+                                               <div className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">
+                                                 → {allocatedQuantity} unit{allocatedQuantity !== 1 ? 's' : ''} allocated for this sale
+                                               </div>
+                                             )}
+
+                                             {batch.expirationDate && (
+                                               <div className="text-xs text-orange-600">
+                                                 Expires: {(() => {
+                                                   try {
+                                                     // Handle Firestore timestamp
+                                                     const expDate = batch.expirationDate?.toDate
+                                                       ? batch.expirationDate.toDate()
+                                                       : new Date(batch.expirationDate);
+                                                     return expDate.toLocaleDateString('en-US', {
+                                                       month: 'short',
+                                                       day: '2-digit',
+                                                       year: 'numeric'
+                                                     });
+                                                   } catch (error) {
+                                                     return 'Invalid Date';
+                                                   }
+                                                 })()}
+                                               </div>
+                                             )}
+                                           </div>
+                                         </div>
+                                       );
+                                     })}
+                                   </div>
+                                 )}
+                               </>
+                             ) : (
                               <>
                                 <span className={item.adjustment !== 0 ? 'line-through text-gray-400' : ''}>
-                                  ₱{item.basePrice}
+                                  ₱{item.basePrice} x {item.quantity}
+                                </span>
+                                <span className={`ml-2 font-semibold ${item.adjustment !== 0 ? 'text-green-600' : 'text-green-600'}`}>
+                                  = ₱{item.price * item.quantity}
                                 </span>
                                 {item.adjustment !== 0 && (
-                                  <span className="ml-2 font-semibold text-green-600">
-                                    ₱{item.price}
+                                  <span className="ml-2 text-sm text-blue-600">
+                                    (adjusted)
                                   </span>
                                 )}
                               </>
@@ -1696,10 +2119,51 @@ const BillingModalPOS = ({
                           </button>
                         </div>
 
-                        {/* Quantity Input (for products) */}
+                        {/* Quantity Controls (for services and products in billing mode) */}
+                        {mode === 'billing' && (
+                          <div className="mb-2">
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-xs text-gray-500">Quantity:</label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newQuantity = Math.max(1, (item.quantity || 1) - 1);
+                                  handleUpdateItem(index, 'quantity', newQuantity);
+                                }}
+                                className="w-8 h-8 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center text-sm font-medium"
+                              >
+                                −
+                              </button>
+                              <span className="text-sm font-medium bg-[#2D1B4E] text-white px-3 py-1 rounded min-w-[40px] text-center">
+                                {item.quantity || 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newQuantity = (item.quantity || 1) + 1;
+                                  handleUpdateItem(index, 'quantity', newQuantity);
+                                }}
+                                className="w-8 h-8 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center text-sm font-medium"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Stock Info (for products) */}
                         {item.type === 'product' && (
                           <div className="mb-2">
-                            <label className="text-xs text-gray-500 mb-1 block">Quantity:</label>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-xs text-gray-500">Quantity:</label>
+                              {item.stock !== undefined && (
+                                <span className="text-xs text-gray-500">
+                                  Total Stock: {item.stock}
+                                </span>
+                              )}
+                            </div>
                             <input
                               type="number"
                               min="1"
@@ -2008,12 +2472,17 @@ const BillingModalPOS = ({
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-2">
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-2">
-                          <Star className="h-4 w-4 text-yellow-600 fill-yellow-600" />
-                          <label className="block text-xs font-medium text-gray-700">
-                            Loyalty Points Available: <span className="font-bold text-yellow-700">{clientLoyaltyPoints}</span>
+                          <Star className={`h-4 w-4 ${appliedPromotion ? 'text-gray-400' : 'text-yellow-600 fill-yellow-600'}`} />
+                          <label className={`block text-xs font-medium ${appliedPromotion ? 'text-gray-500' : 'text-gray-700'}`}>
+                            Loyalty Points Available: <span className={`font-bold ${appliedPromotion ? 'text-gray-500' : 'text-yellow-700'}`}>{clientLoyaltyPoints}</span>
+                            {appliedPromotion && (
+                              <span className="ml-2 text-xs text-red-500 font-medium">
+                                Disabled - Promotion Applied
+                              </span>
+                            )}
                           </label>
                         </div>
-                        <span className="text-xs text-gray-500">1 pt = ₱1</span>
+                        <span className={`text-xs ${appliedPromotion ? 'text-gray-400' : 'text-gray-500'}`}>1 pt = ₱1</span>
                       </div>
                       <input
                         type="number"
@@ -2022,54 +2491,78 @@ const BillingModalPOS = ({
                         step="1"
                         value={formData.loyaltyPointsUsed || ''}
                         onChange={(e) => {
+                          if (appliedPromotion) {
+                            toast.error('Cannot redeem loyalty points when a promotion code is active');
+                            return;
+                          }
                           const points = parseInt(e.target.value) || 0;
                           if (points <= clientLoyaltyPoints) {
                             setFormData(prev => ({ ...prev, loyaltyPointsUsed: points.toString() }));
                           }
                         }}
-                        className="w-full px-2 py-1 text-sm border border-yellow-300 rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent"
-                        placeholder="Enter points to redeem"
+                        disabled={!!appliedPromotion}
+                        className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent ${
+                          appliedPromotion
+                            ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+                            : 'border-yellow-300'
+                        }`}
+                        placeholder={appliedPromotion ? "Disabled - Promotion Applied" : "Enter points to redeem"}
                       />
                       {formData.loyaltyPointsUsed && parseInt(formData.loyaltyPointsUsed) > 0 && (
                         <p className="text-xs text-green-600 mt-1">
                           Discount: ₱{parseInt(formData.loyaltyPointsUsed) || 0}
                         </p>
                       )}
+                      {appliedPromotion && (
+                        <p className="text-xs text-red-500 mt-1">
+                          Remove promotion code to redeem loyalty points
+                        </p>
+                      )}
                     </div>
                   )}
 
-                  {/* Discount and Tax - Always editable */}
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* Discount - Disabled when promotion applied */}
+                  <div className="grid grid-cols-1 gap-2">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Discount (%)</label>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Discount (%)
+                        {appliedPromotion && (
+                          <span className="ml-2 text-xs text-red-500 font-medium">
+                            Disabled - Promotion Applied
+                          </span>
+                        )}
+                      </label>
                       <input
                         type="number"
                         min="0"
                         max="100"
                         step="0.1"
                         value={formData.discount}
-                        onChange={(e) => setFormData(prev => ({ ...prev, discount: e.target.value, discountType: 'percentage' }))}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
-                        placeholder="0"
+                        onChange={(e) => {
+                          if (appliedPromotion) {
+                            toast.error('Cannot apply additional discounts when a promotion code is active');
+                            return;
+                          }
+                          setFormData(prev => ({ ...prev, discount: e.target.value, discountType: 'percentage' }));
+                        }}
+                        disabled={!!appliedPromotion}
+                        className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent ${
+                          appliedPromotion
+                            ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+                            : 'border-gray-300'
+                        }`}
+                        placeholder={appliedPromotion ? "Disabled - Promotion Applied" : "0"}
                       />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Tax (₱)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={formData.tax}
-                        onChange={(e) => setFormData(prev => ({ ...prev, tax: e.target.value }))}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
-                        placeholder="0"
-                      />
+                      {appliedPromotion && (
+                        <p className="text-xs text-red-500 mt-1">
+                          Remove promotion code to apply additional discounts
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                {/* Payment Method - Only show in billing mode */}
-                {mode === 'billing' && (
+                {/* Payment Method - Show in billing mode and products-only mode */}
+                {(mode === 'billing' || mode === 'products-only') && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Payment Method *
@@ -2224,12 +2717,6 @@ const BillingModalPOS = ({
                       <span>-₱{totals.discount.toFixed(2)}</span>
                       </div>
                     )}
-                  {totals.tax > 0 && (
-                      <div className="flex justify-between">
-                      <span>Tax:</span>
-                      <span>₱{totals.tax.toFixed(2)}</span>
-                      </div>
-                    )}
                   <hr />
                   <div className="flex justify-between font-bold text-base">
                     <span>TOTAL:</span>
@@ -2250,9 +2737,9 @@ const BillingModalPOS = ({
                 <button
                   type="submit"
                   disabled={
-                    loading || 
-                    formData.items.length === 0 || 
-                    (mode === 'billing' && formData.paymentMethod === PAYMENT_METHODS.CASH && 
+                    loading ||
+                    formData.items.length === 0 ||
+                    ((mode === 'billing' || mode === 'products-only') && formData.paymentMethod === PAYMENT_METHODS.CASH &&
                      (!formData.amountReceived || parseFloat(formData.amountReceived) < totals.total))
                   }
                     className="flex-1 bg-[#2D1B4E] hover:bg-[#3d2a5f] text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 px-4 py-2 text-sm"
@@ -2264,8 +2751,9 @@ const BillingModalPOS = ({
                     </>
                   ) : (
                       <span>
-                        {mode === 'start-service' ? 'Start Service' : 
+                        {mode === 'start-service' ? 'Start Service' :
                          mode === 'checkin' ? (appointment?.isWalkIn ? 'Add to Queue' : 'Confirm Check-in') :
+                         mode === 'products-only' ? 'Complete Transaction' :
                          'Process Payment'}
                       </span>
                   )}

@@ -328,11 +328,42 @@ export const updateUser = async (userId, updates, currentUser) => {
             }
           }
           
+          // Convert changes object to array of formatted strings
+          const changesArray = profileChanges.map(field => {
+            const change = changesWithBranchNames[field];
+            if (!change) return '';
+            
+            const fieldLabels = {
+              firstName: 'First Name',
+              middleName: 'Middle Name',
+              lastName: 'Last Name',
+              phone: 'Phone',
+              branchId: 'Branch',
+              roles: 'Roles',
+              isActive: 'Status',
+              photoURL: 'Profile Photo'
+            };
+            
+            const fieldLabel = fieldLabels[field] || field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
+            const fromValue = change.from !== null && change.from !== undefined 
+              ? (field === 'isActive' ? (change.from ? 'Active' : 'Inactive')
+                 : field === 'roles' ? (Array.isArray(change.from) ? change.from.join(', ') : change.from)
+                 : String(change.from))
+              : 'Not set';
+            const toValue = change.to !== null && change.to !== undefined
+              ? (field === 'isActive' ? (change.to ? 'Active' : 'Inactive')
+                 : field === 'roles' ? (Array.isArray(change.to) ? change.to.join(', ') : change.to)
+                 : String(change.to))
+              : 'Not set';
+            
+            return `${fieldLabel}: ${fromValue} → ${toValue}`;
+          }).filter(change => change !== '');
+          
           await sendProfileUpdateEmail({
             email: currentData.email,
             firstName: updates.firstName || currentData.firstName,
             lastName: updates.lastName || currentData.lastName,
-            changes: changesWithBranchNames,
+            changes: changesArray,
             changedFields: profileChanges
           });
         } catch (emailError) {

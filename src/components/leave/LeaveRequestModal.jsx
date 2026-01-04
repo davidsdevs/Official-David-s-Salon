@@ -4,10 +4,11 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Calendar, FileText, User } from 'lucide-react';
+import { X, Calendar, FileText, User, AlertTriangle, Loader2 } from 'lucide-react';
 import { LEAVE_TYPES } from '../../services/leaveManagementService';
 import { getFullName } from '../../utils/helpers';
 import { formatDate } from '../../utils/helpers';
+import { getAppointmentsByStylist, APPOINTMENT_STATUS } from '../../services/appointmentService';
 
 const LeaveRequestModal = ({ 
   isOpen, 
@@ -26,6 +27,9 @@ const LeaveRequestModal = ({
     reason: '',
   });
   const [errors, setErrors] = useState({});
+  const [conflicts, setConflicts] = useState([]);
+  const [conflictLoading, setConflictLoading] = useState(false);
+  const [conflictError, setConflictError] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
@@ -37,6 +41,8 @@ const LeaveRequestModal = ({
         reason: '',
       });
       setErrors({});
+      setConflicts([]);
+      setConflictError('');
     } else if (editRequest) {
       // Populate form with existing request data
       const startDate = editRequest.startDate instanceof Date 
@@ -59,6 +65,44 @@ const LeaveRequestModal = ({
       setFormData(prev => ({ ...prev, employeeId: currentUserId }));
     }
   }, [isOpen, isForStaff, currentUserId, editRequest]);
+
+  useEffect(() => {
+    const fetchConflicts = async () => {
+      if (!formData.employeeId || !formData.startDate || !formData.endDate) {
+        setConflicts([]);
+        setConflictError('');
+        return;
+      }
+
+      try {
+        setConflictLoading(true);
+        setConflictError('');
+        const start = new Date(formData.startDate);
+        const end = new Date(formData.endDate);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+
+        const appointments = await getAppointmentsByStylist(formData.employeeId);
+        const activeConflicts = appointments.filter((apt) => {
+          if (!apt.appointmentDate) return false;
+          const aptDate = apt.appointmentDate instanceof Date ? apt.appointmentDate : new Date(apt.appointmentDate);
+          const status = apt.status;
+          const isActiveStatus = status !== APPOINTMENT_STATUS.CANCELLED && status !== APPOINTMENT_STATUS.COMPLETED && status !== APPOINTMENT_STATUS.NO_SHOW;
+          return isActiveStatus && aptDate >= start && aptDate <= end;
+        });
+
+        setConflicts(activeConflicts.slice(0, 10)); // show up to 10 inline
+      } catch (err) {
+        console.error('Error checking appointment conflicts:', err);
+        setConflictError('Could not check appointments for this staff. Please try again.');
+        setConflicts([]);
+      } finally {
+        setConflictLoading(false);
+      }
+    };
+
+    fetchConflicts();
+  }, [formData.employeeId, formData.startDate, formData.endDate]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -203,6 +247,48 @@ const LeaveRequestModal = ({
             />
             {errors.endDate && (
               <p className="mt-1 text-sm text-red-600">{errors.endDate}</p>
+            )}
+          </div>
+
+          {/* Inline appointment conflicts */}
+          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+            <div className="flex items-center gap-2 mb-2">
+              {conflictLoading ? (
+                <Loader2 className="w-4 h-4 text-primary-600 animate-spin" />
+              ) : (
+                <AlertTriangle className={`w-4 h-4 ${conflicts.length > 0 ? 'text-red-600' : 'text-green-600'}`} />
+              )}
+              <p className="text-sm font-semibold text-gray-900">
+                Appointment Conflicts
+              </p>
+            </div>
+            {!formData.employeeId || !formData.startDate || !formData.endDate ? (
+              <p className="text-sm text-gray-600">Select staff and date range to check for conflicts.</p>
+            ) : conflictLoading ? (
+              <p className="text-sm text-gray-600">Checking appointments...</p>
+            ) : conflictError ? (
+              <p className="text-sm text-red-600">{conflictError}</p>
+            ) : conflicts.length === 0 ? (
+              <p className="text-sm text-green-700">No active appointments in this date range.</p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-red-700 font-medium">
+                  {conflicts.length} active appointment{conflicts.length > 1 ? 's' : ''} in this date range:
+                </p>
+                <ul className="text-sm text-gray-800 list-disc list-inside space-y-1">
+                  {conflicts.map((apt) => {
+                    const d = apt.appointmentDate instanceof Date ? apt.appointmentDate : new Date(apt.appointmentDate);
+                    return (
+                      <li key={apt.id}>
+                        {d.toLocaleDateString()} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — {apt.clientName || 'Client'} ({apt.status})
+                      </li>
+                    );
+                  })}
+                </ul>
+                {conflicts.length >= 10 && (
+                  <p className="text-xs text-gray-600">Showing first 10 conflicts.</p>
+                )}
+              </div>
             )}
           </div>
 

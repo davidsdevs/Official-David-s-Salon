@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Banknote, Calendar, Filter, Receipt, Eye, AlertCircle, Printer, X, UserPlus, Bell } from 'lucide-react';
+import { Search, Banknote, Calendar, Filter, Receipt, Eye, AlertCircle, Printer, X, UserPlus, Bell, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getBillsByBranch,
@@ -32,6 +32,39 @@ import toast from 'react-hot-toast';
 const ReceptionistBilling = () => {
   const navigate = useNavigate();
   const { currentUser, userBranch, userBranchData, userData } = useAuth();
+  const printRef = useRef();
+
+  const handlePrintReport = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: `Billing Report - ${new Date().toLocaleDateString()}`,
+    pageStyle: `
+      @page {
+        size: A4;
+        margin: 20mm;
+      }
+      @media print {
+        body {
+          font-size: 12px;
+        }
+        .no-print {
+          display: none !important;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        th, td {
+          border: 1px solid #ddd;
+          padding: 8px;
+          text-align: left;
+        }
+        th {
+          background-color: #f5f5f5;
+          font-weight: bold;
+        }
+      }
+    `
+  });
   const [bills, setBills] = useState([]);
   const [completedAppointments, setCompletedAppointments] = useState([]);
   const [filteredBills, setFilteredBills] = useState([]);
@@ -40,6 +73,7 @@ const ReceptionistBilling = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState('all');
+  const [saleTypeFilter, setSaleTypeFilter] = useState('all'); // 'all', 'service', 'product', 'mixed'
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
   const [minAmountFilter, setMinAmountFilter] = useState('');
@@ -48,6 +82,30 @@ const ReceptionistBilling = () => {
   const [dateFilterType, setDateFilterType] = useState('today'); // 'today', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth', 'thisYear', 'custom', 'monthYear'
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [sortField, setSortField] = useState('createdAt');
+  const [sortDirection, setSortDirection] = useState('desc'); // Default to newest first
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25); // Default to 25 rows for big data
+
+  // Sort icon helper
+  const getSortIcon = (field) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 text-gray-400" />;
+    }
+    return sortDirection === 'asc'
+      ? <ArrowUp className="w-3 h-3 text-gray-600" />
+      : <ArrowDown className="w-3 h-3 text-gray-600" />;
+  };
+
+  // Handle column sorting
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Helper function to get date range based on preset type
   const getDateRange = (type, month = null, year = null) => {
@@ -144,6 +202,7 @@ const ReceptionistBilling = () => {
     setEndDateFilter(range.endDate);
   };
   const [showBillingModal, setShowBillingModal] = useState(false);
+  const [showPOSModal, setShowPOSModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [dailySummary, setDailySummary] = useState(null);
   const [selectedBill, setSelectedBill] = useState(null);
@@ -178,7 +237,7 @@ const ReceptionistBilling = () => {
 
   useEffect(() => {
     applyFilters();
-  }, [bills, searchTerm, statusFilter, paymentMethodFilter, startDateFilter, endDateFilter, minAmountFilter, maxAmountFilter]);
+  }, [bills, searchTerm, statusFilter, paymentMethodFilter, saleTypeFilter, startDateFilter, endDateFilter, minAmountFilter, maxAmountFilter, sortField, sortDirection, currentPage, pageSize]);
 
   // Auto-minimize button after showing label initially
   useEffect(() => {
@@ -267,6 +326,11 @@ const ReceptionistBilling = () => {
       filtered = filtered.filter(bill => bill.paymentMethod === paymentMethodFilter);
     }
 
+    // Sale type filter
+    if (saleTypeFilter !== 'all') {
+      filtered = filtered.filter(bill => bill.salesType === saleTypeFilter);
+    }
+
     // Date range filter
     if (startDateFilter) {
       const filterDate = new Date(startDateFilter);
@@ -302,8 +366,93 @@ const ReceptionistBilling = () => {
       });
     }
 
-    setFilteredBills(filtered);
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aValue, bValue;
+      switch (sortField) {
+        case 'createdAt':
+          aValue = a.createdAt ? new Date(a.createdAt.toDate ? a.createdAt.toDate() : a.createdAt).getTime() : 0;
+          bValue = b.createdAt ? new Date(b.createdAt.toDate ? b.createdAt.toDate() : b.createdAt).getTime() : 0;
+          break;
+        case 'clientName':
+          aValue = a.clientName?.toLowerCase() || '';
+          bValue = b.clientName?.toLowerCase() || '';
+          break;
+        case 'total':
+          aValue = a.total || 0;
+          bValue = b.total || 0;
+          break;
+        case 'status':
+          aValue = a.status || '';
+          bValue = b.status || '';
+          break;
+        default:
+          return 0;
+      }
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    // Apply pagination
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedBills = filtered.slice(startIndex, endIndex);
+
+    setFilteredBills(paginatedBills);
   };
+
+  // Calculate total pages for pagination
+  const totalPages = Math.ceil(bills.filter(bill => {
+    // Apply the same filters to calculate total count
+    let matches = true;
+
+    if (searchTerm) {
+      matches = matches && (
+        bill.clientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        bill.clientPhone?.includes(searchTerm) ||
+        bill.id?.includes(searchTerm) ||
+        bill.receiptNumber?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    if (statusFilter !== 'all') {
+      matches = matches && bill.status === statusFilter;
+    }
+
+    if (paymentMethodFilter !== 'all') {
+      matches = matches && bill.paymentMethod === paymentMethodFilter;
+    }
+
+    if (saleTypeFilter !== 'all') {
+      matches = matches && bill.salesType === saleTypeFilter;
+    }
+
+    if (startDateFilter) {
+      const filterDate = new Date(startDateFilter);
+      filterDate.setHours(0, 0, 0, 0);
+      const billDate = new Date(bill.createdAt);
+      billDate.setHours(0, 0, 0, 0);
+      matches = matches && billDate >= filterDate;
+    }
+
+    if (endDateFilter) {
+      const filterDate = new Date(endDateFilter);
+      filterDate.setHours(23, 59, 59, 999);
+      const billDate = new Date(bill.createdAt);
+      matches = matches && billDate <= filterDate;
+    }
+
+    if (minAmountFilter) {
+      matches = matches && (bill.total || 0) >= parseFloat(minAmountFilter);
+    }
+
+    if (maxAmountFilter) {
+      matches = matches && (bill.total || 0) <= parseFloat(maxAmountFilter);
+    }
+
+    return matches;
+  }).length / pageSize);
 
   const handleProcessPayment = (appointment) => {
     setSelectedAppointment(appointment);
@@ -313,6 +462,11 @@ const ReceptionistBilling = () => {
   const handleWalkInBilling = () => {
     // Redirect to arrivals queue where walk-ins are managed and checked in
     navigate(ROUTES.RECEPTIONIST_ARRIVALS);
+  };
+
+  const handlePOSProducts = () => {
+    // Open POS modal for direct product sales (no services)
+    setShowPOSModal(true);
   };
 
   const handleSubmitBill = async (billData) => {
@@ -386,6 +540,13 @@ const ReceptionistBilling = () => {
           <p className="text-gray-600">View transactions and billing history</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handlePOSProducts}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Banknote className="w-5 h-5" />
+            Quick POS (Products Only)
+          </button>
           <button
             onClick={handleWalkInBilling}
             className="flex items-center gap-2 px-4 py-2 border border-green-600 text-green-700 rounded-lg hover:bg-green-50 transition-colors"
@@ -483,11 +644,21 @@ const ReceptionistBilling = () => {
             title="Filter"
           >
             <Filter className="w-5 h-5 text-gray-600" />
-            {(statusFilter !== 'all' || paymentMethodFilter !== 'all' || startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter) && (
+            {(statusFilter !== 'all' || paymentMethodFilter !== 'all' || saleTypeFilter !== 'all' || startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter) && (
               <span className="bg-primary-600 text-white text-xs px-2 py-0.5 rounded-full">
-                {(statusFilter !== 'all' ? 1 : 0) + (paymentMethodFilter !== 'all' ? 1 : 0) + (startDateFilter || endDateFilter ? 1 : 0) + (minAmountFilter ? 1 : 0) + (maxAmountFilter ? 1 : 0)}
+                {(statusFilter !== 'all' ? 1 : 0) + (paymentMethodFilter !== 'all' ? 1 : 0) + (saleTypeFilter !== 'all' ? 1 : 0) + (startDateFilter || endDateFilter ? 1 : 0) + (minAmountFilter ? 1 : 0) + (maxAmountFilter ? 1 : 0)}
               </span>
             )}
+          </button>
+
+          {/* Print Report Button */}
+          <button
+            onClick={() => handlePrintReport()}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Print Report"
+          >
+            <Printer className="w-5 h-5 text-gray-600" />
+            Print Report
           </button>
         </div>
       </div>
@@ -539,6 +710,23 @@ const ReceptionistBilling = () => {
                   <option value={PAYMENT_METHODS.CARD}>Card</option>
                   <option value={PAYMENT_METHODS.VOUCHER}>E-Wallet</option>
                   <option value={PAYMENT_METHODS.GIFT_CARD}>Gift Card</option>
+                </select>
+              </div>
+
+              {/* Sale Type Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Sale Type
+                </label>
+                <select
+                  value={saleTypeFilter}
+                  onChange={(e) => setSaleTypeFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Types</option>
+                  <option value="service">Services Only</option>
+                  <option value="product">Products Only</option>
+                  <option value="mixed">Mixed (Services + Products)</option>
                 </select>
               </div>
 
@@ -795,47 +983,79 @@ const ReceptionistBilling = () => {
       )}
 
       {/* Bills Table */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         {filteredBills.length === 0 ? (
-          <div className="text-center py-12">
-            <Receipt className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-500">No bills found</p>
+          <div className="text-center py-16">
+            <Receipt className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 text-lg">No bills found</p>
+            <p className="text-gray-400 text-sm mt-1">Try adjusting your filters or create a new transaction</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+          <table className="w-full">
+              <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Transaction ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Client</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Services</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Payment</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Amount</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transaction ID</th>
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('createdAt')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Date & Time
+                      {getSortIcon('createdAt')}
+                    </div>
+                  </th>
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('clientName')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Client
+                      {getSortIcon('clientName')}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Services</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payment</th>
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('total')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Amount
+                      {getSortIcon('total')}
+                    </div>
+                  </th>
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('status')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Status
+                      {getSortIcon('status')}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y">
                 {filteredBills.map((bill) => (
-                  <tr key={bill.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <p className="text-sm font-medium text-gray-900">{bill.id}</p>
+                  <tr key={bill.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <p className="text-sm font-medium text-gray-900">{bill.id?.slice(-8).toUpperCase()}</p>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <p className="text-sm text-gray-900">{bill.createdAt?.toLocaleDateString()}</p>
                       <p className="text-xs text-gray-500">{bill.createdAt?.toLocaleTimeString()}</p>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-4">
                       <p className="text-sm font-medium text-gray-900">{bill.clientName}</p>
                       <p className="text-xs text-gray-500">{bill.clientPhone}</p>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-4">
                       {(() => {
                         const services = bill.items?.filter(item => item.type === 'service' || !item.type).length || 0;
                         const products = bill.items?.filter(item => item.type === 'product').length || 0;
                         const totalItems = bill.items?.length || 0;
-                        
+
                         if (services > 0 && products > 0) {
                           return (
                             <p className="text-sm text-gray-600">
@@ -857,21 +1077,21 @@ const ReceptionistBilling = () => {
                         }
                       })()}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-4">
                       <p className="text-sm text-gray-600">{getPaymentMethodLabel(bill.paymentMethod)}</p>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <p className="text-sm font-semibold text-gray-900">₱{bill.total?.toFixed(2)}</p>
                       {bill.discount > 0 && (
                         <p className="text-xs text-green-600">-₱{bill.discount?.toFixed(2)} discount</p>
                       )}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 text-xs rounded-full ${getStatusBadge(bill.status)}`}>
                         {bill.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-right">
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
                       <button
                         onClick={() => handleViewBill(bill)}
                         className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
@@ -884,8 +1104,139 @@ const ReceptionistBilling = () => {
                 ))}
               </tbody>
             </table>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between bg-white px-6 py-3 border-t border-gray-200">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-700">Show</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span className="text-sm text-gray-700">per page</span>
+              </div>
+              <div className="text-sm text-gray-700">
+                Showing {Math.min((currentPage - 1) * pageSize + 1, bills.length)} to {Math.min(currentPage * pageSize, bills.length)} of {bills.length} bills
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+
+              <span className="text-sm text-gray-700">
+                Page {currentPage} of {totalPages}
+              </span>
+
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
+      </div>
+
+      {/* Printable Report (Hidden) */}
+      <div ref={printRef} className="hidden print:block print:p-8">
+        <div className="text-center mb-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Billing Report</h1>
+          <p className="text-gray-600">Generated on {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString()}</p>
+          {userBranchData && <p className="text-gray-600">{userBranchData.name} - {userBranchData.address}</p>}
+        </div>
+
+        {/* Applied Filters Summary */}
+        {(searchTerm || statusFilter !== 'all' || paymentMethodFilter !== 'all' || saleTypeFilter !== 'all' || startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter) && (
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <h3 className="font-semibold text-gray-900 mb-2">Applied Filters:</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+              {searchTerm && <div><strong>Search:</strong> {searchTerm}</div>}
+              {statusFilter !== 'all' && <div><strong>Status:</strong> {statusFilter}</div>}
+              {paymentMethodFilter !== 'all' && <div><strong>Payment:</strong> {getPaymentMethodLabel(paymentMethodFilter)}</div>}
+              {saleTypeFilter !== 'all' && <div><strong>Type:</strong> {saleTypeFilter === 'service' ? 'Services Only' : saleTypeFilter === 'product' ? 'Products Only' : 'Mixed'}</div>}
+              {startDateFilter && <div><strong>From:</strong> {new Date(startDateFilter).toLocaleDateString()}</div>}
+              {endDateFilter && <div><strong>To:</strong> {new Date(endDateFilter).toLocaleDateString()}</div>}
+              {minAmountFilter && <div><strong>Min Amount:</strong> ₱{minAmountFilter}</div>}
+              {maxAmountFilter && <div><strong>Max Amount:</strong> ₱{maxAmountFilter}</div>}
+            </div>
+          </div>
+        )}
+
+        <table className="w-full border-collapse border border-gray-300 text-sm">
+          <thead>
+            <tr className="bg-gray-100">
+              <th className="border border-gray-300 px-4 py-2 text-left">Transaction ID</th>
+              <th className="border border-gray-300 px-4 py-2 text-left">Date & Time</th>
+              <th className="border border-gray-300 px-4 py-2 text-left">Client</th>
+              <th className="border border-gray-300 px-4 py-2 text-left">Type</th>
+              <th className="border border-gray-300 px-4 py-2 text-left">Payment</th>
+              <th className="border border-gray-300 px-4 py-2 text-right">Amount</th>
+              <th className="border border-gray-300 px-4 py-2 text-left">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredBills.map((bill) => (
+              <tr key={bill.id}>
+                <td className="border border-gray-300 px-4 py-2">{bill.id?.slice(-8).toUpperCase()}</td>
+                <td className="border border-gray-300 px-4 py-2">
+                  {bill.createdAt?.toLocaleDateString()} {bill.createdAt?.toLocaleTimeString()}
+                </td>
+                <td className="border border-gray-300 px-4 py-2">
+                  {bill.clientName}
+                  {bill.clientPhone && <br />}
+                  <span className="text-xs text-gray-600">{bill.clientPhone}</span>
+                </td>
+                <td className="border border-gray-300 px-4 py-2">
+                  {(() => {
+                    const services = bill.items?.filter(item => item.type === 'service' || !item.type).length || 0;
+                    const products = bill.items?.filter(item => item.type === 'product').length || 0;
+
+                    if (services > 0 && products > 0) return 'Mixed';
+                    if (products > 0) return 'Products';
+                    return 'Services';
+                  })()}
+                </td>
+                <td className="border border-gray-300 px-4 py-2">{getPaymentMethodLabel(bill.paymentMethod)}</td>
+                <td className="border border-gray-300 px-4 py-2 text-right">₱{bill.total?.toFixed(2)}</td>
+                <td className="border border-gray-300 px-4 py-2">{bill.status}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-gray-100 font-semibold">
+              <td colSpan="5" className="border border-gray-300 px-4 py-2 text-right">Total:</td>
+              <td className="border border-gray-300 px-4 py-2 text-right">
+                ₱{filteredBills.reduce((sum, bill) => sum + (bill.total || 0), 0).toFixed(2)}
+              </td>
+              <td className="border border-gray-300 px-4 py-2"></td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div className="mt-6 text-center text-sm text-gray-600">
+          <p>Report generated by {currentUser?.email || 'System'}</p>
+          <p>Total records: {filteredBills.length}</p>
+        </div>
       </div>
 
       {/* Billing Modal - POS Style */}
@@ -902,6 +1253,19 @@ const ReceptionistBilling = () => {
         stylists={stylists}
         clients={clients}
         serviceChargeRate={SERVICE_CHARGE_RATE}
+      />
+
+      {/* Quick POS Modal - Products Only */}
+      <BillingModalPOS
+        isOpen={showPOSModal}
+        appointment={null} // No appointment for direct product sales
+        onClose={() => setShowPOSModal(false)}
+        onSubmit={handleSubmitBill}
+        loading={processing}
+        services={[]} // Empty services array for products-only mode
+        stylists={[]} // Empty stylists array for products-only mode
+        clients={clients}
+        mode="products-only" // Special mode for direct product sales
       />
 
 

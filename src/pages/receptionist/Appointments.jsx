@@ -174,6 +174,11 @@ const ReceptionistAppointments = () => {
   const [stats, setStats] = useState(null);
   const [showCreateConfirmModal, setShowCreateConfirmModal] = useState(false);
   const [pendingAppointmentData, setPendingAppointmentData] = useState(null);
+  const [isRescheduling, setIsRescheduling] = useState(false);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10); // Show 10 appointments per page
   
   // Data for form
   const [services, setServices] = useState([]);
@@ -203,6 +208,28 @@ const ReceptionistAppointments = () => {
   const fetchAppointments = async () => {
     try {
       setLoading(true);
+
+      // Auto-cancel eligible appointments (only run occasionally to avoid heavy reads)
+      const lastAutoCancelKey = `lastAutoCancel_${userBranch}`;
+      const lastRun = localStorage.getItem(lastAutoCancelKey);
+      const now = Date.now();
+      const ONE_HOUR = 60 * 60 * 1000; // Only run every hour
+
+      if (!lastRun || (now - parseInt(lastRun)) > ONE_HOUR) {
+        try {
+          const { autoCancelAppointments } = await import('../../services/appointmentService');
+          const cancelledAppointments = await autoCancelAppointments(userBranch);
+          if (cancelledAppointments.length > 0) {
+            console.log(`🗑️ Auto-cancelled ${cancelledAppointments.length} appointments`);
+            // Could show a toast notification here if needed
+          }
+          localStorage.setItem(lastAutoCancelKey, now.toString());
+        } catch (error) {
+          console.error('Error running auto-cancel:', error);
+          // Continue even if auto-cancel fails
+        }
+      }
+
       const data = await getAppointmentsByBranch(userBranch);
       
       // Fetch arrivals to check which appointments are already checked in
@@ -431,6 +458,7 @@ const ReceptionistAppointments = () => {
     return filtered;
   }, [appointments, searchTerm, filters]);
 
+
   // Memoized counts for each status tab
   const statusCounts = useMemo(() => {
     return {
@@ -454,7 +482,7 @@ const ReceptionistAppointments = () => {
         'cancelled': APPOINTMENT_STATUS.CANCELLED,
         'no-show': APPOINTMENT_STATUS.NO_SHOW
       };
-      
+
       const statusToFilter = statusMap[activeTab];
       if (statusToFilter) {
         filtered = filtered.filter(apt => apt.status === statusToFilter);
@@ -464,11 +492,15 @@ const ReceptionistAppointments = () => {
     // Sort
     filtered.sort((a, b) => {
       let aValue, bValue;
-      
+
       switch (sortField) {
         case 'appointmentDate':
           aValue = new Date(a.appointmentDate).getTime();
           bValue = new Date(b.appointmentDate).getTime();
+          break;
+        case 'createdAt':
+          aValue = a.createdAt ? new Date(a.createdAt.toDate ? a.createdAt.toDate() : a.createdAt).getTime() : 0;
+          bValue = b.createdAt ? new Date(b.createdAt.toDate ? b.createdAt.toDate() : b.createdAt).getTime() : 0;
           break;
         case 'clientName':
           aValue = a.clientName?.toLowerCase() || '';
@@ -481,14 +513,27 @@ const ReceptionistAppointments = () => {
         default:
           return 0;
       }
-      
+
       if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
       if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
       return 0;
     });
 
+    // Reset to first page when filters change
+    setCurrentPage(1);
+
     setFilteredAppointments(filtered);
   };
+
+  // Memoized paginated appointments for display
+  const paginatedAppointments = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return filteredAppointments.slice(startIndex, endIndex);
+  }, [filteredAppointments, currentPage, pageSize]);
+
+  // Calculate total pages
+  const totalPages = Math.ceil(filteredAppointments.length / pageSize);
 
   // useEffect hooks - must come after useMemo declarations
   useEffect(() => {
@@ -561,7 +606,14 @@ const ReceptionistAppointments = () => {
   };
 
   const handleEditAppointment = (appointment) => {
+    // Prevent editing cancelled appointments
+    if (appointment.status === APPOINTMENT_STATUS.CANCELLED) {
+      toast.error('Cannot edit cancelled appointments');
+      return;
+    }
+
     setSelectedAppointment(appointment);
+    setIsRescheduling(false); // Regular editing
     setShowModal(true);
   };
 
@@ -574,6 +626,7 @@ const ReceptionistAppointments = () => {
     }
 
     setSelectedAppointment(appointment);
+    setIsRescheduling(true); // This is rescheduling
     setShowModal(true);
   };
 
@@ -856,6 +909,19 @@ const ReceptionistAppointments = () => {
   };
 
   // Generate time slots for timeline view (8 AM to 8 PM, 30-minute intervals)
+  // Format status for user-friendly display in reports
+  const formatStatusForDisplay = (status) => {
+    const statusMap = {
+      'pending': 'Pending',
+      'confirmed': 'Confirmed',
+      'in_service': 'In Service',
+      'completed': 'Completed',
+      'cancelled': 'Cancelled',
+      'no_show': 'No Show'
+    };
+    return statusMap[status] || status || 'Unknown';
+  };
+
   const generateTimeSlots = () => {
     const slots = [];
     for (let hour = 8; hour <= 20; hour++) {
@@ -991,7 +1057,7 @@ const ReceptionistAppointments = () => {
         </button>
         <button
           onClick={handlePrint}
-          disabled={filteredAppointments.length === 0}
+          disabled={paginatedAppointments.length === 0}
           className="px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Printer className="w-5 h-5" />
@@ -1095,9 +1161,9 @@ const ReceptionistAppointments = () => {
           </div>
         ) : (
           <table className="w-full">
-            <thead className="bg-gray-50 border-b">
+              <thead className="bg-gray-50 border-b">
               <tr>
-                <th 
+                <th
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
                   onClick={() => handleSort('appointmentDate')}
                 >
@@ -1106,7 +1172,16 @@ const ReceptionistAppointments = () => {
                     {getSortIcon('appointmentDate')}
                   </div>
                 </th>
-                <th 
+                <th
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('createdAt')}
+                >
+                  <div className="flex items-center gap-2">
+                    Request Time
+                    {getSortIcon('createdAt')}
+                  </div>
+                </th>
+                <th
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
                   onClick={() => handleSort('clientName')}
                 >
@@ -1115,7 +1190,7 @@ const ReceptionistAppointments = () => {
                     {getSortIcon('clientName')}
                   </div>
                 </th>
-                <th 
+                <th
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
                   onClick={() => handleSort('serviceName')}
                 >
@@ -1128,35 +1203,49 @@ const ReceptionistAppointments = () => {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filteredAppointments.map((apt) => {
+              {paginatedAppointments.map((apt) => {
                 const aptDate = new Date(apt.appointmentDate);
                 const timeStr = aptDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                 const dateStr = aptDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                 
-                return (
-                  <tr 
-                    key={apt.id} 
-                    className={`hover:bg-gray-50 transition-all duration-300 ${
-                      highlightedAppointment === apt.id 
-                        ? 'bg-primary-50 border-l-4 border-l-primary-600 shadow-lg ring-2 ring-primary-200' 
-                        : ''
-                    }`}
-                  >
-                    <td 
-                      className="px-6 py-3 cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleViewAppointment(apt)}
+                  // Calculate request time
+                  const requestDate = apt.createdAt ? new Date(apt.createdAt) : null;
+                  const requestTimeStr = requestDate ? requestDate.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                  }) : 'N/A';
+
+
+                  return (
+                    <tr
+                      key={apt.id}
+                      className={`hover:bg-gray-50 transition-all duration-300 ${
+                        highlightedAppointment === apt.id
+                          ? 'bg-primary-50 border-l-4 border-l-primary-600 shadow-lg ring-2 ring-primary-200'
+                          : ''
+                      }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-gray-400" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{dateStr}</div>
-                          <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <Clock className="w-3 h-3" />
-                            {timeStr}
+                      <td
+                        className="px-6 py-3 cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleViewAppointment(apt)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-gray-400" />
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{dateStr}</div>
+                            <div className="flex items-center gap-1 text-xs text-gray-500">
+                              <Clock className="w-3 h-3" />
+                              {timeStr}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-600">
+                        {requestTimeStr}
+                      </td>
                     <td 
                       className="px-6 py-3 cursor-pointer hover:bg-gray-100"
                       onClick={() => handleViewAppointment(apt)}
@@ -1214,7 +1303,7 @@ const ReceptionistAppointments = () => {
                             {processingStatus === apt.id ? 'Confirming...' : 'Confirm'}
                           </button>
                         )}
-                        
+
                         {apt.status === APPOINTMENT_STATUS.CONFIRMED && (
                           apt.isCheckedIn ? (
                             <span className="px-3 py-2 bg-green-100 text-green-700 text-sm font-medium rounded-lg flex items-center gap-2">
@@ -1227,7 +1316,7 @@ const ReceptionistAppointments = () => {
                             </span>
                           )
                         )}
-                        
+
                         {apt.status !== APPOINTMENT_STATUS.COMPLETED && apt.status !== APPOINTMENT_STATUS.CANCELLED && apt.status !== APPOINTMENT_STATUS.IN_SERVICE && !(apt.paymentStatus === true || apt.paid === true || (typeof apt.paymentStatus === 'string' && apt.paymentStatus.toLowerCase() === 'paid')) && (
                           <>
                             <button
@@ -1256,6 +1345,83 @@ const ReceptionistAppointments = () => {
         )}
       </div>
 
+      {/* Pagination */}
+      {filteredAppointments.length > 0 && (
+        <div className="flex items-center justify-between bg-white px-4 py-3 border-t border-gray-200">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-700">Show</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-sm text-gray-700">per page</span>
+            </div>
+            <div className="text-sm text-gray-700">
+              Showing {Math.min((currentPage - 1) * pageSize + 1, filteredAppointments.length)} to{' '}
+              {Math.min(currentPage * pageSize, filteredAppointments.length)} of{' '}
+              {filteredAppointments.length} appointments
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNumber;
+                if (totalPages <= 5) {
+                  pageNumber = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNumber = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNumber = totalPages - 4 + i;
+                } else {
+                  pageNumber = currentPage - 2 + i;
+                }
+
+                return (
+                  <button
+                    key={pageNumber}
+                    onClick={() => setCurrentPage(pageNumber)}
+                    className={`px-3 py-1 border rounded text-sm ${
+                      currentPage === pageNumber
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {pageNumber}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Appointment Form Modal */}
       <AppointmentFormModal
         isOpen={showModal}
@@ -1264,11 +1430,15 @@ const ReceptionistAppointments = () => {
         services={services}
         stylists={stylists}
         clients={clients}
-        onClose={() => setShowModal(false)}
+        onClose={() => {
+          setShowModal(false);
+          setIsRescheduling(false);
+        }}
         onSubmit={handleSubmit}
         loading={saving}
         isGuest={false}
         userBranch={userBranch}
+        isEditing={!!selectedAppointment && !isRescheduling} // Disable client editing only when editing (not rescheduling)
       />
 
       {/* Cancel Confirmation Modal */}
@@ -1724,20 +1894,20 @@ const ReceptionistAppointments = () => {
           {/* Summary Statistics */}
           {(() => {
             const stats = {
-              total: filteredAppointments.length,
-              pending: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.PENDING).length,
-              confirmed: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.CONFIRMED).length,
-              completed: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.COMPLETED).length,
-              cancelled: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.CANCELLED).length,
-              noShow: filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.NO_SHOW).length,
-              checkedIn: filteredAppointments.filter(a => a.isCheckedIn).length,
-              registered: filteredAppointments.filter(a => !a.isGuest && a.clientId).length,
-              guest: filteredAppointments.filter(a => a.isGuest || !a.clientId).length,
+              total: paginatedAppointments.length,
+              pending: paginatedAppointments.filter(a => a.status === APPOINTMENT_STATUS.PENDING).length,
+              confirmed: paginatedAppointments.filter(a => a.status === APPOINTMENT_STATUS.CONFIRMED).length,
+              completed: paginatedAppointments.filter(a => a.status === APPOINTMENT_STATUS.COMPLETED).length,
+              cancelled: paginatedAppointments.filter(a => a.status === APPOINTMENT_STATUS.CANCELLED).length,
+              noShow: paginatedAppointments.filter(a => a.status === APPOINTMENT_STATUS.NO_SHOW).length,
+              checkedIn: paginatedAppointments.filter(a => a.isCheckedIn).length,
+              registered: paginatedAppointments.filter(a => !a.isGuest && a.clientId).length,
+              guest: paginatedAppointments.filter(a => a.isGuest || !a.clientId).length,
             };
             
             // Calculate time distribution
             const timeSlots = { morning: 0, afternoon: 0, evening: 0 };
-            filteredAppointments.forEach(apt => {
+            paginatedAppointments.forEach(apt => {
               const hour = new Date(apt.appointmentDate).getHours();
               if (hour >= 6 && hour < 12) timeSlots.morning++;
               else if (hour >= 12 && hour < 17) timeSlots.afternoon++;
@@ -1746,7 +1916,7 @@ const ReceptionistAppointments = () => {
 
             // Stylist distribution
             const stylistCounts = {};
-            filteredAppointments.forEach(apt => {
+            paginatedAppointments.forEach(apt => {
               if (apt.services && apt.services.length > 0) {
                 apt.services.forEach(svc => {
                   const stylistId = svc.stylistId || apt.stylistId;
@@ -1768,14 +1938,14 @@ const ReceptionistAppointments = () => {
 
             // Service popularity
             const serviceCounts = {};
-            filteredAppointments.forEach(apt => {
+            paginatedAppointments.forEach(apt => {
               if (apt.services && apt.services.length > 0) {
                 apt.services.forEach(svc => {
                   const serviceName = svc.serviceName || 'Unknown';
                   serviceCounts[serviceName] = (serviceCounts[serviceName] || 0) + 1;
                 });
               } else if (apt.serviceName) {
-                serviceCounts[apt.serviceName] = (serviceCounts[apt.serviceName] || 0) + 1;
+                serviceCounts[apt.serviceName] = (serviceCounts[serviceName] || 0) + 1;
               }
             });
 
@@ -1943,6 +2113,7 @@ const ReceptionistAppointments = () => {
               <tr className="bg-gray-200 border-b-2 border-black">
                 <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '30px' }}>#</th>
                 <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '130px' }}>Date & Time</th>
+                <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '120px' }}>Request Time</th>
                 <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '170px' }}>Client</th>
                 <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '230px' }}>Services</th>
                 <th className="px-2 py-1.5 text-left font-bold text-black" style={{ width: '140px' }}>Stylist</th>
@@ -1950,7 +2121,7 @@ const ReceptionistAppointments = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredAppointments.map((apt, index) => {
+              {paginatedAppointments.map((apt, index) => {
                 const aptDate = new Date(apt.appointmentDate);
                 const dateStr = aptDate.toLocaleDateString('en-US', { 
                   month: 'short', 
@@ -1964,13 +2135,39 @@ const ReceptionistAppointments = () => {
                 });
 
                 let servicesList = '';
+                let stylistNames = new Set();
+
                 if (apt.services && apt.services.length > 0) {
-                  servicesList = apt.services.map(s => s.serviceName).join(', ');
+                  servicesList = apt.services.map(s => {
+                    const qtyText = s.quantity > 1 ? ` (x${s.quantity})` : '';
+                    return `${s.serviceName}${qtyText}`;
+                  }).join(', ');
+
+                  // Collect all unique stylist names
+                  apt.services.forEach(s => {
+                    if (s.stylistName) {
+                      stylistNames.add(s.stylistName);
+                    }
+                  });
                 } else {
                   servicesList = apt.serviceName || 'N/A';
+                  if (apt.stylistName) {
+                    stylistNames.add(apt.stylistName);
+                  }
                 }
 
-                const stylistName = apt.stylistName || 'Unassigned';
+                const stylistName = stylistNames.size > 0 ? Array.from(stylistNames).join(', ') : 'Unassigned';
+
+                // Calculate request time for print
+                const requestDate = apt.createdAt ? new Date(apt.createdAt) : null;
+                const requestTimeStr = requestDate ? requestDate.toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true
+                }) : 'N/A';
+
 
                 return (
                   <tr key={apt.id} className="border-b border-gray-400">
@@ -1979,6 +2176,7 @@ const ReceptionistAppointments = () => {
                       <div className="font-semibold">{dateStr}</div>
                       <div>{timeStr}</div>
                     </td>
+                    <td className="px-2 py-1.5 text-black">{requestTimeStr}</td>
                     <td className="px-2 py-1.5 text-black">
                       <div className="font-medium">{apt.clientName || 'Guest'}</div>
                       {apt.clientPhone && (
@@ -1996,7 +2194,7 @@ const ReceptionistAppointments = () => {
                       )}
                     </td>
                     <td className="px-2 py-1.5 text-black font-medium">
-                      {apt.status || 'N/A'}
+                      {formatStatusForDisplay(apt.status)}
                     </td>
                   </tr>
                 );
@@ -2007,7 +2205,7 @@ const ReceptionistAppointments = () => {
           <div className="mt-4 pt-3 border-t-2 border-black">
             <div className="flex justify-between items-center text-xs text-black">
               <div className="font-semibold">Report generated for business analysis</div>
-              <div className="font-bold">Total: {filteredAppointments.length} appointment(s)</div>
+              <div className="font-bold">Total: {paginatedAppointments.length} appointment(s) shown</div>
             </div>
           </div>
         </div>

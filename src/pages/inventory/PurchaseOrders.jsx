@@ -32,7 +32,9 @@ import {
   BarChart3,
   ClipboardList,
   UserCog,
-  PackageCheck
+  PackageCheck,
+  Mail,
+  Phone
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { collection, getDocs, query, where, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
@@ -99,6 +101,7 @@ const PurchaseOrders = () => {
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [selectedSupplierName, setSelectedSupplierName] = useState('');
   const [showProductSelection, setShowProductSelection] = useState(false);
+  const [supplierSearchTerm, setSupplierSearchTerm] = useState('');
 
   // Form states - Step 2: Select Products
   const [orderItems, setOrderItems] = useState([]);
@@ -1390,29 +1393,126 @@ const PurchaseOrders = () => {
                   /* Step 1: Supplier Selection */
                   <div className="space-y-6 flex-shrink-0">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Select Supplier *</label>
-                      <select
-                        value={selectedSupplierId}
-                        onChange={(e) => handleSupplierSelect(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                        required
-                      >
-                        <option value="">Choose a supplier...</option>
-                        {suppliers.map(supplier => (
-                          <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                        ))}
-                      </select>
+                      <label className="block text-sm font-medium text-gray-700 mb-3">Select Supplier *</label>
+                      
+                      {/* Search Input */}
+                      <div className="relative mb-4">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                        <Input
+                          type="text"
+                          placeholder="Search suppliers by name, contact person, or email..."
+                          value={supplierSearchTerm}
+                          onChange={(e) => setSupplierSearchTerm(e.target.value)}
+                          className="pl-10 w-full"
+                        />
+                      </div>
+
+                      {/* Supplier Cards Grid */}
+                      <div className="max-h-[500px] overflow-y-auto space-y-3 pr-2">
+                        {suppliers
+                          .filter(supplier => {
+                            if (!supplierSearchTerm) return true;
+                            const searchLower = supplierSearchTerm.toLowerCase();
+                            return (
+                              supplier.name?.toLowerCase().includes(searchLower) ||
+                              supplier.contactPerson?.toLowerCase().includes(searchLower) ||
+                              supplier.email?.toLowerCase().includes(searchLower) ||
+                              supplier.phone?.toLowerCase().includes(searchLower)
+                            );
+                          })
+                          .map(supplier => (
+                            <div
+                              key={supplier.id}
+                              onClick={() => handleSupplierSelect(supplier.id)}
+                              className={`p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 ${
+                                selectedSupplierId === supplier.id
+                                  ? 'border-[#160B53] bg-[#160B53]/5 shadow-md'
+                                  : 'border-gray-200 hover:border-[#160B53]/50 hover:shadow-sm bg-white'
+                              }`}
+                            >
+                              <div className="flex items-start gap-4">
+                                <div className={`p-3 rounded-lg ${
+                                  selectedSupplierId === supplier.id
+                                    ? 'bg-[#160B53] text-white'
+                                    : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  <Building className="h-6 w-6" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-2 mb-2">
+                                    <h3 className={`font-semibold text-lg ${
+                                      selectedSupplierId === supplier.id
+                                        ? 'text-[#160B53]'
+                                        : 'text-gray-900'
+                                    }`}>
+                                      {supplier.name}
+                                    </h3>
+                                    {selectedSupplierId === supplier.id && (
+                                      <div className="flex-shrink-0">
+                                        <CheckCircle className="h-5 w-5 text-[#160B53]" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  <div className="space-y-1.5 text-sm text-gray-600">
+                                    {supplier.contactPerson && (
+                                      <div className="flex items-center gap-2">
+                                        <UserCog className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                                        <span className="truncate">{supplier.contactPerson}</span>
+                                      </div>
+                                    )}
+                                    {supplier.email && (
+                                      <div className="flex items-center gap-2">
+                                        <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                                        <span className="truncate">{supplier.email}</span>
+                                      </div>
+                                    )}
+                                    {supplier.phone && (
+                                      <div className="flex items-center gap-2">
+                                        <Phone className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                                        <span className="truncate">{supplier.phone}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        
+                        {suppliers.filter(supplier => {
+                          if (!supplierSearchTerm) return true;
+                          const searchLower = supplierSearchTerm.toLowerCase();
+                          return (
+                            supplier.name?.toLowerCase().includes(searchLower) ||
+                            supplier.contactPerson?.toLowerCase().includes(searchLower) ||
+                            supplier.email?.toLowerCase().includes(searchLower) ||
+                            supplier.phone?.toLowerCase().includes(searchLower)
+                          );
+                        }).length === 0 && (
+                          <div className="text-center py-8 text-gray-500">
+                            <Building className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                            <p className="font-medium">No suppliers found</p>
+                            <p className="text-sm mt-1">Try adjusting your search terms</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Selected Supplier Summary */}
                       {selectedSupplierId && (
-                        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                          <div className="flex items-center gap-2">
-                            <Building className="h-5 w-5 text-blue-600" />
-                            <div>
-                              <p className="font-semibold text-blue-900">{selectedSupplierName}</p>
-                              {suppliers.find(s => s.id === selectedSupplierId)?.contactPerson && (
-                                <p className="text-sm text-blue-700">
-                                  Contact: {suppliers.find(s => s.id === selectedSupplierId).contactPerson}
-                                </p>
-                              )}
+                        <div className="mt-4 p-4 bg-[#160B53]/10 border-2 border-[#160B53] rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-[#160B53] text-white rounded-lg">
+                                <Building className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <p className="font-semibold text-[#160B53]">{selectedSupplierName}</p>
+                                {suppliers.find(s => s.id === selectedSupplierId)?.contactPerson && (
+                                  <p className="text-sm text-gray-600">
+                                    Contact: {suppliers.find(s => s.id === selectedSupplierId).contactPerson}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                             <Button
                               variant="outline"
@@ -1421,8 +1521,8 @@ const PurchaseOrders = () => {
                                 setSelectedSupplierId('');
                                 setSelectedSupplierName('');
                                 setSupplierProducts([]);
+                                setSupplierSearchTerm('');
                               }}
-                              className="ml-auto"
                             >
                               Change
                             </Button>
@@ -1432,7 +1532,7 @@ const PurchaseOrders = () => {
                     </div>
 
                     {selectedSupplierId && (
-                      <div className="flex justify-end">
+                      <div className="flex justify-end pt-2">
                         <Button
                           onClick={() => setShowProductSelection(true)}
                           className="bg-[#160B53] text-white hover:bg-[#12094A]"

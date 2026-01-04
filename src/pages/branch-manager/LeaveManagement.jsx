@@ -3,8 +3,8 @@
  * Manage leave requests for stylists and request own leave
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, Plus, CheckCircle, XCircle, Clock, User, Search, Filter, UserPlus, Printer, X } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Calendar, Plus, CheckCircle, XCircle, Clock, User, Search, Filter, UserPlus, Printer, X, ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getLeaveRequestsByBranch, 
@@ -14,6 +14,7 @@ import {
   cancelLeaveRequest,
   LEAVE_TYPES 
 } from '../../services/leaveManagementService';
+import { getAppointmentsByStylist, APPOINTMENT_STATUS } from '../../services/appointmentService';
 import { getUsersByBranch, getUserById } from '../../services/userService';
 import { getBranchById } from '../../services/branchService';
 import { formatDate, getFullName } from '../../utils/helpers';
@@ -57,7 +58,14 @@ const LeaveManagement = () => {
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(5);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+  
+  // Sorting
+  const [sortBy, setSortBy] = useState('requestedAt'); // 'requestedAt', 'startDate', 'endDate', 'employeeName', 'status', 'type'
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
+  
+  // Debounced search
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
 
   useEffect(() => {
     if (userBranch) {
@@ -80,9 +88,11 @@ const LeaveManagement = () => {
     try {
       setLoading(true);
       const requests = await getLeaveRequestsByBranch(userBranch);
-      setLeaveRequests(requests);
+      setLeaveRequests(requests || []);
     } catch (error) {
       console.error('Error fetching leave requests:', error);
+      toast.error('Failed to load leave requests. Please try again.');
+      setLeaveRequests([]);
     } finally {
       setLoading(false);
     }
@@ -92,30 +102,68 @@ const LeaveManagement = () => {
     try {
       const staff = await getUsersByBranch(userBranch);
       // Get all staff (not just stylists) for filtering
-      const allStaff = staff.filter(s => {
+      const allStaff = (staff || []).filter(s => {
         const userRoles = s.roles || (s.role ? [s.role] : []);
         return userRoles.some(role => ['stylist', 'receptionist', 'inventory_controller'].includes(role));
       });
       setStaffMembers(allStaff);
     } catch (error) {
       console.error('Error fetching staff:', error);
+      toast.error('Failed to load staff members.');
+      setStaffMembers([]);
     }
   };
 
-  const filteredRequests = useMemo(() => {
-    return leaveRequests.filter(request => {
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Get employee name helper - defined before useMemo
+  const getEmployeeName = useCallback((employeeId) => {
+    if (!employeeId) return 'Unknown';
+    if (!currentUser) return 'Unknown';
+    if (employeeId === currentUser.uid) {
+      return getFullName(userData) || currentUser.displayName || 'Me';
+    }
+    if (!staffMembers || staffMembers.length === 0) return 'Unknown';
+    const staff = staffMembers.find(s => (s.id === employeeId) || (s.uid === employeeId));
+    return staff ? getFullName(staff) : 'Unknown';
+  }, [currentUser, userData, staffMembers]);
+
+  const filteredAndSortedRequests = useMemo(() => {
+    if (!leaveRequests || leaveRequests.length === 0) return [];
+    if (!currentUser || !userBranch) return [];
+    
+    let filtered = leaveRequests.filter(request => {
+      if (!request) return false;
+      
       // Search filter
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase();
-        const employeeName = getEmployeeName(request.employeeId).toLowerCase();
-        if (!employeeName.includes(searchLower)) {
+      if (debouncedSearchTerm) {
+        const searchLower = debouncedSearchTerm.toLowerCase();
+        try {
+          const employeeName = getEmployeeName(request.employeeId || '').toLowerCase();
+          if (!employeeName.includes(searchLower)) {
+            return false;
+          }
+        } catch (e) {
+          console.error('Error getting employee name:', e);
           return false;
         }
       }
 
-      // Status filter
-      if (statusFilter !== 'all' && request.status !== statusFilter) {
-        return false;
+      // Status filter (supports combined rejected/cancelled)
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'rejected_cancelled') {
+          if (request.status !== 'rejected' && request.status !== 'cancelled') {
+            return false;
+          }
+        } else if (request.status !== statusFilter) {
+          return false;
+        }
       }
 
       // Type filter
@@ -139,15 +187,79 @@ const LeaveManagement = () => {
       // Show if: stylist request (for approval), own request (to see status), or in same branch (visibility)
       return isStylistRequest || isOwnRequest || isInSameBranch;
     });
-  }, [leaveRequests, searchTerm, statusFilter, typeFilter, staffFilter, currentUser.uid, staffMembers]);
+
+    // Sorting
+    try {
+      filtered.sort((a, b) => {
+        if (!a || !b) return 0;
+        let aValue, bValue;
+        
+        switch (sortBy) {
+          case 'requestedAt':
+            aValue = a.requestedAt?.toDate ? a.requestedAt.toDate() : new Date(a.requestedAt || 0);
+            bValue = b.requestedAt?.toDate ? b.requestedAt.toDate() : new Date(b.requestedAt || 0);
+            break;
+          case 'startDate':
+            aValue = a.startDate?.toDate ? a.startDate.toDate() : new Date(a.startDate || 0);
+            bValue = b.startDate?.toDate ? b.startDate.toDate() : new Date(b.startDate || 0);
+            break;
+          case 'endDate':
+            aValue = a.endDate?.toDate ? a.endDate.toDate() : new Date(a.endDate || 0);
+            bValue = b.endDate?.toDate ? b.endDate.toDate() : new Date(b.endDate || 0);
+            break;
+          case 'employeeName':
+            try {
+              aValue = getEmployeeName(a.employeeId || '').toLowerCase();
+              bValue = getEmployeeName(b.employeeId || '').toLowerCase();
+            } catch (e) {
+              aValue = '';
+              bValue = '';
+            }
+            break;
+          case 'status':
+            aValue = a.status || '';
+            bValue = b.status || '';
+            break;
+          case 'type':
+            aValue = a.type || '';
+            bValue = b.type || '';
+            break;
+          default:
+            aValue = a[sortBy] || '';
+            bValue = b[sortBy] || '';
+        }
+
+        if (sortOrder === 'asc') {
+          return aValue > bValue ? 1 : -1;
+        } else {
+          return aValue < bValue ? 1 : -1;
+        }
+      });
+    } catch (error) {
+      console.error('Error sorting requests:', error);
+    }
+
+    return filtered || [];
+  }, [leaveRequests, debouncedSearchTerm, statusFilter, typeFilter, staffFilter, sortBy, sortOrder, currentUser, userBranch, staffMembers, userData, getEmployeeName]);
+
+  // Handle sort
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('desc');
+    }
+    setCurrentPage(1);
+  };
 
   // Pagination calculations
   const paginationData = useMemo(() => {
-    const totalItems = filteredRequests.length;
+    const totalItems = filteredAndSortedRequests.length;
     const totalPages = Math.ceil(totalItems / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const paginatedRequests = filteredRequests.slice(startIndex, endIndex);
+    const paginatedRequests = filteredAndSortedRequests.slice(startIndex, endIndex);
     
     return {
       totalItems,
@@ -156,20 +268,13 @@ const LeaveManagement = () => {
       endIndex,
       paginatedRequests
     };
-  }, [filteredRequests, currentPage, itemsPerPage]);
+  }, [filteredAndSortedRequests, currentPage, itemsPerPage]);
 
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, typeFilter, staffFilter]);
+  }, [debouncedSearchTerm, statusFilter, typeFilter, staffFilter, sortBy, sortOrder]);
 
-  const getEmployeeName = (employeeId) => {
-    if (employeeId === currentUser.uid) {
-      return getFullName(userData) || currentUser.displayName || 'Me';
-    }
-    const staff = staffMembers.find(s => s.id === employeeId);
-    return staff ? getFullName(staff) : 'Unknown';
-  };
 
   const getLeaveTypeInfo = (type) => {
     return LEAVE_TYPES.find(t => t.value === type) || LEAVE_TYPES[0];
@@ -229,6 +334,32 @@ const LeaveManagement = () => {
     try {
       // If requesting for staff, use their ID; otherwise use current user's ID
       const employeeId = isForStaff ? leaveData.employeeId : currentUser.uid;
+      
+      // Check for conflicting appointments (pending/confirmed/in_service) in date range
+      if (employeeId && leaveData.startDate && leaveData.endDate) {
+        const start = new Date(leaveData.startDate);
+        const end = new Date(leaveData.endDate);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+
+        const appointments = await getAppointmentsByStylist(employeeId);
+        const activeConflicts = appointments.filter((apt) => {
+          if (!apt.appointmentDate) return false;
+          const aptDate = apt.appointmentDate instanceof Date ? apt.appointmentDate : new Date(apt.appointmentDate);
+          const status = apt.status;
+          const isActiveStatus = status !== APPOINTMENT_STATUS.CANCELLED && status !== APPOINTMENT_STATUS.COMPLETED && status !== APPOINTMENT_STATUS.NO_SHOW;
+          return isActiveStatus && aptDate >= start && aptDate <= end;
+        });
+
+        if (activeConflicts.length > 0) {
+          const sample = activeConflicts.slice(0, 3).map(apt => {
+            const d = apt.appointmentDate instanceof Date ? apt.appointmentDate : new Date(apt.appointmentDate);
+            return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+          }).join(', ');
+          toast.error(`Cannot file leave: ${activeConflicts.length} active appointment(s) in this date range. ${sample ? 'Conflicts: ' + sample : ''}`);
+          return;
+        }
+      }
       
       // Pass userData so the service can check if current user is branch manager
       await saveLeaveRequest({
@@ -363,10 +494,10 @@ const LeaveManagement = () => {
     }, 100);
   };
 
-  const pendingRequests = filteredRequests.filter(r => r.status === 'pending');
-  const approvedRequests = filteredRequests.filter(r => r.status === 'approved');
-  const rejectedRequests = filteredRequests.filter(r => r.status === 'rejected');
-  const cancelledRequests = filteredRequests.filter(r => r.status === 'cancelled');
+  const pendingRequests = filteredAndSortedRequests.filter(r => r.status === 'pending');
+  const approvedRequests = filteredAndSortedRequests.filter(r => r.status === 'approved');
+  const rejectedRequests = filteredAndSortedRequests.filter(r => r.status === 'rejected');
+  const cancelledRequests = filteredAndSortedRequests.filter(r => r.status === 'cancelled');
 
   if (loading) {
     return (
@@ -411,407 +542,409 @@ const LeaveManagement = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-600">Pending</div>
-            <div className="bg-yellow-100 p-2 rounded-lg">
-              <Clock className="w-5 h-5 text-yellow-600" />
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-2xl font-bold text-yellow-600 mt-1">{pendingRequests.length}</p>
+            </div>
+            <div className="p-3">
+              <Clock className="w-6 h-6 text-yellow-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-yellow-600">{pendingRequests.length}</div>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-600">Approved</div>
-            <div className="bg-green-100 p-2 rounded-lg">
-              <CheckCircle className="w-5 h-5 text-green-600" />
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Approved</p>
+              <p className="text-2xl font-bold text-green-600 mt-1">{approvedRequests.length}</p>
+            </div>
+            <div className="p-3">
+              <CheckCircle className="w-6 h-6 text-green-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-green-600">{approvedRequests.length}</div>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-600">Rejected</div>
-            <div className="bg-red-100 p-2 rounded-lg">
-              <XCircle className="w-5 h-5 text-red-600" />
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Rejected</p>
+              <p className="text-2xl font-bold text-red-600 mt-1">{rejectedRequests.length}</p>
+            </div>
+            <div className="p-3">
+              <XCircle className="w-6 h-6 text-red-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-red-600">{rejectedRequests.length}</div>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-600">Cancelled</div>
-            <div className="bg-gray-100 p-2 rounded-lg">
-              <X className="w-5 h-5 text-gray-600" />
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Cancelled</p>
+              <p className="text-2xl font-bold text-gray-600 mt-1">{cancelledRequests.length}</p>
+            </div>
+            <div className="p-3">
+              <X className="w-6 h-6 text-gray-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-gray-600">{cancelledRequests.length}</div>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-600">Total</div>
-            <div className="bg-blue-100 p-2 rounded-lg">
-              <Calendar className="w-5 h-5 text-blue-600" />
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Total</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{filteredAndSortedRequests.length}</p>
+            </div>
+            <div className="p-3">
+              <Calendar className="w-6 h-6 text-blue-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-gray-900">{filteredRequests.length}</div>
         </div>
       </div>
 
       {/* Filters Section */}
-      <Card>
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Filter className="w-5 h-5 text-gray-600" />
-              <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
-              {(statusFilter !== 'all' || typeFilter !== 'all' || staffFilter !== 'all' || searchTerm) && (
-                <span className="px-2 py-1 text-xs bg-primary-100 text-primary-700 rounded-full font-medium">
-                  {[statusFilter !== 'all' ? 'Status' : null, typeFilter !== 'all' ? 'Type' : null, staffFilter !== 'all' ? 'Staff' : null, searchTerm ? 'Search' : null].filter(Boolean).length} active
-                </span>
-              )}
-            </div>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
-            >
-              {showFilters ? 'Hide' : 'Show'} Filters
-              <Filter className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
-            </button>
+      <div className="bg-white rounded-lg shadow border border-gray-200">
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Filter className="w-5 h-5 text-gray-600" />
+            <span className="font-medium text-gray-900">Filters</span>
+            {(statusFilter !== 'all' || typeFilter !== 'all' || staffFilter !== 'all' || debouncedSearchTerm) && (
+              <span className="px-2 py-0.5 bg-primary-100 text-primary-700 text-xs rounded-full">
+                Active
+              </span>
+            )}
           </div>
-
-          {showFilters && (
-            <div className="space-y-4 border-t border-gray-200 pt-4">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Search by employee name..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                />
-              </div>
-
-              {/* Filter Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Status Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Status
-                  </label>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  >
-                    <option value="all">All Status</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                    <option value="rejected">Rejected</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
-                </div>
-
-                {/* Type Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Leave Type
-                  </label>
-                  <select
-                    value={typeFilter}
-                    onChange={(e) => setTypeFilter(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  >
-                    <option value="all">All Types</option>
-                    {LEAVE_TYPES.map(type => (
-                      <option key={type.value} value={type.value}>{type.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Staff Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Staff Member
-                  </label>
-                  <select
-                    value={staffFilter}
-                    onChange={(e) => setStaffFilter(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  >
-                    <option value="all">All Staff</option>
-                    <option value={currentUser.uid}>Me ({getFullName(userData) || currentUser.displayName || 'My Requests'})</option>
-                    {staffMembers.map(staff => {
-                      const staffId = staff.id || staff.uid;
-                      return (
-                        <option key={staffId} value={staffId}>
-                          {getFullName(staff)}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              </div>
-
-              {/* Clear Filters Button */}
-              {(statusFilter !== 'all' || typeFilter !== 'all' || staffFilter !== 'all' || searchTerm) && (
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => {
-                      setSearchTerm('');
-                      setStatusFilter('all');
-                      setTypeFilter('all');
-                      setStaffFilter('all');
-                    }}
-                    className="text-sm text-gray-600 hover:text-gray-900 underline"
-                  >
-                    Clear All Filters
-                  </button>
-                </div>
-              )}
+          {showFilters ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+        </button>
+        
+        {showFilters && (
+          <div className="border-t border-gray-200 p-4 space-y-4">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Search by employee name..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
             </div>
-          )}
-        </div>
-      </Card>
 
-      {/* Leave Requests List */}
-      <Card>
+            {/* Filter Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Staff Filter - Prominent */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Staff Member <span className="text-[#160B53]">*</span>
+                </label>
+                <select
+                  value={staffFilter}
+                  onChange={(e) => setStaffFilter(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Staff</option>
+                  <option value={currentUser.uid}>Me ({getFullName(userData) || currentUser.displayName || 'My Requests'})</option>
+                  {staffMembers.map(staff => {
+                    const staffId = staff.id || staff.uid;
+                    return (
+                      <option key={staffId} value={staffId}>
+                        {getFullName(staff)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Status
+                </label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected_cancelled">Rejected + Cancelled</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              {/* Type Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Leave Type
+                </label>
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Types</option>
+                  {LEAVE_TYPES.map(type => (
+                    <option key={type.value} value={type.value}>{type.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Items Per Page */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Items Per Page
+                </label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Clear Filters Button */}
+            {(statusFilter !== 'all' || typeFilter !== 'all' || staffFilter !== 'all' || debouncedSearchTerm) && (
+              <div className="flex justify-end">
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    setStatusFilter('all');
+                    setTypeFilter('all');
+                    setStaffFilter('all');
+                  }}
+                  className="text-sm text-gray-600 hover:text-gray-900 underline"
+                >
+                  Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Leave Requests Table */}
+      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Leave Requests</h2>
             <div className="text-sm text-gray-600">
               Showing {paginationData.startIndex + 1} to {Math.min(paginationData.endIndex, paginationData.totalItems)} of {paginationData.totalItems} results
+              {paginationData.totalItems > 1000 && (
+                <span className="ml-2 text-blue-600 font-medium">
+                  (Large dataset - use filters to narrow results)
+                </span>
+              )}
             </div>
           </div>
         </div>
-        <div className="divide-y divide-gray-200">
-          {paginationData.paginatedRequests.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-lg font-medium text-gray-900 mb-2">No leave requests found</p>
-              <p className="text-sm text-gray-500">
-                {filteredRequests.length === 0 
-                  ? "Try adjusting your search or filter criteria"
-                  : "No requests match your current filters"
-                }
-              </p>
-            </div>
-          ) : (
-            paginationData.paginatedRequests.map(request => {
-              const typeInfo = getLeaveTypeInfo(request.type);
-              const employeeName = getEmployeeName(request.employeeId);
-              const isOwnRequest = request.employeeId === currentUser.uid;
-              const isPending = request.status === 'pending';
-              
-              // Branch manager can approve/reject pending requests from employees/stylists:
-              // - Request must be pending
-              // - Must not be the branch manager's own request (those require operational manager approval)
-              // - Must not require operational approval (indicates it's from an employee/stylist, not another manager)
-              // If requiresOperationalApproval is false, it means it's an employee/stylist request
-              const canApprove = isPending && !isOwnRequest && !request.requiresOperationalApproval;
-              
-              // Branch manager can cancel:
-              // - Their own pending requests
-              // - Requests they submitted for others
-              const canCancel = isPending && (isOwnRequest || request.submittedBy === currentUser.uid);
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('employeeName')}>
+                  <div className="flex items-center gap-1">
+                    Employee
+                    <ArrowUpDown className="w-3 h-3 text-gray-400" />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('type')}>
+                  <div className="flex items-center gap-1">
+                    Type
+                    <ArrowUpDown className="w-3 h-3 text-gray-400" />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('startDate')}>
+                  <div className="flex items-center gap-1">
+                    Start Date
+                    <ArrowUpDown className="w-3 h-3 text-gray-400" />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('endDate')}>
+                  <div className="flex items-center gap-1">
+                    End Date
+                    <ArrowUpDown className="w-3 h-3 text-gray-400" />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">Days</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('status')}>
+                  <div className="flex items-center gap-1">
+                    Status
+                    <ArrowUpDown className="w-3 h-3 text-gray-400" />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Reason</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('requestedAt')}>
+                  <div className="flex items-center gap-1">
+                    Requested
+                    <ArrowUpDown className="w-3 h-3 text-gray-400" />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {paginationData.paginatedRequests.length === 0 ? (
+                <tr>
+                  <td colSpan="9" className="px-4 py-12 text-center">
+                    <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-lg font-medium text-gray-900 mb-2">No leave requests found</p>
+                    <p className="text-sm text-gray-500">
+                      {filteredAndSortedRequests.length === 0 
+                        ? "Try adjusting your search or filter criteria"
+                        : "No requests match your current filters"
+                      }
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                paginationData.paginatedRequests.map(request => {
+                  const typeInfo = getLeaveTypeInfo(request.type);
+                  const employeeName = getEmployeeName(request.employeeId);
+                  const isOwnRequest = request.employeeId === currentUser.uid;
+                  const isPending = request.status === 'pending';
+                  
+                  const canApprove = isPending && !isOwnRequest && !request.requiresOperationalApproval;
+                  const canCancel = isPending && (isOwnRequest || request.submittedBy === currentUser.uid);
 
-              return (
-                <div key={request.id} className="p-4 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <User className="w-5 h-5 text-gray-400" />
-                        <span className="font-semibold">{employeeName}</span>
-                        {isOwnRequest && (
-                          <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                            My Request
-                          </span>
-                        )}
-                        {request.requiresOperationalApproval && (
-                          <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">
-                            Pending Operational Manager
-                          </span>
-                        )}
+                  return (
+                    <tr key={request.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-gray-400" />
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{employeeName}</div>
+                            <div className="flex items-center gap-1 mt-1">
+                              {isOwnRequest && (
+                                <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">My Request</span>
+                              )}
+                              {request.requiresOperationalApproval && (
+                                <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">Pending Ops Mgr</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
                         <span className={`text-xs px-2 py-1 rounded border ${typeInfo.color}`}>
                           {typeInfo.label}
                         </span>
-                        <span className={`text-xs px-2 py-1 rounded border ${getStatusBadge(request.status)}`}>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{formatDate(request.startDate)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{formatDate(request.endDate)}</td>
+                      <td className="px-4 py-3 text-center text-sm text-gray-700">{request.days || 'N/A'}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusBadge(request.status)}`}>
+                          {request.status === 'pending' && <Clock className="h-3 w-3" />}
+                          {request.status === 'approved' && <CheckCircle className="h-3 w-3" />}
+                          {request.status === 'rejected' && <XCircle className="h-3 w-3" />}
+                          {request.status === 'cancelled' && <X className="h-3 w-3" />}
                           {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
                         </span>
-                      </div>
-                      <div className="ml-8 space-y-1 text-sm text-gray-600">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4" />
-                          <span>
-                            {formatDate(request.startDate)} - {formatDate(request.endDate)}
-                            {' '}({request.days} day{request.days !== 1 ? 's' : ''})
-                          </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-gray-700 max-w-xs truncate" title={request.reason || 'N/A'}>
+                          {request.reason || 'N/A'}
                         </div>
-                        {request.reason && (
-                          <div className="mt-1">
-                            <strong>Reason:</strong> {request.reason}
-                          </div>
-                        )}
                         {request.status === 'rejected' && request.rejectionReason && (
-                          <div className="mt-1 text-red-600">
-                            <strong>Rejection Reason:</strong> {request.rejectionReason}
+                          <div className="text-xs text-red-600 mt-1 max-w-xs truncate" title={request.rejectionReason}>
+                            Rejected: {request.rejectionReason}
                           </div>
                         )}
-                        <div className="text-xs text-gray-500 mt-2">
-                          Requested: {formatDate(request.requestedAt)}
-                          {request.reviewedAt && (
-                            <> • Reviewed: {formatDate(request.reviewedAt)} by {request.reviewedByName || 'N/A'}</>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500">
+                        {formatDate(request.requestedAt)}
+                        {request.reviewedAt && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            Reviewed: {formatDate(request.reviewedAt)}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {canApprove && (
+                            <>
+                              <button
+                                onClick={() => handleApprove(request)}
+                                disabled={processing === request.id}
+                                className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-xs flex items-center gap-1"
+                                title="Approve"
+                              >
+                                <CheckCircle className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => handleReject(request)}
+                                disabled={processing === request.id}
+                                className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-xs flex items-center gap-1"
+                                title="Reject"
+                              >
+                                <XCircle className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
+                          {canCancel && (
+                            <button
+                              onClick={() => handleCancel(request)}
+                              disabled={processing === request.id}
+                              className="px-2 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50 text-xs"
+                              title="Cancel"
+                            >
+                              Cancel
+                            </button>
                           )}
                         </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2 ml-4">
-                      {canApprove && (
-                        <>
-                          <button
-                            onClick={() => handleApprove(request)}
-                            disabled={processing === request.id}
-                            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleReject(request)}
-                            disabled={processing === request.id}
-                            className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 flex items-center gap-1"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            Reject
-                          </button>
-                        </>
-                      )}
-                      {canCancel && (
-                        <button
-                          onClick={() => handleCancel(request)}
-                          disabled={processing === request.id}
-                          className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
 
         {/* Pagination Controls */}
-        {paginationData.totalPages > 1 && (
+        {paginationData.totalItems > 0 && (
           <div className="bg-white px-4 py-3 border-t border-gray-200">
-            <div className="flex flex-col space-y-3">
-              {/* Top row: Items per page and page info */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-600">Show</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => {
-                      setItemsPerPage(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-[#160B53] focus:border-[#160B53]"
-                  >
-                    <option value={5}>5</option>
-                    <option value={10}>10</option>
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                  <span className="text-xs text-gray-600">per page</span>
-                </div>
-
-                <div className="text-xs text-gray-600">
-                  Page <span className="font-medium">{currentPage}</span> of{' '}
-                  <span className="font-medium">{paginationData.totalPages}</span>
-                </div>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-sm text-gray-600">
+                Page <span className="font-medium">{currentPage}</span> of{' '}
+                <span className="font-medium">{paginationData.totalPages}</span>
               </div>
-
-              {/* Bottom row: Navigation buttons */}
-              <div className="flex items-center justify-center gap-1">
+              <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(1)}
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
-                  className="px-2 py-1 text-xs min-w-[40px]"
+                  className="disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  First
+                  <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="px-2 py-1 text-xs min-w-[40px]"
-                >
-                  Prev
-                </Button>
-                
-                {/* Page numbers */}
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(3, paginationData.totalPages) }, (_, i) => {
-                    let pageNum;
-                    if (paginationData.totalPages <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 2) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= paginationData.totalPages - 1) {
-                      pageNum = paginationData.totalPages - 2 + i;
-                    } else {
-                      pageNum = currentPage - 1 + i;
-                    }
-                    
-                    return (
-                      <Button
-                        key={pageNum}
-                        variant={currentPage === pageNum ? "primary" : "outline"}
-                        size="sm"
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`px-2 py-1 text-xs min-w-[32px] ${
-                          currentPage === pageNum 
-                            ? 'bg-[#160B53] hover:bg-[#12094A] text-white' 
-                            : 'hover:bg-gray-50'
-                        }`}
-                      >
-                        {pageNum}
-                      </Button>
-                    );
-                  })}
-                </div>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(currentPage + 1)}
+                  onClick={() => setCurrentPage(prev => Math.min(paginationData.totalPages, prev + 1))}
                   disabled={currentPage === paginationData.totalPages}
-                  className="px-2 py-1 text-xs min-w-[40px]"
+                  className="disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Next
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(paginationData.totalPages)}
-                  disabled={currentPage === paginationData.totalPages}
-                  className="px-2 py-1 text-xs min-w-[40px]"
-                >
-                  Last
+                  <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
             </div>
           </div>
         )}
-      </Card>
+      </div>
 
       {/* Modals */}
       <LeaveRequestModal
@@ -918,7 +1051,7 @@ const LeaveManagement = () => {
               <div style={{ fontSize: '11px' }}>Cancelled</div>
             </div>
             <div style={{ border: '1px solid #000', padding: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '5px' }}>{filteredRequests.length}</div>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '5px' }}>{filteredAndSortedRequests.length}</div>
               <div style={{ fontSize: '11px' }}>Total</div>
             </div>
           </div>
@@ -942,14 +1075,14 @@ const LeaveManagement = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredRequests.length === 0 ? (
+              {filteredAndSortedRequests.length === 0 ? (
                 <tr>
                   <td colSpan="7" style={{ border: '1px solid #000', padding: '20px', textAlign: 'center' }}>
                     No leave requests found
                   </td>
                 </tr>
               ) : (
-                filteredRequests.map((request, idx) => {
+                filteredAndSortedRequests.map((request, idx) => {
                   const typeInfo = getLeaveTypeInfo(request.type);
                   const employeeName = getEmployeeName(request.employeeId);
                   const isOwnRequest = request.employeeId === currentUser.uid;
@@ -1005,7 +1138,7 @@ const LeaveManagement = () => {
 
           {/* Footer */}
           <div className="mt-4 pt-2 border-t border-black text-center" style={{ fontSize: '11px', marginTop: '16px', paddingTop: '8px', borderTop: '1px solid #000' }}>
-            <p>Total: {filteredRequests.length} | Pending: {pendingRequests.length} | Approved: {approvedRequests.length} | Rejected: {rejectedRequests.length} | Cancelled: {cancelledRequests.length}</p>
+            <p>Total: {filteredAndSortedRequests.length} | Pending: {pendingRequests.length} | Approved: {approvedRequests.length} | Rejected: {rejectedRequests.length} | Cancelled: {cancelledRequests.length}</p>
           </div>
         </div>
       </div>

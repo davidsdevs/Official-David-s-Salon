@@ -1,6 +1,12 @@
 /**
  * Billing Management Page - Branch Manager
- * View all bills, void transactions, and view reports
+ * View all bills, void transactions, and manage billing
+ *
+ * Features:
+ * - File upload with downloadable CSV template
+ * - Payment methods matching receptionist POS
+ * - Cashiers filter limited to receptionists only
+ * - CSV import modal with template download
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -75,6 +81,9 @@ const BranchManagerBilling = () => {
   const [batchResults, setBatchResults] = useState(null); // { found: [], notFound: [], duplicates: [] }
   const [checkStats, setCheckStats] = useState(null);
 
+  // CSV Import modal
+  const [showImportModal, setShowImportModal] = useState(false);
+
   // Receipt printing
   const receiptRef = useRef();
   const handlePrint = useReactToPrint({
@@ -89,12 +98,11 @@ const BranchManagerBilling = () => {
     }
   }, [userBranch]);
 
-  // Fetch cashiers for filter
+  // Fetch cashiers for filter (Receptionists POS only)
   const fetchCashiers = async () => {
     try {
       const receptionists = await getUsersByRole(USER_ROLES.RECEPTIONIST);
-      const branchManagers = await getUsersByRole(USER_ROLES.BRANCH_MANAGER);
-      const allCashiers = [...receptionists, ...branchManagers]
+      const allCashiers = receptionists
         .filter(user => user.isActive && (user.branchId === userBranch || !user.branchId))
         .map(user => ({
           id: user.id,
@@ -269,6 +277,10 @@ const BranchManagerBilling = () => {
     setCurrentPage(1);
   };
 
+  const hasActiveFilters = searchTerm || statusFilter !== 'all' || paymentMethodFilter !== 'all' ||
+    startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter ||
+    cashierFilter !== 'all' || receiptNumberFilter;
+
   const handleExportCSV = () => {
     if (!sortedBills.length) {
       toast.error('No bills to export');
@@ -375,6 +387,55 @@ const BranchManagerBilling = () => {
   };
 
   const handleImportCSV = () => {
+    setShowImportModal(true);
+  };
+
+  const downloadCSVTemplate = () => {
+    // Create sample CSV template
+    const headers = [
+      'Client Name',
+      'Client Phone',
+      'Client Email',
+      'Receipt Number',
+      'Payment Method',
+      'Subtotal (₱)',
+      'Discount (₱)',
+      'Tax (₱)',
+      'Total Amount (₱)',
+      'Notes'
+    ];
+
+    const sampleData = [
+      'John Doe',
+      '+639123456789',
+      'john@example.com',
+      'REC001',
+      'Cash',
+      '500.00',
+      '0.00',
+      '0.00',
+      '500.00',
+      'Sample transaction'
+    ];
+
+    const csvContent = [headers.join(','), sampleData.join(',')].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'billing_import_template.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast.success('Template downloaded successfully');
+  };
+
+  const proceedWithImport = () => {
+    setShowImportModal(false);
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.csv';
@@ -392,7 +453,7 @@ const BranchManagerBilling = () => {
 
         // Parse headers
         const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-        
+
         // Find column indices
         const fieldMap = {};
         headers.forEach((header, index) => {
@@ -1346,16 +1407,9 @@ const BranchManagerBilling = () => {
 
       {/* Bills Table */}
       <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
-        {sortedBills.length === 0 ? (
-          <div className="text-center py-12">
-            <Receipt className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-500">No bills found</p>
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th 
                       className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase cursor-pointer hover:bg-gray-100 transition-colors"
@@ -1437,7 +1491,23 @@ const BranchManagerBilling = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {paginatedBills.map((bill) => (
+                  {paginatedBills.length === 0 ? (
+                    <tr>
+                      <td colSpan="9" className="px-4 py-12 text-center">
+                        <Receipt className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-gray-500">No bills found</p>
+                        {hasActiveFilters && (
+                          <button
+                            onClick={clearFilters}
+                            className="mt-2 text-sm text-primary-600 hover:text-primary-700"
+                          >
+                            Clear filters to see all bills
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedBills.map((bill) => (
                   <tr key={bill.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap">
                       <p className="text-sm font-medium text-gray-900">{bill.id}</p>
@@ -1495,11 +1565,12 @@ const BranchManagerBilling = () => {
                       </div>
                     </td>
                   </tr>
-                  ))}
+                  ))
+                  )}
                 </tbody>
               </table>
             </div>
-            
+
             {/* Pagination */}
             <div className="border-t border-gray-200 px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1557,8 +1628,6 @@ const BranchManagerBilling = () => {
                 </div>
               </div>
             </div>
-          </>
-        )}
       </div>
 
       {/* Bill Details Modal */}
@@ -1769,6 +1838,69 @@ const BranchManagerBilling = () => {
       <div className="hidden">
         <ReceiptComponent ref={receiptRef} bill={selectedBill || {}} branch={branchData} />
       </div>
+
+      {/* CSV Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-900">Import CSV Bills</h2>
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div>
+                      <h3 className="text-sm font-medium text-blue-900">CSV Template Required</h3>
+                      <p className="text-sm text-blue-700 mt-1">
+                        Download the template to ensure your CSV file has the correct format and columns.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Required Columns:</h4>
+                  <ul className="text-xs text-gray-600 space-y-1">
+                    <li>• Client Name (required)</li>
+                    <li>• Total Amount (₱) (required)</li>
+                    <li>• Client Phone (optional)</li>
+                    <li>• Client Email (optional)</li>
+                    <li>• Payment Method (optional)</li>
+                    <li>• Receipt Number (optional)</li>
+                    <li>• Notes (optional)</li>
+                  </ul>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={downloadCSVTemplate}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Template
+                  </button>
+                  <button
+                    onClick={proceedWithImport}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Select CSV File
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Advanced Receipt Number Checker Modal */}
       {showReceiptChecker && (

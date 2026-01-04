@@ -760,7 +760,7 @@ export const getDailySalesSummary = async (branchId, date = new Date()) => {
  * @returns {Object} - Calculated totals
  */
 export const calculateBillTotals = (billData) => {
-  const { items = [], discount = 0, discountType = 'fixed', taxRate = 0, loyaltyPointsUsed = 0, promotionDiscount = 0 } = billData;
+  const { items = [], discount = 0, discountType = 'fixed', loyaltyPointsUsed = 0, promotionDiscount = 0 } = billData;
 
   // Calculate subtotal from items
   const subtotal = items.reduce((sum, item) => {
@@ -784,8 +784,8 @@ export const calculateBillTotals = (billData) => {
   // Amount after discount
   const amountAfterDiscount = Math.max(0, subtotal - discountAmount);
 
-  // Calculate tax (no service charge)
-  const tax = (amountAfterDiscount * taxRate) / 100;
+  // Tax removed - always 0
+  const tax = 0;
 
   // Calculate total
   const total = amountAfterDiscount + tax;

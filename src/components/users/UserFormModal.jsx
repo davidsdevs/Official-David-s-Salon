@@ -171,260 +171,269 @@ const UserFormModal = ({ user, branches = [], onClose, onSave }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">
-            {user ? 'Edit User' : 'Add New User'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Personal Information Section */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-              Personal Information
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* First Name */}
-              <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
-                  First Name *
-                </label>
-                <input
-                  type="text"
-                  id="firstName"
-                  name="firstName"
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="John"
-                />
-              </div>
-
-              {/* Middle Name */}
-              <div>
-                <label htmlFor="middleName" className="block text-sm font-medium text-gray-700 mb-2">
-                  Middle Name <span className="text-gray-400 text-xs">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  id="middleName"
-                  name="middleName"
-                  value={formData.middleName}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="Michael"
-                />
-              </div>
-
-              {/* Last Name */}
-              <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
-                  Last Name *
-                </label>
-                <input
-                  type="text"
-                  id="lastName"
-                  name="lastName"
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="Doe"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Contact Information Section */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-              Contact Information
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Email */}
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address *
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  required
-                  disabled={!!user} // Can't change email for existing users
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-gray-100"
-                  placeholder="john@example.com"
-                />
-              </div>
-
-              {/* Phone */}
-              <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
-                  Phone Number
-                </label>
-                <input
-                  type="tel"
-                  id="phone"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="+63 912 345 6789"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Role & Access Section */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-              Role & Access
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Roles - Multiple Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Role(s) * <span className="text-xs text-gray-500">(Client role is exclusive)</span>
-                </label>
-                <div className="space-y-2 p-4 border border-gray-300 rounded-lg bg-gray-50 max-h-64 overflow-y-auto">
-                  {Object.entries(ROLE_LABELS).map(([key, label]) => (
-                    <label key={key} className="flex items-center gap-3 cursor-pointer hover:bg-white p-2 rounded transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={formData.roles?.includes(key) || false}
-                        onChange={() => handleRoleToggle(key)}
-                        className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                      />
-                      <span className="text-sm text-gray-700 flex-1">{label}</span>
-                      {key === USER_ROLES.CLIENT && (
-                        <span className="text-xs text-gray-500">(Single role only)</span>
-                      )}
-                    </label>
-                  ))}
-                </div>
-                {formData.roles && formData.roles.length > 0 && (
-                  <p className="text-xs text-green-600 mt-2 font-medium">
-                    ✓ Selected: {formData.roles.map(r => ROLE_LABELS[r]).join(', ')}
-                  </p>
-                )}
-              </div>
-
-              {/* Branch Assignment */}
-              <div>
-                <label htmlFor="branchId" className="block text-sm font-medium text-gray-700 mb-2">
-                  Branch Assignment
-                </label>
-                <select
-                  id="branchId"
-                  name="branchId"
-                  value={formData.branchId}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
-                >
-                  <option value="">No Branch Assigned</option>
-                  {branches.map(branch => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.name || branch.branchName}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Leave empty for System Admin/Operational Manager. Required for Branch Manager, Receptionist, and Stylist.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Security Section (only for new users) */}
-          {!user && (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
+        <form onSubmit={handleSubmit} className="flex flex-col h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 flex-shrink-0">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                Security - Temporary Passwords
-              </h3>
-              <p className="text-xs text-gray-600 mb-4">
-                Passwords are auto-generated in format: [role]123[specialChar]. You can modify them if needed.
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900">
+                {user ? 'Edit User' : 'Add New User'}
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-600 mt-1">
+                {user ? 'Update user information and roles' : 'Create a new system user account'}
               </p>
-              <div className="space-y-3">
-                {formData.roles.map(role => {
-                  const password = formData.rolePasswords?.[role] || '';
-                  const isAutoGenerated = password && password.match(/^[a-z]+123[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]$/);
-                  
-                  return (
-                  <div key={role}>
-                    <label htmlFor={`password-${role}`} className="block text-sm font-medium text-gray-700 mb-2">
-                      {ROLE_LABELS[role]} Password
-                        {isAutoGenerated && (
-                          <span className="ml-2 text-xs text-green-600 font-normal">(Auto-generated)</span>
-                        )}
-                    </label>
-                      <div className="flex gap-2">
-                    <input
-                          type="text"
-                      id={`password-${role}`}
-                          value={password}
-                      onChange={(e) => handleRolePasswordChange(role, e.target.value)}
-                          className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-lg"
-                          placeholder={`Auto-generated: ${role.replace(/_/g, '')}123!`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newPassword = generateDefaultPassword(role);
-                            handleRolePasswordChange(role, newPassword);
-                            toast.success(`${ROLE_LABELS[role]} password regenerated`);
-                          }}
-                          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 transition-colors"
-                          title="Regenerate password"
-                        >
-                          🔄
-                        </button>
-                      </div>
-                      {password && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Format: [role]123[specialChar] - {password}
-                        </p>
-                      )}
-                  </div>
-                  );
-                })}
-              </div>
             </div>
-          )}
-
-          {/* Info Note */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mx-6">
-            <p className="text-sm text-blue-800">
-              <strong>Note:</strong> {user ? 'User will be notified of profile updates via email.' : 'User will receive a verification email after account creation.'}
-            </p>
-          </div>
-
-          {/* Actions */}
-          <div className="flex items-center justify-end gap-3 px-6 pb-6 pt-4 border-t border-gray-200">
             <button
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+            {/* Personal Information Section */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                Personal Information
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* First Name */}
+                <div>
+                  <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
+                    First Name *
+                  </label>
+                  <input
+                    type="text"
+                    id="firstName"
+                    name="firstName"
+                    value={formData.firstName}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="John"
+                  />
+                </div>
+
+                {/* Middle Name */}
+                <div>
+                  <label htmlFor="middleName" className="block text-sm font-medium text-gray-700 mb-2">
+                    Middle Name <span className="text-gray-400 text-xs">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="middleName"
+                    name="middleName"
+                    value={formData.middleName}
+                    onChange={handleChange}
+                    className="w-full px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="Michael"
+                  />
+                </div>
+
+                {/* Last Name */}
+                <div>
+                  <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
+                    Last Name *
+                  </label>
+                  <input
+                    type="text"
+                    id="lastName"
+                    name="lastName"
+                    value={formData.lastName}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="Doe"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Contact Information Section */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                Contact Information
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Email */}
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    disabled={!!user} // Can't change email for existing users
+                    className="w-full px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-gray-100"
+                    placeholder="john@example.com"
+                  />
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    id="phone"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className="w-full px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="+63 912 345 6789"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Role & Access Section */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                Role & Access
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Roles - Multiple Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Role(s) * <span className="text-xs text-gray-500">(Client role is exclusive)</span>
+                  </label>
+                  <div className="space-y-2 p-3 sm:p-4 border border-gray-300 rounded-lg bg-gray-50 max-h-64 overflow-y-auto">
+                    {Object.entries(ROLE_LABELS).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-3 cursor-pointer hover:bg-white p-2 rounded transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={formData.roles?.includes(key) || false}
+                          onChange={() => handleRoleToggle(key)}
+                          className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                        />
+                        <span className="text-xs sm:text-sm text-gray-700 flex-1">{label}</span>
+                        {key === USER_ROLES.CLIENT && (
+                          <span className="text-xs text-gray-500">(Single role only)</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                  {formData.roles && formData.roles.length > 0 && (
+                    <p className="text-xs text-green-600 mt-2 font-medium">
+                      ✓ Selected: {formData.roles.map(r => ROLE_LABELS[r]).join(', ')}
+                    </p>
+                  )}
+                </div>
+
+                {/* Branch Assignment */}
+                <div>
+                  <label htmlFor="branchId" className="block text-sm font-medium text-gray-700 mb-2">
+                    Branch Assignment
+                  </label>
+                  <select
+                    id="branchId"
+                    name="branchId"
+                    value={formData.branchId}
+                    onChange={handleChange}
+                    className="w-full px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  >
+                    <option value="">No Branch Assigned</option>
+                    {branches.map(branch => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name || branch.branchName}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Leave empty for System Admin/Operational Manager. Required for Branch Manager, Receptionist, and Stylist.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Security Section (only for new users) */}
+            {!user && (
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                  Security - Temporary Passwords
+                </h3>
+                <p className="text-xs text-gray-600 mb-4">
+                  Passwords are auto-generated in format: [role]123[specialChar]. You can modify them if needed.
+                </p>
+                <div className="space-y-3">
+                  {formData.roles.map(role => {
+                    const password = formData.rolePasswords?.[role] || '';
+                    const isAutoGenerated = password && password.match(/^[a-z]+123[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]$/);
+                    
+                    return (
+                    <div key={role}>
+                      <label htmlFor={`password-${role}`} className="block text-sm font-medium text-gray-700 mb-2">
+                        {ROLE_LABELS[role]} Password
+                          {isAutoGenerated && (
+                            <span className="ml-2 text-xs text-green-600 font-normal">(Auto-generated)</span>
+                          )}
+                      </label>
+                        <div className="flex gap-2">
+                      <input
+                            type="text"
+                        id={`password-${role}`}
+                            value={password}
+                        onChange={(e) => handleRolePasswordChange(role, e.target.value)}
+                            className="flex-1 px-3 sm:px-4 py-2 sm:py-3 text-sm sm:text-base border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono"
+                            placeholder={`Auto-generated: ${role.replace(/_/g, '')}123!`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newPassword = generateDefaultPassword(role);
+                              handleRolePasswordChange(role, newPassword);
+                              toast.success(`${ROLE_LABELS[role]} password regenerated`);
+                            }}
+                            className="px-3 sm:px-4 py-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-xs sm:text-sm font-medium text-gray-700 transition-colors"
+                            title="Regenerate password"
+                          >
+                            🔄
+                          </button>
+                        </div>
+                        {password && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Format: [role]123[specialChar] - {password}
+                          </p>
+                        )}
+                    </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Info Note */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+              <p className="text-xs sm:text-sm text-blue-800">
+                <strong>Note:</strong> {user ? 'User will be notified of profile updates via email.' : 'User will receive a verification email after account creation.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 p-4 sm:p-6 bg-gray-50 border-t border-gray-200 flex-shrink-0">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="px-4 sm:px-6 py-2 text-sm sm:text-base border border-gray-300 text-gray-700 bg-white rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              className="px-4 sm:px-6 py-2 text-sm sm:text-base bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {loading && <LoadingSpinner size="sm" />}
               {user ? 'Update User' : 'Create User'}

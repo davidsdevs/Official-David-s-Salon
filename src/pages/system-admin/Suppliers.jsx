@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -13,16 +13,23 @@ import {
   Mail,
   MapPin,
   Globe,
-  Star,
   Users,
   X,
   CheckCircle,
   XCircle,
   AlertTriangle,
   RefreshCw,
+  Package,
+  Upload,
+  Download,
+  Printer,
 } from 'lucide-react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { productService } from '../../services/productService';
+import ImportModal from '../../components/ImportModal';
+import * as XLSX from 'xlsx';
+import toast from 'react-hot-toast';
 
 const Suppliers = () => {
   const { userData } = useAuth();
@@ -32,6 +39,8 @@ const Suppliers = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [supplierProducts, setSupplierProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
   
   // UI states
   const [searchTerm, setSearchTerm] = useState('');
@@ -41,8 +50,17 @@ const Suppliers = () => {
   // Modal states
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [modalMode, setModalMode] = useState('create'); // 'create', 'edit', 'view'
+  
+  // Print ref
+  const printRef = useRef(null);
+  
+  // Products Offered pagination/filter states (for view modal)
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [productCurrentPage, setProductCurrentPage] = useState(1);
+  const [productItemsPerPage, setProductItemsPerPage] = useState(25);
   
   // Form states
   const [formData, setFormData] = useState({
@@ -54,7 +72,6 @@ const Suppliers = () => {
     website: '',
     category: '',
     paymentTerms: '',
-    rating: 5,
     notes: '',
     isActive: true
   });
@@ -97,12 +114,6 @@ const Suppliers = () => {
       case 'paymentTerms':
         if (!value.trim()) {
           error = 'Payment terms are required';
-        }
-        break;
-      
-      case 'rating':
-        if (value < 1 || value > 5) {
-          error = 'Rating must be between 1 and 5';
         }
         break;
     }
@@ -192,7 +203,6 @@ const Suppliers = () => {
       website: '',
       category: '',
       paymentTerms: '',
-      rating: 5,
       notes: '',
       isActive: true
     });
@@ -213,7 +223,6 @@ const Suppliers = () => {
       website: supplier.website || '',
       category: supplier.category || '',
       paymentTerms: supplier.paymentTerms || '',
-      rating: supplier.rating || 5,
       notes: supplier.notes || '',
       isActive: supplier.isActive !== false
     });
@@ -224,7 +233,7 @@ const Suppliers = () => {
     setShowModal(true);
   };
 
-  const openViewModal = (supplier) => {
+  const openViewModal = async (supplier) => {
     setFormData({
       name: supplier.name || '',
       contactPerson: supplier.contactPerson || '',
@@ -234,13 +243,36 @@ const Suppliers = () => {
       website: supplier.website || '',
       category: supplier.category || '',
       paymentTerms: supplier.paymentTerms || '',
-      rating: supplier.rating || 5,
       notes: supplier.notes || '',
       isActive: supplier.isActive !== false
     });
     setModalMode('view');
     setSelectedSupplier(supplier);
     setShowModal(true);
+    setProductSearchTerm('');
+    setProductCurrentPage(1);
+    
+    // Load products for this supplier
+    await loadSupplierProducts(supplier.id);
+  };
+
+  // Load products for a specific supplier
+  const loadSupplierProducts = async (supplierId) => {
+    try {
+      setLoadingProducts(true);
+      const result = await productService.getProductsBySupplier(supplierId);
+      if (result.success) {
+        setSupplierProducts(result.products || []);
+      } else {
+        setSupplierProducts([]);
+        console.error('Error loading supplier products:', result.message);
+      }
+    } catch (err) {
+      console.error('Error loading supplier products:', err);
+      setSupplierProducts([]);
+    } finally {
+      setLoadingProducts(false);
+    }
   };
 
   const openDeleteModal = (supplier) => {
@@ -252,6 +284,7 @@ const Suppliers = () => {
     setShowModal(false);
     setShowDeleteModal(false);
     setSelectedSupplier(null);
+    setSupplierProducts([]);
     setFormData({
       name: '',
       contactPerson: '',
@@ -261,7 +294,6 @@ const Suppliers = () => {
       website: '',
       category: '',
       paymentTerms: '',
-      rating: 5,
       notes: '',
       isActive: true
     });
@@ -373,6 +405,300 @@ const Suppliers = () => {
     }
   };
 
+  // Download supplier import template
+  const downloadSupplierTemplate = () => {
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      // Headers
+      ['Supplier Name', 'Contact Person', 'Email', 'Phone', 'Address', 'Website', 'Category', 'Payment Terms', 'Status (Active/Inactive)', 'Notes'],
+      // Sample data rows
+      ['Schwarzkopf Professional PH', 'John Doe', 'john@schwarzkopf.ph', '+63 912 345 6789', '123 Main St, Manila', 'https://schwarzkopf.ph', 'Hair Care', 'Net 30', 'Active', 'Primary supplier for hair products'],
+      ['Matrix Professional Supplies', 'Jane Smith', 'jane@matrix.com', '+63 923 456 7890', '456 Business Ave, Quezon City', 'https://matrix.com', 'Hair Color', 'Net 15', 'Active', '']
+    ]);
+
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 30 }, // Supplier Name
+      { wch: 20 }, // Contact Person
+      { wch: 30 }, // Email
+      { wch: 18 }, // Phone
+      { wch: 40 }, // Address
+      { wch: 35 }, // Website
+      { wch: 20 }, // Category
+      { wch: 15 }, // Payment Terms
+      { wch: 20 }, // Status
+      { wch: 40 }  // Notes
+    ];
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Suppliers');
+
+    // Generate filename with date
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `Supplier_Import_Template_${dateStr}.xlsx`;
+
+    // Download file
+    XLSX.writeFile(workbook, filename);
+
+    toast.success('Template downloaded successfully!');
+  };
+
+  // Handle supplier import
+  const handleImportSuppliers = async (importData) => {
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+      const errors = [];
+
+      for (let i = 0; i < importData.length; i++) {
+        const row = importData[i];
+        try {
+          // Map Excel columns to supplier data structure (case-insensitive)
+          const name = (row['Supplier Name'] || row['supplier name'] || '').trim();
+          const contactPerson = (row['Contact Person'] || row['contact person'] || '').trim();
+          const email = (row['Email'] || row['email'] || '').trim();
+          const phone = (row['Phone'] || row['phone'] || '').trim();
+          const address = (row['Address'] || row['address'] || '').trim();
+          const website = (row['Website'] || row['website'] || '').trim();
+          const category = (row['Category'] || row['category'] || '').trim();
+          const paymentTerms = (row['Payment Terms'] || row['payment terms'] || '').trim();
+          const statusInput = (row['Status (Active/Inactive)'] || row['Status'] || row['status'] || 'Active').trim();
+          const notes = (row['Notes'] || row['notes'] || '').trim();
+
+          // Validate required fields
+          if (!name) {
+            throw new Error('Supplier Name is required');
+          }
+          if (!contactPerson) {
+            throw new Error('Contact Person is required');
+          }
+          if (!category) {
+            throw new Error('Category is required');
+          }
+          if (!paymentTerms) {
+            throw new Error('Payment Terms is required');
+          }
+
+          // Parse boolean fields
+          const isActive = statusInput.toLowerCase() === 'active' || statusInput.toLowerCase() === 'true' || statusInput === '1';
+
+          // Create supplier data
+          const supplierData = {
+            name,
+            contactPerson,
+            email: email || '',
+            phone: phone || '',
+            address: address || '',
+            website: website || '',
+            category,
+            paymentTerms,
+            notes: notes || '',
+            isActive,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          };
+
+          // Save to Firestore
+          await addDoc(collection(db, 'suppliers'), supplierData);
+          successCount++;
+        } catch (err) {
+          errorCount++;
+          errors.push(`Row ${i + 2}: ${err.message}`);
+        }
+      }
+
+      // Reload suppliers
+      await loadSuppliers();
+
+      // Show results
+      if (successCount > 0) {
+        toast.success(`Successfully imported ${successCount} supplier(s)`);
+      }
+      if (errorCount > 0) {
+        toast.error(`Failed to import ${errorCount} supplier(s). Check console for details.`);
+        console.error('Import errors:', errors);
+      }
+
+      setShowImportModal(false);
+      return { success: true };
+    } catch (err) {
+      console.error('Import error:', err);
+      toast.error('Failed to import suppliers: ' + err.message);
+      setShowImportModal(false);
+      return { success: false, error: err.message };
+    }
+  };
+
+  // Export suppliers to Excel
+  const exportSuppliers = () => {
+    try {
+      const exportData = filteredSuppliers.map(supplier => ({
+        'Supplier Name': supplier.name || '',
+        'Contact Person': supplier.contactPerson || '',
+        'Email': supplier.email || '',
+        'Phone': supplier.phone || '',
+        'Address': supplier.address || '',
+        'Website': supplier.website || '',
+        'Category': supplier.category || '',
+        'Payment Terms': supplier.paymentTerms || '',
+        'Status': supplier.isActive !== false ? 'Active' : 'Inactive',
+        'Notes': supplier.notes || ''
+      }));
+
+      // Create workbook
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+
+      // Set column widths
+      worksheet['!cols'] = [
+        { wch: 30 }, // Supplier Name
+        { wch: 20 }, // Contact Person
+        { wch: 30 }, // Email
+        { wch: 18 }, // Phone
+        { wch: 40 }, // Address
+        { wch: 35 }, // Website
+        { wch: 20 }, // Category
+        { wch: 15 }, // Payment Terms
+        { wch: 12 }, // Status
+        { wch: 40 }  // Notes
+      ];
+
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Suppliers');
+
+      // Generate filename with date
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `Suppliers_Export_${dateStr}.xlsx`;
+
+      // Download file
+      XLSX.writeFile(workbook, filename);
+
+      toast.success('Suppliers exported successfully!');
+    } catch (error) {
+      console.error('Error exporting suppliers:', error);
+      toast.error('Failed to export suppliers: ' + error.message);
+    }
+  };
+
+  // Print suppliers report
+  const handlePrint = () => {
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Suppliers Report - ${new Date().toISOString().split('T')[0]}</title>
+          <meta charset="utf-8">
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            @media print {
+              @page {
+                size: A4;
+                margin: 0.75in;
+              }
+              * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+            }
+            body {
+              font-family: 'Poppins', sans-serif;
+              margin: 0;
+              padding: 20px;
+              background: white;
+              color: #000;
+            }
+            h1 {
+              color: #160B53;
+              margin-bottom: 10px;
+            }
+            .header-info {
+              margin-bottom: 20px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #160B53;
+            }
+            .header-info p {
+              margin: 5px 0;
+            }
+            table {
+              border-collapse: collapse;
+              width: 100%;
+              margin-top: 20px;
+            }
+            th, td {
+              border: 1px solid #000;
+              padding: 10px 8px;
+              text-align: left;
+            }
+            th {
+              background-color: #160B53;
+              color: white;
+              font-weight: bold;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .footer {
+              margin-top: 30px;
+              padding-top: 10px;
+              border-top: 1px solid #ccc;
+              font-size: 12px;
+              color: #666;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Suppliers Report</h1>
+          <div class="header-info">
+            <p><strong>Generated:</strong> ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+            <p><strong>Total Suppliers:</strong> ${filteredSuppliers.length}</p>
+            <p><strong>Active Suppliers:</strong> ${supplierStats.activeSuppliers}</p>
+            <p><strong>Inactive Suppliers:</strong> ${supplierStats.inactiveSuppliers}</p>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Supplier Name</th>
+                <th>Contact Person</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Category</th>
+                <th>Payment Terms</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredSuppliers.map(supplier => `
+                <tr>
+                  <td>${supplier.name || 'N/A'}</td>
+                  <td>${supplier.contactPerson || 'N/A'}</td>
+                  <td>${supplier.email || 'N/A'}</td>
+                  <td>${supplier.phone || 'N/A'}</td>
+                  <td>${supplier.category || 'N/A'}</td>
+                  <td>${supplier.paymentTerms || 'N/A'}</td>
+                  <td>${supplier.isActive !== false ? 'Active' : 'Inactive'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="footer">
+            <p>This report is for system administrator viewing purposes only.</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.focus();
+    
+    // Wait for content to load, then print
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  };
+
   // Get status color
   const getStatusColor = (isActive) => {
     return isActive ? 'text-green-600 bg-green-100 border-green-200' : 'text-red-600 bg-red-100 border-red-200';
@@ -383,27 +709,41 @@ const Suppliers = () => {
     return isActive ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />;
   };
 
-  // Get rating stars
-  const getRatingStars = (rating) => {
-    return Array.from({ length: 5 }, (_, i) => (
-      <Star
-        key={i}
-        className={`h-4 w-4 ${
-          i < rating ? 'text-yellow-400 fill-current' : 'text-gray-300'
-        }`}
-      />
-    ));
-  };
-
   // Calculate supplier statistics
   const supplierStats = {
     totalSuppliers: suppliers.length,
     activeSuppliers: suppliers.filter(s => s.isActive !== false).length,
-    inactiveSuppliers: suppliers.filter(s => s.isActive === false).length,
-    averageRating: suppliers.length > 0 
-      ? (suppliers.reduce((sum, s) => sum + (s.rating || 0), 0) / suppliers.length).toFixed(1)
-      : 0
+    inactiveSuppliers: suppliers.filter(s => s.isActive === false).length
   };
+
+  // Products offered helpers (big data friendly)
+  const filteredProductsForModal = useMemo(() => {
+    const searchLower = productSearchTerm.toLowerCase();
+    return supplierProducts.filter(product => {
+      return (
+        product.name?.toLowerCase().includes(searchLower) ||
+        product.category?.toLowerCase().includes(searchLower) ||
+        product.brand?.toLowerCase().includes(searchLower) ||
+        product.upc?.toLowerCase().includes(searchLower)
+      );
+    });
+  }, [supplierProducts, productSearchTerm]);
+
+  const totalProductPages = Math.max(1, Math.ceil(filteredProductsForModal.length / productItemsPerPage));
+  const safeProductCurrentPage = Math.min(productCurrentPage, totalProductPages);
+  const productStartIndex = (safeProductCurrentPage - 1) * productItemsPerPage;
+  const productEndIndex = productStartIndex + productItemsPerPage;
+
+  const paginatedProducts = useMemo(
+    () => filteredProductsForModal.slice(productStartIndex, productEndIndex),
+    [filteredProductsForModal, productStartIndex, productEndIndex]
+  );
+
+  useEffect(() => {
+    if (productCurrentPage > totalProductPages) {
+      setProductCurrentPage(totalProductPages);
+    }
+  }, [productCurrentPage, totalProductPages]);
 
   if (loading) {
     return (
@@ -431,22 +771,48 @@ const Suppliers = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Suppliers Management</h1>
           <p className="text-gray-600">Manage supplier information and details</p>
         </div>
-        <Button
-          onClick={openCreateModal}
-          className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A]"
-        >
-          <Plus className="h-4 w-4" />
-          Add Supplier
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 border-gray-300 text-gray-700 hover:bg-gray-100"
+          >
+            <Upload className="h-4 w-4" />
+            Import
+          </Button>
+          <Button
+            variant="outline"
+            onClick={exportSuppliers}
+            className="flex items-center gap-2 border-gray-300 text-gray-700 hover:bg-gray-100"
+          >
+            <Download className="h-4 w-4" />
+            Export
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handlePrint}
+            className="flex items-center gap-2 border-gray-300 text-gray-700 hover:bg-gray-100"
+          >
+            <Printer className="h-4 w-4" />
+            Print
+          </Button>
+          <Button
+            onClick={openCreateModal}
+            className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A]"
+          >
+            <Plus className="h-4 w-4" />
+            Add Supplier
+          </Button>
+        </div>
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -472,15 +838,6 @@ const Suppliers = () => {
               <p className="text-2xl font-bold text-red-600">{supplierStats.inactiveSuppliers}</p>
             </div>
             <XCircle className="h-8 w-8 text-red-600" />
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Average Rating</p>
-              <p className="text-2xl font-bold text-yellow-600">{supplierStats.averageRating}</p>
-            </div>
-            <Star className="h-8 w-8 text-yellow-600 fill-current" />
           </div>
         </Card>
       </div>
@@ -535,7 +892,6 @@ const Suppliers = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Terms</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rating</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
@@ -586,12 +942,6 @@ const Suppliers = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">{supplier.category || 'N/A'}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{supplier.paymentTerms || 'N/A'}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1">
-                        {getRatingStars(supplier.rating || 0)}
-                        <span className="text-sm text-gray-600 ml-1">({supplier.rating || 0})</span>
-                      </div>
-                    </td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(supplier.isActive !== false)}`}>
                         {getStatusIcon(supplier.isActive !== false)}
@@ -725,20 +1075,13 @@ const Suppliers = () => {
 
                   <div className="border border-gray-200 rounded-lg p-4">
                     <h4 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                      <Star className="h-5 w-5 text-yellow-600 mr-2" />
+                      <Package className="h-5 w-5 text-blue-600 mr-2" />
                       Additional Information
                     </h4>
                     <div className="space-y-3">
                       <div className="flex justify-between items-center py-2 border-b border-gray-100">
                         <span className="text-sm font-medium text-gray-600">Payment Terms</span>
                         <span className="text-sm text-gray-900">{formData.paymentTerms || 'N/A'}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                        <span className="text-sm font-medium text-gray-600">Rating</span>
-                        <div className="flex items-center gap-1">
-                          {getRatingStars(formData.rating)}
-                          <span className="text-sm text-gray-600 ml-1">({formData.rating})</span>
-                        </div>
                       </div>
                       {formData.notes && (
                         <div className="py-2">
@@ -747,6 +1090,139 @@ const Suppliers = () => {
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  {/* Products Offered Section */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h4 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+                      <Package className="h-5 w-5 text-purple-600 mr-2" />
+                      Products Offered ({supplierProducts.length})
+                    </h4>
+                    {loadingProducts ? (
+                      <div className="flex items-center justify-center py-8">
+                        <RefreshCw className="h-5 w-5 animate-spin text-[#160B53] mr-2" />
+                        <span className="text-sm text-gray-600">Loading products...</span>
+                      </div>
+                    ) : supplierProducts.length > 0 ? (
+                      <div className="space-y-4">
+                        {/* Search for products */}
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                          <input
+                            type="text"
+                            placeholder="Search products..."
+                            value={productSearchTerm}
+                            onChange={(e) => {
+                              setProductSearchTerm(e.target.value);
+                              setProductCurrentPage(1);
+                            }}
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] text-sm"
+                          />
+                        </div>
+
+                        {filteredProductsForModal.length === 0 ? (
+                          <div className="text-center py-6 text-sm text-gray-500">
+                            No products match your search.
+                          </div>
+                        ) : (
+                          <>
+                            <div className="overflow-x-auto">
+                              <table className="w-full">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Product Name</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Category</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Brand</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Unit Cost</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">OTC Price</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                  {paginatedProducts.map((product) => (
+                                    <tr key={product.id} className="hover:bg-gray-50">
+                                      <td className="px-4 py-2 text-sm text-gray-900">{product.name || 'N/A'}</td>
+                                      <td className="px-4 py-2 text-sm text-gray-700">{product.category || 'N/A'}</td>
+                                      <td className="px-4 py-2 text-sm text-gray-700">{product.brand || 'N/A'}</td>
+                                      <td className="px-4 py-2 text-sm text-gray-700">
+                                        ₱{product.unitCost ? parseFloat(product.unitCost).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                                      </td>
+                                      <td className="px-4 py-2 text-sm text-gray-700">
+                                        ₱{product.otcPrice ? parseFloat(product.otcPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                                      </td>
+                                      <td className="px-4 py-2 text-sm">
+                                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${
+                                          product.status === 'Active' 
+                                            ? 'text-green-600 bg-green-100 border-green-200' 
+                                            : 'text-red-600 bg-red-100 border-red-200'
+                                        }`}>
+                                          {product.status === 'Active' ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                                          {product.status || 'N/A'}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Pagination controls for products */}
+                            {filteredProductsForModal.length > productItemsPerPage && (
+                              <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-gray-600">Show</span>
+                                  <select
+                                    value={productItemsPerPage}
+                                    onChange={(e) => {
+                                      setProductItemsPerPage(Number(e.target.value));
+                                      setProductCurrentPage(1);
+                                    }}
+                                    className="border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-[#160B53] focus:border-[#160B53]"
+                                  >
+                                    <option value={10}>10</option>
+                                    <option value={25}>25</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                  </select>
+                                  <span className="text-sm text-gray-600">per page</span>
+                                </div>
+                                <div className="text-sm text-gray-600">
+                                  Showing {productStartIndex + 1} to {Math.min(productEndIndex, filteredProductsForModal.length)} of {filteredProductsForModal.length} products
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setProductCurrentPage(prev => Math.max(1, prev - 1))}
+                                    disabled={safeProductCurrentPage === 1}
+                                    className="px-3 py-1 text-sm"
+                                  >
+                                    Previous
+                                  </Button>
+                                  <span className="text-sm text-gray-600">
+                                    Page {safeProductCurrentPage} of {totalProductPages}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setProductCurrentPage(prev => Math.min(totalProductPages, prev + 1))}
+                                    disabled={safeProductCurrentPage === totalProductPages}
+                                    className="px-3 py-1 text-sm"
+                                  >
+                                    Next
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <Package className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-sm text-gray-500">This supplier does not offer any products yet.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -869,27 +1345,6 @@ const Suppliers = () => {
                       />
                       {errors.paymentTerms && touched.paymentTerms && (
                         <p className="mt-1 text-sm text-red-600">{errors.paymentTerms}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Rating (1-5)
-                      </label>
-                      <input
-                        type="number"
-                        name="rating"
-                        value={formData.rating}
-                        onChange={handleInputChange}
-                        onBlur={handleBlur}
-                        min="1"
-                        max="5"
-                        className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] ${
-                          errors.rating && touched.rating ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                      />
-                      {errors.rating && touched.rating && (
-                        <p className="mt-1 text-sm text-red-600">{errors.rating}</p>
                       )}
                     </div>
 
@@ -1036,6 +1491,48 @@ const Suppliers = () => {
           </div>
         </div>
       )}
+
+      {/* Import Suppliers Modal */}
+      <ImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImport={handleImportSuppliers}
+        templateColumns={[
+          'Supplier Name',
+          'Contact Person',
+          'Email',
+          'Phone',
+          'Address',
+          'Website',
+          'Category',
+          'Payment Terms',
+          'Status (Active/Inactive)',
+          'Notes'
+        ]}
+        templateName="Supplier_Import"
+        sampleData={[
+          {
+            'Supplier Name': 'Schwarzkopf Professional PH',
+            'Contact Person': 'John Doe',
+            'Email': 'john@schwarzkopf.ph',
+            'Phone': '+63 912 345 6789',
+            'Address': '123 Main St, Manila',
+            'Website': 'https://schwarzkopf.ph',
+            'Category': 'Hair Care',
+            'Payment Terms': 'Net 30',
+            'Status (Active/Inactive)': 'Active',
+            'Notes': 'Primary supplier for hair products'
+          }
+        ]}
+        validationRules={{
+          'Supplier Name': { required: true },
+          'Contact Person': { required: true },
+          'Category': { required: true },
+          'Payment Terms': { required: true }
+        }}
+        title="Import Suppliers"
+        customDownloadTemplate={downloadSupplierTemplate}
+      />
     </div>
   );
 };

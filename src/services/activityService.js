@@ -101,38 +101,65 @@ export const logActivity = async (activityData) => {
  * @param {Object} filters - Filter criteria
  * @returns {Promise<Array>} Array of activity logs
  */
-export const getActivityLogs = async (filters = {}) => {
+export const getActivityLogs = async (filters = {}, options = {}) => {
   try {
-    const constraints = [orderBy('timestamp', 'desc')];
+    const { allowClientSortFallback = false } = options;
+    const baseConstraints = [];
     
     if (filters.performedBy) {
-      constraints.unshift(where('performedBy', '==', filters.performedBy));
+      baseConstraints.push(where('performedBy', '==', filters.performedBy));
     }
     if (filters.targetUser) {
-      constraints.unshift(where('targetUser', '==', filters.targetUser));
+      baseConstraints.push(where('targetUser', '==', filters.targetUser));
     }
     if (filters.action) {
-      constraints.unshift(where('action', '==', filters.action));
+      baseConstraints.push(where('action', '==', filters.action));
     }
     if (filters.branchId) {
-      constraints.unshift(where('branchId', '==', filters.branchId));
+      baseConstraints.push(where('branchId', '==', filters.branchId));
     }
     
-    // Limit results
-    constraints.push(limit(filters.limit || 100));
-    
-    const q = query(collection(db, 'activity_logs'), ...constraints);
-    const snapshot = await getDocs(q);
-    
-    const logs = [];
-    snapshot.forEach((doc) => {
-      logs.push({
-        id: doc.id,
-        ...doc.data()
+    const limitCount = filters.limit || 100;
+
+    const runQuery = async (useOrderBy) => {
+      const constraints = [...baseConstraints];
+      if (useOrderBy) {
+        constraints.push(orderBy('timestamp', 'desc'));
+      }
+      constraints.push(limit(limitCount));
+
+      const q = query(collection(db, 'activity_logs'), ...constraints);
+      const snapshot = await getDocs(q);
+      const logs = [];
+      snapshot.forEach((doc) => {
+        logs.push({
+          id: doc.id,
+          ...doc.data()
+        });
       });
-    });
-    
-    return logs;
+
+      // If we removed orderBy to avoid index, sort client-side by timestamp desc
+      if (!useOrderBy) {
+        logs.sort((a, b) => {
+          const ta = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+          const tb = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+          return tb - ta;
+        });
+      }
+
+      return logs;
+    };
+
+    try {
+      return await runQuery(true);
+    } catch (error) {
+      const isIndexError = error?.code === 'failed-precondition' || error?.message?.toLowerCase().includes('index');
+      if (allowClientSortFallback && isIndexError) {
+        console.warn('Index missing for activity_logs query, falling back to client-side sort.');
+        return await runQuery(false);
+      }
+      throw error;
+    }
   } catch (error) {
     console.error('Error fetching activity logs:', error);
     throw error;

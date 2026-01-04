@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar, TrendingUp, Users, Clock, CheckCircle, XCircle, AlertCircle, BarChart3, Printer, Search, Filter, ChevronUp, ChevronDown, X, ArrowUpDown, Download } from 'lucide-react';
+import { Calendar, TrendingUp, Users, Clock, CheckCircle, XCircle, AlertCircle, BarChart3, Printer, Search, Filter, ChevronUp, ChevronDown, X, ArrowUpDown, Download, Eye } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getAppointmentsByBranch,
@@ -13,9 +13,11 @@ import {
 } from '../../services/appointmentService';
 import { getBranchServices } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
+import { getBranchById } from '../../services/branchService';
 import { USER_ROLES } from '../../utils/constants';
 import { getFullName, formatDate, formatTime } from '../../utils/helpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import AppointmentDetails from '../../components/appointment/AppointmentDetails';
 import toast from 'react-hot-toast';
 
 const ITEMS_PER_PAGE_OPTIONS = [15, 25, 50, 100, 200];
@@ -43,12 +45,8 @@ const BranchManagerAppointments = () => {
   const [serviceFilter, setServiceFilter] = useState('all');
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
-  const [minAmountFilter, setMinAmountFilter] = useState('');
-  const [maxAmountFilter, setMaxAmountFilter] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
-  const [dateFilterType, setDateFilterType] = useState('all'); // 'all', 'today', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth', 'thisYear', 'custom', 'monthYear'
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [showFilters, setShowFilters] = useState(true);
+  const [dateFilterType, setDateFilterType] = useState('all'); // 'all', 'today', 'thisWeek', 'thisMonth', 'custom'
   
   // Sorting
   const [sortColumn, setSortColumn] = useState('appointmentDate');
@@ -57,6 +55,10 @@ const BranchManagerAppointments = () => {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(15);
+
+  // View appointment details
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [showAppointmentDetails, setShowAppointmentDetails] = useState(false);
 
   useEffect(() => {
     if (userBranch) {
@@ -67,7 +69,7 @@ const BranchManagerAppointments = () => {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, stylistFilter, serviceFilter, startDateFilter, endDateFilter, minAmountFilter, maxAmountFilter, sortColumn, sortDirection]);
+  }, [searchTerm, statusFilter, stylistFilter, serviceFilter, startDateFilter, endDateFilter, sortColumn, sortDirection]);
 
   const fetchData = async () => {
     try {
@@ -247,18 +249,9 @@ const BranchManagerAppointments = () => {
         if (aptDate > filterDate) return false;
       }
 
-      // Amount filters
-      if (minAmountFilter && apt.totalAmount < parseFloat(minAmountFilter)) {
-        return false;
-      }
-
-      if (maxAmountFilter && apt.totalAmount > parseFloat(maxAmountFilter)) {
-        return false;
-      }
-
       return true;
     });
-  }, [allAppointments, searchTerm, statusFilter, stylistFilter, serviceFilter, startDateFilter, endDateFilter, minAmountFilter, maxAmountFilter]);
+  }, [allAppointments, searchTerm, statusFilter, stylistFilter, serviceFilter, startDateFilter, endDateFilter]);
 
   // Sort appointments
   const sortedAppointments = useMemo(() => {
@@ -321,7 +314,7 @@ const BranchManagerAppointments = () => {
   };
 
   // Helper function to get date range based on preset type
-  const getDateRange = (type, month = null, year = null) => {
+  const getDateRange = (type) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
@@ -339,49 +332,13 @@ const BranchManagerAppointments = () => {
           startDate: thisWeekStart.toISOString().split('T')[0],
           endDate: today.toISOString().split('T')[0]
         };
-      
-      case 'lastWeek':
-        const lastWeekEnd = new Date(today);
-        lastWeekEnd.setDate(today.getDate() - today.getDay() - 1); // Last Saturday
-        const lastWeekStart = new Date(lastWeekEnd);
-        lastWeekStart.setDate(lastWeekEnd.getDate() - 6); // Start of last week
-        return {
-          startDate: lastWeekStart.toISOString().split('T')[0],
-          endDate: lastWeekEnd.toISOString().split('T')[0]
-        };
-      
+
       case 'thisMonth':
         const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
         return {
           startDate: thisMonthStart.toISOString().split('T')[0],
           endDate: today.toISOString().split('T')[0]
         };
-      
-      case 'lastMonth':
-        const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
-        return {
-          startDate: lastMonthStart.toISOString().split('T')[0],
-          endDate: lastMonthEnd.toISOString().split('T')[0]
-        };
-      
-      case 'thisYear':
-        const thisYearStart = new Date(today.getFullYear(), 0, 1);
-        return {
-          startDate: thisYearStart.toISOString().split('T')[0],
-          endDate: today.toISOString().split('T')[0]
-        };
-      
-      case 'monthYear':
-        if (month && year) {
-          const monthStart = new Date(year, month - 1, 1);
-          const monthEnd = new Date(year, month, 0);
-          return {
-            startDate: monthStart.toISOString().split('T')[0],
-            endDate: monthEnd.toISOString().split('T')[0]
-          };
-        }
-        return { startDate: '', endDate: '' };
       
       default:
         return { startDate: '', endDate: '' };
@@ -394,24 +351,11 @@ const BranchManagerAppointments = () => {
     if (type === 'all') {
       setStartDateFilter('');
       setEndDateFilter('');
-    } else if (type === 'monthYear') {
-      const range = getDateRange('monthYear', selectedMonth, selectedYear);
-      setStartDateFilter(range.startDate);
-      setEndDateFilter(range.endDate);
     } else if (type !== 'custom') {
       const range = getDateRange(type);
       setStartDateFilter(range.startDate);
       setEndDateFilter(range.endDate);
     }
-  };
-
-  // Handle month/year change
-  const handleMonthYearChange = (month, year) => {
-    setSelectedMonth(month);
-    setSelectedYear(year);
-    const range = getDateRange('monthYear', month, year);
-    setStartDateFilter(range.startDate);
-    setEndDateFilter(range.endDate);
   };
 
   const clearFilters = () => {
@@ -421,13 +365,11 @@ const BranchManagerAppointments = () => {
     setServiceFilter('all');
     setStartDateFilter('');
     setEndDateFilter('');
-    setMinAmountFilter('');
-    setMaxAmountFilter('');
     setDateFilterType('all');
   };
 
   const hasActiveFilters = searchTerm || statusFilter !== 'all' || stylistFilter !== 'all' || 
-    serviceFilter !== 'all' || startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter;
+    serviceFilter !== 'all' || startDateFilter || endDateFilter;
 
   // Calculate analytics
   const calculateAnalytics = () => {
@@ -509,22 +451,50 @@ const BranchManagerAppointments = () => {
 
   const analytics = calculateAnalytics();
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     try {
-      const branchName = userBranchData?.name || userBranchData?.branchName || 'Branch';
-      const sanitizedBranchName = branchName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      const dateStr = new Date().toISOString().split('T')[0];
-      const timeStr = new Date().toTimeString().split(' ')[0].replace(/:/g, '');
-      
+      // Get branch name - try userBranchData first, then fetch from database if needed
+      let branchName = userBranchData?.name || userBranchData?.branchName;
+
+      if (!branchName && userBranch) {
+        try {
+          const branchData = await getBranchById(userBranch);
+          branchName = branchData?.name || branchData?.branchName || userBranch;
+        } catch (error) {
+          console.warn('Could not fetch branch data:', error);
+          branchName = userBranch;
+        }
+      }
+
+      // Final fallback
+      branchName = branchName || 'Branch';
+
+      // Get exporter name
+      const exporterName = currentUser && userData ? getFullName(userData) : (currentUser?.displayName || 'Manager');
+      const sanitizedExporterName = exporterName.replace(/[^a-zA-Z0-9]/g, '_');
+
+      // Get current date and time
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, ''); // HHMMSS
+      const readableDate = now.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      }).replace(/ /g, '_');
+
+      // Sanitize branch name for filename
+      const sanitizedBranchName = branchName.replace(/[^a-zA-Z0-9]/g, '_');
+
       // Build filter suffix for filename
       const filterParts = [];
       if (statusFilter !== 'all') filterParts.push(`status-${statusFilter}`);
-      if (startDateFilter) filterParts.push(`from-${startDateFilter}`);
-      if (endDateFilter) filterParts.push(`to-${endDateFilter}`);
+      if (startDateFilter) filterParts.push(`from-${startDateFilter.replace(/-/g, '')}`);
+      if (endDateFilter) filterParts.push(`to-${endDateFilter.replace(/-/g, '')}`);
       const filterSuffix = filterParts.length > 0 ? `_${filterParts.join('_')}` : '';
-      
-      // Generate formatted filename
-      const filename = `appointments_${sanitizedBranchName}_${dateStr}_${timeStr}${filterSuffix}.csv`;
+
+      // Generate formatted filename: Appointments_[Branch]_[Exporter]_[Date].csv
+      const filename = `Appointments_${sanitizedBranchName}_${sanitizedExporterName}_${readableDate}${filterSuffix}.csv`;
       
       // CSV Headers
       const headers = [
@@ -607,23 +577,26 @@ const BranchManagerAppointments = () => {
     }
   };
 
-  const handlePrintReport = () => {
+  const handlePrintReport = async () => {
     try {
-      const branchName = userBranchData?.name || userBranchData?.branchName || 'Branch';
-      const generatedAt = new Date().toLocaleString();
-      
-      // Build filter description
-      const activeFilters = [];
-      if (searchTerm) activeFilters.push(`Search: ${searchTerm}`);
-      if (statusFilter !== 'all') activeFilters.push(`Status: ${statusFilter}`);
-      if (stylistFilter !== 'all') activeFilters.push(`Stylist: ${stylistFilter}`);
-      if (serviceFilter !== 'all') activeFilters.push(`Service: ${serviceFilter}`);
-      if (startDateFilter) activeFilters.push(`From: ${startDateFilter}`);
-      if (endDateFilter) activeFilters.push(`To: ${endDateFilter}`);
-      if (minAmountFilter || maxAmountFilter) {
-        activeFilters.push(`Amount: ₱${minAmountFilter || '0'} - ${maxAmountFilter ? `₱${maxAmountFilter}` : 'Unlimited'}`);
+      // Get branch name - try userBranchData first, then fetch from database if needed
+      let branchName = userBranchData?.name || userBranchData?.branchName;
+
+      if (!branchName && userBranch) {
+        try {
+          const branchData = await getBranchById(userBranch);
+          branchName = branchData?.name || branchData?.branchName || userBranch;
+        } catch (error) {
+          console.warn('Could not fetch branch data:', error);
+          branchName = userBranch;
+        }
       }
-      
+
+      // Final fallback
+      branchName = branchName || 'Branch';
+
+      const generatedAt = new Date().toLocaleString();
+
       // Calculate summary
       const totalAppointments = filteredAppointments.length;
       const completed = filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.COMPLETED).length;
@@ -644,24 +617,29 @@ const BranchManagerAppointments = () => {
         const aptDate = apt.appointmentDate?.toDate ? apt.appointmentDate.toDate() : new Date(apt.appointmentDate);
         const dateStr = aptDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         const timeStr = aptDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-        
+
         const servicesList = (apt.services && apt.services.length > 0)
-          ? apt.services.map(svc => svc.serviceName).join(', ')
+          ? apt.services.map(svc => svc.serviceName || 'Unknown Service').join(', ')
           : apt.serviceName || 'N/A';
-        
+
         const stylistsList = (apt.services && apt.services.length > 0)
-          ? [...new Set(apt.services.map(svc => svc.stylistName))].join(', ')
+          ? [...new Set(apt.services.map(svc => svc.stylistName || 'Unassigned'))].join(', ')
           : apt.stylistName || 'Unassigned';
-        
+
+        // Enhanced status styling
+        const status = apt.status || 'pending';
+        const statusClass = `status-badge status-${status.toLowerCase().replace('_', '')}`;
+        const statusText = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase().replace('_', ' ');
+
         return `
           <tr>
-            <td>${apt.clientName || 'Unknown'}</td>
+            <td style="font-weight: 600;">${apt.clientName || 'Unknown Client'}</td>
             <td>${dateStr}</td>
             <td>${timeStr}</td>
-            <td>${servicesList}</td>
+            <td style="max-width: 200px; word-wrap: break-word;">${servicesList}</td>
             <td>${stylistsList}</td>
-            <td>${apt.status || 'pending'}</td>
-            <td>₱${(apt.totalAmount || 0).toFixed(2)}</td>
+            <td><span class="${statusClass}">${statusText}</span></td>
+            <td style="font-weight: 600; text-align: right;">₱${(apt.totalAmount || 0).toFixed(2)}</td>
           </tr>
         `;
       }).join('');
@@ -670,55 +648,94 @@ const BranchManagerAppointments = () => {
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Appointments Report - ${branchName}</title>
+          <title>David's Salon - Appointment Report - ${branchName}</title>
           <meta charset="utf-8">
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
             @media print {
               @page {
                 size: A4;
-                margin: 1cm;
+                margin: 1.5cm;
               }
             }
             * {
               font-family: 'Poppins', sans-serif;
+              box-sizing: border-box;
             }
             body {
               font-family: 'Poppins', sans-serif;
               margin: 0;
-              padding: 20px;
-              color: #000;
+              padding: 0;
+              color: #000000;
+              background: #fff;
+              line-height: 1.6;
             }
             .header {
               text-align: center;
-              margin-bottom: 30px;
-              border-bottom: 1px solid #000;
-              padding-bottom: 15px;
+              margin-bottom: 40px;
+              padding-bottom: 25px;
+              border-bottom: 3px solid #000000;
+              position: relative;
             }
-            .header h1 {
-              margin: 0;
-              font-size: 24px;
-              font-weight: 700;
+            .header::after {
+              content: '';
+              position: absolute;
+              bottom: -3px;
+              left: 50%;
+              transform: translateX(-50%);
+              width: 100px;
+              height: 3px;
+              background: #000000;
+            }
+            .brand-section {
+              margin-bottom: 20px;
+            }
+            .brand-title {
               font-family: 'Poppins', sans-serif;
-              margin-bottom: 8px;
+              font-size: 32px;
+              font-weight: 700;
+              color: #000000;
+              margin: 0;
+              letter-spacing: 1px;
+            }
+            .brand-subtitle {
+              font-family: 'Poppins', sans-serif;
+              font-size: 14px;
+              font-weight: 400;
+              color: #000000;
+              margin: 5px 0 0 0;
               letter-spacing: 0.5px;
             }
-            .header h2 {
-              margin: 5px 0;
+            .report-title {
+              font-family: 'Poppins', sans-serif;
+              font-size: 28px;
+              font-weight: 700;
+              color: #000000;
+              margin: 20px 0 10px 0;
+              letter-spacing: 0.5px;
+            }
+            .branch-name {
+              font-family: 'Poppins', sans-serif;
               font-size: 18px;
               font-weight: 600;
-              color: #333;
-              font-family: 'Poppins', sans-serif;
-              margin-bottom: 10px;
+              color: #000000;
+              margin: 5px 0;
+              text-transform: uppercase;
+              letter-spacing: 1px;
             }
             .header-meta {
               display: flex;
               justify-content: space-between;
-              font-size: 10px;
-              font-weight: 400;
+              font-size: 11px;
+              font-weight: 500;
               font-family: 'Poppins', sans-serif;
-              color: #666;
-              margin-top: 10px;
+              color: #000000;
+              margin-top: 20px;
+              padding-top: 15px;
+              border-top: 1px solid #000000;
+            }
+            .header-meta-left, .header-meta-right {
+              flex: 1;
             }
             .header-meta-left {
               text-align: left;
@@ -726,90 +743,97 @@ const BranchManagerAppointments = () => {
             .header-meta-right {
               text-align: right;
             }
-            .info-section {
-              margin-bottom: 20px;
-              padding: 15px;
-              background-color: #f5f5f5;
-              border-radius: 5px;
-            }
-            .info-section h3 {
-              margin-top: 0;
-              font-size: 16px;
-              font-weight: 600;
-              font-family: 'Poppins', sans-serif;
-              border-bottom: 1px solid #ccc;
-              padding-bottom: 5px;
-            }
-            .info-row {
-              display: flex;
-              justify-content: space-between;
-              margin: 8px 0;
-              font-size: 14px;
-              font-family: 'Poppins', sans-serif;
-            }
             .summary-grid {
               display: grid;
-              grid-template-columns: repeat(3, 1fr);
-              gap: 15px;
-              margin: 20px 0;
+              grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+              gap: 20px;
+              margin: 30px 0;
             }
             .summary-card {
-              padding: 15px;
-              background-color: #f9f9f9;
-              border: 1px solid #ddd;
-              border-radius: 5px;
+              padding: 20px;
+              background: #ffffff;
+              border: 2px solid #000000;
+              border-radius: 12px;
               text-align: center;
             }
             .summary-card .label {
               font-size: 12px;
-              font-weight: 500;
+              font-weight: 600;
               font-family: 'Poppins', sans-serif;
-              color: #666;
-              margin-bottom: 5px;
+              color: #000000;
+              margin-bottom: 8px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
             }
             .summary-card .value {
-              font-size: 20px;
+              font-size: 24px;
               font-weight: 700;
               font-family: 'Poppins', sans-serif;
-              color: #000;
+              color: #000000;
+              margin: 0;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 20px;
+              margin-top: 25px;
               font-size: 12px;
               font-family: 'Poppins', sans-serif;
+              border: 2px solid #000000;
+              border-radius: 8px;
+              overflow: hidden;
             }
             thead {
-              background-color: #333;
+              background: #000000;
               color: white;
             }
-            th, td {
-              border: 1px solid #000;
-              padding: 8px;
+            th {
+              padding: 15px 12px;
               text-align: left;
               font-family: 'Poppins', sans-serif;
-            }
-            th {
               font-weight: 600;
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              border-bottom: 2px solid #000000;
+            }
+            td {
+              padding: 12px;
+              border-bottom: 1px solid #000000;
               font-family: 'Poppins', sans-serif;
+              color: #000000;
             }
             tbody tr:nth-child(even) {
               background-color: #f9f9f9;
             }
+            .status-badge {
+              padding: 4px 8px;
+              border-radius: 12px;
+              font-size: 10px;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              background-color: #000000;
+              color: white;
+            }
             .footer {
-              margin-top: 30px;
-              padding-top: 15px;
-              border-top: 2px solid #000;
+              margin-top: 40px;
+              padding-top: 20px;
+              border-top: 2px solid #000000;
               text-align: center;
-              font-size: 12px;
-              font-weight: 400;
+              font-size: 11px;
+              font-weight: 500;
               font-family: 'Poppins', sans-serif;
-              color: #666;
+              color: #000000;
             }
             .footer p {
-              margin: 5px 0;
+              margin: 8px 0;
               font-family: 'Poppins', sans-serif;
+            }
+            .footer .brand {
+              font-family: 'Poppins', sans-serif;
+              font-weight: 700;
+              color: #000000;
+              font-size: 14px;
             }
             @media print {
               .no-print {
@@ -820,67 +844,54 @@ const BranchManagerAppointments = () => {
         </head>
         <body>
           <div class="header">
-            <h1>${branchName} - APPOINTMENTS REPORT</h1>
+            <div class="brand-section">
+              <h1 class="brand-title">DAVID'S SALON</h1>
+              <p class="brand-subtitle">Professional Beauty & Wellness Services</p>
+            </div>
+            <h2 class="report-title">Appointment Report</h2>
+            <div class="branch-name">${branchName}</div>
             <div class="header-meta">
               <div class="header-meta-left">
-                <div>Printed by: ${currentUser && userData ? getFullName(userData) : (currentUser?.displayName || 'Manager')}</div>
+                <div><strong>Generated by:</strong> ${currentUser && userData ? getFullName(userData) : (currentUser?.displayName || 'Manager')}</div>
               </div>
               <div class="header-meta-right">
-                <div>Printed: ${new Date().toLocaleString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric', 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
+                <div><strong>Generated:</strong> ${new Date().toLocaleString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
                 })}</div>
               </div>
             </div>
           </div>
 
-          <div class="info-section">
-            <h3>Filters Applied</h3>
-            ${activeFilters.length > 0 
-              ? activeFilters.map(filter => `<div class="info-row"><span>${filter}</span></div>`).join('')
-              : '<div class="info-row"><span>No filters applied - Showing all appointments</span></div>'
-            }
-          </div>
-
           <div class="summary-grid">
-            <div class="summary-card">
+            <div class="summary-card total">
               <div class="label">Total Appointments</div>
               <div class="value">${totalAppointments}</div>
             </div>
-            <div class="summary-card">
+            <div class="summary-card completed">
               <div class="label">Completed</div>
               <div class="value">${completed}</div>
             </div>
-            <div class="summary-card">
+            <div class="summary-card cancelled">
               <div class="label">Cancelled</div>
               <div class="value">${cancelled}</div>
             </div>
-            <div class="summary-card">
+            <div class="summary-card pending">
               <div class="label">Pending</div>
               <div class="value">${pending}</div>
             </div>
-            <div class="summary-card">
+            <div class="summary-card confirmed">
               <div class="label">Confirmed</div>
               <div class="value">${confirmed}</div>
             </div>
-            <div class="summary-card">
+            <div class="summary-card total">
               <div class="label">Total Revenue</div>
               <div class="value">₱${totalRevenue.toFixed(2)}</div>
             </div>
           </div>
-
-          ${analytics ? `
-            <div class="info-section">
-              <h3>Performance Metrics</h3>
-              <div class="info-row">
-                <span>Completion Rate: ${analytics.completionRate}%</span>
-                <span>Cancellation Rate: ${analytics.cancellationRate}%</span>
-              </div>
-            </div>
-          ` : ''}
 
           <table>
             <thead>
@@ -891,17 +902,18 @@ const BranchManagerAppointments = () => {
                 <th>Services</th>
                 <th>Stylist</th>
                 <th>Status</th>
-                <th>Amount</th>
+                <th>Amount (₱)</th>
               </tr>
             </thead>
             <tbody>
-              ${appointmentRows || '<tr><td colspan="7" style="text-align: center;">No appointments found</td></tr>'}
+              ${appointmentRows || '<tr><td colspan="7" style="text-align: center; padding: 40px; font-style: italic;">No appointments found</td></tr>'}
             </tbody>
           </table>
 
           <div class="footer">
-            <p><strong>Salon Management System</strong></p>
-            <p>Total Records: ${totalAppointments}</p>
+            <p class="brand">DAVID'S SALON</p>
+            <p>Professional Beauty & Wellness Management System</p>
+            <p>Report generated with ${totalAppointments} appointment record${totalAppointments !== 1 ? 's' : ''}</p>
           </div>
 
           <script>
@@ -1021,368 +1033,84 @@ const BranchManagerAppointments = () => {
         </div>
       )}
 
-      {/* Filters Section */}
+      {/* Filters Section - simplified single row */}
       <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 min-w-[240px] flex-1">
             <Search className="w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by client, service, stylist, email, or phone..."
+              placeholder="Search client/service/stylist..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              showFilters || hasActiveFilters
-                ? 'bg-primary-600 text-white hover:bg-primary-700'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
           >
-            <Filter className="w-4 h-4" />
-            Filters
+            <option value="all">All Status</option>
+            {Object.values(APPOINTMENT_STATUS).map(status => (
+              <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}</option>
+            ))}
+          </select>
+
+          <select
+            value={stylistFilter}
+            onChange={(e) => setStylistFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+          >
+            <option value="all">All Stylists</option>
+            {uniqueStylists.map(stylist => (
+              <option key={stylist} value={stylist}>{stylist}</option>
+            ))}
+          </select>
+
+          <select
+            value={serviceFilter}
+            onChange={(e) => setServiceFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+          >
+            <option value="all">All Services</option>
+            {uniqueServices.map(service => (
+              <option key={service} value={service}>{service}</option>
+            ))}
+          </select>
+
+          <select
+            value={dateFilterType}
+            onChange={(e) => handleDateFilterTypeChange(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+          >
+            <option value="all">All Dates</option>
+            <option value="today">Today</option>
+            <option value="thisWeek">This Week</option>
+            <option value="thisMonth">This Month</option>
+          </select>
+
+          <div className="flex items-center gap-2">
             {hasActiveFilters && (
-              <span className="bg-white text-primary-600 text-xs font-semibold px-2 py-0.5 rounded-full">
-                Active
+              <span className="px-2 py-1 text-xs bg-primary-100 text-primary-700 rounded-full">
+                Filters Active
               </span>
             )}
-          </button>
-        </div>
-
-        {showFilters && (
-          <div className="border-t border-gray-200 pt-4 mt-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="all">All Status</option>
-                  {Object.values(APPOINTMENT_STATUS).map(status => (
-                    <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Stylist</label>
-                <select
-                  value={stylistFilter}
-                  onChange={(e) => setStylistFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="all">All Stylists</option>
-                  {uniqueStylists.map(stylist => (
-                    <option key={stylist} value={stylist}>{stylist}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Service</label>
-                <select
-                  value={serviceFilter}
-                  onChange={(e) => setServiceFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="all">All Services</option>
-                  {uniqueServices.map(service => (
-                    <option key={service} value={service}>{service}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Date Range Filter */}
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Date Range
-                </label>
-                
-                {/* Quick Preset Buttons */}
-                <div className="grid grid-cols-4 gap-2 mb-4">
-                  <button
-                    type="button"
-                    onClick={() => handleDateFilterTypeChange('all')}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      dateFilterType === 'all'
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    All Dates
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDateFilterTypeChange('today')}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      dateFilterType === 'today'
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDateFilterTypeChange('thisWeek')}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      dateFilterType === 'thisWeek'
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    This Week
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDateFilterTypeChange('lastWeek')}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      dateFilterType === 'lastWeek'
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    Last Week
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDateFilterTypeChange('thisMonth')}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      dateFilterType === 'thisMonth'
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    This Month
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDateFilterTypeChange('lastMonth')}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      dateFilterType === 'lastMonth'
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    Last Month
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDateFilterTypeChange('thisYear')}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      dateFilterType === 'thisYear'
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    This Year
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDateFilterTypeChange('monthYear')}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      dateFilterType === 'monthYear'
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    Select Month
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDateFilterTypeChange('custom')}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      dateFilterType === 'custom'
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    Custom Range
-                  </button>
-                </div>
-
-                {/* Month/Year Picker */}
-                {dateFilterType === 'monthYear' && (
-                  <div className="grid grid-cols-2 gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Month</label>
-                      <select
-                        value={selectedMonth}
-                        onChange={(e) => handleMonthYearChange(parseInt(e.target.value), selectedYear)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      >
-                        <option value={1}>January</option>
-                        <option value={2}>February</option>
-                        <option value={3}>March</option>
-                        <option value={4}>April</option>
-                        <option value={5}>May</option>
-                        <option value={6}>June</option>
-                        <option value={7}>July</option>
-                        <option value={8}>August</option>
-                        <option value={9}>September</option>
-                        <option value={10}>October</option>
-                        <option value={11}>November</option>
-                        <option value={12}>December</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Year</label>
-                      <select
-                        value={selectedYear}
-                        onChange={(e) => handleMonthYearChange(selectedMonth, parseInt(e.target.value))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      >
-                        {Array.from({ length: 5 }, (_, i) => {
-                          const year = new Date().getFullYear() - 2 + i;
-                          return (
-                            <option key={year} value={year}>
-                              {year}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                {/* Custom Date Range Inputs */}
-                {dateFilterType === 'custom' && (
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Start Date</label>
-                      <input
-                        type="date"
-                        value={startDateFilter}
-                        onChange={(e) => setStartDateFilter(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">End Date</label>
-                      <input
-                        type="date"
-                        value={endDateFilter}
-                        onChange={(e) => setEndDateFilter(e.target.value)}
-                        min={startDateFilter || undefined}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Display Selected Range */}
-                {dateFilterType !== 'all' && dateFilterType !== 'custom' && dateFilterType !== 'monthYear' && (
-                  <div className="p-3 bg-primary-50 rounded-lg border border-primary-200">
-                    <p className="text-sm text-gray-700">
-                      <span className="font-medium">Selected:</span>{' '}
-                      {startDateFilter && endDateFilter
-                        ? `${new Date(startDateFilter).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${new Date(endDateFilter).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                        : 'No date range selected'}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Min Amount (₱)</label>
-                <input
-                  type="number"
-                  value={minAmountFilter}
-                  onChange={(e) => setMinAmountFilter(e.target.value)}
-                  placeholder="0.00"
-                  min="0"
-                  step="0.01"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Max Amount (₱)</label>
-                <input
-                  type="number"
-                  value={maxAmountFilter}
-                  onChange={(e) => setMaxAmountFilter(e.target.value)}
-                  placeholder="Unlimited"
-                  min="0"
-                  step="0.01"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-            </div>
-
-            {hasActiveFilters && (
-              <div className="flex items-center justify-end">
-                <button
-                  onClick={clearFilters}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
-                >
-                  <X className="w-4 h-4" />
-                  Clear All Filters
-                </button>
-              </div>
-            )}
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <X className="w-4 h-4" />
+              Clear
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Analytics Section */}
       {analytics && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Top Services */}
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <BarChart3 className="w-5 h-5 text-primary-600" />
-              <h2 className="text-lg font-semibold text-gray-900">Top Services</h2>
-            </div>
-            <div className="space-y-3">
-              {analytics.topServices.length > 0 ? (
-                analytics.topServices.map(([service, count], index) => (
-                  <div key={service} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary-100 text-primary-700 text-xs font-semibold">
-                        {index + 1}
-                      </span>
-                      <span className="text-sm text-gray-700">{service}</span>
-                    </div>
-                    <span className="text-sm font-semibold text-gray-900">{count} bookings</span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-gray-500">No data available</p>
-              )}
-            </div>
-          </div>
-
-          {/* Top Stylists */}
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Users className="w-5 h-5 text-primary-600" />
-              <h2 className="text-lg font-semibold text-gray-900">Top Stylists</h2>
-            </div>
-            <div className="space-y-3">
-              {analytics.topStylists.length > 0 ? (
-                analytics.topStylists.map(([stylist, count], index) => (
-                  <div key={stylist} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold">
-                        {index + 1}
-                      </span>
-                      <span className="text-sm text-gray-700">{stylist}</span>
-                    </div>
-                    <span className="text-sm font-semibold text-gray-900">{count} appointments</span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-gray-500">No data available</p>
-              )}
-            </div>
-          </div>
-
           {/* Performance Metrics */}
           <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
             <div className="flex items-center gap-2 mb-4">
@@ -1498,7 +1226,7 @@ const BranchManagerAppointments = () => {
                     <SortIcon column="status" />
                   </div>
                 </th>
-                <th 
+                <th
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                   onClick={() => handleSort('totalAmount')}
                 >
@@ -1507,12 +1235,15 @@ const BranchManagerAppointments = () => {
                     <SortIcon column="totalAmount" />
                   </div>
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {paginatedAppointments.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-12 text-center">
+                  <td colSpan="7" className="px-6 py-12 text-center">
                     <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                     <p className="text-gray-500">No appointments found</p>
                     {hasActiveFilters && (
@@ -1589,13 +1320,20 @@ const BranchManagerAppointments = () => {
                       <td className="px-6 py-4">
                         <div className="text-sm text-gray-900">
                           {servicesList.length > 0 ? (
-                            <div className="space-y-1">
-                              {servicesList.map((service, idx) => (
-                                <div key={idx} className="flex items-center gap-2">
-                                  <span className="text-xs">•</span>
-                                  <span>{service}</span>
-                                </div>
+                            <div className="flex flex-wrap gap-2">
+                              {servicesList.slice(0, 2).map((service, idx) => (
+                                <span
+                                  key={idx}
+                                  className="px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs"
+                                >
+                                  {service}
+                                </span>
                               ))}
+                              {servicesList.length > 2 && (
+                                <span className="px-2 py-1 bg-gray-200 text-gray-700 rounded-full text-xs">
+                                  +{servicesList.length - 2} more
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <span className="text-gray-400">No services</span>
@@ -1625,6 +1363,18 @@ const BranchManagerAppointments = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         ₱{(appointment.totalAmount || 0).toFixed(2)}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button
+                          onClick={() => {
+                            setSelectedAppointment(appointment);
+                            setShowAppointmentDetails(true);
+                          }}
+                          className="text-primary-600 hover:text-primary-900 p-1 rounded hover:bg-primary-50 transition-colors"
+                          title="View appointment details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
@@ -1634,58 +1384,42 @@ const BranchManagerAppointments = () => {
         </div>
         
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
-            <div className="text-sm text-gray-600">
-              Showing {startIndex + 1} to {Math.min(endIndex, sortedAppointments.length)} of {sortedAppointments.length} appointments
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
-              >
-                Previous
-              </button>
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
-                  
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`px-3 py-1 border rounded-lg text-sm ${
-                        currentPage === pageNum
-                          ? 'bg-primary-600 text-white border-primary-600'
-                          : 'border-gray-300 hover:bg-gray-100'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-              </div>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
-              >
-                Next
-              </button>
-            </div>
+        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Showing {sortedAppointments.length === 0 ? 0 : startIndex + 1} to {Math.min(endIndex, sortedAppointments.length)} of {sortedAppointments.length} appointments
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-gray-700">
+              Page {currentPage} / {Math.max(1, totalPages)}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* Appointment Details Modal */}
+      {showAppointmentDetails && selectedAppointment && (
+        <AppointmentDetails
+          appointment={selectedAppointment}
+          onClose={() => {
+            setShowAppointmentDetails(false);
+            setSelectedAppointment(null);
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -32,11 +32,11 @@ const BranchManagerLayout = () => {
     <div className="min-h-screen flex bg-gray-50">
       <Sidebar isOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(false)} menuItems={menuItems} />
       
-      <div className="flex-1 flex flex-col lg:ml-64">
+      <div className="flex-1 flex flex-col md:ml-64">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
         
         <div className="flex-1 flex flex-col overflow-y-auto">
-          <main className="flex-1 p-6">
+          <main className="flex-1 p-4 md:p-6">
             <Outlet />
           </main>
         </div>

@@ -34,6 +34,50 @@ export const ARRIVAL_STATUS = {
 };
 
 /**
+ * Get arrivals by appointment IDs (for early check-ins)
+ */
+export const getArrivalsByAppointmentIds = async (branchId, appointmentIds) => {
+  try {
+    if (!appointmentIds || appointmentIds.length === 0) {
+      return [];
+    }
+
+    const arrivalsRef = collection(db, ARRIVALS_COLLECTION);
+
+    // Create queries for batches of appointment IDs (Firestore 'in' query limit is 10)
+    const batchSize = 10;
+    const batches = [];
+    for (let i = 0; i < appointmentIds.length; i += batchSize) {
+      batches.push(appointmentIds.slice(i, i + batchSize));
+    }
+
+    const allArrivals = [];
+    for (const batch of batches) {
+      const q = query(
+        arrivalsRef,
+        where('branchId', '==', branchId),
+        where('appointmentId', 'in', batch),
+        where('isWalkIn', '==', false), // Only appointment check-ins, not walk-ins
+        orderBy('arrivedAt', 'asc')
+      );
+
+      const querySnapshot = await getDocs(q);
+      querySnapshot.forEach((doc) => {
+        allArrivals.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+    }
+
+    return allArrivals;
+  } catch (error) {
+    console.error('Error fetching arrivals by appointment IDs:', error);
+    throw error;
+  }
+};
+
+/**
  * Get arrivals by branch and date
  */
 export const getArrivalsByBranch = async (branchId, startDate = null, endDate = null) => {

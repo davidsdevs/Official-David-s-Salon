@@ -9,18 +9,19 @@ import { APPOINTMENT_STATUS, getAvailableTimeSlots } from '../../services/appoin
 import { formatTime } from '../../utils/helpers';
 import LoadingSpinner from '../ui/LoadingSpinner';
 
-const AppointmentFormModal = ({ 
-  isOpen, 
-  appointment, 
+const AppointmentFormModal = ({
+  isOpen,
+  appointment,
   branches = [],
   services = [],
   stylists = [],
   clients = [],
-  onClose, 
+  onClose,
   onSubmit,
   loading = false,
-    isGuest = false,
-  userBranch = null  // Auto-select branch for staff
+  isGuest = false,
+  userBranch = null, // Auto-select branch for staff
+  isEditing = false
 }) => {
   const [formData, setFormData] = useState({
     clientId: '',
@@ -29,9 +30,9 @@ const AppointmentFormModal = ({
     clientEmail: '',
     branchId: userBranch || '',  // Auto-fill if userBranch provided
     services: [],  // Array of { serviceId, stylistId, serviceName, duration, price }
+    products: [],  // Array of { productId, productName, price, quantity }
     appointmentDate: '',
     timeSlot: null,
-    duration: 0,  // Will be calculated from selected services
     status: APPOINTMENT_STATUS.PENDING,
     notes: ''
   });
@@ -45,6 +46,21 @@ const AppointmentFormModal = ({
   const [selectedClientName, setSelectedClientName] = useState('');
   const [serviceSearchTerm, setServiceSearchTerm] = useState('');
   const [showSelectedOnly, setShowSelectedOnly] = useState(false);
+
+  // Filter stylists based on their ability to perform selected services
+  const getAvailableStylistsForService = (serviceId) => {
+    if (!serviceId) return stylists;
+
+    return stylists.filter(stylist => {
+      // Filter by branch and active status
+      if (stylist.branchId !== userBranch || !stylist.isActive) return false;
+
+      // Check if stylist can perform this specific service
+      // service_id array contains the service IDs this stylist can perform
+      const stylistServices = stylist.service_id || [];
+      return stylistServices.includes(serviceId);
+    });
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -68,17 +84,25 @@ const AppointmentFormModal = ({
         clientEmail: appointment.clientEmail || '',
         branchId: appointment.branchId || '',
         services: appointment.services || (appointment.serviceId ? [{ serviceId: appointment.serviceId, stylistId: appointment.stylistId || '' }] : []),  // Support old single service format
+        products: appointment.products || [], // Include products if they exist
         appointmentDate: appointmentDate.toISOString().split('T')[0],
         timeSlot: { time: appointmentDate, available: true },
-        duration: appointment.duration || 0,
         status: appointment.status || APPOINTMENT_STATUS.PENDING,
         notes: appointment.notes || ''
       });
-      // Set selected client name if editing an appointment with registered client
+      // Set selected client name for registered clients or guest clients
       if (appointment.clientId && clients) {
+        // Registered client
         const client = clients.find(c => c.id === appointment.clientId);
         if (client) {
           setSelectedClientName(`${client.firstName} ${client.lastName}`);
+        }
+      } else if (appointment.clientName) {
+        // Guest client - use the name directly
+        setSelectedClientName(appointment.clientName);
+        // Enable guest mode for guest clients
+        if (appointment.isGuest) {
+          setIsGuestMode(true);
         }
       }
     } else {
@@ -90,9 +114,9 @@ const AppointmentFormModal = ({
         clientEmail: '',
         branchId: userBranch || '',
         services: [],
+        products: [],
         appointmentDate: '',
         timeSlot: null,
-        duration: 0,
         status: APPOINTMENT_STATUS.PENDING,
         notes: ''
       });
@@ -123,11 +147,8 @@ const AppointmentFormModal = ({
         
         try {
           setLoadingSlots(true);
-          // Calculate total duration from all selected services
-          const totalDuration = formData.services.reduce((sum, serviceObj) => {
-            const service = services.find(s => s.id === serviceObj.serviceId);
-            return sum + (service?.duration || 0);
-          }, 0);
+          // Use fixed duration for availability checking (duration no longer relevant)
+          const totalDuration = 60; // Fixed duration for time slot availability
           
           // Get all assigned stylists from services
           const assignedStylists = formData.services
@@ -238,8 +259,8 @@ const AppointmentFormModal = ({
       const enrichedService = {
         serviceId: serviceObj.serviceId,
         serviceName: service?.name || '',
-        duration: service?.duration || 0,
         price: service?.price || 0,
+        quantity: serviceObj.quantity || 1,
         stylistId: serviceObj.stylistId || null,
         stylistName: stylist ? `${stylist.firstName} ${stylist.lastName}` : 'Any available'
       };
@@ -248,9 +269,8 @@ const AppointmentFormModal = ({
       return enrichedService;
     });
     
-    // Calculate totals
-    const totalPrice = enrichedServices.reduce((sum, s) => sum + s.price, 0);
-    const totalDuration = enrichedServices.reduce((sum, s) => sum + s.duration, 0);
+    // Calculate totals (multiply by quantity)
+    const totalPrice = enrichedServices.reduce((sum, s) => sum + (s.price * s.quantity), 0);
     
     // Remove timeSlot from submitData - it's just UI state, not needed in Firestore
     const { timeSlot, ...dataWithoutTimeSlot } = formData;
@@ -260,8 +280,8 @@ const AppointmentFormModal = ({
       appointmentDate: appointmentDateTime,
       branchName: selectedBranch?.name || selectedBranch?.branchName,
       services: enrichedServices,  // Array of enriched service objects
+      products: formData.products || [], // Include any products that were added
       totalPrice,
-      duration: totalDuration,
       isGuest: isGuestMode,
       // For guest clients, set clientId to null if not provided
       clientId: isGuestMode ? (formData.clientId || null) : formData.clientId
@@ -312,11 +332,12 @@ const AppointmentFormModal = ({
               {/* Guest Client Toggle */}
               {!appointment && (
                 <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <label className="flex items-start gap-3 cursor-pointer">
+                  <label className={`flex items-start gap-3 ${isEditing ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                     <input
                       type="checkbox"
                       checked={isGuestMode}
                       onChange={(e) => {
+                        if (isEditing) return; // Prevent changes when editing
                         setIsGuestMode(e.target.checked);
                         if (e.target.checked) {
                           // Clear client selection when switching to guest mode
@@ -328,11 +349,15 @@ const AppointmentFormModal = ({
                           setFormData({ ...formData, clientName: '', clientPhone: '', clientEmail: '' });
                         }
                       }}
-                      className="mt-0.5 w-4 h-4 text-[#2D1B4E] border-gray-300 rounded focus:ring-[#2D1B4E]"
+                      disabled={isEditing}
+                      className="mt-0.5 w-4 h-4 text-[#2D1B4E] border-gray-300 rounded focus:ring-[#2D1B4E] disabled:opacity-50"
                     />
                     <div className="flex-1">
                       <span className="text-sm font-medium text-gray-900">Guest Client (Not Registered)</span>
                       <p className="text-xs text-gray-500 mt-0.5">Client is not in the system - enter details manually</p>
+                      {isEditing && (
+                        <p className="text-xs text-orange-600 mt-1">Client information cannot be changed when editing an appointment</p>
+                      )}
                     </div>
                   </label>
                 </div>
@@ -350,7 +375,10 @@ const AppointmentFormModal = ({
                     required
                     value={formData.clientName}
                     onChange={(e) => setFormData({ ...formData, clientName: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    disabled={isEditing}
+                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+                      isEditing ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed' : 'border-gray-300'
+                    }`}
                     placeholder="Enter client name"
                   />
                 </div>
@@ -363,7 +391,10 @@ const AppointmentFormModal = ({
                     required
                     value={formData.clientPhone}
                     onChange={(e) => setFormData({ ...formData, clientPhone: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    disabled={isEditing}
+                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+                      isEditing ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed' : 'border-gray-300'
+                    }`}
                     placeholder="09XX XXX XXXX"
                   />
                 </div>
@@ -375,7 +406,10 @@ const AppointmentFormModal = ({
                     type="email"
                     value={formData.clientEmail}
                     onChange={(e) => setFormData({ ...formData, clientEmail: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    disabled={isEditing}
+                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+                      isEditing ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed' : 'border-gray-300'
+                    }`}
                     placeholder="client@example.com"
                   />
                 </div>
@@ -390,20 +424,24 @@ const AppointmentFormModal = ({
                   required={!formData.clientId}
                   value={selectedClientName || clientSearchTerm}
                   onChange={(e) => {
+                    if (isEditing) return; // Prevent changes when editing
                     setClientSearchTerm(e.target.value);
                     setSelectedClientName('');
-                    setFormData({ 
-                      ...formData, 
-                      clientId: '', 
-                      clientName: '', 
-                      clientPhone: '', 
-                      clientEmail: '' 
+                    setFormData({
+                      ...formData,
+                      clientId: '',
+                      clientName: '',
+                      clientPhone: '',
+                      clientEmail: ''
                     });
                     setShowClientDropdown(true);
                   }}
-                  onFocus={() => setShowClientDropdown(true)}
+                  onFocus={() => !isEditing && setShowClientDropdown(true)}
                   placeholder="Type to search client name, phone, or email..."
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  disabled={isEditing}
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+                    isEditing ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed' : 'border-gray-300'
+                  }`}
                   autoComplete="off"
                 />
                 
@@ -619,37 +657,92 @@ const AppointmentFormModal = ({
                           {filteredServices.map(service => {
                             const serviceObj = formData.services.find(s => s.serviceId === service.id);
                             const isSelected = !!serviceObj;
-                            
+                            const quantity = serviceObj?.quantity || 1;
+
                             return (
                               <div
                                 key={service.id}
-                                className={`bg-white rounded-lg border-2 p-3 transition-all cursor-pointer hover:shadow-md relative ${
+                                className={`bg-white rounded-lg border-2 p-3 transition-all relative ${
                                   isSelected
                                     ? 'border-[#2D1B4E] shadow-sm'
-                                    : 'border-gray-200 hover:border-gray-300'
+                                    : 'border-gray-200 hover:border-gray-300 cursor-pointer hover:shadow-md'
                                 }`}
                                 onClick={() => {
-                                  const e = { target: { checked: !isSelected } };
-                                  const newServices = e.target.checked
-                                    ? [...formData.services, { serviceId: service.id, stylistId: '' }]
-                                    : formData.services.filter(s => s.serviceId !== service.id);
-                                  const newDuration = newServices.reduce((sum, serviceObj) => {
-                                    const s = services.find(srv => srv.id === serviceObj.serviceId);
-                                    return sum + (s?.duration || 0);
-                                  }, 0);
-                                  setFormData({ 
-                                    ...formData, 
-                                    services: newServices,
-                                    duration: newDuration,
-                                    timeSlot: null
-                                  });
+                                  if (!isSelected) {
+                                    // Add service with quantity 1
+                                    const newServices = [...formData.services, {
+                                      serviceId: service.id,
+                                      stylistId: '',
+                                      quantity: 1,
+                                      serviceName: service.name,
+                                      price: service.price,
+                                      duration: service.duration
+                                    }];
+                                    setFormData({
+                                      ...formData,
+                                      services: newServices,
+                                      timeSlot: null
+                                    });
+                                  }
                                 }}
                               >
                                 {isSelected && (
-                                  <div className="absolute top-3 right-3 w-6 h-6 bg-[#2D1B4E] rounded-full flex items-center justify-center">
-                                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-                                    </svg>
+                                  <div className="absolute top-2 right-2 flex items-center gap-1">
+                                    {/* Quantity Controls */}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const newQuantity = Math.max(1, quantity - 1);
+                                        const newServices = formData.services.map(s =>
+                                          s.serviceId === service.id ? { ...s, quantity: newQuantity } : s
+                                        );
+                                        setFormData({
+                                          ...formData,
+                                          services: newServices,
+                                          timeSlot: null
+                                        });
+                                      }}
+                                      className="w-5 h-5 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center text-xs font-medium"
+                                    >
+                                      −
+                                    </button>
+                                    <span className="text-xs font-medium bg-[#2D1B4E] text-white px-2 py-0.5 rounded min-w-[20px] text-center">
+                                      {quantity}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const newQuantity = quantity + 1;
+                                        const newServices = formData.services.map(s =>
+                                          s.serviceId === service.id ? { ...s, quantity: newQuantity } : s
+                                        );
+                                        setFormData({
+                                          ...formData,
+                                          services: newServices,
+                                          timeSlot: null
+                                        });
+                                      }}
+                                      className="w-5 h-5 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center text-xs font-medium"
+                                    >
+                                      +
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const newServices = formData.services.filter(s => s.serviceId !== service.id);
+                                        setFormData({
+                                          ...formData,
+                                          services: newServices,
+                                          timeSlot: null
+                                        });
+                                      }}
+                                      className="w-5 h-5 bg-red-200 hover:bg-red-300 text-red-700 rounded flex items-center justify-center text-xs"
+                                    >
+                                      ×
+                                    </button>
                                   </div>
                                 )}
                                 <h4 className="font-semibold text-gray-900 mb-1 pr-8">{service.name}</h4>
@@ -704,7 +797,12 @@ const AppointmentFormModal = ({
                         <div className="flex items-start justify-between mb-2">
                           <div>
                             <h4 className="font-medium text-sm text-gray-900">{service.name}</h4>
-                            <p className="text-xs text-gray-600 mt-0.5">₱{service.price} • {service.duration} min</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <p className="text-xs text-gray-600">₱{service.price} • {service.duration} min</p>
+                              <span className="text-xs bg-[#2D1B4E] text-white px-2 py-0.5 rounded-full font-medium">
+                                Qty: {serviceObj.quantity || 1}
+                              </span>
+                            </div>
                           </div>
                         </div>
                         <div>
@@ -714,8 +812,8 @@ const AppointmentFormModal = ({
                           <select
                             value={serviceObj.stylistId || ''}
                             onChange={(e) => {
-                              const newServices = formData.services.map(s => 
-                                s.serviceId === serviceObj.serviceId 
+                              const newServices = formData.services.map(s =>
+                                s.serviceId === serviceObj.serviceId
                                   ? { ...s, stylistId: e.target.value }
                                   : s
                               );
@@ -724,7 +822,7 @@ const AppointmentFormModal = ({
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2D1B4E] focus:border-[#2D1B4E] bg-white"
                           >
                             <option value="">Any Available Stylist</option>
-                            {stylists && stylists.filter(st => st && st.id).map(stylist => (
+                            {getAvailableStylistsForService(serviceObj.serviceId).map(stylist => (
                               <option key={stylist.id} value={stylist.id}>
                                 {stylist.firstName} {stylist.lastName}
                               </option>
@@ -841,26 +939,24 @@ const AppointmentFormModal = ({
                         <div key={idx} className="border-b border-white/20 pb-2 last:border-0 last:pb-0">
                           <div className="flex justify-between items-start">
                             <span className="text-xs">{service.serviceName}</span>
-                            <span className="font-bold text-xs">₱{service.price}</span>
+                            <span className="font-bold text-xs">
+                              ₱{service.price} × {serviceObj.quantity || 1} = ₱{(service.price * (serviceObj.quantity || 1))}
+                            </span>
                           </div>
                           <div className="text-xs text-white/70">
-                            {service.duration} min • {stylist ? `${stylist.firstName} ${stylist.lastName}` : 'Any stylist'}
+                            {stylist ? `${stylist.firstName} ${stylist.lastName}` : 'Any stylist'}
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                  <div className="mt-3 pt-3 border-t border-white/30 flex justify-between items-center">
-                    <div>
-                      <div className="text-xs text-white/70">Duration</div>
-                      <div className="font-bold text-sm">{formData.duration || 0} min</div>
-                    </div>
+                  <div className="mt-3 pt-3 border-t border-white/30 flex justify-end">
                     <div className="text-right">
                       <div className="text-xs text-white/70">Total</div>
                       <div className="text-xl font-bold">
                         ₱{formData.services.reduce((sum, serviceObj) => {
                           const s = services && services.find(srv => srv && srv.id === serviceObj.serviceId);
-                          return sum + (s?.price || 0);
+                          return sum + ((s?.price || 0) * (serviceObj.quantity || 1));
                         }, 0)}
                       </div>
                     </div>

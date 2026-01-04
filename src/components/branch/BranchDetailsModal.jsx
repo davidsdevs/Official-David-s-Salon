@@ -2,7 +2,7 @@
  * Branch Details Modal - View-only modal for branch information
  */
 
-import { X, MapPin, Phone, Mail, User, Clock, Calendar } from 'lucide-react';
+import { X, MapPin, Phone, Mail, Clock } from 'lucide-react';
 import { formatDate, formatTime12Hour } from '../../utils/helpers';
 
 const BranchDetailsModal = ({ branch, onClose, stats }) => {
@@ -11,11 +11,14 @@ const BranchDetailsModal = ({ branch, onClose, stats }) => {
   const daysOfWeek = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-900">Branch Details</h2>
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 flex-shrink-0">
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-gray-900">Branch Details</h2>
+            <p className="text-xs sm:text-sm text-gray-600 mt-1">View branch information and statistics</p>
+          </div>
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -25,22 +28,22 @@ const BranchDetailsModal = ({ branch, onClose, stats }) => {
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
           {/* Basic Information */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 pb-2 border-b border-gray-200">
               Basic Information
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                   Branch Name
                 </label>
-                <p className="text-gray-900">{branch.name || branch.branchName}</p>
+                <p className="text-sm sm:text-base text-gray-900">{branch.name || branch.branchName}</p>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                   Status
                 </label>
                 <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
@@ -56,45 +59,47 @@ const BranchDetailsModal = ({ branch, onClose, stats }) => {
 
           {/* Contact Information */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 pb-2 border-b border-gray-200">
               Contact Information
             </h3>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                <MapPin className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                     Address
                   </label>
-                  <p className="text-gray-900">{branch.address}</p>
+                  <p className="text-sm sm:text-base text-gray-900 break-words">{branch.address}</p>
                 </div>
               </div>
               
               <div className="flex items-start gap-3">
-                <Phone className="w-5 h-5 text-gray-400 mt-0.5" />
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                <Phone className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                     Contact Number
                   </label>
-                  <p className="text-gray-900">{branch.contact}</p>
+                  <p className="text-sm sm:text-base text-gray-900">{branch.contact}</p>
                 </div>
               </div>
               
-              <div className="flex items-start gap-3">
-                <Mail className="w-5 h-5 text-gray-400 mt-0.5" />
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
-                  </label>
-                  <p className="text-gray-900">{branch.email}</p>
+              {branch.email && (
+                <div className="flex items-start gap-3">
+                  <Mail className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                      Email
+                    </label>
+                    <p className="text-sm sm:text-base text-gray-900 break-all">{branch.email}</p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
           {/* Operating Hours */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200 flex items-center gap-2">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 pb-2 border-b border-gray-200 flex items-center gap-2">
               <Clock className="w-5 h-5" />
               Operating Hours
             </h3>
@@ -103,13 +108,13 @@ const BranchDetailsModal = ({ branch, onClose, stats }) => {
                 const hours = branch.operatingHours?.[day];
                 return (
                   <div key={day} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
-                    <span className="text-sm font-medium text-gray-700 capitalize">
+                    <span className="text-xs sm:text-sm font-medium text-gray-700 capitalize">
                       {day}
                     </span>
                     {!hours?.isOpen ? (
-                      <span className="text-sm text-red-600 font-medium">Closed</span>
+                      <span className="text-xs sm:text-sm text-red-600 font-medium">Closed</span>
                     ) : (
-                      <span className="text-sm text-gray-900">
+                      <span className="text-xs sm:text-sm text-gray-900">
                         {formatTime12Hour(hours?.open || '09:00')} - {formatTime12Hour(hours?.close || '18:00')}
                       </span>
                     )}
@@ -122,25 +127,17 @@ const BranchDetailsModal = ({ branch, onClose, stats }) => {
           {/* Statistics */}
           {stats && (
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 pb-2 border-b border-gray-200">
                 Branch Statistics
               </h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-blue-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-blue-600">{stats.staffCount || 0}</p>
-                  <p className="text-sm text-gray-600 mt-1">Staff Members</p>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                <div className="bg-blue-50 rounded-lg p-3 sm:p-4 text-center">
+                  <p className="text-xl sm:text-2xl font-bold text-blue-600">{stats.staffCount || 0}</p>
+                  <p className="text-xs sm:text-sm text-gray-600 mt-1">Staff Members</p>
                 </div>
-                <div className="bg-green-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-green-600">{stats.appointmentCount || 0}</p>
-                  <p className="text-sm text-gray-600 mt-1">Appointments</p>
-                </div>
-                <div className="bg-purple-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-purple-600">₱{(stats.revenue || 0).toLocaleString()}</p>
-                  <p className="text-sm text-gray-600 mt-1">Revenue</p>
-                </div>
-                <div className="bg-orange-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-orange-600">{stats.inventoryItems || 0}</p>
-                  <p className="text-sm text-gray-600 mt-1">Inventory Items</p>
+                <div className="bg-green-50 rounded-lg p-3 sm:p-4 text-center">
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">{stats.appointmentCount || 0}</p>
+                  <p className="text-xs sm:text-sm text-gray-600 mt-1">Appointments Today</p>
                 </div>
               </div>
             </div>
@@ -148,19 +145,19 @@ const BranchDetailsModal = ({ branch, onClose, stats }) => {
 
           {/* Metadata */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 pb-2 border-b border-gray-200">
               Additional Information
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-gray-600 mb-1">Created At</label>
-                <p className="text-gray-900">
+                <label className="block text-xs sm:text-sm text-gray-600 mb-1">Created At</label>
+                <p className="text-sm sm:text-base text-gray-900">
                   {branch.createdAt ? formatDate(branch.createdAt) : 'N/A'}
                 </p>
               </div>
               <div>
-                <label className="block text-gray-600 mb-1">Last Updated</label>
-                <p className="text-gray-900">
+                <label className="block text-xs sm:text-sm text-gray-600 mb-1">Last Updated</label>
+                <p className="text-sm sm:text-base text-gray-900">
                   {branch.updatedAt ? formatDate(branch.updatedAt) : 'N/A'}
                 </p>
               </div>
@@ -169,10 +166,10 @@ const BranchDetailsModal = ({ branch, onClose, stats }) => {
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end">
+        <div className="flex items-center justify-end p-4 sm:p-6 bg-gray-50 border-t border-gray-200 flex-shrink-0">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+            className="px-4 sm:px-6 py-2 text-sm sm:text-base bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
           >
             Close
           </button>

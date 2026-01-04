@@ -13,7 +13,8 @@ const ImportModal = ({
   templateName,
   sampleData = [],
   validationRules = null,
-  title = "Import Data"
+  title = "Import Data",
+  customDownloadTemplate = null
 }) => {
   const [file, setFile] = useState(null);
   const [error, setError] = useState(null);
@@ -177,7 +178,13 @@ const ImportModal = ({
   };
 
   const downloadTemplate = () => {
-    // Create CSV template
+    // Use custom download function if provided
+    if (customDownloadTemplate) {
+      customDownloadTemplate();
+      return;
+    }
+
+    // Default: Create CSV template
     const headers = templateColumns.join(',');
     const sampleRows = sampleData.length > 0 
       ? sampleData.map(row => templateColumns.map(col => `"${row[col] || ''}"`).join(','))

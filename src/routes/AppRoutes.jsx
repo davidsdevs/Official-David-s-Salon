@@ -52,6 +52,7 @@ import OperationalManagerInventory from '../pages/operational-manager/Inventory'
 import OperationalManagerPurchaseOrders from '../pages/operational-manager/PurchaseOrders';
 import OverallInventoryControllerDashboard from '../pages/overall-inventory/Dashboard';
 import OverallInventoryControllerInventory from '../pages/overall-inventory/Inventory';
+import OverallInventoryControllerPurchaseOrders from '../pages/overall-inventory/PurchaseOrders';
 import OperationalManagerDeposits from '../pages/operational-manager/Deposits';
 import PriceHistoryAnalytics from '../pages/operational-manager/PriceHistoryAnalytics';
 import OperationalManagerPromotions from '../pages/operational-manager/Promotions';
@@ -75,6 +76,7 @@ import BranchManagerStylistPortfolios from '../pages/branch-manager/StylistPortf
 import BranchManagerReports from '../pages/branch-manager/Reports';
 import BranchManagerInventory from '../pages/branch-manager/Inventory';
 import Commissions from '../pages/branch-manager/Commissions';
+import BranchManagerActivityLogs from '../pages/branch-manager/ActivityLogs';
 import ReceptionistDashboard from '../pages/receptionist/Dashboard';
 import ReceptionistAppointments from '../pages/receptionist/Appointments';
 import ReceptionistArrivals from '../pages/receptionist/Arrivals';
@@ -262,7 +264,7 @@ const AppRoutes = () => {
       >
         <Route index element={<OverallInventoryControllerDashboard />} />
         <Route path="inventory" element={<OverallInventoryControllerInventory />} />
-        <Route path="purchase-orders" element={<OperationalManagerPurchaseOrders />} />
+        <Route path="purchase-orders" element={<OverallInventoryControllerPurchaseOrders />} />
         <Route path="reports" element={<InventoryReports />} />
         <Route path="stock-alerts" element={<InventoryStockAlerts />} />
         <Route path="expiry-tracker" element={<InventoryExpiryTracker />} />
@@ -287,6 +289,7 @@ const AppRoutes = () => {
         <Route path="settings/products" element={<BranchProducts />} />
         <Route path="settings/page-contents" element={<BranchPageContents />} />
         <Route path="settings/branch-settings" element={<BranchSettings />} />
+        <Route path="activity-logs" element={<BranchManagerActivityLogs />} />
               <Route path="appointments" element={<BranchManagerAppointments />} />
               <Route path="billing" element={<BranchManagerBilling />} />
               <Route path="client-analytics" element={<ClientAnalytics />} />

@@ -33,6 +33,16 @@ const ActivityLogs = () => {
     applyFilters();
   }, [logs, filters]);
 
+  const getSeverity = (action) => {
+    const dangerousActions = new Set([
+      'user_deactivated',
+      'password_reset',
+      'user_deleted',
+      'user_activated'
+    ]);
+    return dangerousActions.has(action) ? 1 : 0;
+  };
+
   const fetchLogs = async () => {
     try {
       setLoading(true);
@@ -91,6 +101,13 @@ const ActivityLogs = () => {
       });
     }
 
+    filtered.sort((a, b) => {
+      const severityDiff = getSeverity(b.action) - getSeverity(a.action);
+      if (severityDiff !== 0) return severityDiff;
+      const timeA = a.timestamp?.toDate?.() || new Date(a.timestamp || 0);
+      const timeB = b.timestamp?.toDate?.() || new Date(b.timestamp || 0);
+      return timeB - timeA;
+    });
     setFilteredLogs(filtered);
   };
 

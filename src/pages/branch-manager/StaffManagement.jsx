@@ -59,6 +59,8 @@ const StaffManagement = () => {
   const [branchCache, setBranchCache] = useState({});
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [staffToToggle, setStaffToToggle] = useState(null);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
   
   // Print refs
   const printRef = useRef(); // For all staff
@@ -385,6 +387,18 @@ const StaffManagement = () => {
     return filtered;
   }, [staff, lentStaff, searchTerm, roleFilter, statusFilter, shiftFilter, dateRangeFilter, lendingFilter, lentOutStaff]);
 
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredStaff.length / itemsPerPage)), [filteredStaff.length, itemsPerPage]);
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedStaff = useMemo(() => filteredStaff.slice(startIndex, endIndex), [filteredStaff, startIndex, endIndex]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const fetchStaff = async () => {
     try {
       setLoading(true);
@@ -488,8 +502,9 @@ const StaffManagement = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const dateStr = new Date().toISOString().split('T')[0];
-    link.download = `Staff_Data_${dateStr}.csv`;
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-');
+    const safeBranch = (branchName || 'Branch').replace(/[^a-z0-9]+/gi, '_');
+    link.download = `Staff_Data_${safeBranch}_${dateStr}.csv`;
     link.click();
     URL.revokeObjectURL(url);
     toast.success('CSV file downloaded successfully');
@@ -861,6 +876,24 @@ const StaffManagement = () => {
 
       {/* Staff Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">Staff</h2>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-600">Items per page:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#160B53]"
+            >
+              {[10, 25, 50, 100].map(size => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -883,14 +916,14 @@ const StaffManagement = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredStaff.length === 0 ? (
+              {paginatedStaff.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
                     No staff members found
                   </td>
                 </tr>
               ) : (
-                filteredStaff.map((member) => {
+                paginatedStaff.map((member) => {
                   const memberId = member.id || member.uid;
                   const isLentToThisBranch = member.isLent; // Staff lent TO this branch
                   const isLentOut = lentOutStaff[memberId]; // Staff FROM this branch lent out
@@ -1025,6 +1058,57 @@ const StaffManagement = () => {
             </tbody>
           </table>
         </div>
+        {filteredStaff.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+            <div className="text-sm text-gray-600">
+              Showing {startIndex + 1} to {Math.min(endIndex, filteredStaff.length)} of {filteredStaff.length} staff
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={safePage === 1}
+                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (safePage <= 3) {
+                    pageNum = i + 1;
+                  } else if (safePage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = safePage - 2 + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`px-3 py-1 border rounded-lg text-sm ${
+                        safePage === pageNum
+                          ? 'bg-[#160B53] text-white border-[#160B53]'
+                          : 'border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={safePage === totalPages}
+                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
         </>
       ) : activeTab === 'schedule' ? (

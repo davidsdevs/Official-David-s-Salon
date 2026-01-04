@@ -81,6 +81,9 @@ const StaffSchedule = () => {
   
   // Branch info for print
   const [branchInfo, setBranchInfo] = useState(null);
+  const [printOnlyWithSchedules, setPrintOnlyWithSchedules] = useState(false);
+  const [staffPage, setStaffPage] = useState(1);
+  const [staffItemsPerPage, setStaffItemsPerPage] = useState(25);
 
   const MANAGEABLE_ROLES = [
     USER_ROLES.RECEPTIONIST,
@@ -1458,6 +1461,29 @@ const StaffSchedule = () => {
     return today >= weekStart && today <= weekEnd;
   }, [currentWeek]);
 
+  const staffForPrint = useMemo(() => {
+    if (!printOnlyWithSchedules) return staff;
+    return staff.filter((member) =>
+      weekDates.some((date, idx) => {
+        const dayKey = DAYS_OF_WEEK[idx]?.key || '';
+        const shift = getShiftForDay(member, dayKey, date);
+        return shift && shift.start && shift.end;
+      })
+    );
+  }, [printOnlyWithSchedules, staff, weekDates]);
+
+  const totalStaffPages = useMemo(() => Math.max(1, Math.ceil(staff.length / staffItemsPerPage)), [staff.length, staffItemsPerPage]);
+  const safeStaffPage = Math.min(staffPage, totalStaffPages);
+  const staffStartIndex = (safeStaffPage - 1) * staffItemsPerPage;
+  const staffEndIndex = staffStartIndex + staffItemsPerPage;
+  const paginatedStaff = useMemo(() => staff.slice(staffStartIndex, staffEndIndex), [staff, staffStartIndex, staffEndIndex]);
+
+  useEffect(() => {
+    if (staffPage > totalStaffPages) {
+      setStaffPage(totalStaffPages);
+    }
+  }, [staffPage, totalStaffPages]);
+
   // Print handler using window.open method
   const handlePrintSchedule = () => {
     if (!printRef.current) {
@@ -1599,12 +1625,21 @@ const StaffSchedule = () => {
           <h1 className="text-2xl font-bold text-gray-900">Staff Schedule</h1>
           <p className="text-gray-600 mt-1">Weekly view of staff shifts and availability</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg px-3 py-2 whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={printOnlyWithSchedules}
+              onChange={(e) => setPrintOnlyWithSchedules(e.target.checked)}
+              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+            />
+            Print only staff with schedules
+          </label>
           {!isEditMode ? (
             <>
               <button
                 onClick={handlePrintSchedule}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
               >
                 <Printer className="w-4 h-4" />
                 Print Schedule
@@ -1637,33 +1672,18 @@ const StaffSchedule = () => {
                   
                   setIsEditMode(true);
                 }}
-                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors whitespace-nowrap"
               >
                 <Plus className="w-4 h-4" />
                 Add Shift
               </button>
             </>
           ) : (
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={configStartDate}
-                onChange={(e) => {
-                  setConfigStartDate(e.target.value);
-                  // Update currentWeek to match the start date
-                  if (e.target.value) {
-                    const date = new Date(e.target.value);
-                    const day = date.getDay();
-                    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-                    setCurrentWeek(new Date(date.setDate(diff)));
-                  }
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
-              />
+            <div className="flex items-center gap-2 flex-nowrap">
               <button
                 onClick={handleSaveAllShifts}
-                disabled={saving || !configStartDate}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
               >
                 <Calendar className="w-4 h-4" />
                 Save All Shifts
@@ -1674,7 +1694,7 @@ const StaffSchedule = () => {
                   setEditableShifts({});
                   setConfigStartDate('');
                 }}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
               >
                 Cancel
               </button>
@@ -1754,6 +1774,71 @@ const StaffSchedule = () => {
 
       {/* Schedule Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="p-4 border-b border-gray-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div className="text-sm text-gray-700">
+            Showing {staffStartIndex + 1} to {Math.min(staffEndIndex, staff.length)} of {staff.length} staff
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              Items per page:
+              <select
+                value={staffItemsPerPage}
+                onChange={(e) => {
+                  setStaffItemsPerPage(Number(e.target.value));
+                  setStaffPage(1);
+                }}
+                className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+              >
+                {[10, 25, 50, 100].map(option => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setStaffPage(prev => Math.max(1, prev - 1))}
+                disabled={safeStaffPage === 1}
+                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalStaffPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalStaffPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (safeStaffPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (safeStaffPage >= totalStaffPages - 2) {
+                    pageNum = totalStaffPages - 4 + i;
+                  } else {
+                    pageNum = safeStaffPage - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setStaffPage(pageNum)}
+                      className={`px-3 py-1 border rounded-lg text-sm ${
+                        safeStaffPage === pageNum
+                          ? 'bg-primary-600 text-white border-primary-600'
+                          : 'border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setStaffPage(prev => Math.min(totalStaffPages, prev + 1))}
+                disabled={safeStaffPage === totalStaffPages}
+                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -1785,14 +1870,14 @@ const StaffSchedule = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {staff.length === 0 ? (
+              {paginatedStaff.length === 0 ? (
                 <tr>
                   <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
                     No staff members found
                   </td>
                 </tr>
               ) : (
-                staff.map((member) => (
+                paginatedStaff.map((member) => (
                   <tr key={member.id} className="hover:bg-gray-50">
                     <td className="px-4 py-4 whitespace-nowrap sticky left-0 bg-white z-10">
                       <div className="flex items-center gap-3">
@@ -2902,9 +2987,10 @@ const StaffSchedule = () => {
         </div>
       )}
 
-      {/* Hidden Print Component - Minimalist Black & White */}
+      {/* Hidden Print Component - Poppins, ink-friendly */}
       <div ref={printRef} style={{ position: 'fixed', left: '-200%', top: 0, width: '8.5in', zIndex: -1 }}>
         <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
           @media print {
             @page {
               size: letter landscape;
@@ -2917,7 +3003,7 @@ const StaffSchedule = () => {
           }
         `}</style>
         <div className="print-content" style={{ 
-          fontFamily: 'Arial, sans-serif',
+          fontFamily: "'Poppins', sans-serif",
           color: '#000',
           background: '#fff',
           padding: '20px'
@@ -2925,24 +3011,24 @@ const StaffSchedule = () => {
           {/* Header */}
           <div style={{ 
             textAlign: 'center',
-            marginBottom: '30px',
-            borderBottom: '2px solid #000',
-            paddingBottom: '15px'
+            marginBottom: '24px',
+            borderBottom: '1px solid #444',
+            paddingBottom: '12px'
           }}>
             <h1 style={{ 
-              fontSize: '24px',
-              fontWeight: 'bold',
-              marginBottom: '10px',
-              letterSpacing: '1px'
+              fontSize: '22px',
+              fontWeight: 700,
+              marginBottom: '8px',
+              letterSpacing: '0.5px'
             }}>
               WEEKLY SCHEDULE
             </h1>
-            <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
+            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
               {branchInfo?.branchName || branchInfo?.name || 'Branch'}
             </div>
             <div style={{ 
-              fontSize: '11px',
-              marginTop: '12px',
+              fontSize: '10px',
+              marginTop: '8px',
               display: 'flex',
               justifyContent: 'space-between'
             }}>
@@ -2966,16 +3052,17 @@ const StaffSchedule = () => {
           <table style={{
             width: '100%',
             borderCollapse: 'collapse',
-            border: '1px solid #000',
-            fontSize: '11px'
+            border: '1px solid #444',
+            fontSize: '10.5px'
           }}>
             <thead>
               <tr>
                 <th style={{
-                  border: '1px solid #000',
-                  padding: '10px 8px',
+                  border: '1px solid #444',
+                  padding: '8px 6px',
                   textAlign: 'left',
-                  fontWeight: 'bold'
+                  fontWeight: 600,
+                  background: '#f7f7f7'
                 }}>
                   STAFF
                 </th>
@@ -2984,33 +3071,42 @@ const StaffSchedule = () => {
                   const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                   return (
                     <th key={index} style={{
-                      border: '1px solid #000',
-                      padding: '10px 8px',
+                      border: '1px solid #444',
+                      padding: '8px 6px',
                       textAlign: 'center',
-                      fontWeight: 'bold',
-                      whiteSpace: 'nowrap'
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      background: '#f7f7f7'
                     }}>
                       {dayName.toUpperCase()}<br />
-                      <span style={{ fontSize: '9px', fontWeight: 'normal' }}>{dateStr}</span>
+                      <span style={{ fontSize: '9px', fontWeight: 400 }}>{dateStr}</span>
                     </th>
                   );
                 })}
               </tr>
             </thead>
             <tbody>
-              {staff.map((member, idx) => {
+              {staffForPrint.length === 0 && (
+                <tr>
+                  <td colSpan={8} style={{ border: '1px solid #444', padding: '10px 8px', textAlign: 'center' }}>
+                    No staff with schedules for this week.
+                  </td>
+                </tr>
+              )}
+              {staffForPrint.map((member, idx) => {
                 const memberName = getFullName(member);
                 const memberId = member.id || member.uid;
                 
                 return (
                   <tr key={memberId || idx} style={{
-                    pageBreakInside: 'avoid'
+                    pageBreakInside: 'avoid',
+                    background: idx % 2 === 0 ? '#fff' : '#fafafa'
                   }}>
                     <td style={{
-                      border: '1px solid #000',
-                      padding: '10px 8px',
+                      border: '1px solid #444',
+                      padding: '8px 6px',
                       textAlign: 'left',
-                      fontWeight: '600'
+                      fontWeight: 600
                     }}>
                       {memberName}
                     </td>
@@ -3022,8 +3118,8 @@ const StaffSchedule = () => {
                       
                       let cellContent = '-';
                       let cellStyle = {
-                        border: '1px solid #000',
-                        padding: '10px 8px',
+                        border: '1px solid #444',
+                        padding: '8px 6px',
                         textAlign: 'center'
                       };
 
@@ -3057,7 +3153,7 @@ const StaffSchedule = () => {
                       // Check if shift exists
                       else if (shift && shift.start && shift.end) {
                         cellContent = `${formatTime12Hour(shift.start)} - ${formatTime12Hour(shift.end)}`;
-                        cellStyle = { ...cellStyle, fontWeight: '600' };
+                        cellStyle = { ...cellStyle, fontWeight: 600 };
                       }
 
                       return (

@@ -637,25 +637,24 @@ class InventoryService {
         });
       });
 
-      // Sort by received date first (FIFO - oldest batches first), then by expiration date
+      // Sort by batch number first (incremental order - lower numbers first), then by expiration date
       // This ensures Batch-001 is deducted before Batch-002, etc.
       batches.sort((a, b) => {
-        // First sort by received date (oldest first) - this is the primary FIFO criterion
-        const receivedDiff = a.receivedDate.getTime() - b.receivedDate.getTime();
-        if (receivedDiff !== 0) {
-          return receivedDiff;
+        // First sort by batch number (incremental order) - this is the primary FIFO criterion
+        if (a.batchNumber && b.batchNumber) {
+          const batchCompare = a.batchNumber.localeCompare(b.batchNumber);
+          if (batchCompare !== 0) {
+            return batchCompare;
+          }
         }
-        // If received dates are the same, sort by expiration date (oldest first)
+        // If batch numbers are the same or missing, sort by expiration date (oldest first)
         if (a.expirationDate && b.expirationDate) {
           return a.expirationDate.getTime() - b.expirationDate.getTime();
         }
         if (a.expirationDate) return -1;
         if (b.expirationDate) return 1;
-        // Finally, sort by batch number if available (for consistent ordering)
-        if (a.batchNumber && b.batchNumber) {
-          return a.batchNumber.localeCompare(b.batchNumber);
-        }
-        return 0;
+        // Finally, sort by received date if available
+        return a.receivedDate.getTime() - b.receivedDate.getTime();
       });
 
       return { success: true, batches };

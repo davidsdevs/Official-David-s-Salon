@@ -123,7 +123,7 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
         serviceId: svc.serviceId || svc.id || null,
         name: svc.serviceName || svc.name || `Service ${svc.serviceId || svc.id || 'Unknown'}`,
         price: svc.price || svc.servicePrice || 0,
-        duration: svc.duration || 30,
+        quantity: svc.quantity || 1,
         stylistId: svc.stylistId || null,
         stylistName: svc.stylistName || 'Not assigned'
       }))
@@ -139,7 +139,7 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
     : [];
 
   const totalDuration = selectedServices.reduce((total, service) => total + (service.duration || 30), 0);
-  const totalPrice = selectedServices.reduce((total, service) => total + (service.price || 0), 0);
+  const totalPrice = selectedServices.reduce((total, service) => total + ((service.price || 0) * (service.quantity || 1)), 0);
 
   // Normalize products array - handle different data formats
   let productsArray = [];
@@ -306,12 +306,19 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
                                 <div className="text-xs text-gray-600">
                                   {service.stylistName || 'No stylist assigned'}
                                 </div>
+                                {service.quantity > 1 && (
+                                  <div className="text-xs text-blue-600 font-medium mt-1">
+                                    Quantity: {service.quantity}
+                                  </div>
+                                )}
                               </div>
                               <div className="text-right ml-3">
-                                <div className="text-sm font-semibold text-gray-900">₱{service.price.toLocaleString()}</div>
-                                {service.duration && (
-                                  <div className="text-xs text-gray-500">{service.duration} min</div>
-                                )}
+                                <div className="text-sm font-semibold text-gray-900">
+                                  ₱{service.price.toLocaleString()} × {service.quantity}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  ₱{(service.price * service.quantity).toLocaleString()}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -568,7 +575,7 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
         {/* Footer Actions */}
         <div className="bg-gradient-to-r from-gray-50 to-white px-6 py-4 border-t border-gray-200 flex-shrink-0">
           <div className="flex justify-end gap-3">
-            {onEdit && (
+            {onEdit && appointment.status !== APPOINTMENT_STATUS.CANCELLED && (
               <button
                 onClick={() => {
                   handleClose();
@@ -594,5 +601,13 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
 };
 
 export default AppointmentDetails;
+
+
+
+
+
+
+
+
 
 
