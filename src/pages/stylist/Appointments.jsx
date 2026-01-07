@@ -165,19 +165,19 @@ const StylistAppointments = () => {
 
       {/* Stats Cards - Mobile Optimized */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <p className="text-xs text-gray-600 mb-1">Today</p>
           <p className="text-2xl font-bold text-gray-900">{stats.today}</p>
         </div>
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <p className="text-xs text-gray-600 mb-1">Pending</p>
           <p className="text-2xl font-bold text-blue-600">{stats.pending}</p>
         </div>
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <p className="text-xs text-gray-600 mb-1">In Service</p>
           <p className="text-2xl font-bold text-purple-600">{stats.inService}</p>
         </div>
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <p className="text-xs text-gray-600 mb-1">Completed</p>
           <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
         </div>

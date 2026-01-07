@@ -5,17 +5,18 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Clock, Banknote, User, Search, Filter, TrendingUp, Scissors, BarChart3, Users, X } from 'lucide-react';
+import { Calendar, Clock, Banknote, Search, TrendingUp, Scissors, BarChart3, Users, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { formatDate, formatTime, formatCurrency, getFullName, getInitials } from '../../utils/helpers';
+import { formatDate, formatTime, formatCurrency } from '../../utils/helpers';
+import { Card } from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 
 const StylistServiceHistory = () => {
   const navigate = useNavigate();
-  const { currentUser, userBranch } = useAuth();
+  const { currentUser } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -339,10 +340,12 @@ const StylistServiceHistory = () => {
       }, 0);
     }
     
-    // Fallback: calculate from items array
-    const serviceItems = (transaction.items || []).filter(item => 
-      item.type === 'service' && (item.stylistId === currentUser.uid || transaction.stylistId === currentUser.uid)
-    );
+    // Fallback: calculate from items array - match mobile app logic
+    // Each item must be checked individually using item.stylistId OR transaction.stylistId as fallback
+    const serviceItems = (transaction.items || []).filter(item => {
+      const itemStylistId = item.stylistId || transaction.stylistId;
+      return item.type === 'service' && itemStylistId === currentUser.uid;
+    });
     return serviceItems.reduce((sum, item) => {
       if (item.commission !== undefined) {
         return sum + item.commission;
@@ -358,14 +361,73 @@ const StylistServiceHistory = () => {
       return transaction.stylistItems;
     }
     
-    // Fallback: filter items
+    // Fallback: filter items - match mobile app logic
+    // Each item must be checked individually using item.stylistId OR transaction.stylistId as fallback
     if (transaction.items && Array.isArray(transaction.items)) {
-      return transaction.items.filter(item => 
-        item.stylistId === currentUser.uid || transaction.stylistId === currentUser.uid
-      );
+      return transaction.items.filter(item => {
+        const itemStylistId = item.stylistId || transaction.stylistId;
+        return itemStylistId === currentUser.uid;
+      });
     }
     
     return [];
+  };
+
+  // Get client type from transaction items (matching mobile app logic)
+  const getClientType = (transaction) => {
+    // Check stylistItems first
+    if (transaction.stylistItems && transaction.stylistItems.length > 0) {
+      const clientType = transaction.stylistItems[0]?.clientType;
+      if (clientType) {
+        if (clientType === 'X' || clientType === 'new' || clientType === 'X - New Client' || clientType.startsWith('X')) {
+          return { label: 'X-New', style: { backgroundColor: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' } };
+        }
+        if (clientType === 'TR' || clientType === 'transfer' || clientType === 'TR - Transfer' || clientType.startsWith('TR')) {
+          return { label: 'TR-Transfer', style: { backgroundColor: '#CCFBF1', color: '#115E59', borderColor: '#99F6E4' } };
+        }
+        if (clientType === 'R' || clientType === 'regular' || clientType === 'R - Regular' || clientType.startsWith('R')) {
+          return { label: 'R-Regular', style: { backgroundColor: '#FCE7F3', color: '#9F1239', borderColor: '#FBCFE8' } };
+        }
+      }
+    }
+    
+    // Check items array
+    if (transaction.items && Array.isArray(transaction.items)) {
+      for (const item of transaction.items) {
+        if (item.clientType) {
+          const clientType = item.clientType;
+          if (clientType === 'X' || clientType === 'new' || clientType.startsWith('X')) {
+            return { label: 'X-New', style: { backgroundColor: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' } };
+          }
+          if (clientType === 'TR' || clientType.startsWith('TR')) {
+            return { label: 'TR-Transfer', style: { backgroundColor: '#CCFBF1', color: '#115E59', borderColor: '#99F6E4' } };
+          }
+          if (clientType === 'R' || clientType.startsWith('R')) {
+            return { label: 'R-Regular', style: { backgroundColor: '#FCE7F3', color: '#9F1239', borderColor: '#FBCFE8' } };
+          }
+        }
+      }
+    }
+    
+    // Check services array (legacy)
+    if (transaction.services && Array.isArray(transaction.services)) {
+      for (const service of transaction.services) {
+        if (service.clientType) {
+          const clientType = service.clientType;
+          if (clientType === 'X' || clientType === 'new' || clientType.startsWith('X')) {
+            return { label: 'X-New', style: { backgroundColor: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' } };
+          }
+          if (clientType === 'TR' || clientType.startsWith('TR')) {
+            return { label: 'TR-Transfer', style: { backgroundColor: '#CCFBF1', color: '#115E59', borderColor: '#99F6E4' } };
+          }
+          if (clientType === 'R' || clientType.startsWith('R')) {
+            return { label: 'R-Regular', style: { backgroundColor: '#FCE7F3', color: '#9F1239', borderColor: '#FBCFE8' } };
+          }
+        }
+      }
+    }
+    
+    return null;
   };
 
   if (loading) {
@@ -384,79 +446,67 @@ const StylistServiceHistory = () => {
         <p className="text-gray-600">View your completed services and commissions</p>
       </div>
 
-      {/* Enhanced Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Total Sales</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(summary.totalSales)}</p>
-            </div>
-            <div className="p-3 bg-blue-100 rounded-full">
-              <Banknote className="w-6 h-6 text-blue-600" />
+      {/* Summary Cards - Consistent with Receptionist Dashboard */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
+          <div className="flex items-center">
+            <Banknote className="h-8 w-8 text-blue-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Total Sales</p>
+              <p className="text-xl font-bold text-gray-900">{formatCurrency(summary.totalSales)}</p>
             </div>
           </div>
-        </div>
+        </Card>
         
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Total Commission</p>
-              <p className="text-2xl font-bold text-green-600">{formatCurrency(summary.totalCommission)}</p>
-            </div>
-            <div className="p-3 bg-green-100 rounded-full">
-              <TrendingUp className="w-6 h-6 text-green-600" />
+        <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
+          <div className="flex items-center">
+            <TrendingUp className="h-8 w-8 text-green-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Commission</p>
+              <p className="text-xl font-bold text-gray-900">{formatCurrency(summary.totalCommission)}</p>
             </div>
           </div>
-        </div>
+        </Card>
         
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Transactions</p>
-              <p className="text-2xl font-bold text-purple-600">{summary.transactionCount}</p>
-            </div>
-            <div className="p-3 bg-purple-100 rounded-full">
-              <Calendar className="w-6 h-6 text-purple-600" />
+        <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
+          <div className="flex items-center">
+            <Calendar className="h-8 w-8 text-purple-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Transactions</p>
+              <p className="text-xl font-bold text-gray-900">{summary.transactionCount}</p>
             </div>
           </div>
-        </div>
+        </Card>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Services Rendered</p>
-              <p className="text-2xl font-bold text-indigo-600">{summary.totalServices}</p>
-            </div>
-            <div className="p-3 bg-indigo-100 rounded-full">
-              <Scissors className="w-6 h-6 text-indigo-600" />
+        <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
+          <div className="flex items-center">
+            <Scissors className="h-8 w-8 text-indigo-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Services</p>
+              <p className="text-xl font-bold text-gray-900">{summary.totalServices}</p>
             </div>
           </div>
-        </div>
+        </Card>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Avg Commission</p>
-              <p className="text-2xl font-bold text-orange-600">{formatCurrency(summary.averageCommission)}</p>
-            </div>
-            <div className="p-3 bg-orange-100 rounded-full">
-              <BarChart3 className="w-6 h-6 text-orange-600" />
+        <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
+          <div className="flex items-center">
+            <BarChart3 className="h-8 w-8 text-orange-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Avg Comm.</p>
+              <p className="text-xl font-bold text-gray-900">{formatCurrency(summary.averageCommission)}</p>
             </div>
           </div>
-        </div>
+        </Card>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Unique Clients</p>
-              <p className="text-2xl font-bold text-pink-600">{summary.uniqueClients}</p>
-            </div>
-            <div className="p-3 bg-pink-100 rounded-full">
-              <Users className="w-6 h-6 text-pink-600" />
+        <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
+          <div className="flex items-center">
+            <Users className="h-8 w-8 text-pink-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Clients</p>
+              <p className="text-xl font-bold text-gray-900">{summary.uniqueClients}</p>
             </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Enhanced Search and Filters */}
@@ -685,6 +735,7 @@ const StylistServiceHistory = () => {
               const totalSale = stylistItems.reduce((sum, item) => {
                 return sum + (item.price || item.adjustedPrice || 0) * (item.quantity || 1);
               }, 0);
+              const clientType = getClientType(transaction);
               
               return (
                 <div 
@@ -698,10 +749,18 @@ const StylistServiceHistory = () => {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-3">
+                      <div className="flex items-center gap-2 mb-3 flex-wrap">
                         <h3 className="font-semibold text-gray-900 truncate">
                           {transaction.clientName || 'Guest Client'}
                         </h3>
+                        {clientType && (
+                          <span 
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border"
+                            style={clientType.style}
+                          >
+                            {clientType.label}
+                          </span>
+                        )}
                         {transaction.clientId && (
                           <span className="text-xs text-primary-600 font-medium">→ View Analytics</span>
                         )}

@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Clock, User, CheckCircle, AlertCircle, ChevronRight, Tag } from 'lucide-react';
+import { Calendar, Clock, User, CheckCircle, AlertCircle, ChevronRight, Tag, Play, Banknote } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getAppointmentsByStylist,
@@ -13,6 +13,7 @@ import {
   APPOINTMENT_STATUS 
 } from '../../services/appointmentService';
 import { formatDate, formatTime, getFullName } from '../../utils/helpers';
+import { Card } from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { ROUTES } from '../../utils/constants';
 import { collection, query, where, getDocs, getDoc, doc, Timestamp, orderBy } from 'firebase/firestore';
@@ -26,6 +27,8 @@ const StylistDashboard = () => {
   const [todayAppointments, setTodayAppointments] = useState([]);
   const [nextAppointment, setNextAppointment] = useState(null);
   const [clientTypeStats, setClientTypeStats] = useState({ X: 0, R: 0, TR: 0 });
+  const [todayEarnings, setTodayEarnings] = useState(0);
+  const [walkInsCount, setWalkInsCount] = useState(0);
 
   useEffect(() => {
     if (currentUser?.uid) {
@@ -72,10 +75,85 @@ const StylistDashboard = () => {
       // Fetch today's check-ins for client type analytics
       await fetchClientTypeAnalytics();
       
+      // Fetch today's earnings
+      await fetchTodayEarnings();
+      
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTodayEarnings = async () => {
+    try {
+      if (!currentUser?.uid) return;
+
+      const transactionsRef = collection(db, 'transactions');
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const q = query(
+        transactionsRef,
+        where('status', '==', 'paid'),
+        where('createdAt', '>=', Timestamp.fromDate(today)),
+        where('createdAt', '<', Timestamp.fromDate(tomorrow))
+      );
+
+      const snapshot = await getDocs(q);
+      let earnings = 0;
+      let walkIns = 0;
+
+      snapshot.forEach((docSnap) => {
+        const transData = docSnap.data();
+        let hasStylistService = false;
+
+        // Check if this transaction has services for this stylist
+        if (transData.services && Array.isArray(transData.services)) {
+          transData.services.forEach((service) => {
+            if (service.stylistId === currentUser.uid) {
+              hasStylistService = true;
+              // Calculate commission (60% of service total)
+              const serviceTotal = Number(service.adjustedPrice || service.price || 0);
+              earnings += serviceTotal * 0.6;
+            }
+          });
+        }
+
+        // Check items array (new schema)
+        if (transData.items && Array.isArray(transData.items)) {
+          transData.items.forEach((item) => {
+            const itemStylistId = item.stylistId || transData.stylistId;
+            if (itemStylistId === currentUser.uid) {
+              hasStylistService = true;
+              const itemType = item.type || 'service';
+              const itemTotal = (item.price || item.adjustedPrice || 0) * (item.quantity || 1);
+              const commissionRate = itemType === 'service' ? 0.6 : 0.1;
+              earnings += itemTotal * commissionRate;
+            }
+          });
+        }
+
+        // Add product commissions if stylist sold products
+        if (hasStylistService && transData.products && Array.isArray(transData.products)) {
+          transData.products.forEach((product) => {
+            const productTotal = (Number(product.price) || 0) * (Number(product.quantity) || 1);
+            earnings += productTotal * 0.1;
+          });
+        }
+
+        // Count walk-ins (no appointmentId)
+        if (hasStylistService && !transData.appointmentId) {
+          walkIns++;
+        }
+      });
+
+      setTodayEarnings(earnings);
+      setWalkInsCount(walkIns);
+    } catch (error) {
+      console.error('Error fetching today\'s earnings:', error);
     }
   };
 
@@ -227,153 +305,168 @@ const StylistDashboard = () => {
         </p>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Today's Appointments</p>
-              <p className="text-2xl font-bold text-gray-900">{stats?.today || 0}</p>
-            </div>
-            <div className="p-3 bg-blue-100 rounded-full">
-              <Calendar className="w-6 h-6 text-blue-600" />
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Pending</p>
-              <p className="text-2xl font-bold text-yellow-600">{stats?.pending || 0}</p>
-            </div>
-            <div className="p-3 bg-yellow-100 rounded-full">
-              <Clock className="w-6 h-6 text-yellow-600" />
+      {/* Stats Cards - Consistent with Receptionist Dashboard */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        <Card 
+          className="p-4 cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => navigate(ROUTES.STYLIST_APPOINTMENTS)}
+        >
+          <div className="flex items-center">
+            <Calendar className="h-8 w-8 text-blue-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Appointments</p>
+              <p className="text-xl font-bold text-gray-900">{stats?.today || 0}</p>
             </div>
           </div>
-        </div>
-        
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">In Service</p>
-              <p className="text-2xl font-bold text-purple-600">{stats?.inService || 0}</p>
-            </div>
-            <div className="p-3 bg-purple-100 rounded-full">
-              <User className="w-6 h-6 text-purple-600" />
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Completed</p>
-              <p className="text-2xl font-bold text-green-600">{stats?.completed || 0}</p>
-            </div>
-            <div className="p-3 bg-green-100 rounded-full">
-              <CheckCircle className="w-6 h-6 text-green-600" />
+        </Card>
+
+        <Card 
+          className="p-4 cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => navigate('/stylist/service-history')}
+        >
+          <div className="flex items-center">
+            <Banknote className="h-8 w-8 text-green-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Earnings</p>
+              <p className="text-xl font-bold text-gray-900">₱{todayEarnings.toFixed(0)}</p>
             </div>
           </div>
-        </div>
+        </Card>
+
+        <Card 
+          className="p-4 cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => navigate('/stylist/check-ins')}
+        >
+          <div className="flex items-center">
+            <User className="h-8 w-8 text-purple-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Walk-ins</p>
+              <p className="text-xl font-bold text-gray-900">{walkInsCount}</p>
+            </div>
+          </div>
+        </Card>
+
+        <Card 
+          className="p-4 cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => navigate('/stylist/check-ins')}
+        >
+          <div className="flex items-center">
+            <Play className="h-8 w-8 text-yellow-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">In Service</p>
+              <p className="text-xl font-bold text-gray-900">{stats?.inService || 0}</p>
+            </div>
+          </div>
+        </Card>
+
+        <Card 
+          className="p-4 cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => navigate('/stylist/service-history')}
+        >
+          <div className="flex items-center">
+            <CheckCircle className="h-8 w-8 text-green-600" />
+            <div className="ml-3">
+              <p className="text-sm font-medium text-gray-600">Completed</p>
+              <p className="text-xl font-bold text-gray-900">{stats?.completed || 0}</p>
+            </div>
+          </div>
+        </Card>
       </div>
 
       {/* Client Type Analytics */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+      <Card className="overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center gap-2 bg-gray-50">
           <Tag className="w-5 h-5 text-primary-600" />
-          Today's Client Types
-        </h2>
-        <div className="grid grid-cols-3 gap-4">
-          {/* X-New - Yellow/Amber (matching mobile) */}
-          <div 
-            className="rounded-lg p-4 border"
-            style={{ backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium" style={{ color: '#92400E' }}>X-New</p>
-                <p className="text-2xl font-bold mt-1" style={{ color: '#92400E' }}>{clientTypeStats.X}</p>
-              </div>
-              <div className="p-2 rounded-full" style={{ backgroundColor: '#FDE68A' }}>
-                <Tag className="w-5 h-5" style={{ color: '#92400E' }} />
-              </div>
-            </div>
-          </div>
-          
-          {/* R-Regular - Pink (matching mobile) */}
-          <div 
-            className="rounded-lg p-4 border"
-            style={{ backgroundColor: '#FCE7F3', borderColor: '#FBCFE8' }}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium" style={{ color: '#9F1239' }}>R-Regular</p>
-                <p className="text-2xl font-bold mt-1" style={{ color: '#9F1239' }}>{clientTypeStats.R}</p>
-              </div>
-              <div className="p-2 rounded-full" style={{ backgroundColor: '#FBCFE8' }}>
-                <Tag className="w-5 h-5" style={{ color: '#9F1239' }} />
+          <h2 className="font-semibold text-gray-900">Today's Client Types</h2>
+        </div>
+        <div className="p-4">
+          <div className="grid grid-cols-3 gap-4">
+            {/* X-New - Yellow/Amber (matching mobile) */}
+            <div 
+              className="rounded-lg p-4 border"
+              style={{ backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: '#92400E' }}>X-New</p>
+                  <p className="text-2xl font-bold mt-1" style={{ color: '#92400E' }}>{clientTypeStats.X}</p>
+                </div>
+                <Tag className="w-6 h-6" style={{ color: '#92400E' }} />
               </div>
             </div>
-          </div>
-          
-          {/* TR-Transfer - Teal (matching mobile) */}
-          <div 
-            className="rounded-lg p-4 border"
-            style={{ backgroundColor: '#CCFBF1', borderColor: '#99F6E4' }}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium" style={{ color: '#115E59' }}>TR-Transfer</p>
-                <p className="text-2xl font-bold mt-1" style={{ color: '#115E59' }}>{clientTypeStats.TR}</p>
+            
+            {/* R-Regular - Pink (matching mobile) */}
+            <div 
+              className="rounded-lg p-4 border"
+              style={{ backgroundColor: '#FCE7F3', borderColor: '#FBCFE8' }}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: '#9F1239' }}>R-Regular</p>
+                  <p className="text-2xl font-bold mt-1" style={{ color: '#9F1239' }}>{clientTypeStats.R}</p>
+                </div>
+                <Tag className="w-6 h-6" style={{ color: '#9F1239' }} />
               </div>
-              <div className="p-2 rounded-full" style={{ backgroundColor: '#99F6E4' }}>
-                <Tag className="w-5 h-5" style={{ color: '#115E59' }} />
+            </div>
+            
+            {/* TR-Transfer - Teal (matching mobile) */}
+            <div 
+              className="rounded-lg p-4 border"
+              style={{ backgroundColor: '#CCFBF1', borderColor: '#99F6E4' }}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: '#115E59' }}>TR-Transfer</p>
+                  <p className="text-2xl font-bold mt-1" style={{ color: '#115E59' }}>{clientTypeStats.TR}</p>
+                </div>
+                <Tag className="w-6 h-6" style={{ color: '#115E59' }} />
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Next Appointment Card */}
       {nextAppointment && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+        <Card className="overflow-hidden">
+          <div className="px-4 py-3 border-b flex items-center gap-2 bg-gray-50">
             <AlertCircle className="w-5 h-5 text-primary-600" />
-            Next Appointment
-          </h2>
-          <div className="flex items-start justify-between">
-            <div className="space-y-2">
-              <p className="font-medium text-gray-900 text-lg">
-                {nextAppointment.clientName || 'Guest Client'}
-              </p>
-              <div className="flex items-center gap-4 text-sm text-gray-600">
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-4 h-4" />
-                  {formatDate(nextAppointment.appointmentDate)}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  {formatTime(nextAppointment.appointmentDate)}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {nextAppointment.services?.map((service, idx) => (
-                  <span key={idx} className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-sm">
-                    {service.serviceName}
-                  </span>
-                )) || (
-                  <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-sm">
-                    {nextAppointment.serviceName || 'Service'}
-                  </span>
-                )}
-              </div>
-            </div>
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(nextAppointment.status)}`}>
-              {getStatusLabel(nextAppointment.status)}
-            </span>
+            <h2 className="font-semibold text-gray-900">Next Appointment</h2>
           </div>
-        </div>
+          <div className="p-4">
+            <div className="flex items-start justify-between">
+              <div className="space-y-2">
+                <p className="font-medium text-gray-900 text-lg">
+                  {nextAppointment.clientName || 'Guest Client'}
+                </p>
+                <div className="flex items-center gap-4 text-sm text-gray-600">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-4 h-4" />
+                    {formatDate(nextAppointment.appointmentDate)}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-4 h-4" />
+                    {formatTime(nextAppointment.appointmentDate)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {nextAppointment.services?.map((service, idx) => (
+                    <span key={idx} className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-sm">
+                      {service.serviceName}
+                    </span>
+                  )) || (
+                    <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-sm">
+                      {nextAppointment.serviceName || 'Service'}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(nextAppointment.status)}`}>
+                {getStatusLabel(nextAppointment.status)}
+              </span>
+            </div>
+          </div>
+        </Card>
       )}
 
       {/* Today's Schedule */}
