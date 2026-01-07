@@ -28,6 +28,7 @@ const ClientProducts = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showFullImageModal, setShowFullImageModal] = useState(false);
 
   useEffect(() => {
     fetchProducts();
@@ -87,22 +88,26 @@ const ClientProducts = () => {
   const fetchStocks = async () => {
     try {
       const stocksRef = collection(db, 'stocks');
-      const snapshot = await getDocs(stocksRef);
+      const q = query(stocksRef, where('status', '==', 'active'));
+      const snapshot = await getDocs(q);
       const stocksData = {};
       
       snapshot.forEach((doc) => {
         const data = doc.data();
         const productId = data.productId;
         const branchId = data.branchId;
-        const quantity = data.quantity || 0;
+        const realTimeStock = data.realTimeStock || 0;
         
-        if (!stocksData[productId]) {
-          stocksData[productId] = {};
+        // Only count stocks with positive quantities
+        if (realTimeStock > 0) {
+          if (!stocksData[productId]) {
+            stocksData[productId] = {};
+          }
+          if (!stocksData[productId][branchId]) {
+            stocksData[productId][branchId] = 0;
+          }
+          stocksData[productId][branchId] += realTimeStock;
         }
-        if (!stocksData[productId][branchId]) {
-          stocksData[productId][branchId] = 0;
-        }
-        stocksData[productId][branchId] += quantity;
       });
       
       setStocks(stocksData);
@@ -118,6 +123,21 @@ const ClientProducts = () => {
     }
     // Sum all branches
     return Object.values(stocks[productId]).reduce((sum, qty) => sum + qty, 0);
+  };
+
+  const getBranchesWithStock = (productId) => {
+    if (!stocks[productId]) return [];
+    return Object.entries(stocks[productId])
+      .filter(([branchId, stock]) => stock > 0)
+      .map(([branchId, stock]) => {
+        const branch = branches.find(b => b.id === branchId);
+        return {
+          branchId,
+          branchName: branch?.name || branch?.branchName || 'Unknown Branch',
+          stock
+        };
+      })
+      .sort((a, b) => b.stock - a.stock); // Sort by stock descending
   };
 
   const filteredProducts = useMemo(() => {
@@ -350,14 +370,27 @@ const ClientProducts = () => {
                     </div>
                   </div>
                   <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 text-sm">
                       <Store className="w-4 h-4 text-[#160B53]" />
-                      <span className="font-medium">
-                        {branchFilter === 'all' 
-                          ? `${getProductStock(product.id)} units (Total)`
-                          : `${getProductStock(product.id, branchFilter)} units`
-                        }
-                      </span>
+                      {(() => {
+                        const totalStock = getProductStock(product.id);
+                        const branchStock = branchFilter !== 'all' ? getProductStock(product.id, branchFilter) : null;
+                        const stock = branchStock !== null ? branchStock : totalStock;
+                        
+                        return (
+                          <span className={`font-medium ${
+                            stock > 0 ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {stock > 0 ? (
+                              branchFilter === 'all' 
+                                ? `${totalStock} units available`
+                                : `${branchStock} units in stock`
+                            ) : (
+                              'Out of stock'
+                            )}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleViewDetails(product); }}
@@ -417,13 +450,22 @@ const ClientProducts = () => {
             }}>
               <div className="p-4 sm:p-6 space-y-6">
                 {/* Product Image */}
-                <div className="bg-gradient-to-br from-gray-50 to-white rounded-xl p-6 border-2 border-gray-200">
+                <div className="bg-gradient-to-br from-gray-50 to-white rounded-xl p-6 border-2 border-gray-200 relative">
                   {selectedProduct.imageUrl ? (
-                    <img
-                      src={selectedProduct.imageUrl}
-                      alt={selectedProduct.name}
-                      className="w-full h-80 object-cover rounded-lg shadow-md"
-                    />
+                    <>
+                      <img
+                        src={selectedProduct.imageUrl}
+                        alt={selectedProduct.name}
+                        className="w-full h-80 object-contain rounded-lg"
+                      />
+                      <button
+                        onClick={() => setShowFullImageModal(true)}
+                        className="absolute top-8 right-8 bg-white/90 hover:bg-white p-3 rounded-full shadow-lg transition-all hover:scale-110"
+                        title="View full image"
+                      >
+                        <Eye className="w-5 h-5 text-[#160B53]" />
+                      </button>
+                    </>
                   ) : (
                     <div className="w-full h-80 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center">
                       <Package className="w-32 h-32 text-gray-400" />
@@ -431,171 +473,143 @@ const ClientProducts = () => {
                   )}
                 </div>
 
-                {/* Product Info Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Left Column - Basic Info */}
-                  <div className="space-y-6">
-                    {/* Product Name & Brand */}
-                    <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md">
-                      <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-gray-200">
-                        <div className="p-2 bg-[#160B53]/10 rounded-lg">
-                          <Package className="w-6 h-6 text-[#160B53]" />
-                        </div>
-                        <h3 className="text-2xl font-bold text-gray-900 flex-1">
-                          {selectedProduct.name}
-                        </h3>
-                      </div>
-                      <div className="space-y-3">
-                        {selectedProduct.brand && (
-                          <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
-                            <Tag className="w-5 h-5 text-[#160B53]" />
-                            <div>
-                              <p className="text-xs text-gray-500 uppercase tracking-wide">Brand</p>
-                              <p className="text-sm font-semibold text-gray-900">{selectedProduct.brand}</p>
-                            </div>
-                          </div>
-                        )}
-                        {selectedProduct.category && (
-                          <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
-                            <div className="w-5 h-5 flex items-center justify-center">
-                              <span className="w-1 h-5 bg-[#160B53] rounded-full"></span>
-                            </div>
-                            <div>
-                              <p className="text-xs text-gray-500 uppercase tracking-wide">Category</p>
-                              <span className="inline-block px-3 py-1 text-sm font-semibold bg-gradient-to-r from-[#160B53] to-[#2D1B69] text-white rounded-lg mt-1">
-                                {selectedProduct.category}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                {/* Product Name & Brand */}
+                <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md">
+                  <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-gray-200">
+                    <div className="p-2 bg-[#160B53]/10 rounded-lg">
+                      <Package className="w-6 h-6 text-[#160B53]" />
                     </div>
-
-                    {/* Description */}
-                    {selectedProduct.description && (
-                      <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md">
-                        <h4 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
-                          <div className="w-1 h-6 bg-gradient-to-b from-[#160B53] to-[#2D1B69] rounded-full"></div>
-                          Description
-                        </h4>
-                        <p className="text-gray-700 leading-relaxed">{selectedProduct.description}</p>
+                    <h3 className="text-2xl font-bold text-gray-900 flex-1">
+                      {selectedProduct.name}
+                    </h3>
+                  </div>
+                  <div className="space-y-3">
+                    {selectedProduct.brand && (
+                      <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                        <Tag className="w-5 h-5 text-[#160B53]" />
+                        <div>
+                          <p className="text-xs text-gray-500 uppercase tracking-wide">Brand</p>
+                          <p className="text-sm font-semibold text-gray-900">{selectedProduct.brand}</p>
+                        </div>
                       </div>
                     )}
-                  </div>
-
-                  {/* Right Column - Pricing & Stock */}
-                  <div className="space-y-6">
-                    {/* Price Card */}
-                    <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md">
-                      <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-gray-200">
-                        <div className="p-2 bg-[#160B53]/10 rounded-lg">
-                          <Banknote className="w-6 h-6 text-[#160B53]" />
+                    {selectedProduct.category && (
+                      <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                        <div className="w-5 h-5 flex items-center justify-center">
+                          <span className="w-1 h-5 bg-[#160B53] rounded-full"></span>
                         </div>
-                        <h4 className="text-lg font-bold text-gray-900">Pricing</h4>
-                      </div>
-                      <div className="text-center py-4">
-                        {(() => {
-                          const displayed = selectedProduct.otcPrice ?? selectedProduct.price ?? null;
-                          return displayed ? (
-                            <div>
-                              <p className="text-sm text-gray-500 mb-2">Price</p>
-                              <p className="text-4xl font-bold text-[#160B53]">
-                                {formatCurrency(displayed)}
-                              </p>
-                            </div>
-                          ) : (
-                            <p className="text-gray-600">Price on request</p>
-                          );
-                        })()}
-                      </div>
-                    </div>
-
-                    {/* Stock Card */}
-                    <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md">
-                      <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-gray-200">
-                        <div className="p-2 bg-[#160B53]/10 rounded-lg">
-                          <Store className="w-6 h-6 text-[#160B53]" />
+                        <div>
+                          <p className="text-xs text-gray-500 uppercase tracking-wide">Category</p>
+                          <span className="inline-block px-3 py-1 text-sm font-semibold bg-gradient-to-r from-[#160B53] to-[#2D1B69] text-white rounded-lg mt-1">
+                            {selectedProduct.category}
+                          </span>
                         </div>
-                        <h4 className="text-lg font-bold text-gray-900">Stock Availability</h4>
                       </div>
-                      <div className="text-center py-4">
-                        {branchFilter === 'all' ? (
+                    )}
+                    {(() => {
+                      const displayed = selectedProduct.otcPrice ?? selectedProduct.price ?? null;
+                      return displayed ? (
+                        <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                          <Banknote className="w-5 h-5 text-[#160B53]" />
                           <div>
-                            <p className="text-sm text-gray-500 mb-2">Total Stock</p>
-                            <p className="text-4xl font-bold text-gray-900">
-                              {getProductStock(selectedProduct.id)}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-1">units across all branches</p>
+                            <p className="text-xs text-gray-500 uppercase tracking-wide">Price</p>
+                            <p className="text-xl font-bold text-[#160B53]">{formatCurrency(displayed)}</p>
                           </div>
-                        ) : (
-                          <div>
-                            <p className="text-sm text-gray-500 mb-2">Available Stock</p>
-                            <p className="text-4xl font-bold text-gray-900">
-                              {getProductStock(selectedProduct.id, branchFilter)}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-1">units at selected branch</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
 
-                {/* Available At Branches with Stock */}
+                {/* Description */}
+                {selectedProduct.description && (
+                  <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md">
+                    <h4 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                      <div className="w-1 h-6 bg-gradient-to-b from-[#160B53] to-[#2D1B69] rounded-full"></div>
+                      Description
+                    </h4>
+                    <p className="text-gray-700 leading-relaxed">{selectedProduct.description}</p>
+                  </div>
+                )}
+
+                {/* Real-Time Stock Availability Per Branch */}
                 {(() => {
-                  const availableBranches = branches.filter(branch => {
-                    const stock = getProductStock(selectedProduct.id, branch.id);
-                    return stock > 0;
-                  });
+                  const branchesWithStock = getBranchesWithStock(selectedProduct.id);
+                  const totalStock = getProductStock(selectedProduct.id);
                   
-                  if (availableBranches.length > 0) {
-                    return (
-                      <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md">
-                        <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-gray-200">
-                          <div className="p-2 bg-[#160B53]/10 rounded-lg">
-                            <MapPin className="w-6 h-6 text-[#160B53]" />
-                          </div>
-                          <h4 className="text-lg font-bold text-gray-900">Available At Branches</h4>
-                          <span className="ml-auto px-3 py-1 bg-[#160B53]/10 text-[#160B53] rounded-full text-sm font-semibold">
-                            {availableBranches.length} {availableBranches.length === 1 ? 'Branch' : 'Branches'}
-                          </span>
+                  return (
+                    <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 shadow-md">
+                      <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-gray-200">
+                        <div className="p-2 bg-[#160B53]/10 rounded-lg">
+                          <MapPin className="w-6 h-6 text-[#160B53]" />
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {availableBranches.map(branch => {
-                            const stock = getProductStock(selectedProduct.id, branch.id);
-                            return (
-                              <div key={branch.id} className="flex justify-between items-center p-4 bg-white rounded-lg border-2 border-gray-200 hover:border-[#160B53]/30 transition-colors">
-                                <div className="flex items-center gap-3">
-                                  <div className="p-2 bg-[#160B53]/10 rounded-lg">
-                                    <Store className="w-5 h-5 text-[#160B53]" />
-                                  </div>
-                                  <div>
-                                    <p className="font-semibold text-gray-900">{branch.name || branch.branchName}</p>
-                                    <p className="text-xs text-gray-500">Available stock</p>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-xl font-bold text-[#160B53]">{stock}</p>
-                                  <p className="text-xs text-gray-500">units</p>
-                                </div>
-                              </div>
-                            );
-                          })}
+                        <div className="flex-1">
+                          <h4 className="text-lg font-bold text-gray-900">Branch Availability</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">Real-time stock information</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-gray-500">Total Stock</p>
+                          <p className="text-2xl font-bold text-[#160B53]">{totalStock}</p>
                         </div>
                       </div>
-                    );
-                  }
-                  return (
-                    <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-6 text-center">
-                      <Store className="w-12 h-12 text-amber-600 mx-auto mb-2" />
-                      <p className="text-amber-900 font-semibold">Currently out of stock</p>
-                      <p className="text-sm text-amber-700 mt-1">Please check back later</p>
+                      
+                      {branchesWithStock.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {branchesWithStock.map(({ branchId, branchName, stock }) => (
+                            <div key={branchId} className="flex justify-between items-center p-4 bg-white rounded-lg border-2 border-gray-200 hover:border-[#160B53]/30 transition-colors">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-green-50 rounded-lg">
+                                  <Store className="w-5 h-5 text-green-600" />
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-900">{branchName}</p>
+                                  <p className="text-xs text-gray-500">Available now</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xl font-bold text-green-600">{stock}</p>
+                                <p className="text-xs text-gray-500">units</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <Store className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                          <p className="text-gray-500 font-medium">Currently out of stock</p>
+                          <p className="text-xs text-gray-400 mt-1">This product is not available at any branch</p>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
 
                 {/* Call to Action */}
                 <div className="bg-gradient-to-r from-[#160B53] to-[#2D1B69] rounded-xl p-6 text-white text-center shadow-lg">
+
+      {/* Full Image Modal */}
+      {showFullImageModal && selectedProduct?.imageUrl && (
+        <div 
+          className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+          onClick={() => setShowFullImageModal(false)}
+        >
+          <div className="relative max-w-7xl max-h-[95vh] w-full h-full flex items-center justify-center">
+            <button
+              onClick={() => setShowFullImageModal(false)}
+              className="absolute top-4 right-4 bg-white/90 hover:bg-white p-3 rounded-full shadow-lg transition-all hover:scale-110 z-10"
+              title="Close"
+            >
+              <X className="w-6 h-6 text-gray-900" />
+            </button>
+            <img
+              src={selectedProduct.imageUrl}
+              alt={selectedProduct.name}
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
                   <ShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-90" />
                   <p className="text-lg font-semibold mb-1">Visit our salon to purchase this product</p>
                   <p className="text-sm opacity-90">Our staff will be happy to assist you</p>

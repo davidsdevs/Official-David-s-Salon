@@ -30,7 +30,8 @@ const BillingModalPOS = ({
   clients = [],
   mode = 'billing' // 'billing', 'start-service', or 'checkin'
 }) => {
-  const { userBranch, userBranchData } = useAuth();
+  const { userBranch, userData } = useAuth();
+  const [branchData, setBranchData] = useState(null);
   const [formData, setFormData] = useState({
     items: [], // Each item will have: { id, name, price, basePrice, stylistId, stylistName, clientType, adjustment, adjustmentReason }
     discountType: 'fixed',
@@ -79,6 +80,7 @@ const BillingModalPOS = ({
   const [availableProducts, setAvailableProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [stocksData, setStocksData] = useState([]);
+  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   
   // QR Code Scanner states
   const [isScanning, setIsScanning] = useState(false);
@@ -93,6 +95,22 @@ const BillingModalPOS = ({
   // Transaction ID preview
   const [previewTransactionId, setPreviewTransactionId] = useState(null);
   const [loadingTransactionId, setLoadingTransactionId] = useState(false);
+
+  // Fetch branch data on mount
+  useEffect(() => {
+    const fetchBranchData = async () => {
+      if (userBranch) {
+        try {
+          const branch = await getBranchById(userBranch);
+          setBranchData(branch);
+          console.log('✅ Fetched branch data:', branch?.name);
+        } catch (error) {
+          console.error('Error fetching branch data:', error);
+        }
+      }
+    };
+    fetchBranchData();
+  }, [userBranch]);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -358,8 +376,32 @@ const BillingModalPOS = ({
   }, [isOpen, userBranch]);
 
   useEffect(() => {
+    console.log('🔄 initializeForm useEffect triggered, isOpen:', isOpen, 'appointment:', appointment?.id, 'mode:', mode);
     const initializeForm = async () => {
       if (isOpen) {
+        console.log('🚀 Starting initializeForm for appointment:', appointment?.id, 'mode:', mode);
+
+        // For Quick POS (products-only mode), initialize immediately with empty form
+        if (mode === 'products-only') {
+          console.log('🎯 Quick POS mode detected - initializing with empty form');
+          setFormData({
+            items: [],
+            discountType: 'fixed',
+            discount: '',
+            loyaltyPointsUsed: '',
+            paymentMethod: PAYMENT_METHODS.CASH,
+            paymentReference: '',
+            amountReceived: '',
+            clientName: '',
+            clientPhone: '',
+            clientEmail: '',
+            notes: ''
+          });
+          console.log('✅ Quick POS initialized, setting initialDataLoaded to true');
+          setInitialDataLoaded(true);
+          return;
+        }
+
         // Initialize client info (for walk-in or from appointment)
         const isWalkIn = appointment?.isWalkIn || !appointment?.clientId;
         // Check if this is a checkout with existing services (from arrivals - walk-in or appointment)
@@ -469,93 +511,98 @@ const BillingModalPOS = ({
             }]
           : [];
 
-        // Load products with stock information
-        console.log('🔍 Loading products from appointment:', appointment.products);
-        const productItems = appointment.products && appointment.products.length > 0
-          ? await Promise.all(appointment.products.map(async (prod) => {
-            console.log('📦 Processing product:', prod);
-              // Fetch stock information for each product
-              let stock = 0;
-              let allBatches = [];
+        // Load products from appointment (pre-selected products should load immediately)
+        console.log('🔍 Loading products from appointment:', appointment?.products);
+        console.log('📊 stocksData available:', stocksData?.length || 0, 'items');
+        let productItems = [];
+
+        // Load pre-selected products from appointment immediately
+        if (appointment?.products && appointment.products.length > 0) {
+          if (stocksData && stocksData.length > 0) {
+            // Stocks data is available - load with proper stock info
+            const productPromises = appointment.products.map(async (prod) => {
               try {
-                if (userBranch) {
-                  // Get all available OTC batches for this product
-                  const batchesResult = await inventoryService.getBatchesForSale({
-                    branchId: userBranch,
-                    productId: prod.productId,
-                    quantity: 9999, // Very large number to get all available batches
-                    saleType: 'otc'
-                  });
+                console.log('📦 Processing product with stock data:', prod);
 
-                  if (batchesResult.success && batchesResult.batches.length > 0) {
-                    // The getBatchesForSale already filters for OTC, so all returned batches are OTC
-                    const otcBatches = batchesResult.batches;
+                // Calculate stock information from loaded stocksData
+                let stock = 0;
+                let allBatches = [];
 
-                    // Calculate total available stock from all OTC batches
-                    stock = otcBatches.reduce((total, batch) => total + (batch.remainingQuantity || batch.available || 0), 0);
+                // Get all OTC batches for this product from stocksData
+                const productOtcBatches = stocksData.filter(stockItem =>
+                  stockItem.productId === prod.productId &&
+                  stockItem.status === 'active' &&
+                  stockItem.usageType !== 'salon-use' &&
+                  (stockItem.realTimeStock || stockItem.remainingQuantity || 0) > 0
+                );
 
-                    // Store all batch information for display
-                    allBatches = otcBatches.map(batch => ({
-                      id: batch.batchId,
-                      batchNumber: batch.batchNumber,
-                      remainingQuantity: batch.remainingQuantity || batch.available || 0,
-                      expirationDate: batch.expirationDate,
-                      receivedDate: batch.receivedDate
-                    }));
-                  }
-                }
-              } catch (error) {
-                console.error('Error fetching stock for product:', prod.productId, error);
-              }
+                // Calculate total available stock from all OTC batches
+                stock = productOtcBatches.reduce((total, batch) => total + (batch.realTimeStock || batch.remainingQuantity || 0), 0);
 
-              // Get allocated batches for the current quantity
-              let allocatedBatches = [];
-              try {
-                const allocationResult = await inventoryService.getBatchesForSale({
-                  branchId: userBranch,
-                  productId: prod.productId,
-                  quantity: prod.quantity || 1,
-                  saleType: 'otc'
-                });
-                if (allocationResult.success) {
-                  allocatedBatches = allocationResult.batches;
-                }
-              } catch (error) {
-                console.error('Error getting allocated batches:', error);
-              }
-
-              // Get ALL non-salon-use batches for this product from stocks collection
-              const productAllBatches = stocksData.filter(stockItem =>
-                stockItem.productId === prod.productId &&
-                stockItem.status === 'active' &&
-                stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
-                (stockItem.realTimeStock || 0) > 0
-              );
-
-              return {
-                type: 'product',
-                id: prod.productId,
-                name: prod.productName,
-                basePrice: prod.price,
-                price: prod.total || (prod.price * (prod.quantity || 1)),
-                quantity: prod.quantity || 1,
-                stock: stock, // Add stock information
-                batches: allocatedBatches, // Add allocated batches
-                allBatches: productOtcBatches.map(batch => ({
-                  id: batch.id,  // Use document id
+                // Store all batch information for display
+                allBatches = productOtcBatches.map(batch => ({
+                  id: batch.id,
                   batchNumber: batch.batchNumber,
-                  remainingQuantity: batch.realTimeStock || 0,  // Use realTimeStock
+                  remainingQuantity: batch.realTimeStock || batch.remainingQuantity || 0,
                   expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
                   receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
-                })), // Add all batch information from stocks
-                unitCost: 0,
-                commissionPercentage: 0,
-                commissionerId: '',
-                commissionerName: '',
-                commissionPoints: 0
-              };
-            }))
-          : [];
+                }));
+
+                // For billing mode, we don't need to pre-allocate batches since user can modify quantities
+                let allocatedBatches = [];
+
+                return {
+                  type: 'product',
+                  id: prod.productId,
+                  name: prod.productName,
+                  basePrice: prod.price,
+                  price: prod.total || (prod.price * (prod.quantity || 1)),
+                  quantity: prod.quantity || 1,
+                  stock: stock,
+                  batches: allocatedBatches,
+                  allBatches: allBatches,
+                  unitCost: 0,
+                  commissionPercentage: 0,
+                  commissionerId: '',
+                  commissionerName: '',
+                  commissionPoints: 0
+                };
+              } catch (error) {
+                console.error('Error processing product:', prod.productId, error);
+                return null;
+              }
+            });
+
+            // Use Promise.allSettled to handle individual failures
+            const results = await Promise.allSettled(productPromises);
+            for (const result of results) {
+              if (result.status === 'fulfilled' && result.value) {
+                productItems.push(result.value);
+              } else if (result.status === 'rejected') {
+                console.error('Product loading failed:', result.reason);
+              }
+            }
+          } else {
+            // Stocks data not available yet - load products with placeholder stock info
+            console.log('⏳ stocksData not loaded yet, loading products without stock info');
+            productItems = appointment.products.map(prod => ({
+              type: 'product',
+              id: prod.productId,
+              name: prod.productName,
+              basePrice: prod.price,
+              price: prod.total || (prod.price * (prod.quantity || 1)),
+              quantity: prod.quantity || 1,
+              stock: 0, // Placeholder - will be updated when stocksData loads
+              batches: [],
+              allBatches: [],
+              unitCost: 0,
+              commissionPercentage: 0,
+              commissionerId: '',
+              commissionerName: '',
+              commissionPoints: 0
+            }));
+          }
+        }
 
         // Combine services and products
         const items = [...serviceItems, ...productItems];
@@ -564,10 +611,14 @@ const BillingModalPOS = ({
         setFormData(prev => ({
           ...prev,
           items,
-          discount: appointment.discount !== undefined ? String(appointment.discount) : prev.discount,
-          discountType: appointment.discountType || prev.discountType,
-          tax: appointment.taxRate !== undefined ? String(appointment.taxRate) : (appointment.tax !== undefined ? String(appointment.tax) : prev.tax) // Support both taxRate and tax for backward compatibility
+          discount: appointment?.discount !== undefined ? String(appointment.discount) : prev.discount,
+          discountType: appointment?.discountType || prev.discountType,
+          tax: appointment?.taxRate !== undefined ? String(appointment.taxRate) : (appointment?.tax !== undefined ? String(appointment.tax) : prev.tax) // Support both taxRate and tax for backward compatibility
         }));
+
+        // Mark initial data loading as complete
+        console.log('✅ Setting initialDataLoaded to true, items count:', items.length);
+        setInitialDataLoaded(true);
       }
     } else {
       // Reset form when modal closes
@@ -593,6 +644,57 @@ const BillingModalPOS = ({
 
     initializeForm();
   }, [appointment, isOpen]);
+
+  // Update product stock information when stocksData becomes available
+  useEffect(() => {
+    console.log('🔍 Stock update useEffect triggered:', {
+      stocksDataLength: stocksData?.length,
+      formDataItemsLength: formData.items.length,
+      initialDataLoaded
+    });
+
+    if (stocksData && stocksData.length > 0 && formData.items.length > 0) {
+      const productsToUpdate = formData.items.filter(item => item.type === 'product');
+
+      if (productsToUpdate.length > 0) {
+        console.log('🔄 Updating product stock info with loaded stocksData');
+
+        setFormData(prev => ({
+          ...prev,
+          items: prev.items.map(item => {
+            if (item.type === 'product') {
+              // Get all OTC batches for this product from stocksData
+              const productOtcBatches = stocksData.filter(stockItem =>
+                stockItem.productId === item.id &&
+                stockItem.status === 'active' &&
+                stockItem.usageType !== 'salon-use' &&
+                (stockItem.realTimeStock || stockItem.remainingQuantity || 0) > 0
+              );
+
+              // Calculate total available stock from all OTC batches
+              const stock = productOtcBatches.reduce((total, batch) => total + (batch.realTimeStock || batch.remainingQuantity || 0), 0);
+
+              // Store all batch information for display
+              const allBatches = productOtcBatches.map(batch => ({
+                id: batch.id,
+                batchNumber: batch.batchNumber,
+                remainingQuantity: batch.realTimeStock || batch.remainingQuantity || 0,
+                expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
+                receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
+              }));
+
+              return {
+                ...item,
+                stock: stock,
+                allBatches: allBatches
+              };
+            }
+            return item;
+          })
+        }));
+      }
+    }
+  }, [stocksData, formData.items.length]);
 
   useEffect(() => {
     // Calculate promotion discount if promotion is applied
@@ -1026,11 +1128,12 @@ const BillingModalPOS = ({
       // Recalculate final price: basePrice + adjustment
       updatedItems[index].price = updatedItems[index].basePrice + (parseFloat(value) || 0);
     } else if (field === 'quantity') {
-      // For products, update quantity and recalculate price
+      // For products, update quantity (price remains as basePrice, calculation will multiply)
       const quantity = parseInt(value) || 1;
       updatedItems[index].quantity = quantity;
       if (updatedItems[index].type === 'product') {
-        updatedItems[index].price = updatedItems[index].basePrice * quantity;
+        // Keep price as basePrice, let calculateBillTotals multiply by quantity
+        updatedItems[index].price = updatedItems[index].basePrice;
         
         // Recalculate commission points if commissioner is selected
         if (updatedItems[index].commissionerId && updatedItems[index].unitCost && updatedItems[index].commissionPercentage) {
@@ -1250,7 +1353,7 @@ const BillingModalPOS = ({
 
   // Check receipt number for duplicates
   const checkReceiptNumber = useCallback(async (receiptNumber) => {
-    if (!receiptNumber || !receiptNumber.trim() || mode !== 'billing') {
+    if (!receiptNumber || !receiptNumber.trim() || (mode !== 'billing' && mode !== 'products-only')) {
       setExistingReceipt(null);
       return;
     }
@@ -1276,7 +1379,7 @@ const BillingModalPOS = ({
 
   // Debounce receipt number check
   useEffect(() => {
-    if (!formData.receiptNumber || mode !== 'billing') {
+    if (!formData.receiptNumber || (mode !== 'billing' && mode !== 'products-only')) {
       setExistingReceipt(null);
       return;
     }
@@ -1401,8 +1504,8 @@ const BillingModalPOS = ({
       clientName: clientName,
       clientPhone: clientPhone,
       clientEmail: clientEmail,
-      branchId: appointment?.branchId,
-      branchName: appointment?.branchName,
+      branchId: appointment?.branchId || userBranch,
+      branchName: appointment?.branchName || branchData?.name || 'Unknown Branch',
       stylistId: appointment?.stylistId || formData.items[0]?.stylistId,
       stylistName: appointment?.stylistName || formData.items[0]?.stylistName,
       items: formData.items,
@@ -1471,9 +1574,7 @@ const BillingModalPOS = ({
                 ? 'Add services/products and adjust prices before starting service'
                 : mode === 'products-only'
                 ? 'Quick product sales with instant checkout'
-                : appointment?.isWalkIn || !appointment?.clientId
-                  ? 'Create new transaction for walk-in customer'
-                  : `Complete payment for pending invoice • Transaction #${appointment?.id?.slice(-8).toUpperCase() || 'Pending'}`
+                : `Process Payment • Transaction #${appointment?.id?.slice(-8).toUpperCase() || 'Pending'}`
               }
             </p>
           </div>
@@ -1978,7 +2079,19 @@ const BillingModalPOS = ({
 
               {/* Scrollable Content */}
                 <div className="space-y-2 flex-1 overflow-y-auto">
-                    {formData.items.map((item, index) => (
+                    {!initialDataLoaded ? (
+                      <div className="flex items-center justify-center py-8">
+                        <LoadingSpinner size="sm" />
+                        <span className="ml-2 text-sm text-gray-500">Loading product data...</span>
+                      </div>
+                    ) : formData.items.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <Package className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                        <p className="text-sm">No items selected</p>
+                        <p className="text-xs text-gray-400 mt-1">Add services or products to start a sale</p>
+                      </div>
+                    ) : (
+                      formData.items.map((item, index) => (
                     <div key={`${item.id}-${index}`} className="bg-white p-3 rounded border">
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex-1">
@@ -1998,7 +2111,7 @@ const BillingModalPOS = ({
                                <>
                                  <span>₱{item.basePrice} x {item.quantity}</span>
                                  <span className="ml-2 font-semibold text-green-600">
-                                   = ₱{item.price}
+                                   = ₱{(item.price * (item.quantity || 1)).toFixed(2)}
                                  </span>
                                  {/* Display all available OTC batches for inventory visibility */}
                                  {item.allBatches && Array.isArray(item.allBatches) && item.allBatches.length > 0 && (
@@ -2364,15 +2477,8 @@ const BillingModalPOS = ({
                         </div>
                       )}
                     </div>
-                  ))}
-
-                  {formData.items.length === 0 && (
-                    <div className="text-center py-8 text-gray-500">
-                      <Package className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-                      <p className="text-sm">No items selected</p>
-                      <p className="text-xs">Add services or products to start a sale</p>
-                    </div>
-                  )}
+                  )))
+                  }
                       </div>
                     </div>
 
@@ -2807,7 +2913,7 @@ const BillingModalPOS = ({
                     // Ensure receiptNumber is displayed in the receipt
                     receiptNumber: existingReceipt.receiptNumber
                   }} 
-                  branch={userBranchData}
+                  branch={branchData}
                 />
               </div>
 

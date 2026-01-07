@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Search, Calendar, Clock, CheckCircle, XCircle, Check, User, Phone, Scissors, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Printer, Edit } from 'lucide-react';
+import { Plus, Search, Calendar, Clock, CheckCircle, XCircle, Check, User, Phone, Scissors, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Printer, Edit, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getAppointmentsByBranch, 
@@ -44,7 +44,7 @@ const ReceptionistAppointments = () => {
   const [processingStatus, setProcessingStatus] = useState(null); // Track which appointment is being processed
   const [highlightedAppointment, setHighlightedAppointment] = useState(null); // Track which appointment to highlight
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState('all'); // Status tabs - default to 'all' to show all appointments
+  const [activeTab, setActiveTab] = useState('pending'); // Status tabs - default to 'pending' to show pending appointments
   const [sortField, setSortField] = useState('appointmentDate');
   const [sortDirection, setSortDirection] = useState('asc');
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -209,6 +209,13 @@ const ReceptionistAppointments = () => {
     try {
       setLoading(true);
 
+      // Validate userBranch
+      if (!userBranch) {
+        console.warn('fetchAppointments: userBranch is not set');
+        setLoading(false);
+        return;
+      }
+
       // Auto-cancel eligible appointments (only run occasionally to avoid heavy reads)
       const lastAutoCancelKey = `lastAutoCancel_${userBranch}`;
       const lastRun = localStorage.getItem(lastAutoCancelKey);
@@ -312,7 +319,13 @@ const ReceptionistAppointments = () => {
       
       setAppointments(enrichedData);
     } catch (error) {
-      console.error('Error fetching appointments:', error);
+      console.error('Error fetching appointments:', {
+        branchId: userBranch,
+        errorMessage: error.message,
+        errorCode: error.code,
+        fullError: error
+      });
+      toast.error(`Failed to fetch appointments: ${error.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -461,7 +474,17 @@ const ReceptionistAppointments = () => {
 
   // Memoized counts for each status tab
   const statusCounts = useMemo(() => {
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    
+    const actionRequiredCount = filteredForCounts.filter(a => {
+      if (a.status !== APPOINTMENT_STATUS.PENDING) return false;
+      const createdAt = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+      return createdAt <= twentyFourHoursAgo;
+    }).length;
+
     return {
+      actionRequired: actionRequiredCount,
       pending: filteredForCounts.filter(a => a.status === APPOINTMENT_STATUS.PENDING).length,
       confirmed: filteredForCounts.filter(a => a.status === APPOINTMENT_STATUS.CONFIRMED).length,
       completed: filteredForCounts.filter(a => a.status === APPOINTMENT_STATUS.COMPLETED).length,
@@ -474,7 +497,7 @@ const ReceptionistAppointments = () => {
     let filtered = [...filteredForCounts];
 
     // Apply status filter (activeTab)
-    if (activeTab !== 'all') {
+    if (activeTab !== 'all' && activeTab !== 'actionRequired') {
       const statusMap = {
         'pending': APPOINTMENT_STATUS.PENDING,
         'confirmed': APPOINTMENT_STATUS.CONFIRMED,
@@ -487,6 +510,15 @@ const ReceptionistAppointments = () => {
       if (statusToFilter) {
         filtered = filtered.filter(apt => apt.status === statusToFilter);
       }
+    } else if (activeTab === 'actionRequired') {
+      // Filter to show only pending appointments 24+ hours old
+      const now = new Date();
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      filtered = filtered.filter(apt => {
+        if (apt.status !== APPOINTMENT_STATUS.PENDING) return false;
+        const createdAt = apt.createdAt?.toDate ? apt.createdAt.toDate() : new Date(apt.createdAt);
+        return createdAt <= twentyFourHoursAgo;
+      });
     }
 
     // Sort
@@ -1065,9 +1097,104 @@ const ReceptionistAppointments = () => {
         </button>
       </div>
 
+      {/* Action Required Section - Appointments pending for 24+ hours */}
+      {(() => {
+        const now = new Date();
+        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        
+        const urgentAppointments = appointments.filter(apt => {
+          if (apt.status !== APPOINTMENT_STATUS.PENDING) return false;
+          const createdAt = apt.createdAt?.toDate ? apt.createdAt.toDate() : new Date(apt.createdAt);
+          return createdAt <= twentyFourHoursAgo;
+        });
+
+        if (urgentAppointments.length === 0) return null;
+
+        return (
+          <div className="bg-gradient-to-r from-orange-50 to-red-50 border-2 border-orange-300 rounded-lg p-4 shadow-md">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-orange-500 rounded-full">
+                <AlertTriangle className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-orange-900 mb-1">
+                  Action Required - {urgentAppointments.length} Pending Appointment{urgentAppointments.length !== 1 ? 's' : ''}
+                </h3>
+                <p className="text-sm text-orange-700 mb-3">
+                  These appointments have been waiting for confirmation for more than 24 hours. Please confirm or cancel them as soon as possible.
+                </p>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {urgentAppointments.map(apt => {
+                    const createdAt = apt.createdAt?.toDate ? apt.createdAt.toDate() : new Date(apt.createdAt);
+                    const hoursAgo = Math.floor((now - createdAt) / (1000 * 60 * 60));
+                    const aptDate = new Date(apt.appointmentDate);
+                    
+                    return (
+                      <div 
+                        key={apt.id} 
+                        className="bg-white border border-orange-200 rounded-lg p-3 hover:border-orange-400 transition-colors cursor-pointer"
+                        onClick={() => handleViewAppointment(apt)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <p className="font-semibold text-gray-900">{apt.clientName}</p>
+                            <p className="text-sm text-gray-600">
+                              {aptDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {aptDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            </p>
+                            <p className="text-xs text-orange-600 font-medium mt-1">
+                              Requested {hoursAgo} hours ago
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleConfirmAppointment(apt);
+                              }}
+                              className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCancelAppointment(apt);
+                              }}
+                              className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Status Tabs */}
       <div className="border-b border-gray-200">
         <nav className="flex space-x-1" aria-label="Tabs">
+          <button
+            onClick={() => setActiveTab('actionRequired')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'actionRequired'
+                ? 'border-red-500 text-red-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              <span>Action Required</span>
+              <span className="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-700 font-bold">
+                {statusCounts.actionRequired}
+              </span>
+            </div>
+          </button>
           <button
             onClick={() => setActiveTab('pending')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${

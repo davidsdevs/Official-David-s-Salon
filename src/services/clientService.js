@@ -20,11 +20,105 @@ import {
 import { db } from '../config/firebase';
 import toast from 'react-hot-toast';
 import { logActivity } from './activityService';
+import { getBillsByBranch } from './billingService';
 
 const USERS_COLLECTION = 'users';
 const CLIENTS_COLLECTION = 'clients';
 const SERVICE_HISTORY_COLLECTION = 'service_history'; // Flat collection: service_history/{historyId}
 const FEEDBACK_COLLECTION = 'feedback'; // Flat collection: feedback/{feedbackId}
+const BILLS_COLLECTION = 'bills'; // For filtering clients by branch transactions
+
+/**
+ * Get clients that have transactions in a specific branch
+ * @param {string} branchId - Branch ID to filter clients by
+ * @returns {Promise<Array>} - Array of clients with transactions in the branch
+ */
+export const getClientsByBranchWithTransactions = async (branchId) => {
+  try {
+    if (!branchId) {
+      console.warn('Branch ID is required for getClientsByBranchWithTransactions');
+      return [];
+    }
+
+    // Get all bills/transactions for this branch
+    const bills = await getBillsByBranch(branchId);
+
+    // Extract unique client IDs from the bills
+    const clientIds = new Set();
+    bills.forEach(bill => {
+      if (bill.clientId && bill.clientId !== 'guest' && bill.clientId !== null) {
+        clientIds.add(bill.clientId);
+      }
+    });
+
+    if (clientIds.size === 0) {
+      return [];
+    }
+
+    // Get client details for these client IDs
+    const usersRef = collection(db, USERS_COLLECTION);
+    const clientPromises = Array.from(clientIds).map(async (clientId) => {
+      try {
+        const clientDoc = await getDoc(doc(db, USERS_COLLECTION, clientId));
+        if (clientDoc.exists()) {
+          const data = clientDoc.data();
+
+          // Safe date conversion for createdAt
+          let createdAt = null;
+          if (data.createdAt) {
+            if (data.createdAt.toDate && typeof data.createdAt.toDate === 'function') {
+              createdAt = data.createdAt.toDate();
+            } else if (data.createdAt instanceof Date) {
+              createdAt = data.createdAt;
+            } else {
+              try {
+                createdAt = new Date(data.createdAt);
+              } catch (e) {
+                createdAt = null;
+              }
+            }
+          }
+
+          // Safe date conversion for updatedAt
+          let updatedAt = null;
+          if (data.updatedAt) {
+            if (data.updatedAt.toDate && typeof data.updatedAt.toDate === 'function') {
+              updatedAt = data.updatedAt.toDate();
+            } else if (data.updatedAt instanceof Date) {
+              updatedAt = data.updatedAt;
+            } else {
+              try {
+                updatedAt = new Date(data.updatedAt);
+              } catch (e) {
+                updatedAt = null;
+              }
+            }
+          }
+
+          return {
+            id: clientDoc.id,
+            ...data,
+            createdAt,
+            updatedAt
+          };
+        }
+        return null;
+      } catch (error) {
+        console.warn(`Error fetching client ${clientId}:`, error);
+        return null;
+      }
+    });
+
+    const clients = (await Promise.all(clientPromises)).filter(client => client !== null);
+
+    console.log(`[clientService] getClientsByBranchWithTransactions: Found ${clients.length} clients with transactions in branch ${branchId}`);
+    return clients;
+
+  } catch (error) {
+    console.error('Error fetching clients by branch with transactions:', error);
+    throw error;
+  }
+};
 
 /**
  * Get all clients (users with role 'client')
@@ -437,17 +531,32 @@ export const addServiceHistory = async (clientId, serviceData) => {
  * @param {number} limitCount - Limit results
  * @returns {Promise<Array>} - Service history array
  */
-export const getServiceHistory = async (clientId, limitCount = 50) => {
+export const getServiceHistory = async (clientId, limitCount = 50, branchId = null) => {
   try {
     // Query from transactions collection instead of redundant service_history
     const transactionsRef = collection(db, 'transactions');
-    const q = query(
-      transactionsRef, 
-      where('clientId', '==', clientId),
-      where('status', '==', 'paid'), // Only get paid transactions
-      orderBy('createdAt', 'desc'),
-      firestoreLimit(limitCount)
-    );
+
+    let q;
+    if (branchId) {
+      // Filter by both clientId and branchId for branch-specific service history
+      q = query(
+        transactionsRef,
+        where('clientId', '==', clientId),
+        where('branchId', '==', branchId),
+        where('status', '==', 'paid'), // Only get paid transactions
+        orderBy('createdAt', 'desc'),
+        firestoreLimit(limitCount)
+      );
+    } else {
+      // Original query without branch filter (for backward compatibility)
+      q = query(
+        transactionsRef,
+        where('clientId', '==', clientId),
+        where('status', '==', 'paid'), // Only get paid transactions
+        orderBy('createdAt', 'desc'),
+        firestoreLimit(limitCount)
+      );
+    }
     
     const snapshot = await getDocs(q);
     

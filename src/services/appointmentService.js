@@ -16,6 +16,7 @@ import {
   orderBy,
   limit as firestoreLimit,
   startAfter,
+  getCountFromServer,
   Timestamp,
   serverTimestamp
 } from 'firebase/firestore';
@@ -77,6 +78,12 @@ export const getAllAppointments = async () => {
  */
 export const getAppointmentsByBranch = async (branchId) => {
   try {
+    // Validate branchId
+    if (!branchId) {
+      console.warn('getAppointmentsByBranch called with invalid branchId:', branchId);
+      return [];
+    }
+    
     const appointmentsRef = collection(db, APPOINTMENTS_COLLECTION);
     const q = query(
       appointmentsRef,
@@ -93,7 +100,7 @@ export const getAppointmentsByBranch = async (branchId) => {
       updatedAt: doc.data().updatedAt?.toDate()
     }));
   } catch (error) {
-    console.error('Error fetching branch appointments:', error);
+    console.error('Error fetching branch appointments for branchId:', branchId, error);
     toast.error('Failed to load branch appointments');
     throw error;
   }
@@ -102,23 +109,109 @@ export const getAppointmentsByBranch = async (branchId) => {
 /**
  * Get appointments by client
  */
-export const getAppointmentsByClient = async (clientId) => {
+export const getAppointmentsByClient = async (clientId, options = {}) => {
   try {
-    const appointmentsRef = collection(db, APPOINTMENTS_COLLECTION);
-    const q = query(
-      appointmentsRef,
-      where('clientId', '==', clientId),
-      orderBy('appointmentDate', 'desc')
-    );
+    // Validate clientId
+    if (!clientId) {
+      console.warn('getAppointmentsByClient called with invalid clientId:', clientId);
+      return { appointments: [], hasMore: false, totalCount: 0 };
+    }
+
+    const {
+      status,
+      limit = 20,
+      startAfter,
+      searchTerm,
+      dateFrom,
+      dateTo
+    } = options;
+
+    // Build query constraints array
+    const constraints = [where('clientId', '==', clientId)];
+
+    // Add status filter if specified
+    if (status) {
+      constraints.push(where('status', '==', status));
+    }
+
+    // Add date range filters if specified
+    if (dateFrom) {
+      constraints.push(where('appointmentDate', '>=', Timestamp.fromDate(dateFrom)));
+    }
+    if (dateTo) {
+      constraints.push(where('appointmentDate', '<=', Timestamp.fromDate(dateTo)));
+    }
+
+    // Order by appointment date descending (handled client-side to avoid composite index requirements)
+    // constraints.push(orderBy('appointmentDate', 'desc'));
+
+    // Add pagination
+    if (startAfter) {
+      constraints.push(startAfter(startAfter));
+    }
+
+    // Add limit
+    constraints.push(firestoreLimit(limit + 1)); // +1 to check if there are more
+
+    const q = query(collection(db, APPOINTMENTS_COLLECTION), ...constraints);
     const snapshot = await getDocs(q);
-    
-    return snapshot.docs.map(doc => ({
+
+    let appointments = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       appointmentDate: doc.data().appointmentDate?.toDate(),
       createdAt: doc.data().createdAt?.toDate(),
       updatedAt: doc.data().updatedAt?.toDate()
     }));
+
+    // Sort by appointment date descending (client-side)
+    appointments.sort((a, b) => {
+      const aDate = a.appointmentDate ? new Date(a.appointmentDate).getTime() : 0;
+      const bDate = b.appointmentDate ? new Date(b.appointmentDate).getTime() : 0;
+      return bDate - aDate;
+    });
+
+    // Apply client-side search if searchTerm provided
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      appointments = appointments.filter(apt =>
+        apt.services?.some(service =>
+          service.serviceName?.toLowerCase().includes(term) ||
+          service.stylistName?.toLowerCase().includes(term)
+        ) ||
+        apt.branchName?.toLowerCase().includes(term) ||
+        apt.notes?.toLowerCase().includes(term)
+      );
+    }
+
+    const hasMore = appointments.length > limit;
+    if (hasMore) {
+      appointments = appointments.slice(0, limit);
+    }
+
+    // Get total count for status tabs (this is a simplified version)
+    // In production, you'd want to cache this or use a separate query
+    let totalCount = appointments.length;
+    if (!startAfter && !searchTerm) {
+      // Only get total count for initial load without filters
+      const countConstraints = [where('clientId', '==', clientId)];
+      if (status) {
+        countConstraints.push(where('status', '==', status));
+      }
+      const countQuery = query(
+        collection(db, APPOINTMENTS_COLLECTION),
+        ...countConstraints
+      );
+      const countSnapshot = await getCountFromServer(countQuery);
+      totalCount = countSnapshot.data().count;
+    }
+
+    return {
+      appointments,
+      hasMore,
+      totalCount,
+      lastDoc: hasMore ? snapshot.docs[limit - 1] : snapshot.docs[snapshot.docs.length - 1]
+    };
   } catch (error) {
     console.error('Error fetching client appointments:', error);
     toast.error('Failed to load your appointments');
@@ -427,7 +520,7 @@ export const createAppointment = async (appointmentData, currentUser) => {
               });
 
               if (hasSameService) {
-                toast.error('You already have an appointment for this service, time, and stylist');
+                toast.error('You already have an appointment for this service');
                 throw new Error('Duplicate appointment detected');
               }
             }
@@ -437,51 +530,15 @@ export const createAppointment = async (appointmentData, currentUser) => {
     }
 
     // Check for double booking
-    // For multi-service appointments, check each stylist's availability
-    if (appointmentData.services && appointmentData.services.length > 0) {
-      // Check availability for each stylist assigned to services
-      for (const service of appointmentData.services) {
-        if (service.stylistId) {
-          const isAvailable = await checkStylistAvailability(
-            service.stylistId,
-            appointmentData.appointmentDate,
-            appointmentData.duration || 60
-          );
-          
-          if (!isAvailable) {
-            toast.error('Selected time slot is not available for one or more stylists');
-            throw new Error('Time slot not available');
-          }
-        }
-      }
-    } else if (appointmentData.stylistId) {
-      // Single service appointment - check single stylist
-      const isAvailable = await checkStylistAvailability(
-        appointmentData.stylistId,
-        appointmentData.appointmentDate,
-        appointmentData.duration || 60
-      );
+    // Stylist schedule/shift validation removed - allow bookings regardless of stylist availability
+    // The branch manager will handle stylist scheduling after booking confirmation
 
-      if (!isAvailable) {
-        toast.error('Selected time slot is not available');
-        throw new Error('Time slot not available');
-      }
-    }
-
-    // Validate appointment time is within operating hours
-    const appointmentDateTime = new Date(appointmentData.appointmentDate);
-    const duration = appointmentData.duration || 60;
-
-    const timeValidation = await validateAppointmentTime(
-      appointmentData.branchId,
-      appointmentDateTime,
-      duration
-    );
-
-    if (!timeValidation.isValid) {
-      toast.error(timeValidation.message);
-      throw new Error(timeValidation.message);
-    }
+    // Note: Time validation is now optional - receptionist can accept/reject during review
+    // Previously validated appointment time against operating hours
+    // Now allowing all bookings and letting receptionist decide
+    // const appointmentDateTime = new Date(appointmentData.appointmentDate);
+    // const duration = appointmentData.duration || 60;
+    // const timeValidation = await validateAppointmentTime(...);
 
     const defaultStatus = appointmentData.status || APPOINTMENT_STATUS.PENDING;
     
@@ -580,54 +637,14 @@ export const updateAppointment = async (appointmentId, updates, currentUser) => 
       }
       
       // Check availability for multi-service or single-service
-      if (updates.services && updates.services.length > 0) {
-        // Multi-service: check each stylist
-        for (const service of updates.services) {
-          if (service.stylistId) {
-            const isAvailable = await checkStylistAvailability(
-              service.stylistId,
-              updates.appointmentDate,
-              updates.duration || appointment.duration || 60,
-              appointmentId // Exclude current appointment
-            );
+      // Stylist schedule/shift validation removed - allow updates regardless of stylist availability
+      // The branch manager will handle stylist scheduling
 
-            if (!isAvailable) {
-              toast.error('Selected time slot is not available for one or more stylists');
-              throw new Error('Time slot not available');
-            }
-          }
-        }
-      } else {
-        // Single service: check single stylist
-        const isAvailable = await checkStylistAvailability(
-          updates.stylistId || appointment.stylistId,
-          updates.appointmentDate,
-          updates.duration || appointment.duration || 60,
-          appointmentId // Exclude current appointment
-        );
+      // Note: Time validation removed - receptionist can accept/reject during review
+      // Previously validated: const timeValidation = await validateAppointmentTime(...)
 
-        if (!isAvailable) {
-          toast.error('Selected time slot is not available');
-          throw new Error('Time slot not available');
-        }
-      }
 
-      // Validate new appointment time is within operating hours
-      const newAppointmentDateTime = new Date(updates.appointmentDate);
-      const newDuration = updates.duration || appointment.duration || 60;
-
-      const timeValidation = await validateAppointmentTime(
-        appointment.branchId,
-        newAppointmentDateTime,
-        newDuration
-      );
-
-      if (!timeValidation.isValid) {
-        toast.error(timeValidation.message);
-        throw new Error(timeValidation.message);
-      }
-
-      updates.appointmentDate = Timestamp.fromDate(newAppointmentDateTime);
+      updates.appointmentDate = Timestamp.fromDate(updates.appointmentDate);
     }
 
     // Filter out undefined values from updates
@@ -968,6 +985,22 @@ export const validateAppointmentTime = async (branchId, appointmentDate, duratio
     // Calculate appointment end time
     const appointmentEnd = new Date(appointmentDate.getTime() + duration * 60000);
 
+    // Debug logging
+    console.log('Appointment validation:', {
+      appointmentStartLocal: appointmentDate.toString(),
+      appointmentEndLocal: appointmentEnd.toString(),
+      appointmentStartISO: appointmentDate.toISOString(),
+      appointmentEndISO: appointmentEnd.toISOString(),
+      operatingStartLocal: operatingStart.toString(),
+      operatingEndLocal: operatingEnd.toString(),
+      operatingStartISO: operatingStart.toISOString(),
+      operatingEndISO: operatingEnd.toISOString(),
+      duration,
+      appointmentEndHour: appointmentEnd.getHours(),
+      operatingEndHour: operatingEnd.getHours(),
+      comparison: appointmentEnd.getTime() - operatingEnd.getTime()
+    });
+
     // Validate appointment fits within operating hours
     if (appointmentDate < operatingStart) {
       return {
@@ -976,6 +1009,7 @@ export const validateAppointmentTime = async (branchId, appointmentDate, duratio
       };
     }
 
+    // Allow appointments that end at or before closing time (not strictly after)
     if (appointmentEnd > operatingEnd) {
       return {
         isValid: false,
@@ -1261,7 +1295,7 @@ export const createWalkInAppointment = async (walkInData, currentUser) => {
 /**
  * Cancel appointment
  */
-export const cancelAppointment = async (appointmentId, reason, currentUser, bypassValidation = false) => {
+export const cancelAppointment = async (appointmentId, reason, currentUser, bypassValidation = false, silenceToast = false) => {
   try {
     const appointmentRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
     const appointment = await getAppointmentById(appointmentId);
@@ -1308,7 +1342,9 @@ export const cancelAppointment = async (appointmentId, reason, currentUser, bypa
       metadata: { reason }
     });
 
-    toast.success('Appointment cancelled successfully');
+    if (!silenceToast) {
+      toast.success('Appointment cancelled successfully');
+    }
   } catch (error) {
     console.error('Error cancelling appointment:', error);
     toast.error('Failed to cancel appointment');
@@ -1569,61 +1605,105 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
     const endTime = new Date(date);
     endTime.setHours(endHour, endMinute, 0, 0);
 
+    // Calculate minimum booking time (current time + 2 hours for advance booking requirement)
+    const minBookingTime = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2 hours from now
+
+    console.log('� TIME SLOT GENERATION DEBUG:', {
+      isToday,
+      selectedDate: selectedDate.toLocaleString(),
+      currentTime: now.toLocaleString(),
+      minBookingTime: minBookingTime.toLocaleString(),
+      branchHours: {
+        open: `${startHour}:${startMinute.toString().padStart(2, '0')}`,
+        close: `${endHour}:${endMinute.toString().padStart(2, '0')}`
+      },
+      serviceDuration: serviceDuration + ' minutes',
+      firstSlotTime: slotDate.toLocaleString(),
+      lastSlotTime: endTime.toLocaleString()
+    });
+
     // Generate all possible time slots (30-minute intervals)
+    // Allow slots to extend past closing time - receptionist will handle approval
+    let slotCount = 0;
     while (slotDate.getTime() < endTime.getTime()) {
       const slotEnd = new Date(slotDate.getTime() + serviceDuration * 60000);
       
-      // Check if slot end time is within working hours
-      if (slotEnd.getTime() <= endTime.getTime()) {
-        // Disable past times - if it's today and the slot time has passed
-        let isAvailable = true;
+      // Determine availability based on 2-hour advance booking rule
+      let isAvailable = true;
+      let disabledReason = null;
+      
+      // If it's today, check if slot is at least 2 hours from now
+      if (isToday && slotDate.getTime() < minBookingTime.getTime()) {
+        isAvailable = false;
+        disabledReason = 'within 2-hour window';
         
-        if (isToday && slotDate.getTime() <= now.getTime()) {
-          isAvailable = false;
+        // Debug log for first few slots
+        if (slotCount < 5) {
+          console.log(`⏰ Slot ${slotDate.toLocaleTimeString()}:`, {
+            slotTime: slotDate.getTime(),
+            minBookingTime: minBookingTime.getTime(),
+            isBeforeMinTime: slotDate.getTime() < minBookingTime.getTime(),
+            isAvailable,
+            reason: disabledReason
+          });
         }
-        
-        // Check availability from appointments
-        if (isAvailable) {
-          if (stylistId) {
-            // Check if this specific stylist has conflicts
-            for (const apt of dayAppointments) {
-              const aptStart = apt.appointmentDate;
-              const aptEnd = new Date(aptStart.getTime() + (apt.duration || 60) * 60000);
-              
-              // Check if stylist is assigned to this appointment
-              const hasStylist = apt.services?.some(svc => svc.stylistId === stylistId);
-              if (hasStylist) {
-                // Check for time overlap
-                if (slotDate < aptEnd && slotEnd > aptStart) {
-                  isAvailable = false;
-                  break;
-                }
-              }
-            }
-          } else {
-            // For general availability (no specific stylist), check overall branch capacity
-            // Count overlapping appointments
-            let overlappingCount = 0;
-            for (const apt of dayAppointments) {
-              const aptStart = apt.appointmentDate;
-              const aptEnd = new Date(aptStart.getTime() + (apt.duration || 60) * 60000);
-              if (slotDate < aptEnd && slotEnd > aptStart) {
-                overlappingCount++;
-              }
-            }
-            // You can set a maximum capacity per time slot if needed
-            // For now, we allow all slots if no stylist is specified
-          }
-        }
-        
-        slots.push({
-          time: new Date(slotDate),
-          available: isAvailable
-        });
       }
+      
+      // Check availability from appointments (conflicts with other bookings) - only if time slot itself is available
+      if (isAvailable) {
+        if (stylistId) {
+          // Check if this specific stylist has conflicts
+          for (const apt of dayAppointments) {
+            const aptStart = apt.appointmentDate;
+            const aptEnd = new Date(aptStart.getTime() + (apt.duration || 60) * 60000);
+            
+            // Check if stylist is assigned to this appointment
+            const hasStylist = apt.services?.some(svc => svc.stylistId === stylistId);
+            if (hasStylist) {
+              // Check for time overlap
+              if (slotDate < aptEnd && slotEnd > aptStart) {
+                isAvailable = false;
+                break;
+              }
+            }
+          }
+        } else {
+          // For general availability (no specific stylist), check overall branch capacity
+          // Count overlapping appointments
+          let overlappingCount = 0;
+          for (const apt of dayAppointments) {
+            const aptStart = apt.appointmentDate;
+            const aptEnd = new Date(aptStart.getTime() + (apt.duration || 60) * 60000);
+            if (slotDate < aptEnd && slotEnd > aptStart) {
+              overlappingCount++;
+            }
+          }
+          // You can set a maximum capacity per time slot if needed
+          // For now, we allow all slots if no stylist is specified
+        }
+      }
+      
+      slots.push({
+        time: new Date(slotDate),
+        available: isAvailable
+      });
+      
+      slotCount++;
 
       slotDate.setMinutes(slotDate.getMinutes() + 30); // 30-minute intervals
     }
+
+    console.log(`📊 GENERATED ${slots.length} SLOTS:`, {
+      totalSlots: slots.length,
+      availableSlots: slots.filter(s => s.available).length,
+      unavailableSlots: slots.filter(s => !s.available).length,
+      firstSlot: slots[0]?.time?.toLocaleTimeString(),
+      lastSlot: slots[slots.length - 1]?.time?.toLocaleTimeString(),
+      allSlotTimes: slots.map(s => ({ 
+        time: s.time.toLocaleTimeString(), 
+        available: s.available 
+      }))
+    });
 
     return { slots, message: null };
   } catch (error) {

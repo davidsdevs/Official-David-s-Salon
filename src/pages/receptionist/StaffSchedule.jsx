@@ -4,11 +4,12 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Clock, Users, Printer } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, Users, Printer, Filter, Download, Search, Building2, UserCheck, UserX, AlertCircle, BarChart3 } from 'lucide-react';
 import { getUsersByBranch } from '../../services/userService';
+import { getLendingRequests, getActiveLending, getActiveLendingFromBranch, getActiveLendingForBranch } from '../../services/stylistLendingService';
 import { getLeaveRequestsByBranch } from '../../services/leaveManagementService';
-import { getBranchById } from '../../services/branchService';
-import { 
+import { getBranchById, getBranchOperatingHours } from '../../services/branchService';
+import {
   getActiveSchedulesByEmployee,
   getAllScheduleConfigurations
 } from '../../services/scheduleService';
@@ -32,11 +33,24 @@ const ReceptionistStaffSchedule = () => {
   const { userBranch, currentUser } = useAuth();
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [lendingData, setLendingData] = useState({}); // Staff lent TO other branches
+  const [lentOutData, setLentOutData] = useState({}); // Staff lent OUT FROM this branch
+  const [lentToBranchStaff, setLentToBranchStaff] = useState([]); // Staff lent TO this branch
   const [allScheduleConfigs, setAllScheduleConfigs] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [staffLeaveMap, setStaffLeaveMap] = useState({});
   const [branchInfo, setBranchInfo] = useState(null);
+  const [branchHours, setBranchHours] = useState(null);
   const printRef = useRef();
+
+  // Enhanced UI state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'scheduled', 'on-leave', 'lent-out', 'lent-in'
+  const [showFilters, setShowFilters] = useState(false);
+  const [staffPage, setStaffPage] = useState(1);
+  const [staffItemsPerPage, setStaffItemsPerPage] = useState(25);
+  const [printOnlyWithSchedules, setPrintOnlyWithSchedules] = useState(false);
   
   const [currentWeek, setCurrentWeek] = useState(() => {
     const date = new Date();
@@ -51,11 +65,29 @@ const ReceptionistStaffSchedule = () => {
     USER_ROLES.INVENTORY_CONTROLLER
   ];
 
+  const getWeekDates = () => {
+    const dates = [];
+    const start = new Date(currentWeek);
+    start.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(start);
+      date.setDate(start.getDate() + i);
+      dates.push(date);
+    }
+    return dates;
+  };
+
+  // Get week dates for filtering logic
+  const weekDates = getWeekDates();
+
   useEffect(() => {
     if (userBranch) {
       fetchBranchInfo();
+      fetchBranchHours();
       fetchAllScheduleConfigs();
       fetchLeaveRequests();
+      fetchLendingData();
       fetchStaff();
     }
   }, [userBranch, currentWeek]);
@@ -68,6 +100,55 @@ const ReceptionistStaffSchedule = () => {
       }
     } catch (error) {
       console.error('Error fetching branch info:', error);
+    }
+  };
+
+  const fetchBranchHours = async () => {
+    try {
+      if (userBranch) {
+        const hours = await getBranchOperatingHours(userBranch);
+        setBranchHours(hours);
+      }
+    } catch (error) {
+      console.error('Error fetching branch hours:', error);
+    }
+  };
+
+  const fetchLendingData = async () => {
+    try {
+      if (userBranch) {
+        // Get staff lent TO other branches (from this branch)
+        const lendingToOthers = await getActiveLendingFromBranch(userBranch);
+        const lendingMap = {};
+        lendingToOthers.forEach(lending => {
+          lendingMap[lending.stylistId] = {
+            branchName: lending.toBranchName,
+            startDate: lending.startDate,
+            endDate: lending.endDate,
+            status: lending.status
+          };
+        });
+        setLendingData(lendingMap);
+
+        // Get staff lent OUT FROM this branch (to other branches)
+        const lentOut = await getActiveLendingForBranch(userBranch);
+        const lentOutMap = {};
+        lentOut.forEach(lending => {
+          lentOutMap[lending.stylistId] = {
+            toBranchName: lending.fromBranchName,
+            startDate: lending.startDate,
+            endDate: lending.endDate,
+            status: lending.status
+          };
+        });
+        setLentOutData(lentOutMap);
+
+        // Get staff lent TO this branch (from other branches)
+        const lentToBranch = await getActiveLending(userBranch);
+        setLentToBranchStaff(lentToBranch || []);
+      }
+    } catch (error) {
+      console.error('Error fetching lending data:', error);
     }
   };
 
@@ -229,19 +310,6 @@ const ReceptionistStaffSchedule = () => {
     setCurrentWeek(newWeek);
   };
 
-  const getWeekDates = () => {
-    const dates = [];
-    const start = new Date(currentWeek);
-    start.setHours(0, 0, 0, 0);
-    
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(start);
-      date.setDate(start.getDate() + i);
-      dates.push(date);
-    }
-    return dates;
-  };
-
   // Helper function to find the schedule configuration that applies to a specific date
   const getScheduleForDate = (configs, targetDate) => {
     if (!targetDate || !configs || configs.length === 0) return null;
@@ -386,14 +454,93 @@ const ReceptionistStaffSchedule = () => {
     return leave || null;
   };
 
+  // Filtered and paginated staff
+  const filteredStaff = useMemo(() => {
+    let filtered = [...staff];
+
+    // Search filter
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(member =>
+        getFullName(member).toLowerCase().includes(searchLower) ||
+        (member.email && member.email.toLowerCase().includes(searchLower))
+      );
+    }
+
+    // Role filter
+    if (roleFilter !== 'all') {
+      filtered = filtered.filter(member => {
+        const userRoles = member.roles || (member.role ? [member.role] : []);
+        return userRoles.includes(roleFilter);
+      });
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(member => {
+        const memberId = member.id || member.uid;
+
+        switch (statusFilter) {
+          case 'scheduled':
+            // Has at least one shift this week
+            return weekDates.some(date => {
+              const dayKey = getDayKey(date);
+              const shift = getShiftForDay(member, dayKey, date);
+              return shift && !isStaffOnLeave(memberId, date);
+            });
+
+          case 'on-leave':
+            // On leave for at least one day this week
+            return weekDates.some(date => isStaffOnLeave(memberId, date));
+
+          case 'lent-out':
+            // Lent out to another branch
+            return lendingData[memberId];
+
+          case 'lent-in':
+            // Lent in from another branch (check if in lentToBranchStaff)
+            return lentToBranchStaff && lentToBranchStaff.some(lent => lent.stylistId === memberId);
+
+          default:
+            return true;
+        }
+      });
+    }
+
+    return filtered;
+  }, [staff, searchTerm, roleFilter, statusFilter, weekDates, lendingData, lentToBranchStaff]);
+
+  // Paginated staff
+  const paginatedStaff = useMemo(() => {
+    const startIndex = (staffPage - 1) * staffItemsPerPage;
+    const endIndex = startIndex + staffItemsPerPage;
+    return filteredStaff.slice(startIndex, endIndex);
+  }, [filteredStaff, staffPage, staffItemsPerPage]);
+
+  // Total pages
+  const totalStaffPages = Math.ceil(filteredStaff.length / staffItemsPerPage);
+
+  // Check if current week is the current week
+  const isCurrentWeek = useMemo(() => {
+    const today = new Date();
+    const currentWeekStart = new Date(today);
+    currentWeekStart.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1));
+    currentWeekStart.setHours(0, 0, 0, 0);
+
+    const displayedWeekStart = new Date(currentWeek);
+    displayedWeekStart.setHours(0, 0, 0, 0);
+
+    return currentWeekStart.getTime() === displayedWeekStart.getTime();
+  }, [currentWeek]);
+
   const formatWeekRange = () => {
     const start = new Date(currentWeek);
     const end = new Date(currentWeek);
     end.setDate(end.getDate() + 6);
-    
+
     const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    
+
     return `${startStr} - ${endStr}`;
   };
 
@@ -511,24 +658,199 @@ const ReceptionistStaffSchedule = () => {
     );
   }
 
-  const weekDates = getWeekDates();
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Staff Schedule</h1>
-          <p className="text-gray-600">View staff shifts and schedules</p>
+          <p className="text-gray-600 mt-1">Weekly view of staff shifts and availability</p>
         </div>
-        <button
-          onClick={handlePrintSchedule}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-        >
-          <Printer className="w-4 h-4" />
-          Print Schedule
-        </button>
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg px-3 py-2 whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={printOnlyWithSchedules}
+              onChange={(e) => setPrintOnlyWithSchedules(e.target.checked)}
+              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+            />
+            Print only staff with schedules
+          </label>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Filter className="w-4 h-4" />
+            Filters
+            {(searchTerm || roleFilter !== 'all' || statusFilter !== 'all') && (
+              <span className="bg-primary-600 text-white text-xs px-2 py-0.5 rounded-full">
+                {(searchTerm ? 1 : 0) + (roleFilter !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={handlePrintSchedule}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
+          >
+            <Printer className="w-4 h-4" />
+            Print Schedule
+          </button>
+        </div>
       </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Total Staff</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{staff.length}</p>
+            </div>
+            <Users className="w-8 h-8 text-primary-600" />
+          </div>
+        </div>
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Staff with Shifts</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {staff.filter(member =>
+                  weekDates.some(date => {
+                    const dayKey = getDayKey(date);
+                    const shift = getShiftForDay(member, dayKey, date);
+                    return shift && !isStaffOnLeave(member.id || member.uid, date);
+                  })
+                ).length}
+              </p>
+            </div>
+            <Clock className="w-8 h-8 text-green-600" />
+          </div>
+        </div>
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Active This Week</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {staff.filter(s => {
+                  if (!s.shifts) return false;
+                  return weekDates.some(date => {
+                    const dayKey = getDayKey(date);
+                    return getShiftForDay(s, dayKey, date);
+                  });
+                }).length}
+              </p>
+            </div>
+            <Calendar className="w-8 h-8 text-blue-600" />
+          </div>
+        </div>
+      </div>
+
+      {/* Filters Panel */}
+      {showFilters && (
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Search */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Search Staff
+              </label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Name or email..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Role Filter */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Role
+              </label>
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                <option value="all">All Roles</option>
+                <option value={USER_ROLES.STYLIST}>Stylist</option>
+                <option value={USER_ROLES.RECEPTIONIST}>Receptionist</option>
+                <option value={USER_ROLES.INVENTORY_CONTROLLER}>Inventory Controller</option>
+              </select>
+            </div>
+
+            {/* Status Filter */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Status
+              </label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                <option value="all">All Status</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="on-leave">On Leave</option>
+                <option value="lent-out">Lent Out</option>
+                <option value="lent-in">Lent In</option>
+              </select>
+            </div>
+
+            {/* Items per page */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Items per page
+              </label>
+              <select
+                value={staffItemsPerPage}
+                onChange={(e) => {
+                  setStaffItemsPerPage(Number(e.target.value));
+                  setStaffPage(1);
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center mt-4">
+            <div className="flex items-center gap-4">
+              <div className="text-sm text-gray-600">
+                Showing {paginatedStaff.length} of {filteredStaff.length} staff members
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={printOnlyWithSchedules}
+                  onChange={(e) => setPrintOnlyWithSchedules(e.target.checked)}
+                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                Print only staff with schedules
+              </label>
+            </div>
+            <button
+              onClick={() => {
+                setSearchTerm('');
+                setRoleFilter('all');
+                setStatusFilter('all');
+                setStaffPage(1);
+              }}
+              className="text-sm text-primary-600 hover:text-primary-700"
+            >
+              Clear filters
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Week Navigation */}
       <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -536,31 +858,37 @@ const ReceptionistStaffSchedule = () => {
           <button
             onClick={() => navigateWeek('prev')}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Previous Week"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          
-          <div className="flex items-center gap-3">
-            <Calendar className="w-5 h-5 text-primary-600" />
-            <div className="text-center">
-              <div className="font-semibold text-gray-900">{formatWeekRange()}</div>
-              <button
-                onClick={() => setCurrentWeek(() => {
-                  const date = new Date();
-                  const day = date.getDay();
-                  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-                  return new Date(date.setDate(diff));
-                })}
-                className="text-sm text-primary-600 hover:text-primary-700"
-              >
-                Today
-              </button>
+
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setCurrentWeek(() => {
+                const date = new Date();
+                const day = date.getDay();
+                const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+                return new Date(date.setDate(diff));
+              })}
+              className={`px-4 py-2 rounded-lg border transition-colors text-sm ${
+                isCurrentWeek
+                  ? 'bg-primary-600 text-white border-primary-600'
+                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              Today
+            </button>
+            <div className="min-w-[200px] text-center font-semibold text-gray-900">
+              {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
+              {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </div>
           </div>
-          
+
           <button
             onClick={() => navigateWeek('next')}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Next Week"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
@@ -568,7 +896,73 @@ const ReceptionistStaffSchedule = () => {
       </div>
 
       {/* Schedule Table */}
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="p-4 border-b border-gray-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div className="text-sm text-gray-700">
+            Showing {Math.min((staffPage - 1) * staffItemsPerPage + 1, filteredStaff.length)} to{' '}
+            {Math.min(staffPage * staffItemsPerPage, filteredStaff.length)} of {filteredStaff.length} staff
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              Items per page:
+              <select
+                value={staffItemsPerPage}
+                onChange={(e) => {
+                  setStaffItemsPerPage(Number(e.target.value));
+                  setStaffPage(1);
+                }}
+                className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+              >
+                {[10, 25, 50, 100].map(option => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setStaffPage(Math.max(1, staffPage - 1))}
+                disabled={staffPage === 1}
+                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalStaffPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalStaffPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (staffPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (staffPage >= totalStaffPages - 2) {
+                    pageNum = totalStaffPages - 4 + i;
+                  } else {
+                    pageNum = staffPage - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setStaffPage(pageNum)}
+                      className={`px-3 py-1 border rounded-lg text-sm ${
+                        staffPage === pageNum
+                          ? 'bg-primary-600 text-white border-primary-600'
+                          : 'border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setStaffPage(Math.min(totalStaffPages, staffPage + 1))}
+                disabled={staffPage === totalStaffPages}
+                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full table-auto">
             <thead className="bg-gray-50 border-b">
@@ -592,22 +986,52 @@ const ReceptionistStaffSchedule = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {staff.length === 0 ? (
+              {paginatedStaff.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                     <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                     <p>No staff members found</p>
+                    {filteredStaff.length > 0 && (
+                      <p className="text-sm text-gray-400 mt-1">
+                        Try adjusting your filters
+                      </p>
+                    )}
                   </td>
                 </tr>
               ) : (
-                staff.map((member) => {
+                paginatedStaff.map((member) => {
                   const memberName = getFullName(member);
                   const memberId = member.id || member.uid;
                   
                   return (
                      <tr key={memberId} className="hover:bg-gray-50">
-                       <td className="px-3 py-2 sticky left-0 bg-white z-10">
+                       <td className="px-3 py-2 sticky left-0 bg-white z-10 min-w-[200px]">
                          <div className="font-medium text-sm text-gray-900">{memberName}</div>
+                         <div className="flex flex-wrap gap-1 mt-1">
+                           {/* Role badges */}
+                           {(member.roles || [member.role]).filter(Boolean).map(role => (
+                             <span key={role} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                               {role === USER_ROLES.STYLIST ? 'Stylist' :
+                                role === USER_ROLES.RECEPTIONIST ? 'Receptionist' :
+                                role === USER_ROLES.INVENTORY_CONTROLLER ? 'Inventory' : role}
+                             </span>
+                           ))}
+
+                           {/* Lending status */}
+                           {lendingData[memberId] && (
+                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                               <UserCheck className="w-2.5 h-2.5 mr-1" />
+                               Lent to {lendingData[memberId].branchName}
+                             </span>
+                           )}
+
+                           {lentToBranchStaff && lentToBranchStaff.some(lent => lent.stylistId === memberId) && (
+                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                               <Building2 className="w-2.5 h-2.5 mr-1" />
+                               From {lentToBranchStaff.find(lent => lent.stylistId === memberId)?.fromBranchName}
+                             </span>
+                           )}
+                         </div>
                        </td>
                        {DAYS_OF_WEEK.map((day, index) => {
                          const date = weekDates[index];
@@ -722,9 +1146,10 @@ const ReceptionistStaffSchedule = () => {
                   border: '1px solid #000',
                   padding: '10px 8px',
                   textAlign: 'left',
-                  fontWeight: 'bold'
+                  fontWeight: 'bold',
+                  minWidth: '200px'
                 }}>
-                  STAFF
+                  STAFF MEMBER
                 </th>
                 {weekDates.map((date, index) => {
                   const dayName = DAYS_OF_WEEK[index]?.label || '';
@@ -745,7 +1170,16 @@ const ReceptionistStaffSchedule = () => {
               </tr>
             </thead>
             <tbody>
-              {staff.map((member, idx) => {
+              {(printOnlyWithSchedules
+                ? filteredStaff.filter(member =>
+                    weekDates.some(date => {
+                      const dayKey = getDayKey(date);
+                      const shift = getShiftForDay(member, dayKey, date);
+                      return shift && !isStaffOnLeave(member.id || member.uid, date);
+                    })
+                  )
+                : filteredStaff
+              ).map((member, idx) => {
                 const memberName = getFullName(member);
                 const memberId = member.id || member.uid;
                 
@@ -756,10 +1190,21 @@ const ReceptionistStaffSchedule = () => {
                     <td style={{
                       border: '1px solid #000',
                       padding: '10px 8px',
-                      textAlign: 'left',
-                      fontWeight: '600'
+                      textAlign: 'left'
                     }}>
-                      {memberName}
+                      <div style={{ fontWeight: '600', marginBottom: '4px' }}>{memberName}</div>
+                      <div style={{ fontSize: '9px', color: '#666' }}>
+                        {/* Roles */}
+                        {(member.roles || [member.role]).filter(Boolean).map(role =>
+                          role === USER_ROLES.STYLIST ? 'Stylist' :
+                          role === USER_ROLES.RECEPTIONIST ? 'Receptionist' :
+                          role === USER_ROLES.INVENTORY_CONTROLLER ? 'Inventory' : role
+                        ).join(', ')}
+                        {/* Lending status */}
+                        {lendingData[memberId] && ` • Lent to ${lendingData[memberId].branchName}`}
+                        {lentToBranchStaff && lentToBranchStaff.some(lent => lent.stylistId === memberId) &&
+                          ` • From ${lentToBranchStaff.find(lent => lent.stylistId === memberId)?.fromBranchName}`}
+                      </div>
                     </td>
                     {weekDates.map((date, dateIdx) => {
                       const dayKey = DAYS_OF_WEEK[dateIdx]?.key || '';

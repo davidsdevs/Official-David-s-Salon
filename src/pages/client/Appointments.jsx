@@ -3,17 +3,18 @@
  * Self-service booking, rescheduling, and cancellation
  */
 
-import { useState, useEffect } from 'react';
-  import { Plus, Calendar, Clock, MapPin, User, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+  import { Plus, Calendar, Clock, MapPin, User, ChevronDown, ChevronUp, Search, Filter, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getAppointmentsByClient,
   createAppointment,
   cancelAppointment,
+  updateAppointment,
   getAvailableTimeSlots,
   APPOINTMENT_STATUS 
 } from '../../services/appointmentService';
-import { getAllBranches } from '../../services/branchService';
+import { getAllBranches, getBranchById } from '../../services/branchService';
 import { getBranchServices, getServiceById } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
 import { USER_ROLES } from '../../utils/constants';
@@ -23,16 +24,33 @@ import AppointmentCard from '../../components/appointment/AppointmentCard';
 import AppointmentDetails from '../../components/appointment/AppointmentDetails';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import ClientBookingModal from '../../components/appointment/ClientBookingModal';
+import RescheduleModal from '../../components/appointment/RescheduleModal';
 import toast from 'react-hot-toast';
 
 const ClientAppointments = () => {
   const { currentUser, userData } = useAuth();
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [lastDoc, setLastDoc] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalCounts, setTotalCounts] = useState({ all: 0, pending: 0, confirmed: 0, cancelled: 0, past: 0 });
+  
+  // Filtering and search state
+  const [activeTab, setActiveTab] = useState('all'); // 'all', 'pending', 'confirmed', 'cancelled', 'past'
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [dateRange, setDateRange] = useState({ from: '', to: '' });
+  
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState(null);
   const [cancellationReason, setCancellationReason] = useState('');
+  const [appointmentToReschedule, setAppointmentToReschedule] = useState(null);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
   
   // Booking form state
   const [branches, setBranches] = useState([]);
@@ -42,11 +60,8 @@ const ClientAppointments = () => {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [unavailableMessage, setUnavailableMessage] = useState(null);
   const [booking, setBooking] = useState(false);
-  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedDetailAppointment, setSelectedDetailAppointment] = useState(null);
-  const [showBookingSummary, setShowBookingSummary] = useState(false);
-  const [pendingAppointmentData, setPendingAppointmentData] = useState(null);
   
   const [bookingData, setBookingData] = useState({
     branchId: '',
@@ -56,12 +71,42 @@ const ClientAppointments = () => {
     notes: ''
   });
 
+  const loadTabCounts = useCallback(async () => {
+    try {
+      const [allResult, pendingResult, confirmedResult, cancelledResult] = await Promise.all([
+        getAppointmentsByClient(currentUser.uid, { limit: 1 }),
+        getAppointmentsByClient(currentUser.uid, { status: APPOINTMENT_STATUS.PENDING, limit: 1 }),
+        getAppointmentsByClient(currentUser.uid, { status: APPOINTMENT_STATUS.CONFIRMED, limit: 1 }),
+        getAppointmentsByClient(currentUser.uid, { status: APPOINTMENT_STATUS.CANCELLED, limit: 1 })
+      ]);
+
+      setTotalCounts({
+        all: allResult.totalCount,
+        pending: pendingResult.totalCount,
+        confirmed: confirmedResult.totalCount,
+        cancelled: cancelledResult.totalCount,
+        past: 0 // Will be calculated when needed
+      });
+    } catch (error) {
+      console.error('Error loading tab counts:', error);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser) {
+      loadTabCounts();
+      fetchAppointments();
+      fetchBranches();
+      setCurrentPage(1); // Reset to first page when component mounts
+    }
+  }, [currentUser, loadTabCounts]);
+
   useEffect(() => {
     if (currentUser) {
       fetchAppointments();
-      fetchBranches();
+      setCurrentPage(1); // Reset to first page when tab/filters change
     }
-  }, [currentUser]);
+  }, [currentUser, activeTab, searchTerm, dateRange]);
 
   useEffect(() => {
     if (bookingData.branchId) {
@@ -77,24 +122,87 @@ const ClientAppointments = () => {
     }
   }, [bookingData.date, bookingData.services, bookingData.branchId]);
 
-  const fetchAppointments = async () => {
+  const fetchAppointments = useCallback(async (loadMore = false, specificTab = null) => {
     try {
-      setLoading(true);
-      const data = await getAppointmentsByClient(currentUser.uid);
-      if (data && Array.isArray(data)) {
-        setAppointments(data);
-      } else {
-        console.warn('No appointments data returned or invalid format');
+      const tab = specificTab || activeTab;
+      
+      if (!loadMore) {
+        setLoading(true);
         setAppointments([]);
+        setLastDoc(null);
+        setHasMore(true);
+      } else {
+        setLoadingMore(true);
       }
+
+      const options = {
+        limit: 20,
+        searchTerm: searchTerm || undefined
+      };
+
+      // Set status filter based on active tab
+      if (tab === 'pending') {
+        options.status = APPOINTMENT_STATUS.PENDING;
+      } else if (tab === 'confirmed') {
+        options.status = APPOINTMENT_STATUS.CONFIRMED;
+      } else if (tab === 'past') {
+        // For past, we'll filter client-side since Firestore doesn't support complex date queries easily
+        options.status = null; // Load all, filter client-side
+      }
+
+      // Add date range if specified
+      if (dateRange.from) {
+        options.dateFrom = new Date(dateRange.from);
+      }
+      if (dateRange.to) {
+        options.dateTo = new Date(dateRange.to);
+      }
+
+      if (loadMore && lastDoc) {
+        options.startAfter = lastDoc;
+      }
+
+      const result = await getAppointmentsByClient(currentUser.uid, options);
+      
+      if (loadMore) {
+        // Filter past appointments client-side for the 'past' tab
+        let newAppointments = result.appointments;
+        if (tab === 'past') {
+          const now = new Date();
+          newAppointments = result.appointments.filter(apt => 
+            new Date(apt.appointmentDate) < now ||
+            apt.status === APPOINTMENT_STATUS.COMPLETED ||
+            apt.status === APPOINTMENT_STATUS.CANCELLED
+          );
+        }
+        
+        setAppointments(prev => [...prev, ...newAppointments]);
+      } else {
+        // Filter past appointments client-side for the 'past' tab
+        let filteredAppointments = result.appointments;
+        if (tab === 'past') {
+          const now = new Date();
+          filteredAppointments = result.appointments.filter(apt => 
+            new Date(apt.appointmentDate) < now ||
+            apt.status === APPOINTMENT_STATUS.COMPLETED ||
+            apt.status === APPOINTMENT_STATUS.CANCELLED
+          );
+        }
+        
+        setAppointments(filteredAppointments);
+        setTotalCounts(prev => ({ ...prev, [tab]: result.totalCount }));
+      }
+      
+      setHasMore(result.hasMore);
+      setLastDoc(result.lastDoc);
     } catch (error) {
       console.error('Error fetching appointments:', error);
       toast.error('Failed to load appointments. Please try again.');
-      setAppointments([]);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
-  };
+  }, [currentUser, activeTab, searchTerm, dateRange, lastDoc]);
 
   const fetchBranches = async () => {
     try {
@@ -109,8 +217,8 @@ const ClientAppointments = () => {
     try {
       const data = await getBranchServices(branchId);
       // Services are already filtered by branchPricing in getBranchServices
-      // Only show active services that have pricing for this branch
-      setServices(data.filter(s => s.isActive && s.price !== undefined && s.price !== null));
+      // getBranchServices only returns services with branchPricing[branchId] set
+      setServices(data);
     } catch (error) {
       console.error('Error fetching services:', error);
       toast.error('Failed to load services');
@@ -159,6 +267,7 @@ const ClientAppointments = () => {
   };
 
   const handleBookAppointment = () => {
+    setAppointmentToReschedule(null);
     setBookingData({
       branchId: '',
       services: [],
@@ -173,10 +282,28 @@ const ClientAppointments = () => {
     setShowBookingModal(true);
   };
 
-  const handleSubmitBooking = () => {
-    // Prepare appointment data and show summary modal instead of submitting directly
+  const handleSubmitBooking = async () => {
+    // Submit directly without showing summary modal
     if (!bookingData.branchId || !bookingData.services || bookingData.services.length === 0 || !bookingData.timeSlot) {
       toast.error('Please fill in all required fields');
+      return;
+    }
+
+    // Check if client already has an appointment on the selected date
+    const selectedDate = new Date(bookingData.date);
+    const startOfDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+    const endOfDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 23, 59, 59);
+    
+    const existingAppointments = appointments.filter(apt => {
+      const aptDate = new Date(apt.appointmentDate);
+      return aptDate >= startOfDay && 
+             aptDate <= endOfDay && 
+             apt.status !== APPOINTMENT_STATUS.CANCELLED && 
+             apt.status !== APPOINTMENT_STATUS.COMPLETED;
+    });
+
+    if (existingAppointments.length > 0) {
+      toast.error('You already have an appointment on this date. Please choose a different date.');
       return;
     }
 
@@ -217,6 +344,12 @@ const ClientAppointments = () => {
       totalDuration += (service?.duration || 60);
     }
 
+    // Combine date and time properly - create as local datetime
+    // Split the date and time to create a proper local Date object
+    const [year, month, day] = bookingData.date.split('-').map(Number);
+    const [hours, minutes] = bookingData.timeSlot.time.split(':').map(Number);
+    const appointmentDateTime = new Date(year, month - 1, day, hours, minutes, 0, 0);
+
     const appointmentData = {
       clientId: currentUser.uid,
       clientName: `${userData.firstName} ${userData.lastName}`,
@@ -225,71 +358,23 @@ const ClientAppointments = () => {
       branchId: bookingData.branchId,
       branchName: branch?.name || branch?.branchName,
       services: servicesArray,
-      appointmentDate: bookingData.timeSlot.time,
+      appointmentDate: appointmentDateTime,
       duration: totalDuration,
-      // Price is ESTIMATED because final price may change depending on hair length/type
       totalPrice: totalPrice,
       status: APPOINTMENT_STATUS.PENDING,
       notes: bookingData.notes
     };
 
-    setPendingAppointmentData(appointmentData);
-    setShowBookingModal(false);
-    setShowBookingSummary(true);
-  };
-
-  const handleConfirmBooking = async () => {
-    if (!pendingAppointmentData) return;
-
+    // Submit directly without showing confirmation modal
     try {
       setBooking(true);
-      // Re-validate all services availability and branch prices before creating
-      let totalPrice = 0;
-      const updatedServices = [];
-      
-      for (const serviceItem of pendingAppointmentData.services || []) {
-        try {
-          const latest = await getServiceById(serviceItem.serviceId);
-          const branchPrice = latest.branchPricing?.[pendingAppointmentData.branchId] ?? latest.price;
-          
-          if (branchPrice === undefined || branchPrice === null) {
-            toast.error(`Service "${serviceItem.serviceName}" is no longer available for the selected branch. Please choose another service.`);
-            setShowBookingSummary(false);
-            setPendingAppointmentData(null);
-            setShowBookingModal(true);
-            return;
-          }
-          
-          updatedServices.push({
-            ...serviceItem,
-            price: branchPrice
-          });
-          
-          totalPrice += branchPrice;
-        } catch (err) {
-          console.error('Error re-validating service before booking', err);
-          toast.error(`Error validating service "${serviceItem.serviceName}". Please try again.`);
-          setShowBookingSummary(false);
-          setPendingAppointmentData(null);
-          setShowBookingModal(true);
-          return;
-        }
-      }
-
-      // Update appointment data with validated prices
-      const validatedAppointmentData = {
-        ...pendingAppointmentData,
-        services: updatedServices,
-        totalPrice: totalPrice
-      };
-
-      await createAppointment(validatedAppointmentData, currentUser);
-      setShowBookingSummary(false);
-      setPendingAppointmentData(null);
+      await createAppointment(appointmentData, currentUser);
+      setShowBookingModal(false);
       await fetchAppointments();
+      toast.success('Appointment request submitted successfully! Please wait for confirmation.');
     } catch (error) {
-      console.error('Error booking appointment:', error);
-      toast.error('Failed to book appointment. Please try again.');
+      console.error('Error creating appointment:', error);
+      toast.error(error.message || 'Failed to create appointment. Please try again.');
     } finally {
       setBooking(false);
     }
@@ -299,6 +384,53 @@ const ClientAppointments = () => {
     setAppointmentToCancel(appointment);
     setCancellationReason('');
     setShowCancelModal(true);
+  };
+
+  const handleReschedule = async (appointment) => {
+    console.log('Reschedule clicked:', appointment);
+    // Fetch branch details for operating hours
+    try {
+      const branch = await getBranchById(appointment.branchId);
+      setAppointmentToReschedule({ ...appointment, branch });
+      setShowRescheduleModal(true);
+      console.log('Reschedule modal should open now');
+    } catch (error) {
+      console.error('Error fetching branch:', error);
+      toast.error('Failed to load branch details');
+    }
+  };
+
+  const handleSubmitReschedule = async (newDate, newTimeSlot) => {
+    if (!appointmentToReschedule) return;
+    
+    try {
+      setRescheduling(true);
+      
+      // Calculate new appointment date/time
+      const [year, month, day] = newDate.split('-').map(Number);
+      const [hours, minutes] = newTimeSlot.split(':').map(Number);
+      const appointmentDateTime = new Date(year, month - 1, day, hours, minutes, 0, 0);
+
+      // UPDATE existing appointment with new date/time (don't create new or cancel)
+      await updateAppointment(
+        appointmentToReschedule.id,
+        {
+          appointmentDate: appointmentDateTime,
+          status: APPOINTMENT_STATUS.PENDING // Reset to pending for receptionist approval
+        },
+        currentUser
+      );
+      
+      setShowRescheduleModal(false);
+      setAppointmentToReschedule(null);
+      await fetchAppointments();
+      toast.success('Appointment rescheduled successfully! Please wait for confirmation.');
+    } catch (error) {
+      console.error('Error rescheduling appointment:', error);
+      toast.error(error.message || 'Failed to reschedule appointment. Please try again.');
+    } finally {
+      setRescheduling(false);
+    }
   };
 
   const confirmCancel = async () => {
@@ -313,47 +445,25 @@ const ClientAppointments = () => {
       console.error('Error cancelling appointment:', error);
     }
   };
+  // Pagination calculations
+  const totalPages = Math.ceil(totalCounts[activeTab] / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedAppointments = appointments.slice(startIndex, endIndex);
 
-  const getFilteredAppointments = (filter) => {
-    const now = new Date();
-    
-    let filtered = [];
-    
-    if (filter === 'upcoming') {
-      filtered = appointments.filter(apt => 
-        new Date(apt.appointmentDate) >= now && 
-        apt.status !== APPOINTMENT_STATUS.COMPLETED &&
-        apt.status !== APPOINTMENT_STATUS.CANCELLED
-      );
-    } else if (filter === 'past') {
-      filtered = appointments.filter(apt => 
-        new Date(apt.appointmentDate) < now ||
-        apt.status === APPOINTMENT_STATUS.COMPLETED ||
-        apt.status === APPOINTMENT_STATUS.CANCELLED
-      );
-    } else {
-      filtered = appointments;
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-    
-    // Sort by latest first (by createdAt, then by appointmentDate)
-    filtered.sort((a, b) => {
-      const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      if (bCreated !== aCreated) {
-        return bCreated - aCreated; // Latest first
-      }
-      // If same creation time, sort by appointment date
-      const aDate = new Date(a.appointmentDate).getTime();
-      const bDate = new Date(b.appointmentDate).getTime();
-      return bDate - aDate; // Latest first
-    });
-    
-    return filtered;
   };
 
-  const upcomingAppointments = getFilteredAppointments('upcoming');
-  const pastAppointments = getFilteredAppointments('past');
-  const displayedUpcoming = showAllUpcoming ? upcomingAppointments : upcomingAppointments.slice(0, 3);
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   if (loading) {
     return (
@@ -380,78 +490,196 @@ const ClientAppointments = () => {
         </button>
       </div>
 
-      {/* Upcoming Appointments */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-4 sm:p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Appointments</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {upcomingAppointments.length === 0 ? (
-            <div className="col-span-full text-center py-8">
-              <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-500 mb-4">No upcoming appointments</p>
+      {/* Search and Filters */}
+      <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mb-4">
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <input
+              type="text"
+              placeholder="Search appointments..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
+            />
+          </div>
+
+          {/* Filter Toggle */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center gap-2 px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            <Filter className="w-4 h-4" />
+            Filters
+          </button>
+        </div>
+
+        {/* Advanced Filters */}
+        {showFilters && (
+          <div className="border-t pt-4 mt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                <input
+                  type="date"
+                  value={dateRange.from}
+                  onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                <input
+                  type="date"
+                  value={dateRange.to}
+                  onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
               <button
-                onClick={handleBookAppointment}
-                className="text-primary-600 hover:text-primary-700 font-medium"
+                onClick={() => setDateRange({ from: '', to: '' })}
+                className="px-3 py-1 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
               >
-                Book your first appointment
+                Clear Filters
               </button>
             </div>
-          ) : (
-            <>
-              {displayedUpcoming.map((appointment) => (
-                <AppointmentCard
-                  key={appointment.id}
-                  appointment={appointment}
-                  onCancel={handleCancelAppointment}
-                  onView={(apt) => { setSelectedDetailAppointment(apt); setShowDetailsModal(true); }}
-                  showActions={true}
-                />
-              ))}
-            </>
-          )}
-        </div>
-        {upcomingAppointments.length > 3 && (
-          <div className="mt-4 text-center">
-            <button
-              onClick={() => setShowAllUpcoming(!showAllUpcoming)}
-              className="text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1 mx-auto"
-            >
-              {showAllUpcoming ? (
-                <>
-                  <ChevronUp className="w-4 h-4" />
-                  Show Less
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="w-4 h-4" />
-                  Show More ({upcomingAppointments.length - 3} more)
-                </>
-              )}
-            </button>
           </div>
         )}
       </div>
 
-      {/* Past Appointments */}
-      {pastAppointments.length > 0 && (
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-4 sm:p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Past Appointments</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {pastAppointments.slice(0, 6).map((appointment) => (
-              <AppointmentCard
-                key={appointment.id}
-                appointment={appointment}
-                onView={(apt) => { setSelectedDetailAppointment(apt); setShowDetailsModal(true); }}
-                showActions={false}
-              />
-            ))}
-          </div>
-          {pastAppointments.length > 6 && (
-            <p className="text-sm text-gray-500 text-center mt-4">
-              Showing 6 of {pastAppointments.length} past appointments
-            </p>
+      {/* Status Tabs */}
+      <div className="bg-white rounded-lg shadow border border-gray-200">
+        <div className="border-b border-gray-200">
+          <nav className="flex">
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 ${
+                activeTab === 'all'
+                  ? 'border-[#160B53] text-[#160B53]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              All ({totalCounts.all})
+            </button>
+            <button
+              onClick={() => setActiveTab('pending')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 ${
+                activeTab === 'pending'
+                  ? 'border-yellow-500 text-yellow-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Pending ({totalCounts.pending})
+            </button>
+            <button
+              onClick={() => setActiveTab('confirmed')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 ${
+                activeTab === 'confirmed'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Confirmed ({totalCounts.confirmed})
+            </button>
+            <button
+              onClick={() => setActiveTab('cancelled')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 ${
+                activeTab === 'cancelled'
+                  ? 'border-red-500 text-red-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Cancelled ({totalCounts.cancelled})
+            </button>
+            <button
+              onClick={() => setActiveTab('past')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 ${
+                activeTab === 'past'
+                  ? 'border-gray-500 text-gray-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Past
+            </button>
+          </nav>
+        </div>
+
+        {/* Appointments Grid */}
+        <div className="p-4 sm:p-6">
+          {appointments.length === 0 ? (
+            <div className="text-center py-12">
+              <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No appointments found</h3>
+              <p className="text-gray-500 mb-6">
+                {activeTab === 'all' ? 'You haven\'t booked any appointments yet.' : `No ${activeTab} appointments found.`}
+              </p>
+              {activeTab === 'all' && (
+                <button
+                  onClick={handleBookAppointment}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#160B53] text-white rounded-lg hover:bg-[#1a0f63] transition-colors"
+                >
+                  <Plus className="w-5 h-5" />
+                  Book Your First Appointment
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {paginatedAppointments.map((appointment) => (
+                  <AppointmentCard
+                    key={appointment.id}
+                    appointment={appointment}
+                    onCancel={activeTab !== 'past' ? handleCancelAppointment : undefined}
+                    onReschedule={(activeTab === 'pending' || (activeTab === 'all' && appointment.status === APPOINTMENT_STATUS.PENDING)) ? handleReschedule : undefined}
+                    onView={(apt) => { setSelectedDetailAppointment(apt); setShowDetailsModal(true); }}
+                    showActions={activeTab !== 'past'}
+                  />
+                ))}
+              </div>
+
+              {/* Pagination Controls */}
+              {totalCounts[activeTab] > itemsPerPage && (
+                <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <button
+                    onClick={handlePreviousPage}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <ChevronUp className="w-4 h-4 rotate-180" />
+                    Previous
+                  </button>
+
+                  <div className="text-sm text-gray-600">
+                    <span className="font-semibold">Page {currentPage}</span> of <span className="font-semibold">{totalPages}</span>
+                    {' '} 
+                    ({startIndex + 1} - {Math.min(endIndex, totalCounts[activeTab])} of {totalCounts[activeTab]} appointments)
+                  </div>
+
+                  <button
+                    onClick={handleNextPage}
+                    disabled={currentPage === totalPages}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    Next
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Results Summary for small datasets */}
+              {totalCounts[activeTab] <= itemsPerPage && totalCounts[activeTab] > 0 && (
+                <div className="mt-4 text-center text-sm text-gray-500">
+                  Showing all {totalCounts[activeTab]} appointments
+                </div>
+              )}
+            </>
           )}
         </div>
-      )}
+      </div>
 
       {/* Booking Modal */}
       <ClientBookingModal
@@ -481,85 +709,20 @@ const ClientAppointments = () => {
         unavailableMessage={unavailableMessage}
         booking={booking}
         onSubmit={handleSubmitBooking}
+        existingAppointments={appointments}
       />
 
-      {/* Booking Summary Confirmation Modal */}
-      {showBookingSummary && pendingAppointmentData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4 text-center">
-              Confirm Appointment
-            </h2>
-            
-            {/* Alert Message */}
-            <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800 text-center font-medium">
-                Please wait for the Confirmation
-              </p>
-              <p className="text-xs text-blue-700 text-center mt-1">
-                Your appointment will be reviewed and confirmed by our staff. You will receive a notification once confirmed.
-              </p>
-            </div>
-
-            {/* Breakdown */}
-            <div className="mb-4">
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm text-gray-600">
-                  <div>Branch</div>
-                  <div className="font-medium text-gray-900">{pendingAppointmentData.branchName}</div>
-                </div>
-                {pendingAppointmentData.services?.map((s, i) => (
-                  <div key={i} className="flex justify-between items-start gap-2 border-2 border-gray-200 p-4 rounded-lg bg-white hover:border-[#160B53]/30 transition-colors">
-                    <div className="flex-grow text-sm">
-                      <div className="font-semibold text-gray-900 mb-1">{s.serviceName}</div>
-                      <div className="text-xs text-gray-600 flex items-center gap-1">
-                        <User className="w-3 h-3" />
-                        {s.stylistName || 'Any available stylist'}
-                      </div>
-                    </div>
-                    <div className="text-sm font-bold text-[#160B53]">₱{(s.price || 0).toLocaleString()}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Total Price (ESTIMATED) */}
-            <div className="mb-6 text-center">
-              <p className="text-sm text-gray-500 mb-1 flex items-center justify-center gap-2">
-                Total Price
-                <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded">ESTIMATED</span>
-              </p>
-              <p className="text-lg font-semibold text-gray-900">
-                ₱{pendingAppointmentData.totalPrice?.toLocaleString() || '0.00'}
-              </p>
-              <p className="text-xs text-gray-500 mt-2">Final price may change depending on hair length, type, or additional services.</p>
-            </div>
-
-            {/* Buttons */}
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowBookingSummary(false);
-                  setPendingAppointmentData(null);
-                  setShowBookingModal(true);
-                }}
-                disabled={booking}
-                className="flex-1 px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmBooking}
-                disabled={booking}
-                className="flex-1 px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {booking && <LoadingSpinner size="sm" />}
-                {booking ? 'Booking...' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Reschedule Modal */}
+      <RescheduleModal
+        isOpen={showRescheduleModal}
+        onClose={() => {
+          setShowRescheduleModal(false);
+          setAppointmentToReschedule(null);
+        }}
+        appointment={appointmentToReschedule}
+        onSubmit={handleSubmitReschedule}
+        loading={rescheduling}
+      />
 
       {/* Cancel Confirmation Modal */}
       <ConfirmModal

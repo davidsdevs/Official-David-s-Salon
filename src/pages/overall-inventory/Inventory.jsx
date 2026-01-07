@@ -9,6 +9,9 @@ import Modal from '../../components/ui/Modal';
 import { getAllBranches } from '../../services/branchService';
 import { inventoryService } from '../../services/inventoryService';
 import { productService } from '../../services/productService';
+import { db } from '../../config/firebase';
+import { collection, addDoc, serverTimestamp, updateDoc, doc, getDoc, writeBatch } from 'firebase/firestore';
+import { verifyManagerCode } from '../../services/authService';
 import {
   Package,
   Eye,
@@ -38,6 +41,22 @@ const OverallInventoryControllerInventory = () => {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [branchStats, setBranchStats] = useState({}); // Store stats for each branch
+
+  // Force Adjust states
+  const [isForceAdjustModalOpen, setIsForceAdjustModalOpen] = useState(false);
+  const [forceAdjustForm, setForceAdjustForm] = useState({
+    stockId: '',
+    productId: '',
+    currentStock: '',
+    newStock: '',
+    adjustmentQuantity: '',
+    reason: '',
+    managerCode: '',
+    notes: '',
+    batchNumber: ''
+  });
+  const [forceAdjustErrors, setForceAdjustErrors] = useState({});
+  const [isSubmittingAdjust, setIsSubmittingAdjust] = useState(false);
 
   // Load branches
   const loadBranches = async () => {
@@ -257,6 +276,123 @@ const OverallInventoryControllerInventory = () => {
     setSearchTerm('');
     setCategoryFilter('all');
     setStatusFilter('all');
+  };
+
+  // Handle Force Adjust Stock
+  const handleForceAdjust = async () => {
+    try {
+      setIsSubmittingAdjust(true);
+      setForceAdjustErrors({});
+
+      // Validation
+      const errors = {};
+      if (!forceAdjustForm.newStock || parseInt(forceAdjustForm.newStock) < 0) {
+        errors.newStock = 'New stock must be 0 or greater';
+      }
+
+      if (!forceAdjustForm.reason) {
+        errors.reason = 'Reason is required';
+      }
+
+      if (!forceAdjustForm.managerCode) {
+        errors.managerCode = 'Manager authorization code is required';
+      }
+
+      if (Object.keys(errors).length > 0) {
+        setForceAdjustErrors(errors);
+        setIsSubmittingAdjust(false);
+        return;
+      }
+
+      // Verify manager code (this should work for any branch since Overall Inventory is auditor)
+      const verificationResult = await verifyManagerCode(forceAdjustForm.managerCode, selectedBranch);
+
+      if (!verificationResult.valid) {
+        setForceAdjustErrors({ managerCode: 'Invalid manager authorization code. Please contact a branch manager.' });
+        setIsSubmittingAdjust(false);
+        return;
+      }
+
+      const stockDocRef = doc(db, 'stocks', forceAdjustForm.stockId);
+
+      // Create adjustment record in separate collection
+      const adjustmentData = {
+        stockId: forceAdjustForm.stockId,
+        productId: forceAdjustForm.productId,
+        branchId: selectedBranch,
+        previousStock: parseInt(forceAdjustForm.currentStock),
+        newStock: parseInt(forceAdjustForm.newStock),
+        adjustmentQuantity: parseInt(forceAdjustForm.adjustmentQuantity),
+        reason: forceAdjustForm.reason,
+        notes: forceAdjustForm.notes || '',
+        adjustedBy: userData?.uid,
+        managerCode: forceAdjustForm.managerCode.substring(0, 4) + '****', // Partially mask for security
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        status: 'completed'
+      };
+
+      // Save to stockAdjustments collection (separate collection for audit trail)
+      await addDoc(collection(db, 'stockAdjustments'), adjustmentData);
+
+      // Update the stock record's realTimeStock
+      await updateDoc(stockDocRef, {
+        realTimeStock: parseInt(forceAdjustForm.newStock),
+        updatedAt: serverTimestamp()
+      });
+
+      // Get product name for logging
+      const stockDoc = await getDoc(stockDocRef);
+      const stockData = stockDoc.data();
+      const productName = stockData?.productName || 'Unknown Product';
+
+      // Log activity with detailed information
+      const { activityServiceLogActivity } = await import('../../services/activityService');
+      await activityServiceLogActivity({
+        action: 'stock_force_adjustment',
+        performedBy: userData?.uid,
+        targetUser: null,
+        branchId: selectedBranch,
+        details: {
+          stockId: forceAdjustForm.stockId,
+          productId: forceAdjustForm.productId,
+          productName: productName,
+          batchNumber: forceAdjustForm.batchNumber || 'N/A',
+          previousStock: parseInt(forceAdjustForm.currentStock),
+          newStock: parseInt(forceAdjustForm.newStock),
+          adjustmentQuantity: parseInt(forceAdjustForm.adjustmentQuantity),
+          reason: forceAdjustForm.reason,
+          notes: forceAdjustForm.notes || '',
+          authorizedBy: verificationResult.managerId,
+          authorizedByName: verificationResult.managerName
+        }
+      });
+
+      // Close modal and reset form
+      setIsForceAdjustModalOpen(false);
+      setForceAdjustForm({
+        stockId: '',
+        productId: '',
+        currentStock: '',
+        newStock: '',
+        adjustmentQuantity: '',
+        reason: '',
+        managerCode: '',
+        notes: '',
+        batchNumber: ''
+      });
+
+      // Reload inventory to show updated stock
+      loadInventory(selectedBranch);
+
+      alert('Stock adjusted successfully!');
+
+    } catch (error) {
+      console.error('Error adjusting stock:', error);
+      setForceAdjustErrors({ general: 'Failed to adjust stock. Please try again.' });
+    } finally {
+      setIsSubmittingAdjust(false);
+    }
   };
 
   if (loading && !selectedBranch && Object.keys(branchStats).length === 0) {
@@ -555,15 +691,41 @@ const OverallInventoryControllerInventory = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleViewDetails(item)}
-                        className="flex items-center gap-2"
-                      >
-                        <Eye className="h-4 w-4" />
-                        View
-                      </Button>
+                      <div className="flex gap-2 justify-center">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleViewDetails(item)}
+                          className="flex items-center gap-2"
+                        >
+                          <Eye className="h-4 w-4" />
+                          View
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const product = products.find(p => p.id === item.productId);
+                            setForceAdjustForm({
+                              stockId: item.id,
+                              productId: item.productId,
+                              productName: item.productName || product?.name || 'Unknown',
+                              currentStock: item.currentStock?.toString() || '0',
+                              newStock: '',
+                              adjustmentQuantity: '',
+                              reason: '',
+                              managerCode: '',
+                              notes: '',
+                              batchNumber: item.batchNumber || ''
+                            });
+                            setIsForceAdjustModalOpen(true);
+                          }}
+                          className="flex items-center gap-2 text-orange-600 border-orange-300 hover:bg-orange-50"
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                          Force Adjust
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -652,6 +814,177 @@ const OverallInventoryControllerInventory = () => {
                   <p className="text-gray-900">{selectedProduct.location}</p>
                 </div>
               )}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Force Adjust Stock Modal */}
+      {isForceAdjustModalOpen && (
+        <Modal
+          isOpen={isForceAdjustModalOpen}
+          onClose={() => {
+            setIsForceAdjustModalOpen(false);
+            setForceAdjustForm({
+              stockId: '',
+              productId: '',
+              currentStock: '',
+              newStock: '',
+              adjustmentQuantity: '',
+              reason: '',
+              managerCode: '',
+              notes: '',
+              batchNumber: ''
+            });
+            setForceAdjustErrors({});
+          }}
+          title="Force Adjust Stock (Auditor Override)"
+          size="lg"
+        >
+          <div className="space-y-6">
+            {/* Current Stock Info */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Package className="h-5 w-5 text-blue-600" />
+                <h3 className="text-sm font-medium text-blue-900">Current Stock Information</h3>
+              </div>
+              <p className="text-sm text-blue-700">Product: <strong className="text-blue-900">{forceAdjustForm.productName || 'Unknown'}</strong></p>
+              <p className="text-sm text-blue-700">Batch: <strong className="text-blue-900">{forceAdjustForm.batchNumber || 'N/A'}</strong></p>
+              <p className="text-sm text-blue-700">Current Stock: <strong className="text-blue-900">{forceAdjustForm.currentStock}</strong> units</p>
+            </div>
+
+            {/* New Stock */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                New Stock Quantity <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={forceAdjustForm.newStock}
+                onChange={(e) => {
+                  const newStock = e.target.value;
+                  const adjustment = parseInt(newStock) - parseInt(forceAdjustForm.currentStock || 0);
+                  setForceAdjustForm(prev => ({
+                    ...prev,
+                    newStock: newStock,
+                    adjustmentQuantity: isNaN(adjustment) ? '' : adjustment.toString()
+                  }));
+                  setForceAdjustErrors(prev => ({ ...prev, newStock: '' }));
+                }}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                  forceAdjustErrors.newStock ? 'border-red-500' : 'border-gray-300'
+                }`}
+                placeholder="Enter new stock quantity"
+              />
+              {forceAdjustForm.adjustmentQuantity && (
+                <p className={`text-xs mt-1 font-medium ${
+                  parseInt(forceAdjustForm.adjustmentQuantity) >= 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  Adjustment: {parseInt(forceAdjustForm.adjustmentQuantity) >= 0 ? '+' : ''}{forceAdjustForm.adjustmentQuantity} units
+                </p>
+              )}
+              {forceAdjustErrors.newStock && (
+                <p className="text-red-500 text-xs mt-1">{forceAdjustErrors.newStock}</p>
+              )}
+            </div>
+
+            {/* Reason */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Reason for Adjustment <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={forceAdjustForm.reason}
+                onChange={(e) => {
+                  setForceAdjustForm(prev => ({ ...prev, reason: e.target.value }));
+                  setForceAdjustErrors(prev => ({ ...prev, reason: '' }));
+                }}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                  forceAdjustErrors.reason ? 'border-red-500' : 'border-gray-300'
+                }`}
+              >
+                <option value="">Select a reason</option>
+                <option value="Physical Count Discrepancy">Physical Count Discrepancy</option>
+                <option value="Damaged/Lost Stock">Damaged/Lost Stock</option>
+                <option value="Supplier Return">Supplier Return</option>
+                <option value="System Correction">System Correction</option>
+                <option value="Audit Adjustment">Audit Adjustment</option>
+                <option value="Other">Other</option>
+              </select>
+              {forceAdjustErrors.reason && (
+                <p className="text-red-500 text-xs mt-1">{forceAdjustErrors.reason}</p>
+              )}
+            </div>
+
+            {/* Manager Authorization Code */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Manager Authorization Code <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <Building className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="password"
+                  value={forceAdjustForm.managerCode}
+                  onChange={(e) => {
+                    setForceAdjustForm(prev => ({ ...prev, managerCode: e.target.value }));
+                    setForceAdjustErrors(prev => ({ ...prev, managerCode: '' }));
+                  }}
+                  className={`w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    forceAdjustErrors.managerCode ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Enter branch manager authorization code"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Required for auditor-level stock adjustments</p>
+              {forceAdjustErrors.managerCode && (
+                <p className="text-red-500 text-xs mt-1">{forceAdjustErrors.managerCode}</p>
+              )}
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
+              <textarea
+                value={forceAdjustForm.notes}
+                onChange={(e) => setForceAdjustForm(prev => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Optional additional notes about this adjustment"
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <Button
+                onClick={() => {
+                  setIsForceAdjustModalOpen(false);
+                  setForceAdjustForm({
+                    stockId: '',
+                    productId: '',
+                    currentStock: '',
+                    newStock: '',
+                    adjustmentQuantity: '',
+                    reason: '',
+                    managerCode: '',
+                    notes: '',
+                    batchNumber: ''
+                  });
+                  setForceAdjustErrors({});
+                }}
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleForceAdjust}
+                disabled={isSubmittingAdjust}
+                className="flex items-center gap-2"
+              >
+                {isSubmittingAdjust && <RefreshCw className="h-4 w-4 animate-spin" />}
+                Force Adjust Stock
+              </Button>
             </div>
           </div>
         </Modal>

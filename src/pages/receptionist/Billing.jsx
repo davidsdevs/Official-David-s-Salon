@@ -79,7 +79,7 @@ const ReceptionistBilling = () => {
   const [minAmountFilter, setMinAmountFilter] = useState('');
   const [maxAmountFilter, setMaxAmountFilter] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [dateFilterType, setDateFilterType] = useState('today'); // 'today', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth', 'thisYear', 'custom', 'monthYear'
+  const [dateFilterType, setDateFilterType] = useState('thisMonth'); // 'today', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth', 'thisYear', 'custom', 'monthYear'
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [sortField, setSortField] = useState('createdAt');
@@ -228,10 +228,7 @@ const ReceptionistBilling = () => {
   useEffect(() => {
     if (userBranch) {
       fetchData();
-      // Initialize with today's date range
-      const todayRange = getDateRange('today');
-      setStartDateFilter(todayRange.startDate);
-      setEndDateFilter(todayRange.endDate);
+      // Don't set date filters by default - show all bills initially
     }
   }, [userBranch]);
 
@@ -265,9 +262,19 @@ const ReceptionistBilling = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      
-      // Fetch bills
+
+      // Fetch bills without filters
+      console.log('🔍 Fetching bills for userBranch:', userBranch);
       const billsData = await getBillsByBranch(userBranch);
+      console.log('📄 Fetched bills:', billsData?.length || 0);
+
+      // Log details of fetched bills
+      if (billsData && billsData.length > 0) {
+        billsData.forEach((bill, index) => {
+          console.log(`📋 Bill ${index + 1}: ID=${bill.id}, createdAt=${bill.createdAt}, branchId=${bill.branchId}, total=${bill.total}`);
+        });
+      }
+
       setBills(billsData);
 
       // Fetch completed appointments that haven't been billed yet
@@ -304,6 +311,9 @@ const ReceptionistBilling = () => {
   };
 
   const applyFilters = () => {
+    console.log('🔍 applyFilters called with:', bills.length, 'bills');
+    console.log('📅 Date filters - start:', startDateFilter, 'end:', endDateFilter);
+
     let filtered = [...bills];
 
     // Search filter
@@ -331,8 +341,8 @@ const ReceptionistBilling = () => {
       filtered = filtered.filter(bill => bill.salesType === saleTypeFilter);
     }
 
-    // Date range filter
-    if (startDateFilter) {
+    // Date range filter (only if filters are set)
+    if (startDateFilter && startDateFilter.trim()) {
       const filterDate = new Date(startDateFilter);
       filterDate.setHours(0, 0, 0, 0);
       filtered = filtered.filter(bill => {
@@ -342,7 +352,7 @@ const ReceptionistBilling = () => {
       });
     }
 
-    if (endDateFilter) {
+    if (endDateFilter && endDateFilter.trim()) {
       const filterDate = new Date(endDateFilter);
       filterDate.setHours(23, 59, 59, 999);
       filtered = filtered.filter(bill => {
@@ -350,6 +360,8 @@ const ReceptionistBilling = () => {
         return billDate <= filterDate;
       });
     }
+
+    console.log('📊 After filtering:', filtered.length, 'bills remain');
 
     // Amount filters
     if (minAmountFilter) {
@@ -1263,7 +1275,7 @@ const ReceptionistBilling = () => {
         onSubmit={handleSubmitBill}
         loading={processing}
         services={[]} // Empty services array for products-only mode
-        stylists={[]} // Empty stylists array for products-only mode
+        stylists={stylists} // Pass stylists for commissioner selection
         clients={clients}
         mode="products-only" // Special mode for direct product sales
       />

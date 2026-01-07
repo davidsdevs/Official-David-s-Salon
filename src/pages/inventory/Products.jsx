@@ -63,7 +63,8 @@ const Products = () => {
     status: 'all',
     supplier: 'all',
     priceRange: { min: '', max: '' },
-    commissionRange: { min: '', max: '' }
+    commissionRange: { min: '', max: '' },
+    showServiceMapped: true // Default to showing service-mapped products
   });
 
   // Load suppliers
@@ -85,26 +86,88 @@ const Products = () => {
     }
   };
 
-  // Load products - only products available to this branch (we offer)
+  // Load products - flexible filtering for branch products and service-mapped products
   const loadProducts = async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      const result = await productService.getAllProducts();
-      if (result.success) {
-        // Filter to only show products available to this branch
-        const branchProducts = result.products.filter(product => {
-          // Check if product is available to this branch
-          if (product.branches && Array.isArray(product.branches)) {
-            return product.branches.includes(userData?.branchId);
-          }
-          // If no branches specified, include it (backward compatibility)
-          return true;
+
+      const [productsResult, servicesResult] = await Promise.all([
+        productService.getBranchProducts(userData?.branchId),
+        getAllServices()
+      ]);
+
+      if (productsResult.success) {
+        let allProducts = productsResult.products;
+
+        // Get products that are used in services (service mappings)
+        const serviceMappedProductIds = new Set();
+        if (servicesResult && Array.isArray(servicesResult)) {
+          console.log(`🔍 Processing ${servicesResult.length} services for product mappings`);
+          console.log('📋 Services loaded:', servicesResult.map(s => ({ id: s.id, name: s.name, mappingsCount: s.productMappings?.length || 0 })));
+
+          servicesResult.forEach(service => {
+            console.log(`🔎 Checking service: ${service.name} (${service.id})`);
+            if (service.productMappings && Array.isArray(service.productMappings)) {
+              console.log(`  📦 Service ${service.name} has ${service.productMappings.length} product mappings:`);
+              service.productMappings.forEach((mapping, index) => {
+                console.log(`    ${index + 1}. ${mapping.productName || 'Unknown'} (${mapping.productId || 'No ID'})`);
+                if (mapping.productId) {
+                  serviceMappedProductIds.add(mapping.productId);
+                  console.log(`       ✅ Added to service-mapped products: ${mapping.productId}`);
+                } else {
+                  console.log(`       ❌ Missing productId for mapping`);
+                }
+              });
+            } else {
+              console.log(`  ❌ Service ${service.name} has no productMappings array`);
+            }
+          });
+          console.log(`✅ Total service-mapped products found: ${serviceMappedProductIds.size}`);
+          console.log('🎯 Service-mapped product IDs:', Array.from(serviceMappedProductIds));
+        } else {
+          console.log('❌ No services loaded or servicesResult is not an array');
+        }
+
+        // Since we already filtered to only branch products, we just need to handle service mapping checkbox
+        // If checkbox is checked, add any additional service-mapped products not already included
+        let filteredProducts = allProducts;
+
+        if (filters.showServiceMapped) {
+          // When checkbox is checked, show ONLY products with service mappings
+          filteredProducts = allProducts.filter(product => {
+            const hasServiceMapping = serviceMappedProductIds.has(product.id);
+            return hasServiceMapping;
+          });
+          console.log(`🎯 Service mapping checkbox is checked - showing ${filteredProducts.length} products with service mappings`);
+        } else {
+          // When checkbox is unchecked, show all branch products
+          filteredProducts = allProducts;
+          console.log(`📦 Service mapping checkbox is unchecked - showing ${allProducts.length} branch products`);
+        }
+
+        console.log(`📊 Branch products loaded: ${allProducts.length} (Branch: ${userData?.branchId})`);
+        console.log(`🔍 Service mapping filter: ${filters.showServiceMapped ? 'ENABLED' : 'DISABLED'}`);
+        console.log(`✅ Final display: ${filteredProducts.length} products`);
+
+        // Add service mapping info to products
+        const productsWithServiceInfo = filteredProducts.map(product => {
+          const hasServiceMapping = serviceMappedProductIds.has(product.id);
+          // All products from getBranchProducts are already branch products
+          const isBranchProduct = true;
+
+          console.log(`🏷️ Branch Product: ${product.name} (${product.id}) - Service Mapped: ${hasServiceMapping}`);
+
+          return {
+            ...product,
+            hasServiceMapping,
+            isBranchProduct
+          };
         });
-        setProducts(branchProducts);
+
+        setProducts(productsWithServiceInfo);
       } else {
-        throw new Error(result.message || 'Failed to load products');
+        throw new Error(productsResult.message || 'Failed to load products');
       }
     } catch (err) {
       console.error('Error loading products:', err);
@@ -130,6 +193,12 @@ const Products = () => {
     loadServices();
     loadProducts();
   }, []);
+
+  // Reload products when service mapping filter changes
+  useEffect(() => {
+    console.log(`🔄 Service mapping filter changed: ${filters.showServiceMapped}`);
+    loadProducts();
+  }, [filters.showServiceMapped]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -209,54 +278,277 @@ const Products = () => {
       status: 'all',
       supplier: 'all',
       priceRange: { min: '', max: '' },
-      commissionRange: { min: '', max: '' }
+      commissionRange: { min: '', max: '' },
+      showServiceMapped: true
     });
     setSearchTerm('');
   };
 
   // Print/Report function for branch manager viewing
-  const handlePrintReport = () => {
+  const handlePrintReport = async () => {
     if (!filteredProducts.length) {
       toast.error('No products to print');
       return;
     }
 
-    // Create a print-friendly HTML content
+    // Get branch name if not available in userData
+    let branchName = userData?.branchName || 'N/A';
+    if (branchName === 'N/A' && userData?.branchId) {
+      try {
+        const { getBranchById } = await import('../../services/branchService');
+        const branch = await getBranchById(userData.branchId);
+        branchName = branch?.name || branch?.branchName || 'N/A';
+      } catch (error) {
+        console.error('Error fetching branch name:', error);
+        branchName = 'N/A';
+      }
+    }
+
+    // Create a beautiful PDF-friendly HTML content with Poppins font
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Products Report - ${userData?.branchName || 'Branch'}</title>
+          <title>Products Report - ${branchName}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
           <style>
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
             @media print {
-              @page { margin: 1cm; }
+              @page {
+                margin: 1cm;
+                size: A4 landscape;
+              }
+              body {
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+              }
+              .no-print { display: none; }
             }
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            h1 { color: #160B53; margin-bottom: 10px; }
-            .header-info { margin-bottom: 20px; color: #666; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background-color: #f3f4f6; font-weight: bold; }
-            .status-active { color: green; }
-            .status-inactive { color: red; }
-            .footer { margin-top: 30px; font-size: 12px; color: #666; }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              font-family: 'Poppins', sans-serif;
+              padding: 20px;
+              color: #333;
+              line-height: 1.5;
+              background: white;
+              margin: 0;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 3px solid #160B53;
+              padding-bottom: 20px;
+              margin-bottom: 30px;
+              background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+              padding: 20px;
+              border-radius: 8px;
+            }
+            .header h1 {
+              color: #160B53;
+              margin: 0;
+              font-size: 32px;
+              font-weight: 700;
+              font-family: 'Poppins', sans-serif;
+              letter-spacing: -0.5px;
+            }
+            .header-info {
+              display: flex;
+              flex-direction: column;
+              gap: 5px;
+              font-size: 12px;
+              color: #666;
+              text-align: right;
+            }
+            .header-info div {
+              font-weight: 500;
+            }
+            .stats {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 20px;
+              margin-bottom: 30px;
+              padding: 20px;
+              background: #f9f9f9;
+              border-radius: 8px;
+              border: 1px solid #ccc;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 15px;
+              background: white;
+              border-radius: 6px;
+              border: 1px solid #999;
+              box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            }
+            .stat-value {
+              font-size: 24px;
+              font-weight: 700;
+              color: #000;
+              font-family: 'Poppins', sans-serif;
+              margin-bottom: 5px;
+            }
+            .stat-label {
+              font-size: 11px;
+              color: #666;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              font-weight: 600;
+              font-family: 'Poppins', sans-serif;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 25px;
+              font-size: 10px;
+              font-family: 'Poppins', sans-serif;
+              border-radius: 8px;
+              overflow: hidden;
+              box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }
+            th, td {
+              border: 1px solid #e9ecef;
+              padding: 10px 8px;
+              text-align: left;
+              vertical-align: middle;
+            }
+            th {
+              background: #000;
+              color: white;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              font-size: 9px;
+              font-family: 'Poppins', sans-serif;
+              position: sticky;
+              top: 0;
+              z-index: 10;
+              border: 1px solid #666;
+            }
+            tbody tr:nth-child(even) {
+              background-color: #f8f9fa;
+            }
+            tbody tr:nth-child(odd) {
+              background-color: #ffffff;
+            }
+            tbody tr:hover {
+              background-color: #e3f2fd;
+            }
+            .status-active {
+              color: #000;
+              font-weight: 700;
+              font-family: 'Poppins', sans-serif;
+            }
+            .status-inactive {
+              color: #666;
+              font-weight: 700;
+              font-family: 'Poppins', sans-serif;
+            }
+            .status-discontinued {
+              color: #999;
+              font-weight: 700;
+              font-family: 'Poppins', sans-serif;
+            }
+            .product-type {
+              display: inline-block;
+              padding: 3px 8px;
+              border-radius: 12px;
+              font-size: 8px;
+              font-weight: 700;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-family: 'Poppins', sans-serif;
+              background: #e0e0e0;
+              color: #000;
+              border: 1px solid #999;
+            }
+            .price-otc {
+              color: #000;
+              font-weight: 700;
+              font-family: 'Poppins', sans-serif;
+            }
+            .image-cell {
+              width: 35px;
+              text-align: center;
+            }
+            .image-cell img {
+              width: 28px;
+              height: 28px;
+              object-fit: cover;
+              border-radius: 4px;
+              border: 1px solid #e9ecef;
+            }
+            .footer {
+              margin-top: 40px;
+              padding-top: 20px;
+              border-top: 2px solid #000;
+              font-size: 9px;
+              color: #333;
+              text-align: center;
+              font-family: 'Poppins', sans-serif;
+              background: #f0f0f0;
+              padding: 15px;
+              border-radius: 4px;
+            }
+            .image-cell {
+              width: 40px;
+              text-align: center;
+            }
+            .image-cell img {
+              width: 32px;
+              height: 32px;
+              object-fit: cover;
+              border-radius: 4px;
+            }
           </style>
         </head>
         <body>
-          <h1>Products Report</h1>
-          <div class="header-info">
-            <p><strong>Branch:</strong> ${userData?.branchName || 'N/A'}</p>
-            <p><strong>Generated:</strong> ${format(new Date(), 'MMM dd, yyyy HH:mm')}</p>
-            <p><strong>Total Products:</strong> ${filteredProducts.length}</p>
+          <div class="header">
+            <h1 style="font-family: 'Poppins', sans-serif; font-size: 36px; font-weight: 700; margin-bottom: 5px; color: #000;">Products Catalog Report</h1>
+            <div style="font-size: 14px; color: #333; font-weight: 500;">Professional Inventory Report</div>
+            <div style="margin-top: 15px; padding: 10px; background: #f5f5f5; border: 1px solid #ccc; border-radius: 4px;">
+              <div style="display: flex; justify-content: space-between; font-size: 11px; color: #000;">
+                <div><strong>Branch:</strong> ${branchName}</div>
+                <div><strong>Generated by:</strong> ${userData?.name || 'System User'}</div>
+                <div><strong>Date:</strong> ${format(new Date(), 'MMM dd, yyyy HH:mm')}</div>
+              </div>
+            </div>
           </div>
+
+          <div class="stats">
+            <div class="stat-box">
+              <div class="stat-value">${filteredProducts.length}</div>
+              <div class="stat-label">Total Products</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${filteredProducts.filter(p => p.status === 'Active').length}</div>
+              <div class="stat-label">Active Products</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${filteredProducts.filter(p => p.hasServiceMapping).length}</div>
+              <div class="stat-label">Service Mapped</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${[...new Set(filteredProducts.map(p => p.category).filter(Boolean))].length}</div>
+              <div class="stat-label">Categories</div>
+            </div>
+          </div>
+
           <table>
             <thead>
               <tr>
-                <th>Name</th>
+                <th style="width: 40px;">Image</th>
+                <th>Product Name</th>
                 <th>Brand</th>
                 <th>Category</th>
+                <th>Type</th>
                 <th>UPC</th>
-                <th>OTC Price</th>
+                <th>Price</th>
                 <th>Unit Cost</th>
                 <th>Status</th>
               </tr>
@@ -264,34 +556,99 @@ const Products = () => {
             <tbody>
               ${filteredProducts.map(product => `
                 <tr>
-                  <td>${product.name || 'N/A'}</td>
+                  <td class="image-cell">
+                    ${product.imageUrl ? `<img src="${product.imageUrl}" alt="${product.name}" />` : '📦'}
+                  </td>
+                  <td style="font-weight: 600; color: #160B53;">${product.name || 'N/A'}</td>
                   <td>${product.brand || 'N/A'}</td>
                   <td>${product.category || 'N/A'}</td>
-                  <td>${product.upc || 'N/A'}</td>
-                  <td>₱${(product.otcPrice || 0).toLocaleString()}</td>
+                  <td>
+                    <span class="product-type ${product.isBranchProduct ? 'branch-product' : 'service-mapped'}">
+                      ${product.isBranchProduct ? 'Branch' : 'Service'}
+                    </span>
+                  </td>
+                  <td style="font-family: monospace;">${product.upc || 'N/A'}</td>
+                  <td class="price-otc">₱${(product.otcPrice || 0).toLocaleString()}</td>
                   <td>₱${(product.unitCost || 0).toLocaleString()}</td>
                   <td class="status-${product.status?.toLowerCase() || 'active'}">${product.status || 'Active'}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
+
           <div class="footer">
-            <p>This report is for branch manager viewing purposes only.</p>
+            <p><strong>Generated by:</strong> ${userData?.name || 'Inventory Controller'} | <strong>Date:</strong> ${format(new Date(), 'MMMM dd, yyyy')}</p>
+            <p>This professional report is for branch management and inventory control purposes.</p>
           </div>
         </body>
       </html>
     `;
 
-    // Open print window
-    const printWindow = window.open('', '_blank');
+    // Open PDF-friendly print preview window and automatically trigger print dialog
+    const printWindow = window.open('', '_blank', 'width=1200,height=900,scrollbars=yes,resizable=yes');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to generate the PDF report');
+      return;
+    }
+
     printWindow.document.write(printContent);
     printWindow.document.close();
-    printWindow.focus();
-    
-    // Wait for content to load, then print
+
+    // Automatically trigger print dialog after content loads
+    printWindow.onload = function() {
+      // Add a subtle loading message that disappears when print dialog opens
+      const loadingMsg = printWindow.document.createElement('div');
+      loadingMsg.innerHTML = `
+        <div style="
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: rgba(255, 255, 255, 0.95);
+          color: #000;
+          padding: 20px 30px;
+          border-radius: 10px;
+          font-family: 'Poppins', sans-serif;
+          font-size: 14px;
+          font-weight: 600;
+          text-align: center;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+          z-index: 10000;
+          border: 2px solid #000;
+        ">
+          <div style="margin-bottom: 10px;">📄 Preparing PDF Report...</div>
+          <div style="font-size: 12px; color: #666; font-weight: 400;">Print dialog will open automatically</div>
+        </div>
+      `;
+      printWindow.document.body.appendChild(loadingMsg);
+
+      // Small delay to ensure content is fully rendered, then trigger print
+      setTimeout(() => {
+        // Hide loading message
+        loadingMsg.style.display = 'none';
+
+        // Trigger the browser's print dialog
+        printWindow.print();
+      }, 800);
+    };
+
+    // Auto-close after printing
+    printWindow.onafterprint = function() {
+      setTimeout(() => {
+        if (!printWindow.closed) {
+          printWindow.close();
+        }
+      }, 1000);
+    };
+
+    // Fallback: close after 30 seconds if user doesn't print
     setTimeout(() => {
-      printWindow.print();
-    }, 250);
+      if (!printWindow.closed) {
+        printWindow.close();
+      }
+    }, 30000);
+
+    toast.success('PDF report generated - print dialog will open automatically');
   };
 
   // Export products to Excel
@@ -303,34 +660,38 @@ const Products = () => {
 
     try {
       const headers = [
+        { key: 'imageUrl', label: 'Image URL' },
         { key: 'name', label: 'Name' },
         { key: 'brand', label: 'Brand' },
         { key: 'category', label: 'Category' },
         { key: 'description', label: 'Description' },
         { key: 'upc', label: 'UPC' },
-        { key: 'otcPrice', label: 'OTC Price (₱)' },
-        { key: 'salonUsePrice', label: 'Salon Use Price (₱)' },
+        { key: 'otcPrice', label: 'Price (₱)' },
         { key: 'unitCost', label: 'Unit Cost (₱)' },
         { key: 'commissionPercentage', label: 'Commission Percentage (%)' },
         { key: 'status', label: 'Status' },
+        { key: 'productType', label: 'Product Type' },
+        { key: 'hasServiceMapping', label: 'Used in Services' },
         { key: 'variants', label: 'Variants' },
         { key: 'shelfLife', label: 'Shelf Life' },
         { key: 'suppliers', label: 'Suppliers' }
       ];
 
-      // Prepare data with formatted suppliers
+      // Prepare data with formatted suppliers and additional fields
       const exportData = filteredProducts.map(product => {
-        const suppliers = Array.isArray(product.suppliers) 
+        const suppliers = Array.isArray(product.suppliers)
           ? product.suppliers.join('; ')
           : (product.supplier || '');
-        
+
         return {
           ...product,
+          imageUrl: product.imageUrl || '',
           suppliers: suppliers,
           otcPrice: product.otcPrice || 0,
-          salonUsePrice: product.salonUsePrice || 0,
           unitCost: product.unitCost || 0,
-          commissionPercentage: product.commissionPercentage || 0
+          commissionPercentage: product.commissionPercentage || 0,
+          productType: product.isBranchProduct ? 'Branch Product' : 'Service Mapped',
+          hasServiceMapping: product.hasServiceMapping ? 'Yes' : 'No'
         };
       });
 
@@ -359,7 +720,6 @@ const Products = () => {
             description: row.Description || row.description || '',
             upc: row.UPC || row.upc || '',
             otcPrice: parseFloat(row['OTC Price'] || row.otcPrice || 0),
-            salonUsePrice: parseFloat(row['Salon Use Price'] || row.salonUsePrice || 0),
             unitCost: parseFloat(row['Unit Cost'] || row.unitCost || 0),
             commissionPercentage: parseFloat(row['Commission Percentage'] || row.commissionPercentage || 0),
             status: row.Status || row.status || 'Active',
@@ -457,13 +817,13 @@ const Products = () => {
           <p className="text-sm md:text-base text-gray-600">Manage your product inventory and details</p>
         </div>
         <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="flex items-center gap-2 text-xs md:text-sm"
             onClick={handlePrintReport}
           >
             <Printer className="h-4 w-4" />
-            <span className="hidden sm:inline">Report</span>
+            <span className="hidden sm:inline">PDF Report</span>
           </Button>
           <Button 
             variant="outline" 
@@ -516,6 +876,15 @@ const Products = () => {
               <option value="Inactive">Inactive</option>
               <option value="Discontinued">Discontinued</option>
             </select>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={filters.showServiceMapped}
+                onChange={(e) => setFilters(prev => ({ ...prev, showServiceMapped: e.target.checked }))}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              Show products with service mapping
+            </label>
             <Button
               variant="outline"
               onClick={() => setIsFilterModalOpen(true)}
@@ -536,76 +905,126 @@ const Products = () => {
         </div>
       </Card>
 
-      {/* Products Grid - 5 per row */}
-      <Card className="p-4 md:p-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-          {paginatedProducts.map((product) => (
-            <div key={product.id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-              {/* Product Image */}
-              <div className="w-full h-32 bg-gray-100 rounded-lg flex items-center justify-center mb-3">
-                {product.imageUrl ? (
-                  <img
-                    src={product.imageUrl}
-                    alt={product.name}
-                    className="w-full h-full object-cover rounded-lg"
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                      if (e.target.nextSibling) {
-                        e.target.nextSibling.style.display = 'flex';
-                      }
-                    }}
-                  />
-                ) : null}
-                <div className="w-full h-full flex items-center justify-center" style={{ display: product.imageUrl ? 'none' : 'flex' }}>
-                  <Package className="h-12 w-12 text-gray-400" />
-                </div>
-              </div>
+      {/* Products Table */}
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Product
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Brand & Category
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Price & Cost
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status & Type
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {paginatedProducts.map((product) => (
+                <tr key={product.id} className="hover:bg-gray-50">
+                  {/* Product Info */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 h-12 w-12 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+                        {product.imageUrl ? (
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                              if (e.target.nextSibling) {
+                                e.target.nextSibling.style.display = 'flex';
+                              }
+                            }}
+                          />
+                        ) : null}
+                        <div className="h-full w-full flex items-center justify-center" style={{ display: product.imageUrl ? 'none' : 'flex' }}>
+                          <Package className="h-6 w-6 text-gray-400" />
+                        </div>
+                      </div>
+                      <div className="ml-4">
+                        <div className="text-sm font-medium text-gray-900 line-clamp-1 max-w-xs">
+                          {product.name}
+                        </div>
+                        <div className="text-sm text-gray-500">{product.upc || 'No UPC'}</div>
+                        {product.hasServiceMapping && (
+                          <div className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 mt-1">
+                            <Scissors className="w-3 h-3 mr-1" />
+                            Used in Services
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
 
-              {/* Product Info */}
-              <div className="space-y-2">
-                <h3 className="font-semibold text-gray-900 text-sm line-clamp-2">{product.name}</h3>
-                <p className="text-xs text-gray-500">{product.brand || 'N/A'}</p>
-                <p className="text-xs text-gray-400 line-clamp-1">{product.category || 'N/A'}</p>
-                
-                {/* Prices */}
-                <div className="space-y-1 pt-2 border-t border-gray-100">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500">OTC:</span>
-                    <span className="text-sm font-semibold text-green-600">₱{product.otcPrice?.toLocaleString() || '0'}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500">Salon:</span>
-                    <span className="text-sm font-semibold text-blue-600">₱{product.salonUsePrice?.toLocaleString() || '0'}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500">Cost:</span>
-                    <span className="text-xs text-gray-700">₱{product.unitCost?.toLocaleString() || '0'}</span>
-                  </div>
-                </div>
+                  {/* Brand & Category */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{product.brand || 'N/A'}</div>
+                    <div className="text-sm text-gray-500">{product.category || 'N/A'}</div>
+                  </td>
 
-                {/* Status */}
-                <div className="pt-2">
-                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
-                    {getStatusIcon(product.status)}
-                    {product.status}
-                  </span>
-                </div>
+                  {/* Pricing */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Price:</span>
+                        <span className="font-medium text-green-600">₱{product.otcPrice?.toLocaleString() || '0'}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Cost:</span>
+                        <span className="text-gray-700">₱{product.unitCost?.toLocaleString() || '0'}</span>
+                      </div>
+                    </div>
+                  </td>
 
-                {/* Actions */}
-                <div className="pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleViewDetails(product)}
-                    className="w-full flex items-center justify-center gap-2"
-                  >
-                    <Eye className="h-4 w-4" />
-                    View Details
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ))}
+                  {/* Status & Type */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="space-y-2">
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
+                        {getStatusIcon(product.status)}
+                        {product.status || 'Active'}
+                      </span>
+                      <div className="text-xs text-gray-500 space-y-1">
+                        <div className="flex items-center gap-1">
+                          <Package className="w-3 h-3 text-green-600" />
+                          <span>Branch Product</span>
+                        </div>
+                        {product.hasServiceMapping && (
+                          <div className="flex items-center gap-1 text-purple-600">
+                            <Scissors className="w-3 h-3" />
+                            <span>Service Mapped</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Actions */}
+                  <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleViewDetails(product)}
+                      className="flex items-center gap-2"
+                    >
+                      <Eye className="h-4 w-4" />
+                      View
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
         {/* Pagination */}
@@ -739,10 +1158,15 @@ const Products = () => {
                       if (!service.productMappings || !Array.isArray(service.productMappings)) {
                         return false;
                       }
-                      return service.productMappings.some(mapping => 
+                      return service.productMappings.some(mapping =>
                         mapping.productId === selectedProduct.id
                       );
                     });
+
+                    console.log(`🔍 Service mappings for ${selectedProduct.name} (${selectedProduct.id}):`);
+                    console.log(`  - Total services loaded: ${services.length}`);
+                    console.log(`  - Services with product mappings: ${services.filter(s => s.productMappings?.length > 0).length}`);
+                    console.log(`  - Mapped services found: ${mappedServices.length}`, mappedServices.map(s => s.name));
 
                     if (mappedServices.length > 0) {
                       return (
@@ -757,7 +1181,9 @@ const Products = () => {
                       );
                     } else {
                       return (
-                        <p className="text-gray-500 mt-1 text-sm">No services mapped</p>
+                        <p className="text-gray-500 mt-1 text-sm">
+                          {services.length === 0 ? 'Loading services...' : 'No services mapped'}
+                        </p>
                       );
                     }
                   })()}
@@ -921,6 +1347,19 @@ const Products = () => {
               </div>
             </div>
 
+            <div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={filters.showServiceMapped}
+                  onChange={(e) => setFilters(prev => ({ ...prev, showServiceMapped: e.target.checked }))}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="font-medium text-gray-700">Show products with service mapping</span>
+              </label>
+              <p className="text-xs text-gray-500 mt-1">Include products that are used in services even if not directly offered by this branch</p>
+            </div>
+
             <div className="flex justify-end gap-3 pt-4">
               <Button variant="outline" onClick={resetFilters}>
                 Reset
@@ -940,7 +1379,7 @@ const Products = () => {
         onImport={handleImport}
         templateColumns={[
           'Name', 'Brand', 'Category', 'Description', 'UPC',
-          'OTC Price', 'Salon Use Price', 'Unit Cost', 'Commission Percentage',
+          'Price', 'Unit Cost', 'Commission Percentage',
           'Status', 'Variants', 'Shelf Life', 'Suppliers'
         ]}
         templateName="products"
@@ -952,7 +1391,6 @@ const Products = () => {
             Description: 'Professional salon shampoo',
             UPC: '123456789012',
             'OTC Price': '850',
-            'Salon Use Price': '650',
             'Unit Cost': '450',
             'Commission Percentage': '15',
             Status: 'Active',
@@ -966,7 +1404,6 @@ const Products = () => {
           Brand: { required: true },
           Category: { required: true },
           'OTC Price': { type: 'number' },
-          'Salon Use Price': { type: 'number' },
           'Unit Cost': { type: 'number' }
         }}
         title="Import Products"

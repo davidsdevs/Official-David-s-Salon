@@ -357,21 +357,21 @@ const Commissions = () => {
       csvContent += 'Commission Transaction\n';
       const transactionHeaders = ['Date', 'Stylist', 'Product', 'Quantity', 'Unit Cost (₱)', 'Commission %', 'Commission Amount (₱)', 'Total Sale (₱)', 'Client', 'Receipt #'];
       const transactionRows = filteredTransactions.map(t => {
-        const date = t.transactionDate?.toDate ? formatDate(t.transactionDate.toDate(), 'MMM dd, yyyy HH:mm') : 'N/A';
-        return [
-          date,
-          t.commissionerName,
-          t.productName,
-          t.quantity,
+      const date = t.transactionDate?.toDate ? formatDate(t.transactionDate.toDate(), 'MMM dd, yyyy HH:mm') : 'N/A';
+      return [
+        date,
+        t.commissionerName,
+        t.productName,
+        t.quantity,
           t.unitCost.toFixed(2),
-          `${t.commissionPercentage}%`,
+        `${t.commissionPercentage}%`,
           t.commissionPoints.toFixed(2),
           t.totalAmount.toFixed(2),
-          t.clientName,
-          t.receiptNumber
-        ];
-      });
-
+        t.clientName,
+        t.receiptNumber
+      ];
+    });
+    
       csvContent += [transactionHeaders, ...transactionRows].map(row => row.join(',')).join('\n');
     }
 
@@ -491,7 +491,7 @@ const Commissions = () => {
             <Banknote className="h-10 w-10 text-purple-200" />
           </div>
         </div>
-
+        
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -503,7 +503,7 @@ const Commissions = () => {
             <TrendingUp className="h-10 w-10 text-green-200" />
           </div>
         </div>
-
+        
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -640,22 +640,22 @@ const Commissions = () => {
           <h2 className="text-lg font-semibold text-gray-900">Commission Transaction</h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stylist</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Cost</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commission %</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sale</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Receipt #</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stylist</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Cost</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commission %</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sale</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Receipt #</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
               {filteredTransactions.length === 0 ? (
                 <tr>
                   <td colSpan="10" className="px-6 py-12 text-center">
@@ -665,10 +665,10 @@ const Commissions = () => {
                 </tr>
               ) : (
                 filteredTransactions.map((transaction) => {
-                  const date = transaction.transactionDate?.toDate
+                  const date = transaction.transactionDate?.toDate 
                     ? formatDate(transaction.transactionDate.toDate(), 'MMM dd, yyyy HH:mm')
                     : formatDate(transaction.transactionDate, 'MMM dd, yyyy HH:mm');
-
+                  
                   return (
                     <tr key={transaction.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{date}</td>
@@ -694,8 +694,8 @@ const Commissions = () => {
                   );
                 })
               )}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
         </div>
       </div>
 

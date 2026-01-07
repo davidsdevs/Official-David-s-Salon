@@ -381,11 +381,25 @@ class InventoryService {
       const stocks = stocksResult.stocks;
       const totalProducts = stocks.length;
       const totalValue = stocks.reduce((sum, stock) => {
-        return sum + ((stock.currentStock || 0) * (stock.unitCost || 0));
+        const stockQuantity = stock.realTimeStock || stock.remainingQuantity || stock.beginningStock || 0;
+        return sum + (stockQuantity * (stock.unitCost || 0));
       }, 0);
-      const inStockCount = stocks.filter(s => s.status === 'In Stock').length;
-      const lowStockCount = stocks.filter(s => s.status === 'Low Stock').length;
-      const outOfStockCount = stocks.filter(s => s.status === 'Out of Stock').length;
+
+      // Calculate stock levels based on realTimeStock
+      const inStockCount = stocks.filter(s => {
+        const stockLevel = s.realTimeStock || s.remainingQuantity || s.beginningStock || 0;
+        return stockLevel > 10; // Consider in stock if > 10 units
+      }).length;
+
+      const lowStockCount = stocks.filter(s => {
+        const stockLevel = s.realTimeStock || s.remainingQuantity || s.beginningStock || 0;
+        return stockLevel > 0 && stockLevel <= 10; // Low stock: 1-10 units
+      }).length;
+
+      const outOfStockCount = stocks.filter(s => {
+        const stockLevel = s.realTimeStock || s.remainingQuantity || s.beginningStock || 0;
+        return stockLevel === 0; // Out of stock: 0 units
+      }).length;
 
       return {
         success: true,

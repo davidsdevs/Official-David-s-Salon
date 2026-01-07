@@ -15,6 +15,8 @@ import {
   updateDoc,
   getDoc,
   Timestamp,
+  addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import {
   Home,
@@ -300,12 +302,50 @@ const StylistPortfolios = () => {
       setProcessingId(portfolioId);
       setError(null);
       setSuccessMessage(null);
+      
+      // Get portfolio details before updating
       const portfolioRef = doc(db, "portfolio", portfolioId);
+      const portfolioSnap = await getDoc(portfolioRef);
+      const portfolioData = portfolioSnap.data();
+      
       await updateDoc(portfolioRef, {
         status: "active",
         approvedAt: Timestamp.now(),
         approvedBy: userData.uid,
       });
+      
+      // Create notification for stylist
+      try {
+        // Get branch name if available
+        let branchName = 'Branch';
+        if (userData.branchId) {
+          try {
+            const branchDoc = await getDoc(doc(db, 'branches', userData.branchId));
+            if (branchDoc.exists()) {
+              branchName = branchDoc.data().name || branchDoc.data().branchName || 'Branch';
+            }
+          } catch (branchError) {
+            console.error('Error fetching branch name:', branchError);
+          }
+        }
+        
+        await addDoc(collection(db, "notifications"), {
+          type: "portfolio_approved",
+          title: "Portfolio Approved",
+          message: `Your portfolio entry "${portfolioData.title || 'Untitled'}" has been approved by ${userData.firstName || ''} ${userData.lastName || ''}`,
+          recipientId: portfolioData.stylistId,
+          recipientRole: "stylist",
+          portfolioId: portfolioId,
+          portfolioTitle: portfolioData.title || 'Untitled',
+          category: portfolioData.category || '',
+          branchId: userData.branchId || '',
+          branchName: branchName,
+          createdAt: serverTimestamp(),
+          isRead: false,
+        });
+      } catch (notifError) {
+        console.error("Error creating notification:", notifError);
+      }
       
       setSuccessMessage("Portfolio approved successfully!");
       fetchPortfolios(currentPage);
@@ -336,13 +376,52 @@ const StylistPortfolios = () => {
       setProcessingId(portfolioToReject);
       setError(null);
       setSuccessMessage(null);
+      
+      // Get portfolio details before updating
       const portfolioRef = doc(db, "portfolio", portfolioToReject);
+      const portfolioSnap = await getDoc(portfolioRef);
+      const portfolioData = portfolioSnap.data();
+      
       await updateDoc(portfolioRef, {
         status: "rejected",
         rejectedAt: Timestamp.now(),
         rejectedBy: userData.uid,
         rejectionRemark: rejectionRemark.trim(),
       });
+      
+      // Create notification for stylist
+      try {
+        // Get branch name if available
+        let branchName = 'Branch';
+        if (userData.branchId) {
+          try {
+            const branchDoc = await getDoc(doc(db, 'branches', userData.branchId));
+            if (branchDoc.exists()) {
+              branchName = branchDoc.data().name || branchDoc.data().branchName || 'Branch';
+            }
+          } catch (branchError) {
+            console.error('Error fetching branch name:', branchError);
+          }
+        }
+        
+        await addDoc(collection(db, "notifications"), {
+          type: "portfolio_rejected",
+          title: "Portfolio Rejected",
+          message: `Your portfolio entry "${portfolioData.title || 'Untitled'}" has been rejected. Reason: ${rejectionRemark.trim()}`,
+          recipientId: portfolioData.stylistId,
+          recipientRole: "stylist",
+          portfolioId: portfolioToReject,
+          portfolioTitle: portfolioData.title || 'Untitled',
+          category: portfolioData.category || '',
+          rejectionRemark: rejectionRemark.trim(),
+          branchId: userData.branchId || '',
+          branchName: branchName,
+          createdAt: serverTimestamp(),
+          isRead: false,
+        });
+      } catch (notifError) {
+        console.error("Error creating notification:", notifError);
+      }
       
       setSuccessMessage("Portfolio rejected successfully");
       setRejectModalOpen(false);

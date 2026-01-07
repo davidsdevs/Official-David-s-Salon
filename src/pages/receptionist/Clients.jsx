@@ -5,9 +5,9 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Eye, History, ChevronUp, ChevronDown, Download, Phone, Mail, User } from 'lucide-react';
+import { Search, Eye, History, ChevronUp, ChevronDown, Download, Phone, Mail, User, UserCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { getClients, searchClients, getClientProfile, updateClientProfile } from '../../services/clientService';
+import { getClients, getClientsByBranchWithTransactions, searchClients, getClientProfile, updateClientProfile } from '../../services/clientService';
 import { getLoyaltyPoints, getLoyaltyHistory } from '../../services/loyaltyService';
 import { getServiceHistory } from '../../services/clientService';
 import { getReferralCode } from '../../services/referralService';
@@ -66,7 +66,8 @@ const ReceptionistClients = () => {
   const fetchClients = async () => {
     try {
       setLoading(true);
-      const data = await getClients();
+      // Only show clients that have transactions in this branch
+      const data = await getClientsByBranchWithTransactions(userBranch);
       setClients(data);
     } catch (error) {
       console.error('Error fetching clients:', error);
@@ -85,7 +86,7 @@ const ReceptionistClients = () => {
     try {
       const [points, history] = await Promise.all([
         userBranch ? getLoyaltyPoints(clientId, userBranch).catch(() => 0) : Promise.resolve(0),
-        getServiceHistory(clientId, 1).catch(() => [])
+        getServiceHistory(clientId, 1, userBranch).catch(() => [])
       ]);
       
       const stats = {
@@ -234,7 +235,7 @@ const ReceptionistClients = () => {
         setLoyaltyPoints(0);
       }
       
-      const history = await getServiceHistory(client.id, 10);
+      const history = await getServiceHistory(client.id, 10, userBranch);
       setServiceHistory(history);
       
       const loyalty = await getLoyaltyHistory(client.id, userBranch, 10);
@@ -260,7 +261,7 @@ const ReceptionistClients = () => {
       setSelectedClient(client);
       setShowHistoryModal(true);
       
-      const history = await getServiceHistory(client.id, 50);
+      const history = await getServiceHistory(client.id, 50, userBranch);
       setServiceHistory(history);
       
       const loyalty = await getLoyaltyHistory(client.id, 50);
@@ -293,10 +294,14 @@ const ReceptionistClients = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Client Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Client Relationship Management</h1>
           <p className="text-gray-600">
-            {filteredClients.length} {filteredClients.length === 1 ? 'client' : 'clients'}
-            {filteredClients.length !== clients.length && ` of ${clients.length} total`}
+            Understanding client preferences and building lasting relationships
+            <br />
+            <span className="text-sm text-gray-500">
+              {filteredClients.length} {filteredClients.length === 1 ? 'client' : 'clients'}
+              {filteredClients.length !== clients.length && ` of ${clients.length} total`} with transactions in your branch
+            </span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -327,46 +332,141 @@ const ReceptionistClients = () => {
         </div>
       </Card>
 
+      {/* CRM Analytics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <Card>
+          <div className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Active Clients</p>
+                <p className="text-2xl font-bold text-gray-900">{clients.length}</p>
+                <p className="text-xs text-gray-500">With recent transactions</p>
+              </div>
+              <div className="p-2 bg-green-100 rounded-lg">
+                <User className="w-5 h-5 text-green-600" />
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Avg. Visits/Month</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {clients.length > 0
+                    ? (clients.reduce((sum, client) => sum + (clientStatsCache[client.id]?.visitCount || 0), 0) / clients.length).toFixed(1)
+                    : '0.0'
+                  }
+                </p>
+                <p className="text-xs text-gray-500">Per active client</p>
+              </div>
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <History className="w-5 h-5 text-blue-600" />
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Loyalty Members</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {clients.filter(client => (clientStatsCache[client.id]?.loyaltyPoints || 0) > 0).length}
+                </p>
+                <p className="text-xs text-gray-500">With points balance</p>
+              </div>
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <Phone className="w-5 h-5 text-purple-600" />
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Retention Rate</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {(() => {
+                    if (!clients.length) return '0%';
+
+                    const now = new Date();
+                    const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+                    const sixtyDaysAgo = new Date(now.getTime() - (60 * 24 * 60 * 60 * 1000));
+
+                    // Clients active in last 30 days (current period)
+                    const currentPeriodClients = clients.filter(client => {
+                      const lastVisit = clientStatsCache[client.id]?.lastVisit;
+                      return lastVisit && new Date(lastVisit) >= thirtyDaysAgo;
+                    });
+
+                    // Clients active in previous 30 days (31-60 days ago)
+                    const previousPeriodClients = clients.filter(client => {
+                      const lastVisit = clientStatsCache[client.id]?.lastVisit;
+                      const visitDate = new Date(lastVisit);
+                      return visitDate >= sixtyDaysAgo && visitDate < thirtyDaysAgo;
+                    });
+
+                    // Clients who were active in previous period AND current period (retained)
+                    const retainedClients = previousPeriodClients.filter(prevClient => {
+                      return currentPeriodClients.some(currClient => currClient.id === prevClient.id);
+                    });
+
+                    // True retention rate: (retained / previous period active) × 100
+                    const retentionRate = previousPeriodClients.length > 0
+                      ? Math.round((retainedClients.length / previousPeriodClients.length) * 100)
+                      : 0;
+
+                    return `${retentionRate}%`;
+                  })()}
+                </p>
+                <p className="text-xs text-gray-500">Monthly retention</p>
+              </div>
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <UserCheck className="w-5 h-5 text-orange-600" />
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+
       {/* Clients Table */}
       <Card>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th 
+                <th
                   className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                   onClick={() => handleSort('firstName')}
                 >
                   <div className="flex items-center">
-                    Name
+                    Client Name
                     <SortIcon column="firstName" />
                   </div>
                 </th>
-                <th 
+                <th
                   className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                   onClick={() => handleSort('email')}
                 >
                   <div className="flex items-center">
-                    Email
+                    Contact Info
                     <SortIcon column="email" />
                   </div>
                 </th>
-                <th 
-                  className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort('phoneNumber')}
-                >
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   <div className="flex items-center">
-                    Phone
-                    <SortIcon column="phoneNumber" />
+                    Relationship Insights
                   </div>
                 </th>
-                <th 
-                  className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort('createdAt')}
-                >
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   <div className="flex items-center">
-                    Created
-                    <SortIcon column="createdAt" />
+                    Loyalty & Activity
                   </div>
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -410,27 +510,59 @@ const ReceptionistClients = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center text-sm text-gray-900">
-                        {client.phoneNumber ? (
-                          <>
-                            <Phone className="w-4 h-4 mr-2 text-gray-400" />
-                            {client.phoneNumber}
-                          </>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
+                      <div className="text-sm">
+                        {(() => {
+                          const stats = clientStatsCache[client.id];
+                          if (!stats) return <span className="text-gray-400">Loading...</span>;
+
+                          const lastVisit = stats.lastVisit;
+                          const daysSinceLastVisit = lastVisit
+                            ? Math.floor((new Date() - new Date(lastVisit)) / (1000 * 60 * 60 * 24))
+                            : null;
+
+                          return (
+                            <div className="space-y-1">
+                              <div className="flex items-center text-gray-900">
+                                <History className="w-3 h-3 mr-1 text-blue-500" />
+                                Last: {lastVisit ? `${daysSinceLastVisit} days ago` : 'Never'}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {stats.visitCount} total visits
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                      {client.createdAt ? (
-                        new Date(client.createdAt).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        })
-                      ) : (
-                        '—'
-                      )}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm">
+                        {(() => {
+                          const stats = clientStatsCache[client.id];
+                          if (!stats) return <span className="text-gray-400">Loading...</span>;
+
+                          const points = stats.loyaltyPoints || 0;
+
+                          return (
+                            <div className="space-y-1">
+                              <div className="flex items-center text-gray-900">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                  points > 100 ? 'bg-green-100 text-green-800' :
+                                  points > 50 ? 'bg-blue-100 text-blue-800' :
+                                  points > 0 ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {points} pts
+                                </span>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {points > 100 ? 'VIP Client' :
+                                 points > 50 ? 'Regular Client' :
+                                 points > 0 ? 'Occasional' : 'New Client'}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center justify-end gap-2">

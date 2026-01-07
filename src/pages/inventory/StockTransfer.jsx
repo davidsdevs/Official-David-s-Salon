@@ -88,7 +88,8 @@ const StockTransfer = () => {
   const [isReviewBorrowModalOpen, setIsReviewBorrowModalOpen] = useState(false);
   const [selectedBorrowRequest, setSelectedBorrowRequest] = useState(null);
   const [approvedItems, setApprovedItems] = useState([]); // Items selected for approval
-  
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');  
   // Filter states
   const [filters, setFilters] = useState({
     status: 'all',
@@ -1239,7 +1240,9 @@ const StockTransfer = () => {
       const message = formData.transferType === 'borrow' 
         ? 'Borrow request created successfully! The lending branch will review your request.'
         : 'Stock transfer created successfully! Stock deducted from inventory.';
-      alert(message);
+      
+      setSuccessMessage(message);
+      setIsSuccessModalOpen(true);
       
     } catch (error) {
       console.error('Error creating transfer:', error);
@@ -2050,7 +2053,7 @@ const StockTransfer = () => {
           >
             <ArrowRight className="h-4 w-4" />
             Create Borrow Request
-            </Button>
+          </Button>
             <Button onClick={handleCreateTransfer} className="flex items-center gap-2">
               <Plus className="h-4 w-4" />
               Create Transfer
@@ -2219,18 +2222,54 @@ const StockTransfer = () => {
           </div>
         </Card>
 
-        {/* Transfers Cards */}
+        {/* Transfers Table */}
         {filteredTransfers.length === 0 ? (
           <Card className="p-12">
             <div className="text-center">
-              <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <ArrowRightLeft className="h-16 w-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900 mb-2">No Transfers Found</h3>
-              <p className="text-gray-600">Create your first transfer to get started.</p>
+              <p className="text-gray-600">
+                {searchTerm || Object.values(filters).some(f => f !== 'all' && f !== '') || selectedTransferType !== 'all'
+                  ? 'Try adjusting your search or filters'
+                  : 'Get started by creating your first stock transfer or borrow request'
+                }
+              </p>
             </div>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredTransfers.map((transfer) => {
+          <Card className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Transfer ID
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Type
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      From → To
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Items
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Value
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredTransfers.map((transfer) => {
               // Check if this is an incoming borrow request that needs review
               const isIncomingBorrowRequest = 
                 transfer.transferType === 'borrow' &&
@@ -2241,191 +2280,126 @@ const StockTransfer = () => {
               const previewItems = (transfer.items || []).slice(0, 4);
               
               return (
-                <Card 
-                  key={transfer.id} 
-                  className={`p-4 hover:shadow-lg transition-shadow ${isIncomingBorrowRequest ? 'border-2 border-purple-300 bg-purple-50' : ''}`}
-                >
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-sm font-semibold text-gray-900 truncate">{transfer.id}</h3>
-                        {transfer.transferType === 'borrow' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800" title="Borrow Request">
-                            <ArrowRight className="h-3 w-3" />
-                            Borrow
-                          </span>
-                        )}
-                        {(!transfer.transferType || transfer.transferType === 'transfer') && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800" title="Transfer">
-                            <ArrowRightLeft className="h-3 w-3" />
-                            Transfer
-                          </span>
+                <tr key={transfer.id} className={`hover:bg-gray-50 ${isIncomingBorrowRequest ? 'bg-purple-50' : ''}`}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{transfer.id}</div>
+                        {transfer.reason && (
+                          <div className="text-xs text-gray-500 max-w-32 truncate" title={transfer.reason}>
+                            {transfer.reason}
+                          </div>
                         )}
                       </div>
-                      <p className="text-xs text-gray-500">by {transfer.createdByName || transfer.createdBy}</p>
-                    </div>
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(transfer.status)}`}>
-                      {getStatusIcon(transfer.status)}
-                      {transfer.status}
-                    </span>
-                  </div>
-
-                  {/* Branch Info */}
-                  <div className="mb-3 p-2 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-2 text-sm mb-1">
-                      <Building className="h-4 w-4 text-gray-400" />
-                      <span className="font-medium text-gray-700">From:</span>
-                      <span className="text-gray-900">{transfer.fromBranchName}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <ArrowRight className="h-4 w-4 text-gray-400" />
-                      <span className="font-medium text-gray-700">To:</span>
-                      <span className="text-gray-900">{transfer.toBranchName}</span>
                       {transfer.toBranchHasSystem === false && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 ml-1">
+                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
                           Manual
                         </span>
                       )}
                     </div>
-                  </div>
-
-                  {/* Product Images Preview */}
-                  {previewItems.length > 0 && (
-                    <div className="mb-3">
-                      <div className="grid grid-cols-4 gap-1">
-                        {previewItems.map((item, idx) => {
-                          // Find product to get image
-                          const product = products.find(p => p.id === item.productId);
-                          const imageUrl = product?.imageUrl || item.productImageUrl;
-                          
-                          return (
-                            <div key={idx} className="relative aspect-square bg-gray-100 rounded overflow-hidden">
-                              {imageUrl ? (
-                                <img
-                                  src={imageUrl}
-                                  alt={item.productName || 'Product'}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    e.target.style.display = 'none';
-                                    e.target.nextSibling.style.display = 'flex';
-                                  }}
-                                />
-                              ) : null}
-                              <div className="w-full h-full flex items-center justify-center bg-gray-100" style={{ display: imageUrl ? 'none' : 'flex' }}>
-                                <Package className="h-6 w-6 text-gray-400" />
-                              </div>
-                              {item.quantity > 1 && (
-                                <div className="absolute bottom-0 right-0 bg-black/70 text-white text-xs px-1 rounded-tl">
-                                  {item.quantity}x
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      transfer.transferType === 'borrow' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                    }`}>
+                      {transfer.transferType === 'borrow' ? 'Borrow' : 'Transfer'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <div className="flex items-center">
+                      <ArrowRightLeft className="h-4 w-4 mr-2 text-gray-400" />
+                      <div>
+                        <div className="font-medium">{transfer.fromBranchName}</div>
+                        <div className="text-xs text-gray-500">→ {transfer.toBranchName}</div>
                       </div>
-                      {(transfer.items || []).length > 4 && (
-                        <p className="text-xs text-gray-500 mt-1 text-center">
-                          +{(transfer.items || []).length - 4} more items
-                        </p>
-                      )}
                     </div>
-                  )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {format(transfer.transferDate, 'MMM dd, yyyy')}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {transfer.totalItems || 0}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    ₱{transfer.totalValue?.toLocaleString() || '0'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      transfer.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
+                      transfer.status === 'In Transit' ? 'bg-blue-100 text-blue-800' :
+                      transfer.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {transfer.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewDetails(transfer)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
 
-                  {/* Transfer Date */}
-                  <div className="flex items-center gap-2 text-xs text-gray-600 mb-3">
-                    <Calendar className="h-4 w-4" />
-                    <span>{format(new Date(transfer.transferDate), 'MMM dd, yyyy')}</span>
-                    {transfer.expectedDelivery && (
-                      <>
-                        <span>•</span>
-                        <span>Expected: {format(new Date(transfer.expectedDelivery), 'MMM dd')}</span>
-                      </>
-                    )}
-                  </div>
+                            {isIncomingBorrowRequest && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleReviewBorrowRequest(transfer)}
+                                className="bg-purple-600 hover:bg-purple-700"
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                            )}
 
-                  {/* Footer */}
-                  <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                    <div>
-                      <p className="text-xs text-gray-500">Items</p>
-                      <p className="text-sm font-semibold text-gray-900">{transfer.totalItems || (transfer.items || []).length} items</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-500">Total Value</p>
-                      <p className="text-sm font-bold text-[#160B53]">₱{transfer.totalValue.toLocaleString()}</p>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2 mt-3">
-                    {isIncomingBorrowRequest ? (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => handleReviewBorrowRequest(transfer)}
-                        className="flex-1 flex items-center justify-center gap-1 bg-purple-600 hover:bg-purple-700 text-white"
-                      >
-                        <ClipboardList className="h-3 w-3" />
-                        Review Request
-                      </Button>
-                    ) : (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleViewDetails(transfer)}
-                          className="flex-1 flex items-center justify-center gap-1"
-                        >
-                          <Eye className="h-3 w-3" />
-                          View
-                        </Button>
-                        {transfer.status === 'Pending' && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEditTransfer(transfer)}
-                            className="flex items-center justify-center gap-1"
-                          >
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Pagination Load More */}
-        {filteredTransfers.length > 0 && hasMore && (
-          <Card className="p-4">
-            <div className="flex justify-center">
-              <Button
-                variant="outline"
-                onClick={loadMoreTransfers}
-                disabled={loadingMore}
-                className="flex items-center gap-2"
-              >
-                {loadingMore ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <ArrowRight className="h-4 w-4" />
-                    Load More ({totalItems - filteredTransfers.length} remaining)
-                  </>
-                )}
-              </Button>
+                            {transfer.status === 'Pending' && transfer.fromBranchId === userData?.branchId && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEditTransfer(transfer)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-            <p className="text-center text-xs text-gray-500 mt-2">
-              Showing {filteredTransfers.length} of {totalItems} transfers
-            </p>
+
+            {/* Pagination Info */}
+            {filteredTransfers.length > 0 && (
+              <div className="px-6 py-3 bg-gray-50 border-t border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-gray-700">
+                    Showing {filteredTransfers.length} of {totalItems} transfers
+                  </div>
+                  {hasMore && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={loadMoreTransfers}
+                      disabled={loadingMore}
+                      className="flex items-center gap-2"
+                    >
+                      {loadingMore ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowRightLeft className="h-4 w-4" />
+                      )}
+                      Load More
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
           </Card>
         )}
+
 
         {/* Empty State */}
         {filteredTransfers.length === 0 && !loading && (
@@ -2618,8 +2592,7 @@ const StockTransfer = () => {
                 </div>
               )}
 
-              {/* Action Buttons */}
-              <div className="flex justify-end gap-3 pt-4 border-t">
+                          <div className="flex gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -2761,7 +2734,7 @@ const StockTransfer = () => {
                   
                   <div>
                     <label className="text-sm font-medium text-gray-500">Created By</label>
-                    <p className="text-gray-900">{selectedTransfer.createdBy}</p>
+                    <p className="text-gray-900">{selectedTransfer.createdByName || 'N/A'}</p>
                   </div>
                   
                   <div>
@@ -2846,13 +2819,11 @@ const StockTransfer = () => {
                       setFormData(prev => ({ 
                         ...prev, 
                         fromBranchId: selectedBranchId,
-                        fromBranchName: selectedBranch?.name || '',
                         items: [] // Clear items when branch changes
                       }));
                       setFormErrors(prev => ({ ...prev, fromBranchId: '' }));
                       
-                      // Load available stocks from BOTH branches (intersection)
-                      // Only show products that exist in BOTH the lending branch AND current branch
+                      // Load available stocks from lending branch
                       if (selectedBranchId && products.length > 0 && userData?.branchId) {
                         try {
                           const stocksRef = collection(db, 'stocks');
@@ -2928,16 +2899,6 @@ const StockTransfer = () => {
                   </select>
                   {formErrors.fromBranchId && (
                     <p className="text-red-500 text-xs mt-1">{formErrors.fromBranchId}</p>
-                  )}
-                  {formData.fromBranchId && lendingBranchStocks.length > 0 && (
-                    <p className="text-xs text-purple-600 mt-1">
-                      {lendingBranchStocks.length} product{lendingBranchStocks.length !== 1 ? 's' : ''} available in both branches
-                    </p>
-                  )}
-                  {formData.fromBranchId && lendingBranchStocks.length === 0 && (
-                    <p className="text-xs text-yellow-600 mt-1">
-                      No common products found. Products must exist in both {formData.fromBranchName} and your branch.
-                    </p>
                   )}
                 </div>
                 
@@ -4106,6 +4067,30 @@ const StockTransfer = () => {
                   Apply Filters
                 </Button>
               </div>
+            </div>
+          </Modal>
+        )}
+
+        {/* Success Modal */}
+        {isSuccessModalOpen && (
+          <Modal
+            isOpen={isSuccessModalOpen}
+            onClose={() => setIsSuccessModalOpen(false)}
+            title="Success"
+            size="sm"
+          >
+            <div className="text-center py-6">
+              <div className="flex justify-center mb-4">
+                <CheckCircle className="h-16 w-16 text-green-500" />
+              </div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">Success!</h2>
+              <p className="text-gray-700 mb-6">{successMessage}</p>
+              <Button
+                onClick={() => setIsSuccessModalOpen(false)}
+                className="bg-green-600 hover:bg-green-700 w-full"
+              >
+                Close
+              </Button>
             </div>
           </Modal>
         )}

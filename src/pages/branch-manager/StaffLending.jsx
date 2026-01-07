@@ -1381,8 +1381,6 @@ const StaffLending = () => {
         );
       })()}
 
-      )}
-
       {/* Pagination Controls */}
       {totalPages > 1 && (
         <div className="bg-white rounded-lg border border-gray-200 p-4">

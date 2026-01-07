@@ -9,17 +9,17 @@ import { APPOINTMENT_STATUS, getAvailableTimeSlots } from '../../services/appoin
 import { formatTime } from '../../utils/helpers';
 import LoadingSpinner from '../ui/LoadingSpinner';
 
-const AppointmentFormModal = ({
-  isOpen,
-  appointment,
+const AppointmentFormModal = ({ 
+  isOpen, 
+  appointment, 
   branches = [],
   services = [],
   stylists = [],
   clients = [],
-  onClose,
+  onClose, 
   onSubmit,
   loading = false,
-  isGuest = false,
+    isGuest = false,
   userBranch = null, // Auto-select branch for staff
   isEditing = false
 }) => {
@@ -139,16 +139,31 @@ const AppointmentFormModal = ({
     let isCancelled = false;
     
     const fetchSlots = async () => {
+      console.log('🔍 fetchSlots triggered:', {
+        hasDate: !!formData.appointmentDate,
+        hasServices: formData.services.length > 0,
+        hasBranch: !!formData.branchId,
+        servicesLoaded: services.length > 0,
+        formData
+      });
+      
       if (formData.appointmentDate && formData.services.length > 0 && formData.branchId) {
         // Only fetch if we have services loaded
         if (services.length === 0) {
+          console.log('⚠️ Services not loaded yet, skipping slot fetch');
           return;
         }
         
         try {
           setLoadingSlots(true);
-          // Use fixed duration for availability checking (duration no longer relevant)
-          const totalDuration = 60; // Fixed duration for time slot availability
+          
+          // Calculate total duration from selected services
+          const totalDuration = formData.services.reduce((sum, svc) => {
+            const serviceData = services.find(s => s.id === svc.serviceId);
+            return sum + (svc.duration || serviceData?.duration || 60);
+          }, 0);
+          
+          console.log('✅ Fetching slots with total duration:', totalDuration, 'from services:', formData.services);
           
           // Get all assigned stylists from services
           const assignedStylists = formData.services
@@ -165,8 +180,30 @@ const AppointmentFormModal = ({
             );
             
             if (!isCancelled) {
-              setAvailableSlots(result.slots || []);
-              setUnavailableMessage(result.message || null);
+              const slots = result.slots || [];
+              
+              console.log('🎯 COMPONENT RECEIVED SLOTS:', {
+                totalSlots: slots.length,
+                availableSlots: slots.filter(s => s.available).length,
+                unavailableSlots: slots.filter(s => !s.available).length,
+                slotTimes: slots.map(s => ({
+                  time: s.time?.toLocaleTimeString(),
+                  available: s.available
+                }))
+              });
+              
+              setAvailableSlots(slots);
+              
+              // If no slots available and no message provided, generate helpful message
+              if (slots.length === 0 && !result.message) {
+                const hoursNeeded = Math.round(totalDuration / 60 * 10) / 10; // Round to 1 decimal
+                setUnavailableMessage(
+                  `No available time slots. Selected services require ${hoursNeeded} hours to complete. ` +
+                  `Please select an earlier date or contact us to adjust the appointment duration.`
+                );
+              } else {
+                setUnavailableMessage(result.message || null);
+              }
             }
           } else {
             // Check availability for all assigned stylists
@@ -207,7 +244,17 @@ const AppointmentFormModal = ({
                 });
                 
                 setAvailableSlots(mergedSlots);
-                setUnavailableMessage(null);
+                
+                // If no slots available, generate helpful message
+                if (mergedSlots.every(s => !s.available)) {
+                  const hoursNeeded = Math.round(totalDuration / 60 * 10) / 10; // Round to 1 decimal
+                  setUnavailableMessage(
+                    `No available time slots. Selected services require ${hoursNeeded} hours to complete. ` +
+                    `Please select an earlier date or contact us to adjust the appointment duration.`
+                  );
+                } else {
+                  setUnavailableMessage(null);
+                }
               }
             }
           }
@@ -427,12 +474,12 @@ const AppointmentFormModal = ({
                     if (isEditing) return; // Prevent changes when editing
                     setClientSearchTerm(e.target.value);
                     setSelectedClientName('');
-                    setFormData({
-                      ...formData,
-                      clientId: '',
-                      clientName: '',
-                      clientPhone: '',
-                      clientEmail: ''
+                    setFormData({ 
+                      ...formData, 
+                      clientId: '', 
+                      clientName: '', 
+                      clientPhone: '', 
+                      clientEmail: '' 
                     });
                     setShowClientDropdown(true);
                   }}
@@ -658,7 +705,7 @@ const AppointmentFormModal = ({
                             const serviceObj = formData.services.find(s => s.serviceId === service.id);
                             const isSelected = !!serviceObj;
                             const quantity = serviceObj?.quantity || 1;
-
+                            
                             return (
                               <div
                                 key={service.id}
@@ -678,11 +725,11 @@ const AppointmentFormModal = ({
                                       price: service.price,
                                       duration: service.duration
                                     }];
-                                    setFormData({
-                                      ...formData,
-                                      services: newServices,
-                                      timeSlot: null
-                                    });
+                                  setFormData({ 
+                                    ...formData, 
+                                    services: newServices,
+                                    timeSlot: null
+                                  });
                                   }
                                 }}
                               >
@@ -812,8 +859,8 @@ const AppointmentFormModal = ({
                           <select
                             value={serviceObj.stylistId || ''}
                             onChange={(e) => {
-                              const newServices = formData.services.map(s =>
-                                s.serviceId === serviceObj.serviceId
+                              const newServices = formData.services.map(s => 
+                                s.serviceId === serviceObj.serviceId 
                                   ? { ...s, stylistId: e.target.value }
                                   : s
                               );
@@ -888,24 +935,33 @@ const AppointmentFormModal = ({
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
-                    {availableSlots.map((slot, index) => (
-                      <button
-                        key={index}
-                        type="button"
-                        onClick={() => allowReschedule && slot.available && setFormData({ ...formData, timeSlot: slot })}
-                        disabled={!allowReschedule || !slot.available}
-                        className={`px-3 py-2 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap ${
-                          formData.timeSlot?.time === slot.time
-                            ? 'bg-[#2D1B4E] text-white border-[#2D1B4E]'
-                            : slot.available
-                            ? 'bg-white text-gray-700 border-gray-300 hover:border-[#2D1B4E] hover:text-[#2D1B4E]'
-                            : 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
-                        }`}
-                      >
-                        {formatTime(slot.time)}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-4 gap-2">
+                    {(() => {
+                      console.log('🎨 RENDERING SLOTS:', {
+                        slotsToRender: availableSlots.length,
+                        slotList: availableSlots.map(s => ({
+                          time: s.time?.toLocaleTimeString(),
+                          available: s.available
+                        }))
+                      });
+                      return availableSlots.map((slot, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() => allowReschedule && slot.available && setFormData({ ...formData, timeSlot: slot })}
+                          disabled={!allowReschedule || !slot.available}
+                          className={`px-3 py-2 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                            formData.timeSlot?.time === slot.time
+                              ? 'bg-[#2D1B4E] text-white border-[#2D1B4E]'
+                              : slot.available
+                              ? 'bg-white text-gray-700 border-gray-300 hover:border-[#2D1B4E] hover:text-[#2D1B4E]'
+                              : 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+                          }`}
+                        >
+                          {formatTime(slot.time)}
+                        </button>
+                      ));
+                    })()}
                   </div>
                 )}
               </div>

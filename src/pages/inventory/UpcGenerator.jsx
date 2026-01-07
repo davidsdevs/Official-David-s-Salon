@@ -51,6 +51,10 @@ const UpcGenerator = () => {
   
   // Data states
   const [products, setProducts] = useState([]);
+  const [productsAll, setProductsAll] = useState([]);
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
   const [generatedQRCodes, setGeneratedQRCodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -105,9 +109,14 @@ const UpcGenerator = () => {
       setError(null);
       
       // Load products
-      const productsResult = await productService.getAllProducts();
+      let productsResult;
+      if (userBranch) {
+        productsResult = await productService.getBranchProducts(userBranch);
+      } else {
+        productsResult = await productService.getAllProducts();
+      }
       if (productsResult.success) {
-        setProducts(productsResult.products || []);
+        setProductsAll(productsResult.products || []);
       } else {
         throw new Error(productsResult.message || 'Failed to load products');
       }
@@ -290,6 +299,11 @@ const UpcGenerator = () => {
     loadCurrentBatches();
   }, [userBranch]);
 
+  // Reload products when pagination changes
+  useEffect(() => {
+    loadData();
+  }, [currentPage]);
+
   // Auto-set branch to user's branch
   useEffect(() => {
     if (userBranch && !generateForm.branchId) {
@@ -316,12 +330,21 @@ const UpcGenerator = () => {
     }
   }, [generateForm.productId, generateForm.branchId]);
 
-  // Get unique categories and brands
-  const categories = [...new Set(products.map(p => p.category))].filter(Boolean);
-  const brands = [...new Set(products.map(p => p.brand))].filter(Boolean);
+  // Ensure batches reload when opening the generate modal
+  useEffect(() => {
+    if (isGenerateModalOpen && generateForm.productId && generateForm.branchId) {
+      loadBatches(generateForm.productId, generateForm.branchId).then(batches => {
+        setSelectedBatches(batches);
+      }).catch(() => setSelectedBatches([]));
+    }
+  }, [isGenerateModalOpen]);
 
-  // Filter and sort products
-  const filteredProducts = products
+  // Get unique categories and brands (from full product list)
+  const categories = [...new Set(productsAll.map(p => p.category))].filter(Boolean);
+  const brands = [...new Set(productsAll.map(p => p.brand))].filter(Boolean);
+
+  // Filter and sort products (operate on full list)
+  const filteredProducts = productsAll
     .filter(product => {
       // Safe search - handle undefined/null values
       const searchLower = (searchTerm || '').toLowerCase();
@@ -365,6 +388,11 @@ const UpcGenerator = () => {
         return aValue < bValue ? 1 : -1;
       }
     });
+
+    // Pagination for filtered products
+    const totalProducts = filteredProducts.length;
+    const totalPages = Math.max(1, Math.ceil(totalProducts / itemsPerPage));
+    const paginatedProducts = filteredProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   // Handle product details
   const handleViewDetails = (product) => {
@@ -475,6 +503,74 @@ const UpcGenerator = () => {
     } catch (err) {
       console.error('Error saving as PNG:', err);
       setError('Failed to save as PNG: ' + err.message);
+    }
+  };
+
+  // Save current batch stickers as ZIP of PNGs
+  const handleSaveAllAsZip = async () => {
+    try {
+      // Try local package first, fallback to CDN
+      let JSZip;
+      try {
+        JSZip = (await import('jszip')).default;
+      } catch (localErr) {
+        const jszipModule = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
+        JSZip = jszipModule?.default || jszipModule?.JSZip || window?.JSZip;
+      }
+      if (!JSZip) throw new Error('JSZip not available');
+      const zip = new JSZip();
+
+      // Determine safe product-based filename for the zip
+      const productNameRaw = qrCodesToPrint[0]?.productName || `upc_batch_${Date.now()}`;
+      const safeProductName = productNameRaw.replace(/[^a-z0-9]/gi, '_').slice(0, 200) || 'upc_batch';
+
+      for (let i = 0; i < qrCodesToPrint.length; i++) {
+        const qrCode = qrCodesToPrint[i];
+        const stickerElement = document.getElementById(`sticker-${i}`);
+        if (!stickerElement) continue;
+        const canvas = await html2canvas(stickerElement, { backgroundColor: '#ffffff', scale: 3, useCORS: true });
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 1.0));
+        if (blob) zip.file(`${safeProductName}_${i + 1}.png`, blob);
+      }
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${safeProductName}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error saving ZIP:', err);
+      setError('Failed to save ZIP: ' + err.message);
+    }
+  };
+
+  // Save printable PDF of current batch
+  const handleSaveAsPDF = async () => {
+    try {
+      const jsPDF = (await import('jspdf')).default;
+      const doc = new jsPDF({ unit: 'in', format: 'letter' });
+      // Render stickers to canvas and add to PDF by fitting 2x2 per page grid
+      const perPage = 8; // 8 stickers per letter page (2 columns x 4 rows) depending on size
+      for (let i = 0; i < qrCodesToPrint.length; i++) {
+        const qrCode = qrCodesToPrint[i];
+        const stickerElement = document.getElementById(`sticker-${i}`);
+        if (!stickerElement) continue;
+        const canvas = await html2canvas(stickerElement, { backgroundColor: '#ffffff', scale: 2, useCORS: true });
+        const imgData = canvas.toDataURL('image/png');
+        const col = (i % perPage) % 2;
+        const row = Math.floor((i % perPage) / 2);
+        const x = col * 2; // 2 inches each
+        const y = row * 2;
+        doc.addImage(imgData, 'PNG', x, y, 2, 2);
+        if ((i + 1) % perPage === 0 && i + 1 < qrCodesToPrint.length) doc.addPage();
+      }
+      doc.save(`upc_stickers_batch_${Date.now()}.pdf`);
+    } catch (err) {
+      console.error('Error saving PDF:', err);
+      setError('Failed to save PDF: ' + err.message);
     }
   };
 
@@ -774,8 +870,8 @@ const UpcGenerator = () => {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredProducts.map((product) => (
+                  <tbody className="bg-white divide-y divide-gray-200">
+                  {paginatedProducts.map((product) => (
                     <tr key={product.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -843,6 +939,22 @@ const UpcGenerator = () => {
                 </tbody>
               </table>
             </div>
+
+              {/* Pagination Controls */}
+              <div className="flex items-center justify-between p-4 border-t bg-gray-50">
+                <div className="text-sm text-gray-600">
+                  Showing {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, totalProducts)} of {totalProducts}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1}>
+                    Prev
+                  </Button>
+                  <div className="text-sm text-gray-700">Page {currentPage} / {totalPages}</div>
+                  <Button size="sm" variant="outline" onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages}>
+                    Next
+                  </Button>
+                </div>
+              </div>
           </Card>
         ) : (
           <Card className="p-12 text-center">
@@ -1235,26 +1347,20 @@ const UpcGenerator = () => {
                   {/* Printable QR Code Stickers */}
                   <div ref={printRef} className="print-content">
                     {/* Grid layout optimized for cutting - 3x3 or 4x4 depending on quantity */}
-                    <div className={`grid gap-2 p-4 bg-gray-50 rounded-lg ${
-                      qrCodesToPrint.length <= 4 ? 'grid-cols-2' : 
-                      qrCodesToPrint.length <= 9 ? 'grid-cols-3' : 
-                      qrCodesToPrint.length <= 16 ? 'grid-cols-4' : 'grid-cols-5'
-                    }`}
+                    <div className={`grid gap-2 p-4 bg-gray-50 rounded-lg`}
                     style={{
-                      gridTemplateColumns: `repeat(${
-                        qrCodesToPrint.length <= 4 ? 2 : 
-                        qrCodesToPrint.length <= 9 ? 3 : 
-                        qrCodesToPrint.length <= 16 ? 4 : 5
-                      }, 1fr)`
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(2in, 1fr))',
+                      justifyItems: 'center'
                     }}>
                       {qrCodesToPrint.map((qrCode, index) => (
                         <div
                           key={index}
                           id={`sticker-${index}`}
-                          className="bg-white border-2 border-dashed border-gray-400 p-3 rounded-lg flex flex-col items-center justify-center space-y-2 shadow-sm"
+                          className="bg-white border p-2 rounded-lg flex flex-col items-center justify-center space-y-2 shadow-sm"
                           style={{ 
-                            minHeight: '200px', 
-                            maxHeight: '200px',
+                            width: '2in',
+                            height: '2in',
+                            boxSizing: 'border-box',
                             pageBreakInside: 'avoid',
                             position: 'relative'
                           }}
@@ -1295,13 +1401,13 @@ const UpcGenerator = () => {
                               <QRCodeSVG
                                 id={`qr-svg-${index}`}
                                 value={qrCode.qrCodeString}
-                                size={140}
+                                size={120}
                                 level="H"
                                 includeMargin={true}
                               />
                             ) : (
-                              <div className="w-[140px] h-[140px] bg-gray-100 flex items-center justify-center rounded">
-                                <QrCode className="h-16 w-16 text-gray-400" />
+                              <div className="w-[120px] h-[120px] bg-gray-100 flex items-center justify-center rounded">
+                                <QrCode className="h-12 w-12 text-gray-400" />
                               </div>
                             )}
                           </div>
@@ -1339,8 +1445,8 @@ const UpcGenerator = () => {
                               <p className="text-xs text-gray-400 italic">No expiration date</p>
                             )}
                             
-                            <div className="pt-1 border-t border-gray-200">
-                              <p className="text-base font-bold text-blue-600">
+                            <div className="pt-1">
+                              <p className="text-sm font-bold text-blue-600">
                                 ₱{qrCode.price?.toFixed(2) || '0.00'}
                               </p>
                             </div>
@@ -1391,6 +1497,22 @@ const UpcGenerator = () => {
                               Save All as PNG
                             </Button>
                           )}
+                          <Button
+                            variant="outline"
+                            onClick={handleSaveAllAsZip}
+                            className="flex items-center gap-2"
+                          >
+                            <Download className="h-4 w-4" />
+                            Save Batch as ZIP
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={handleSaveAsPDF}
+                            className="flex items-center gap-2"
+                          >
+                            <FileText className="h-4 w-4" />
+                            Save as PDF
+                          </Button>
                         </>
                       )}
                       <Button 

@@ -27,13 +27,13 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../../utils/constants';
-import {
+import { 
   getAppointmentsByDateRange,
   checkInAppointment,
   getAppointmentById,
-  APPOINTMENT_STATUS
+  APPOINTMENT_STATUS 
 } from '../../services/appointmentService';
-import {
+import { 
   getArrivalsByBranch,
   getArrivalsByAppointmentIds,
   getArrivalById,
@@ -178,33 +178,33 @@ const ReceptionistArrivals = () => {
   const fetchArrivals = async () => {
     try {
       setLoading(true);
-
+      
       console.log('🔍 fetchArrivals called, userBranch value:', userBranch, 'type:', typeof userBranch);
-
+      
       // Guard: Don't fetch if branch is not loaded yet
       if (!userBranch || typeof userBranch !== 'string' || userBranch.trim() === '') {
         console.log('⚠️ Branch not loaded yet or invalid, skipping fetch. userBranch:', userBranch);
         setLoading(false);
         return;
       }
-
+      
       const now = new Date();
       const dateRange = getDateRange(dateFilter);
-
+      
       console.log('📅 Fetching data for:', { now, dateRange, branchId: userBranch, filter: dateFilter });
-
+      
       // Fetch appointments based on date filter
       const appointmentsData = await getAppointmentsByDateRange(userBranch, dateRange.startDate, dateRange.endDate);
       console.log('📋 Appointments fetched:', appointmentsData.length);
-
+      
       // Fetch ALL active arrivals regardless of date (for Arrived and In-service tabs)
       // The Arrived tab should show everyone who's checked in and waiting, like a hotel
       const allArrivalsData = await getArrivalsByBranch(userBranch); // No date filter = get all
       console.log('✅ All arrivals fetched (no date filter):', allArrivalsData.length, allArrivalsData);
-
+      
       // Filter out completed and cancelled arrivals (only show active ones)
       const activeArrivals = allArrivalsData.filter(arr =>
-        arr.status !== ARRIVAL_STATUS.COMPLETED &&
+        arr.status !== ARRIVAL_STATUS.COMPLETED && 
         arr.status !== ARRIVAL_STATUS.CANCELLED
       );
       console.log('🟢 Active arrivals:', activeArrivals.length, activeArrivals);
@@ -222,17 +222,17 @@ const ReceptionistArrivals = () => {
       const upcomingAppointments = appointmentsData.filter(apt => {
         if (apt.status !== APPOINTMENT_STATUS.CONFIRMED) return false;
         if (checkedInAppointmentIds.has(apt.id)) return false;
-
+        
         // Show appointments scheduled within the selected date range
         if (apt.appointmentDate) {
-          const aptDate = apt.appointmentDate instanceof Date
-            ? apt.appointmentDate
+          const aptDate = apt.appointmentDate instanceof Date 
+            ? apt.appointmentDate 
             : (apt.appointmentDate.toDate ? apt.appointmentDate.toDate() : new Date(apt.appointmentDate));
-
+          
           // Include if appointment is scheduled within the date range
           return aptDate >= dateRange.startDate && aptDate <= dateRange.endDate;
         }
-
+        
         return false;
       });
       console.log('⏰ Upcoming appointments:', upcomingAppointments.length);
@@ -472,7 +472,7 @@ const ReceptionistArrivals = () => {
 
       console.log('🏪 Creating walk-in with services:', walkInArrival.services);
       console.log('🏪 Creating walk-in with products:', walkInArrival.products);
-
+      
       await createWalkInArrival(walkInArrival, currentUser);
       toast.success('Walk-in client added successfully!');
       
@@ -1231,13 +1231,13 @@ const ReceptionistArrivals = () => {
                                   ? 'bg-blue-100 text-blue-800'
                                   : 'bg-yellow-100 text-yellow-800'
                               }`}>
-                                <Timer className="h-3 w-3" />
+                              <Timer className="h-3 w-3" />
                                 {displayTime} min {timeLabel === 'service' ? '(service)' : timeLabel === 'waiting' ? '(waiting)' : ''}
                               </span>
                               {timeLabel === 'waiting' && displayTime >= 60 && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white animate-pulse">
                                   ACTION REQUIRED
-                                </span>
+                            </span>
                               )}
                             </>
                           )}

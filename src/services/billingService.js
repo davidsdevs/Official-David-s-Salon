@@ -53,8 +53,9 @@ export const PAYMENT_METHODS = {
  */
 export const createBill = async (billData, currentUser) => {
   try {
+    console.log('🔄 Creating bill with data:', billData);
     const billRef = collection(db, BILLS_COLLECTION);
-    
+
     // Ensure we have valid user data
     if (!currentUser) {
       throw new Error('Invalid user data. Please log in again.');
@@ -69,6 +70,7 @@ export const createBill = async (billData, currentUser) => {
     
     // Generate formatted transaction ID based on branch (this will be the document ID)
     let transactionId = null;
+    console.log('🔍 Generating transaction ID for branchId:', billData.branchId);
     if (billData.branchId) {
       try {
         // Get branch document to get its ID
@@ -119,6 +121,7 @@ export const createBill = async (billData, currentUser) => {
     
     // If no transaction ID generated, fallback to auto-generated ID
     if (!transactionId) {
+      console.error('❌ Failed to generate transaction ID. billData:', billData);
       throw new Error('Unable to generate transaction ID. Branch ID is required.');
     }
     
@@ -461,10 +464,11 @@ export const getBillById = async (billId) => {
 export const getBillsByBranch = async (branchId, filters = {}) => {
   try {
     const billsRef = collection(db, BILLS_COLLECTION);
+    // Remove orderBy to avoid requiring composite index
+    // We'll sort in memory instead
     let q = query(
       billsRef,
-      where('branchId', '==', branchId),
-      orderBy('createdAt', 'desc')
+      where('branchId', '==', branchId)
     );
 
     // Apply status filter if provided
@@ -472,8 +476,7 @@ export const getBillsByBranch = async (branchId, filters = {}) => {
       q = query(
         billsRef,
         where('branchId', '==', branchId),
-        where('status', '==', filters.status),
-        orderBy('createdAt', 'desc')
+        where('status', '==', filters.status)
       );
     }
 
@@ -484,6 +487,13 @@ export const getBillsByBranch = async (branchId, filters = {}) => {
       createdAt: doc.data().createdAt?.toDate(),
       updatedAt: doc.data().updatedAt?.toDate()
     }));
+
+    // Sort by createdAt desc in memory to avoid composite index requirement
+    bills.sort((a, b) => {
+      const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bDate - aDate; // Descending order (newest first)
+    });
 
     // Apply date filters in memory (to avoid complex Firestore queries)
     if (filters.startDate) {
@@ -516,17 +526,25 @@ export const getBillsByClient = async (clientId) => {
     const billsRef = collection(db, BILLS_COLLECTION);
     const q = query(
       billsRef,
-      where('clientId', '==', clientId),
-      orderBy('createdAt', 'desc')
+      where('clientId', '==', clientId)
     );
 
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({
+    const bills = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       createdAt: doc.data().createdAt?.toDate(),
       updatedAt: doc.data().updatedAt?.toDate()
     }));
+
+    // Sort by createdAt desc in memory
+    bills.sort((a, b) => {
+      const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bDate - aDate; // Descending order (newest first)
+    });
+
+    return bills;
   } catch (error) {
     console.error('Error fetching client bills:', error);
     return [];
@@ -558,15 +576,35 @@ export const checkReceiptNumberExists = async (receiptNumber, branchId = null, e
       );
     }
 
-    const snapshot = await getDocs(q);
+    console.log('🔍 Checking receipt number:', receiptNumber.trim(), 'branchId:', branchId);
+
+    let snapshot;
+    try {
+      snapshot = await getDocs(q);
+      console.log('📄 Found', snapshot.docs.length, 'documents with receipt number:', receiptNumber.trim());
+    } catch (error) {
+      console.error('❌ Compound query failed:', error.message);
+      // Fallback to query without branch filter if compound query fails
+      console.log('🔄 Falling back to query without branch filter');
+      const fallbackQuery = query(billsRef, where('receiptNumber', '==', receiptNumber.trim()));
+      snapshot = await getDocs(fallbackQuery);
+      console.log('📄 Fallback query found', snapshot.docs.length, 'documents');
+    }
+
     const bills = snapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate()
-      }))
+      .map(doc => {
+        const data = doc.data();
+        console.log('📋 Document:', doc.id, 'receiptNumber:', data.receiptNumber, 'branchId:', data.branchId, 'status:', data.status);
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate(),
+          updatedAt: data.updatedAt?.toDate()
+        };
+      })
       .filter(bill => !excludeBillId || bill.id !== excludeBillId); // Exclude current bill if updating
+
+    console.log('✅ Filtered bills:', bills.length, bills[0]?.id || 'none');
 
     return bills.length > 0 ? bills[0] : null;
   } catch (error) {

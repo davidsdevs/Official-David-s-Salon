@@ -75,8 +75,17 @@ const BranchManagerAppointments = () => {
     try {
       setLoading(true);
       
+      // Validate userBranch
+      if (!userBranch) {
+        console.warn('fetchData: userBranch is not set');
+        setLoading(false);
+        return;
+      }
+      
       // Fetch appointments
+      console.log('Fetching appointments for branch:', userBranch);
       const appointmentsData = await getAppointmentsByBranch(userBranch);
+      console.log('Appointments loaded:', appointmentsData.length);
       
       // Fetch services, stylists, and clients for enrichment
       const servicesData = await getBranchServices(userBranch);
@@ -155,8 +164,13 @@ const BranchManagerAppointments = () => {
       setStats(statsData);
       
     } catch (error) {
-      console.error('Error fetching data:', error);
-      toast.error('Failed to fetch appointments data');
+      console.error('Error fetching data:', {
+        branchId: userBranch,
+        errorMessage: error.message,
+        errorCode: error.code,
+        fullError: error
+      });
+      toast.error(`Failed to fetch appointments: ${error.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }

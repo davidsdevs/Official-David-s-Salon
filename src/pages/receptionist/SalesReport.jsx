@@ -4,25 +4,30 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  Banknote, 
-  TrendingUp, 
-  ShoppingCart, 
-  Calendar, 
-  Download, 
+import {
+  Banknote,
+  TrendingUp,
+  ShoppingCart,
+  Calendar,
+  Download,
   Filter,
   Receipt,
   CreditCard,
   Gift,
   FileText,
-  RefreshCw
+  RefreshCw,
+  Eye,
+  Printer,
+  X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getBillsByBranch, getDailySalesSummary, BILL_STATUS } from '../../services/billingService';
+import { getBranchById } from '../../services/branchService';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import ReceiptComponent from '../../components/billing/Receipt';
 import { format, subDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, parseISO } from 'date-fns';
 import toast from 'react-hot-toast';
 import { useReactToPrint } from 'react-to-print';
@@ -36,7 +41,11 @@ const ReceptionistSalesReport = () => {
   const [customEndDate, setCustomEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [statusFilter, setStatusFilter] = useState('all'); // all, paid, refunded, voided
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedBill, setSelectedBill] = useState(null);
+  const [showBillDetails, setShowBillDetails] = useState(false);
+  const [branchData, setBranchData] = useState(null);
   const printRef = useRef();
+  const receiptRef = useRef();
   
   const handlePrint = useReactToPrint({
     contentRef: printRef,
@@ -47,8 +56,18 @@ const ReceptionistSalesReport = () => {
   useEffect(() => {
     if (userBranch) {
       fetchBills();
+      fetchBranchData();
     }
   }, [userBranch, dateFilter, customStartDate, customEndDate]);
+
+  const fetchBranchData = async () => {
+    try {
+      const branch = await getBranchById(userBranch);
+      setBranchData(branch);
+    } catch (error) {
+      console.error('Error fetching branch data:', error);
+    }
+  };
 
   const fetchBills = async () => {
     try {
@@ -249,6 +268,18 @@ const ReceptionistSalesReport = () => {
       return;
     }
     handlePrint();
+  };
+
+  // Receipt printing
+  const handlePrintReceipt = useReactToPrint({
+    contentRef: receiptRef,
+    documentTitle: `Receipt_${selectedBill?.id || 'Unknown'}`,
+    pageStyle: '@page { size: A4; margin: 1cm; }',
+  });
+
+  const handleViewBill = (bill) => {
+    setSelectedBill(bill);
+    setShowBillDetails(true);
   };
 
   if (loading) {
@@ -537,12 +568,15 @@ const ReceptionistSalesReport = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredBills.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan="10" className="px-6 py-12 text-center text-gray-500">
                     No transactions found
                   </td>
                 </tr>
@@ -613,6 +647,15 @@ const ReceptionistSalesReport = () => {
                         }`}>
                           {bill.status || 'N/A'}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <button
+                          onClick={() => handleViewBill(bill)}
+                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          title="View Receipt"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
                       </td>
                     </tr>
                   );
@@ -760,6 +803,51 @@ const ReceptionistSalesReport = () => {
             </table>
           </div>
         </div>
+      </div>
+
+      {/* Bill Details Modal with Receipt */}
+      {showBillDetails && selectedBill && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-900">Receipt</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handlePrintReceipt}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Printer className="w-4 h-4" />
+                    Print
+                  </button>
+                  <button
+                    onClick={() => setShowBillDetails(false)}
+                    className="p-2 hover:bg-gray-100 rounded transition-colors"
+                  >
+                    <X className="w-5 h-5 text-gray-500" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Receipt Display */}
+              <div className="border border-gray-200 rounded-lg">
+                <ReceiptComponent ref={receiptRef} bill={selectedBill} branch={branchData} />
+              </div>
+
+              <button
+                onClick={() => setShowBillDetails(false)}
+                className="w-full mt-6 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden receipt for printing */}
+      <div className="hidden">
+        <ReceiptComponent ref={receiptRef} bill={selectedBill || {}} branch={branchData} />
       </div>
     </div>
   );

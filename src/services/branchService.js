@@ -394,6 +394,44 @@ export const getBranches = async (currentUserRole = null, currentUserId = null, 
 };
 
 /**
+ * Get branch operating hours
+ * @param {string} branchId - Branch ID
+ * @returns {Promise<Object>} Branch operating hours organized by day
+ */
+export const getBranchOperatingHours = async (branchId) => {
+  try {
+    const branchDoc = await getDoc(doc(db, 'branches', branchId));
+
+    if (!branchDoc.exists()) {
+      throw new Error('Branch not found');
+    }
+
+    const branchData = branchDoc.data();
+    const operatingHours = branchData.operatingHours || {};
+
+    // Return operating hours in a format that matches the UI expectations
+    // Convert from the stored format to a more display-friendly format
+    const formattedHours = {};
+
+    Object.entries(operatingHours).forEach(([day, hours]) => {
+      if (hours && typeof hours === 'object') {
+        formattedHours[day] = {
+          start: hours.open || hours.start,
+          end: hours.close || hours.end,
+          isOpen: hours.isOpen !== false
+        };
+      }
+    });
+
+    return formattedHours;
+  } catch (error) {
+    console.error('Error fetching branch operating hours:', error);
+    // Return empty object instead of throwing to prevent UI crashes
+    return {};
+  }
+};
+
+/**
  * Get branch statistics
  * @param {string} branchId - Branch ID
  * @returns {Promise<Object>} Branch statistics
@@ -404,13 +442,13 @@ export const getBranchStats = async (branchId) => {
     const usersRef = collection(db, 'users');
     const staffQuery = query(usersRef, where('branchId', '==', branchId));
     const staffSnapshot = await getDocs(staffQuery);
-    
+
     // Get today's appointment count
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     const appointmentsRef = collection(db, 'appointments');
     const appointmentsQuery = query(
       appointmentsRef,
@@ -419,11 +457,11 @@ export const getBranchStats = async (branchId) => {
       where('appointmentDate', '<', Timestamp.fromDate(tomorrow))
     );
     const appointmentsSnapshot = await getDocs(appointmentsQuery);
-    
+
     // TODO: Add more stats when other modules are implemented
     // - Revenue (M04 - Billing/POS)
     // - Inventory items (M05 - Inventory)
-    
+
     return {
       staffCount: staffSnapshot.size,
       appointmentCount: appointmentsSnapshot.size,

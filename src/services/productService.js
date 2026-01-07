@@ -25,7 +25,7 @@ class ProductService {
   async getAllProducts() {
     try {
       const productsRef = collection(db, this.collectionName);
-      
+
       // Try to get products with orderBy, but fallback to simple query if index is missing
       let querySnapshot;
       try {
@@ -36,7 +36,7 @@ class ProductService {
         console.warn('Could not order by createdAt, fetching without order:', orderError.message);
         querySnapshot = await getDocs(productsRef);
       }
-      
+
       const products = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
@@ -44,11 +44,11 @@ class ProductService {
           id: doc.id,
           ...data,
           // Handle createdAt - could be Timestamp, Date, or string
-          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : 
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() :
                      data.createdAt instanceof Date ? data.createdAt :
                      data.createdAt ? new Date(data.createdAt) : new Date(),
           // Handle updatedAt - could be Timestamp, Date, or string
-          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : 
+          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() :
                      data.updatedAt instanceof Date ? data.updatedAt :
                      data.updatedAt ? new Date(data.updatedAt) : new Date()
         });
@@ -67,6 +67,55 @@ class ProductService {
       };
     } catch (error) {
       console.error('Error getting products:', error);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  // Get products offered by a specific branch
+  async getBranchProducts(branchId) {
+    try {
+      console.log(`🔍 Fetching products for branch: ${branchId}`);
+      const productsRef = collection(db, this.collectionName);
+
+      // Query products where branches array contains the branchId
+      const q = query(productsRef, where('branches', 'array-contains', branchId));
+      const querySnapshot = await getDocs(q);
+
+      const products = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        products.push({
+          id: doc.id,
+          ...data,
+          // Handle createdAt - could be Timestamp, Date, or string
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() :
+                     data.createdAt instanceof Date ? data.createdAt :
+                     data.createdAt ? new Date(data.createdAt) : new Date(),
+          // Handle updatedAt - could be Timestamp, Date, or string
+          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() :
+                     data.updatedAt instanceof Date ? data.updatedAt :
+                     data.updatedAt ? new Date(data.updatedAt) : new Date()
+        });
+      });
+
+      console.log(`✅ Found ${products.length} products configured for branch ${branchId}`);
+
+      // Sort by createdAt descending
+      products.sort((a, b) => {
+        const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
+        const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
+        return dateB.getTime() - dateA.getTime();
+      });
+
+      return {
+        success: true,
+        products
+      };
+    } catch (error) {
+      console.error('Error getting branch products:', error);
       return {
         success: false,
         message: error.message
