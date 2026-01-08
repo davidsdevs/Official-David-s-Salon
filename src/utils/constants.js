@@ -115,6 +115,7 @@ export const ROUTES = {
   STYLIST_SCHEDULE: '/stylist/schedule',
   STYLIST_CLIENTS: '/stylist/clients',
   STYLIST_SERVICE_HISTORY: '/stylist/service-history',
+  STYLIST_COMMISSION: '/stylist/commission',
   STYLIST_CLIENT_ANALYTICS: '/stylist/client-analytics/:clientId',
   
   // Client

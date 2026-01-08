@@ -239,23 +239,23 @@ const StylistLeaveManagement = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
+        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
           <div className="text-sm text-gray-600">Pending</div>
           <div className="text-2xl font-bold text-yellow-600 mt-1">{stats.pending}</div>
         </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
+        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
           <div className="text-sm text-gray-600">Approved</div>
           <div className="text-2xl font-bold text-green-600 mt-1">{stats.approved}</div>
         </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
+        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
           <div className="text-sm text-gray-600">Rejected</div>
           <div className="text-2xl font-bold text-red-600 mt-1">{stats.rejected}</div>
         </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
+        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
           <div className="text-sm text-gray-600">Cancelled</div>
           <div className="text-2xl font-bold text-gray-600 mt-1">{stats.cancelled}</div>
         </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
+        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
           <div className="text-sm text-gray-600">Total</div>
           <div className="text-2xl font-bold text-gray-900 mt-1">{stats.total}</div>
         </div>
