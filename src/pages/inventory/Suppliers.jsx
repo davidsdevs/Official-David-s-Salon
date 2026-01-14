@@ -1,21 +1,16 @@
 // src/pages/06_InventoryController/Suppliers.jsx
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import InventoryLayout from '../../layouts/InventoryLayout';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
 import { SearchInput } from '../../components/ui/SearchInput';
 import Modal from '../../components/ui/Modal';
 import {
   Building,
-  Search,
   Filter,
   Eye,
-  Edit,
   Plus,
   Download,
-  Upload,
   RefreshCw,
   AlertTriangle,
   CheckCircle,
@@ -23,28 +18,16 @@ import {
   Phone,
   Mail,
   MapPin,
-  Globe,
-  Banknote,
   Package,
-  Calendar,
   Star,
   Users,
-  Truck,
-  FileText,
-  Home,
-  TrendingUp,
-  ArrowRightLeft,
-  QrCode,
-  ShoppingCart,
-  BarChart3,
-  ClipboardList,
-  UserCog,
-  PackageCheck
+  Printer
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { productService } from '../../services/productService';
+import { toast } from 'react-hot-toast';
 
 const Suppliers = () => {
   const { userData } = useAuth();
@@ -322,6 +305,218 @@ const Suppliers = () => {
     averageRating: suppliers.length > 0 ? suppliers.reduce((sum, s) => sum + (s.rating || 0), 0) / suppliers.length : 0
   };
 
+  // Export suppliers to CSV
+  const handleExport = () => {
+    try {
+      const headers = ['Supplier Name', 'Contact Person', 'Email', 'Phone', 'Address', 'Website', 'Category', 'Payment Terms', 'Rating', 'Status', 'Products Count'];
+      
+      const rows = filteredSuppliers.map(supplier => [
+        supplier.name,
+        supplier.contactPerson,
+        supplier.email,
+        supplier.phone,
+        supplier.address,
+        supplier.website,
+        supplier.category,
+        supplier.paymentTerms,
+        supplier.rating,
+        supplier.isActive ? 'Active' : 'Inactive',
+        supplierProducts[supplier.id]?.length || 0
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `suppliers_${format(new Date(), 'yyyy-MM-dd_HH-mm-ss')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success(`Exported ${filteredSuppliers.length} suppliers`);
+    } catch (err) {
+      console.error('Error exporting suppliers:', err);
+      toast.error('Failed to export suppliers');
+    }
+  };
+
+  // Print all suppliers
+  const handlePrintAll = () => {
+    const printWindow = window.open('', '', 'height=600,width=800');
+    
+    let htmlContent = `
+      <html>
+        <head>
+          <title>Suppliers Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1 { text-align: center; color: #333; }
+            .supplier-section { page-break-inside: avoid; margin-bottom: 30px; border: 1px solid #ddd; padding: 15px; }
+            .supplier-header { background-color: #f5f5f5; padding: 10px; margin-bottom: 10px; border-radius: 4px; }
+            .supplier-name { font-size: 18px; font-weight: bold; color: #333; }
+            .supplier-status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px; }
+            .status-active { background-color: #d4edda; color: #155724; }
+            .status-inactive { background-color: #f8d7da; color: #721c24; }
+            .info-row { margin: 8px 0; }
+            .info-label { font-weight: bold; color: #555; display: inline-block; width: 120px; }
+            .products-section { margin-top: 15px; border-top: 1px solid #ddd; padding-top: 10px; }
+            .products-title { font-weight: bold; color: #333; margin-bottom: 10px; }
+            .product-item { margin-left: 20px; padding: 5px 0; border-bottom: 1px solid #eee; }
+            .rating { color: #ffc107; }
+          </style>
+        </head>
+        <body>
+          <h1>Suppliers Report</h1>
+          <p style="text-align: center; color: #666;">Generated on ${format(new Date(), 'MMMM dd, yyyy HH:mm:ss')}</p>
+    `;
+
+    filteredSuppliers.forEach(supplier => {
+      const products = supplierProducts[supplier.id] || [];
+      htmlContent += `
+        <div class="supplier-section">
+          <div class="supplier-header">
+            <div class="supplier-name">
+              ${supplier.name}
+              <span class="supplier-status status-${supplier.isActive ? 'active' : 'inactive'}">
+                ${supplier.isActive ? 'Active' : 'Inactive'}
+              </span>
+            </div>
+          </div>
+          
+          <div class="info-row">
+            <span class="info-label">Contact:</span> ${supplier.contactPerson}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Email:</span> ${supplier.email}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Phone:</span> ${supplier.phone}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Address:</span> ${supplier.address}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Website:</span> ${supplier.website}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Category:</span> ${supplier.category}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Payment Terms:</span> ${supplier.paymentTerms}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Rating:</span> <span class="rating">${'★'.repeat(supplier.rating)}${'☆'.repeat(5 - supplier.rating)}</span> (${supplier.rating}/5)
+          </div>
+          ${supplier.notes ? `<div class="info-row"><span class="info-label">Notes:</span> ${supplier.notes}</div>` : ''}
+          
+          <div class="products-section">
+            <div class="products-title">Products Supplied (${products.length})</div>
+            ${products.length > 0 
+              ? products.map(p => `<div class="product-item">• ${p.name}${p.sku ? ` (SKU: ${p.sku})` : ''}</div>`).join('')
+              : '<div class="product-item" style="color: #999;">No products</div>'
+            }
+          </div>
+        </div>
+      `;
+    });
+
+    htmlContent += `
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  };
+
+  // Print individual supplier
+  const handlePrintSupplier = (supplier) => {
+    const products = supplierProducts[supplier.id] || [];
+    const printWindow = window.open('', '', 'height=600,width=800');
+    
+    const htmlContent = `
+      <html>
+        <head>
+          <title>${supplier.name} - Supplier Details</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1 { color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+            .status { display: inline-block; padding: 6px 12px; border-radius: 4px; font-weight: bold; margin-left: 10px; }
+            .status-active { background-color: #d4edda; color: #155724; }
+            .status-inactive { background-color: #f8d7da; color: #721c24; }
+            .section { margin: 20px 0; }
+            .section-title { font-weight: bold; font-size: 14px; color: #333; background-color: #f5f5f5; padding: 8px; margin-bottom: 10px; }
+            .info-row { margin: 8px 0; }
+            .info-label { font-weight: bold; color: #555; display: inline-block; width: 140px; }
+            .products-list { margin-left: 20px; }
+            .product-item { padding: 8px 0; border-bottom: 1px solid #eee; }
+            .rating { color: #ffc107; font-size: 16px; }
+          </style>
+        </head>
+        <body>
+          <h1>
+            ${supplier.name}
+            <span class="status status-${supplier.isActive ? 'active' : 'inactive'}">
+              ${supplier.isActive ? 'Active' : 'Inactive'}
+            </span>
+          </h1>
+          
+          <div class="section">
+            <div class="section-title">Contact Information</div>
+            <div class="info-row"><span class="info-label">Contact Person:</span> ${supplier.contactPerson}</div>
+            <div class="info-row"><span class="info-label">Email:</span> ${supplier.email}</div>
+            <div class="info-row"><span class="info-label">Phone:</span> ${supplier.phone}</div>
+            <div class="info-row"><span class="info-label">Address:</span> ${supplier.address}</div>
+            <div class="info-row"><span class="info-label">Website:</span> ${supplier.website}</div>
+          </div>
+          
+          <div class="section">
+            <div class="section-title">Business Information</div>
+            <div class="info-row"><span class="info-label">Category:</span> ${supplier.category}</div>
+            <div class="info-row"><span class="info-label">Payment Terms:</span> ${supplier.paymentTerms}</div>
+            <div class="info-row"><span class="info-label">Rating:</span> <span class="rating">${'★'.repeat(supplier.rating)}${'☆'.repeat(5 - supplier.rating)}</span> (${supplier.rating}/5)</div>
+            ${supplier.notes ? `<div class="info-row"><span class="info-label">Notes:</span> ${supplier.notes}</div>` : ''}
+          </div>
+          
+          <div class="section">
+            <div class="section-title">Products Supplied (${products.length})</div>
+            <div class="products-list">
+              ${products.length > 0 
+                ? products.map(p => `
+                  <div class="product-item">
+                    <strong>${p.name}</strong>
+                    ${p.sku ? `<br/><small>SKU: ${p.sku}</small>` : ''}
+                    ${p.category ? `<br/><small>Category: ${p.category}</small>` : ''}
+                  </div>
+                `).join('')
+                : '<div class="product-item" style="color: #999;">No products supplied</div>'
+              }
+            </div>
+          </div>
+          
+          <p style="margin-top: 30px; color: #999; font-size: 12px;">
+            Generated on ${format(new Date(), 'MMMM dd, yyyy HH:mm:ss')}
+          </p>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  };
+
   if (loading) {
     return (
       <>
@@ -353,189 +548,164 @@ const Suppliers = () => {
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-end">
-          <div className="flex items-center gap-3">
-            <Button variant="outline" className="flex items-center gap-2">
-              <Upload className="h-4 w-4" />
-              Import
-            </Button>
-            <Button variant="outline" className="flex items-center gap-2">
-              <Download className="h-4 w-4" />
-              Export
-            </Button>
-            <Button onClick={handleAddSupplier} className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Add Supplier
-            </Button>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Suppliers</h1>
+          <p className="text-gray-600">Manage your supplier network and details</p>
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-          <Card className="p-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3 lg:gap-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Building className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Suppliers</p>
-                <p className="text-xl font-bold text-gray-900">{supplierStats.totalSuppliers}</p>
+              <Building className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Suppliers</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{supplierStats.totalSuppliers}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Active</p>
-                <p className="text-xl font-bold text-gray-900">{supplierStats.activeSuppliers}</p>
+              <CheckCircle className="h-6 w-6 md:h-8 md:w-8 text-green-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Active</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{supplierStats.activeSuppliers}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Star className="h-8 w-8 text-yellow-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Avg Rating</p>
-                <p className="text-xl font-bold text-gray-900">{supplierStats.averageRating.toFixed(1)}</p>
+              <Star className="h-6 w-6 md:h-8 md:w-8 text-yellow-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Avg Rating</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{supplierStats.averageRating.toFixed(1)}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Package className="h-8 w-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Categories</p>
-                <p className="text-xl font-bold text-gray-900">{categories.length}</p>
+              <Package className="h-6 w-6 md:h-8 md:w-8 text-purple-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Categories</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{categories.length}</p>
               </div>
             </div>
           </Card>
         </div>
 
-        {/* Search and Filters */}
-        <Card className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
+        {/* Search and Filter Row */}
+        <Card className="p-3 md:p-4 lg:p-6">
+          <div className="flex items-center gap-3 md:gap-4">
+            {/* Search Bar - 70% width */}
             <div className="flex-1">
               <SearchInput
-                placeholder="Search suppliers by name, contact person, or email..."
+                placeholder="Search suppliers..."
                 value={searchTerm}
                 onChange={setSearchTerm}
-                className="w-full"
+                className="w-full text-sm"
               />
             </div>
-            <div className="flex gap-3">
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-              <select
-                value={filters.category}
-                onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Categories</option>
-                {categories.map(category => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
-              </select>
+            
+            {/* Icon Buttons Only */}
+            <div className="flex items-center gap-2 md:gap-3">
               <Button
                 variant="outline"
                 onClick={() => setIsFilterModalOpen(true)}
-                className="flex items-center gap-2"
+                className="p-2 md:p-2.5"
+                title="Filter"
               >
-                <Filter className="h-4 w-4" />
-                More Filters
+                <Filter className="h-4 w-4 md:h-5 md:w-5" />
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => setFilters({
-                  status: 'all',
-                  category: 'all',
-                  rating: 'all',
-                  paymentTerms: 'all'
-                })}
-                className="flex items-center gap-2"
+              <Button 
+                variant="outline" 
+                onClick={handleExport}
+                className="p-2 md:p-2.5"
+                title="Export"
               >
-                <RefreshCw className="h-4 w-4" />
-                Reset
+                <Download className="h-4 w-4 md:h-5 md:w-5" />
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={handlePrintAll}
+                className="p-2 md:p-2.5"
+                title="Print All"
+              >
+                <Printer className="h-4 w-4 md:h-5 md:w-5" />
               </Button>
             </div>
           </div>
         </Card>
 
         {/* Suppliers Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-6">
           {filteredSuppliers.map((supplier) => (
             <Card key={supplier.id} className="overflow-hidden hover:shadow-lg transition-shadow">
               {/* Supplier Header */}
-              <div className="p-6 border-b">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <Building className="h-6 w-6 text-blue-600" />
+              <div className="p-3 md:p-4 lg:p-6 border-b">
+                <div className="flex items-start justify-between mb-2 md:mb-3">
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <Building className="h-5 w-5 md:h-6 md:w-6 text-blue-600" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">{supplier.name}</h3>
-                      <p className="text-sm text-gray-500">{supplier.category}</p>
+                      <h3 className="font-semibold text-sm md:text-base text-gray-900">{supplier.name}</h3>
+                      <p className="text-xs md:text-sm text-gray-500">{supplier.category}</p>
                     </div>
                   </div>
-                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(supplier.isActive)}`}>
+                  <span className={`inline-flex items-center gap-1 px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-xs font-medium ${getStatusColor(supplier.isActive)}`}>
                     {getStatusIcon(supplier.isActive)}
-                    {supplier.isActive ? 'Active' : 'Inactive'}
+                    <span className="hidden sm:inline">{supplier.isActive ? 'Active' : 'Inactive'}</span>
                   </span>
                 </div>
                 
-                <div className="flex items-center gap-4 mb-3">
-                  <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2 md:gap-4 mb-2 md:mb-3">
+                  <div className="flex items-center gap-0.5 md:gap-1">
                     {getRatingStars(supplier.rating)}
                   </div>
-                  <span className="text-sm text-gray-500">({supplier.rating}/5)</span>
+                  <span className="text-xs md:text-sm text-gray-500">({supplier.rating}/5)</span>
                 </div>
                 
-                <p className="text-sm text-gray-600 line-clamp-2">{supplier.notes}</p>
+                <p className="text-xs md:text-sm text-gray-600 line-clamp-2">{supplier.notes}</p>
               </div>
 
               {/* Supplier Info */}
-              <div className="p-6">
-                <div className="space-y-3 mb-4">
-                  <div className="flex items-center gap-3">
-                    <Users className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">{supplier.contactPerson}</span>
+              <div className="p-3 md:p-4 lg:p-6">
+                <div className="space-y-2 md:space-y-3 mb-3 md:mb-4">
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <Users className="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" />
+                    <span className="text-xs md:text-sm text-gray-600 truncate">{supplier.contactPerson}</span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">{supplier.email}</span>
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <Mail className="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" />
+                    <span className="text-xs md:text-sm text-gray-600 truncate">{supplier.email}</span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Phone className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">{supplier.phone}</span>
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <Phone className="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" />
+                    <span className="text-xs md:text-sm text-gray-600">{supplier.phone}</span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <MapPin className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 line-clamp-1">{supplier.address}</span>
+                  <div className="flex items-center gap-2 md:gap-3 hidden md:flex">
+                    <MapPin className="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" />
+                    <span className="text-xs md:text-sm text-gray-600 line-clamp-1">{supplier.address}</span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                <div className="grid grid-cols-2 gap-2 md:gap-4 mb-3 md:mb-4 text-xs md:text-sm">
                   <div>
-                    <span className="text-gray-500">Payment Terms:</span>
+                    <span className="text-gray-500">Payment:</span>
                     <span className="ml-1 font-medium">{supplier.paymentTerms || 'N/A'}</span>
                   </div>
-                  <div>
+                  <div className="hidden md:block">
                     <span className="text-gray-500">Category:</span>
                     <span className="ml-1 font-medium">{supplier.category || 'N/A'}</span>
                   </div>
                   <div className="col-span-2">
-                    <div className="flex items-center gap-2">
-                      <Package className="h-4 w-4 text-blue-600" />
+                    <div className="flex items-center gap-1 md:gap-2">
+                      <Package className="h-3.5 w-3.5 md:h-4 md:w-4 text-blue-600" />
                       <span className="text-gray-500">Products:</span>
                       <span className="ml-1 font-semibold text-blue-600">
                         {supplierProducts[supplier.id]?.length || 0} available
@@ -549,18 +719,19 @@ const Suppliers = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => handleViewDetails(supplier)}
-                    className="flex-1 flex items-center gap-2"
+                    className="flex-1 flex items-center justify-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
                   >
-                    <Eye className="h-4 w-4" />
-                    View Details
+                    <Eye className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    <span className="hidden sm:inline">View Details</span>
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleEditSupplier(supplier)}
-                    className="flex items-center gap-2"
+                    onClick={() => handlePrintSupplier(supplier)}
+                    className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
+                    title="Print Supplier Details"
                   >
-                    <Edit className="h-4 w-4" />
+                    <Printer className="h-3.5 w-3.5 md:h-4 md:w-4" />
                   </Button>
                 </div>
               </div>
@@ -570,20 +741,117 @@ const Suppliers = () => {
 
         {/* Empty State */}
         {filteredSuppliers.length === 0 && (
-          <Card className="p-12 text-center">
-            <Building className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Suppliers Found</h3>
-            <p className="text-gray-600 mb-4">
+          <Card className="p-6 md:p-8 lg:p-12 text-center">
+            <Building className="h-12 w-12 md:h-16 md:w-16 text-gray-400 mx-auto mb-3 md:mb-4" />
+            <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-2">No Suppliers Found</h3>
+            <p className="text-sm md:text-base text-gray-600 mb-3 md:mb-4">
               {searchTerm || Object.values(filters).some(f => f !== 'all')
                 ? 'Try adjusting your search or filters'
                 : 'Get started by adding your first supplier'
               }
             </p>
-            <Button onClick={handleAddSupplier} className="flex items-center gap-2 mx-auto">
-              <Plus className="h-4 w-4" />
+            <Button onClick={handleAddSupplier} className="flex items-center gap-1 md:gap-2 mx-auto text-xs md:text-sm px-2 md:px-3">
+              <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
               Add Supplier
             </Button>
           </Card>
+        )}
+
+        {/* Filter Modal */}
+        {isFilterModalOpen && (
+          <Modal
+            isOpen={isFilterModalOpen}
+            onClose={() => setIsFilterModalOpen(false)}
+            title="Filter Suppliers"
+            size="md"
+          >
+            <div className="space-y-6">
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  value={filters.status}
+                  onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+
+              {/* Category Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                <select
+                  value={filters.category}
+                  onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">All Categories</option>
+                  {categories.map(category => (
+                    <option key={category} value={category}>{category}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Rating Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Minimum Rating</label>
+                <select
+                  value={filters.rating}
+                  onChange={(e) => setFilters(prev => ({ ...prev, rating: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">All Ratings</option>
+                  <option value="1">1+ Stars</option>
+                  <option value="2">2+ Stars</option>
+                  <option value="3">3+ Stars</option>
+                  <option value="4">4+ Stars</option>
+                  <option value="5">5 Stars</option>
+                </select>
+              </div>
+
+              {/* Payment Terms Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Terms</label>
+                <select
+                  value={filters.paymentTerms}
+                  onChange={(e) => setFilters(prev => ({ ...prev, paymentTerms: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">All Payment Terms</option>
+                  {paymentTerms.map(term => (
+                    <option key={term} value={term}>{term}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setFilters({
+                      status: 'all',
+                      category: 'all',
+                      rating: 'all',
+                      paymentTerms: 'all'
+                    });
+                  }}
+                  className="flex-1"
+                >
+                  Reset Filters
+                </Button>
+                <Button
+                  onClick={() => setIsFilterModalOpen(false)}
+                  className="flex-1"
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
+          </Modal>
         )}
 
         {/* Supplier Details Modal */}
@@ -944,62 +1212,6 @@ const Suppliers = () => {
                 </Button>
               </div>
             </form>
-          </Modal>
-        )}
-
-        {/* Advanced Filters Modal */}
-        {isFilterModalOpen && (
-          <Modal
-            isOpen={isFilterModalOpen}
-            onClose={() => setIsFilterModalOpen(false)}
-            title="Advanced Filters"
-            size="md"
-          >
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Rating</label>
-                <select
-                  value={filters.rating}
-                  onChange={(e) => setFilters(prev => ({ ...prev, rating: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="all">All Ratings</option>
-                  <option value="5">5 Stars</option>
-                  <option value="4">4+ Stars</option>
-                  <option value="3">3+ Stars</option>
-                  <option value="2">2+ Stars</option>
-                  <option value="1">1+ Stars</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Terms</label>
-                <select
-                  value={filters.paymentTerms}
-                  onChange={(e) => setFilters(prev => ({ ...prev, paymentTerms: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="all">All Payment Terms</option>
-                  {paymentTerms.map(term => (
-                    <option key={term} value={term}>{term}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4">
-                <Button variant="outline" onClick={() => setFilters({
-                  status: 'all',
-                  category: 'all',
-                  rating: 'all',
-                  paymentTerms: 'all'
-                })}>
-                  Reset
-                </Button>
-                <Button onClick={() => setIsFilterModalOpen(false)}>
-                  Apply Filters
-                </Button>
-              </div>
-            </div>
           </Modal>
         )}
       </div>

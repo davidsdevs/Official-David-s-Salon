@@ -5,7 +5,6 @@ import InventoryLayout from '../../layouts/InventoryLayout';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { SearchInput } from '../../components/ui/SearchInput';
 import Modal from '../../components/ui/Modal';
 import { productService } from '../../services/productService';
 import { getBranches } from '../../services/branchService';
@@ -124,6 +123,16 @@ const StockTransfer = () => {
   const [pendingRequestsFromToBranch, setPendingRequestsFromToBranch] = useState([]); // Pending borrow requests FROM the selected To Branch TO current branch
   const [selectedRequestId, setSelectedRequestId] = useState(''); // Selected request ID for autofill
   const [productBatches, setProductBatches] = useState({}); // Store batches for each product: { productId: [{ batchId, batchNumber, remainingQuantity, expirationDate }] }
+  
+  // Return expiration status states
+  const [isReturnExpirationModalOpen, setIsReturnExpirationModalOpen] = useState(false);
+  const [returnExpirationData, setReturnExpirationData] = useState({
+    transfer: null,
+    item: null,
+    returnQuantity: 0,
+    returnReason: '',
+    expirationStatus: 'good' // 'good', 'damaged', 'expired'
+  });
 
   // Mock transfer data
   const mockTransfers = [
@@ -1511,6 +1520,88 @@ const StockTransfer = () => {
     }
   };
 
+  // Handle opening return expiration modal
+  const handleOpenReturnExpirationModal = (transfer, item) => {
+    setReturnExpirationData({
+      transfer,
+      item,
+      returnQuantity: item.quantity,
+      returnReason: '',
+      expirationStatus: 'good'
+    });
+    setIsReturnExpirationModalOpen(true);
+  };
+
+  // Handle return with expiration status
+  const handleReturnWithExpirationStatus = async () => {
+    const { transfer, item, returnQuantity, returnReason, expirationStatus } = returnExpirationData;
+
+    if (!returnQuantity || returnQuantity <= 0) {
+      toast.error('Please enter a valid return quantity');
+      return;
+    }
+
+    if (returnQuantity > item.quantity) {
+      toast.error(`Return quantity cannot exceed transferred quantity (${item.quantity})`);
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      // First, return the stock to original batches
+      await handleReturnStock(transfer, item, returnQuantity, returnReason);
+
+      // Then, update the expiration status of the returned batches
+      if (expirationStatus !== 'good') {
+        // Find the original batch or transfer batches
+        const batchesResult = await inventoryService.getBranchBatches(transfer.fromBranchId, {
+          productId: item.productId
+        });
+
+        if (batchesResult.success) {
+          const transferBatches = batchesResult.batches.filter(b => 
+            b.sourceType === 'transfer' && 
+            b.sourceTransferId === transfer.id &&
+            b.productId === item.productId
+          );
+
+          // Update expiration status for returned batches
+          for (const batch of transferBatches) {
+            if (batch.remainingQuantity > 0) {
+              const batchRef = doc(db, 'product_batches', batch.id);
+              await updateDoc(batchRef, {
+                expirationStatus: expirationStatus, // 'good', 'damaged', 'expired'
+                statusUpdatedAt: serverTimestamp(),
+                statusUpdatedBy: userData?.uid,
+                statusUpdateReason: `Returned from transfer - ${returnReason || 'No reason provided'}`
+              });
+            }
+          }
+
+          toast.success(`Stock returned successfully with expiration status: ${expirationStatus}`);
+        }
+      } else {
+        toast.success('Stock returned successfully');
+      }
+
+      setIsReturnExpirationModalOpen(false);
+      setReturnExpirationData({
+        transfer: null,
+        item: null,
+        returnQuantity: 0,
+        returnReason: '',
+        expirationStatus: 'good'
+      });
+    } catch (error) {
+      console.error('Error returning stock with expiration status:', error);
+      toast.error(`Failed to return stock: ${error.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+
+  };
+
   // Add item to transfer
   const addItem = () => {
     setFormData(prev => ({
@@ -2015,9 +2106,8 @@ const StockTransfer = () => {
             <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Error Loading Transfer Data</h3>
             <p className="text-gray-600 mb-4">{error}</p>
-            <Button onClick={loadData} className="flex items-center gap-2">
+            <Button variant="outline" onClick={loadData} className="flex items-center gap-2" title="Try again">
               <RefreshCw className="h-4 w-4" />
-              Try Again
             </Button>
           </div>
         </div>
@@ -2027,58 +2117,75 @@ const StockTransfer = () => {
 
   return (
     <>
-      <div className="space-y-6">
-        {/* Header - Action Buttons */}
-        <div className="flex items-center justify-end gap-3">
-            <Button 
-              variant="outline" 
-              className="flex items-center gap-2"
-              onClick={handleExportToExcel}
-            >
-              <Download className="h-4 w-4" />
-              Export
-            </Button>
-            <Button 
-              variant="outline" 
-              className="flex items-center gap-2"
-              onClick={handlePrintReport}
-            >
-              <FileText className="h-4 w-4" />
-              Report
-            </Button>
-          <Button 
-            variant="outline" 
-            onClick={handleCreateBorrowRequest} 
-            className="flex items-center gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
-          >
-            <ArrowRight className="h-4 w-4" />
-            Create Borrow Request
-          </Button>
-            <Button onClick={handleCreateTransfer} className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Create Transfer
-            </Button>
-          </div>
+      <div className="space-y-4 md:space-y-6 max-w-full overflow-hidden">
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{transfers.filter(t => t.status === 'Pending').length}</p>
+                <p className="text-sm text-gray-600">Pending Transfers</p>
+              </div>
+              <div className="p-3 bg-yellow-100 rounded-full">
+                <Clock className="h-6 w-6 text-yellow-600" />
+              </div>
+            </div>
+          </Card>
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{transfers.filter(t => t.status === 'In Transit').length}</p>
+                <p className="text-sm text-gray-600">In Transit</p>
+              </div>
+              <div className="p-3 bg-blue-100 rounded-full">
+                <Truck className="h-6 w-6 text-blue-600" />
+              </div>
+            </div>
+          </Card>
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{transfers.filter(t => t.status === 'Completed').length}</p>
+                <p className="text-sm text-gray-600">Completed</p>
+              </div>
+              <div className="p-3 bg-green-100 rounded-full">
+                <CheckCircle className="h-6 w-6 text-green-600" />
+              </div>
+            </div>
+          </Card>
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{transfers.reduce((sum, t) => sum + (t.items?.length || 0), 0)}</p>
+                <p className="text-sm text-gray-600">Total Items Transferred</p>
+              </div>
+              <div className="p-3 bg-purple-100 rounded-full">
+                <Package className="h-6 w-6 text-purple-600" />
+              </div>
+            </div>
+          </Card>
+        </div>
+
 
         {/* Incoming Borrow Requests Notification */}
         {incomingBorrowRequests.length > 0 && (
-          <Card className="bg-purple-50 border-purple-200 mb-4">
-            <div className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <AlertCircle className="h-6 w-6 text-purple-600" />
+          <Card className="bg-purple-50 border-purple-200 mb-3 md:mb-4">
+            <div className="p-3 md:p-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 md:gap-3">
+                  <AlertCircle className="h-5 w-5 md:h-6 md:w-6 text-purple-600 flex-shrink-0" />
                   <div>
-                    <h3 className="font-semibold text-purple-900">
+                    <h3 className="text-sm md:text-base font-semibold text-purple-900">
                       {incomingBorrowRequests.length} Borrow Request{incomingBorrowRequests.length !== 1 ? 's' : ''} Pending Review
                     </h3>
-                    <p className="text-sm text-purple-700">
+                    <p className="text-xs md:text-sm text-purple-700">
                       Other branches are requesting to borrow products from you. Review and approve or decline each request.
                     </p>
         </div>
                 </div>
                 <Button
                   onClick={() => setSelectedTransferType('borrow')}
-                  className="bg-purple-600 hover:bg-purple-700"
+                  className="bg-purple-600 hover:bg-purple-700 text-xs md:text-sm px-2 md:px-3 self-start md:self-auto"
                 >
                   View Requests
                 </Button>
@@ -2088,147 +2195,132 @@ const StockTransfer = () => {
         )}
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
-          <Card className="p-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3 lg:gap-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <ArrowRightLeft className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Transfers</p>
-                <p className="text-xl font-bold text-gray-900">{transferStats.totalTransfers}</p>
+              <ArrowRightLeft className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Transfers</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{transferStats.totalTransfers}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Clock className="h-8 w-8 text-yellow-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Pending</p>
-                <p className="text-xl font-bold text-gray-900">{transferStats.pendingTransfers}</p>
+              <Clock className="h-6 w-6 md:h-8 md:w-8 text-yellow-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Pending</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{transferStats.pendingTransfers}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Truck className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">In Transit</p>
-                <p className="text-xl font-bold text-gray-900">{transferStats.inTransitTransfers}</p>
+              <Truck className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">In Transit</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{transferStats.inTransitTransfers}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Completed</p>
-                <p className="text-xl font-bold text-gray-900">{transferStats.completedTransfers}</p>
+              <CheckCircle className="h-6 w-6 md:h-8 md:w-8 text-green-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Completed</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{transferStats.completedTransfers}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4 col-span-2 md:col-span-1">
             <div className="flex items-center">
-              <Package className="h-8 w-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Value</p>
-                <p className="text-xl font-bold text-gray-900">₱{transferStats.totalValue.toLocaleString()}</p>
+              <Package className="h-6 w-6 md:h-8 md:w-8 text-purple-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Value</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">₱{transferStats.totalValue.toLocaleString()}</p>
               </div>
             </div>
           </Card>
         </div>
 
-        {/* Search and Filters */}
-        <Card className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1">
-              <SearchInput
-                placeholder="Search by transfer ID, branches, or reason..."
+        {/* Filter Row */}
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="flex items-center gap-4">
+            {/* Search Bar */}
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search transfers..."
                 value={searchTerm}
-                onChange={setSearchTerm}
-                className="w-full"
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
               />
             </div>
-            <div className="flex gap-3">
-              <select
-                value={selectedTransferType}
-                onChange={(e) => setSelectedTransferType(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Types</option>
-                <option value="transfer">Transfers (Lending)</option>
-                <option value="borrow">Borrow Requests</option>
-              </select>
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Status</option>
-                <option value="Pending">Pending</option>
-                <option value="In Transit">In Transit</option>
-                <option value="Completed">Completed</option>
-                <option value="Cancelled">Cancelled</option>
-              </select>
-              <select
-                value={filters.fromBranch}
-                onChange={(e) => setFilters(prev => ({ ...prev, fromBranch: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">From Branch</option>
-                {branches.length > 0 ? branches.map(branch => (
-                  <option key={branch.id} value={branch.id}>{branch.name || branch.branchName || 'Unknown'}</option>
-                )) : (
-                  <option value="" disabled>Loading branches...</option>
-                )}
-              </select>
-              <select
-                value={filters.toBranch}
-                onChange={(e) => setFilters(prev => ({ ...prev, toBranch: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">To Branch</option>
-                {branches.map(branch => (
-                  <option key={branch.id} value={branch.id}>{branch.name || branch.branchName || 'Unknown'}</option>
-                ))}
-              </select>
-              <Button
-                variant="outline"
-                onClick={() => setIsFilterModalOpen(true)}
-                className="flex items-center gap-2"
-              >
-                <Filter className="h-4 w-4" />
-                More Filters
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setFilters({
-                  status: 'all',
-                  fromBranch: 'all',
-                  toBranch: 'all',
-                  dateRange: { start: '', end: '' },
-                  valueRange: { min: '', max: '' },
-                  itemCountRange: { min: '', max: '' },
-                  transferType: 'all'
-                })}
-                className="flex items-center gap-2"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Reset
-              </Button>
-            </div>
+
+            {/* Filter Button */}
+            <Button
+              variant="outline"
+              onClick={() => setIsFilterModalOpen(true)}
+              className="flex items-center gap-2"
+              title="Filter transfers"
+            >
+              <Filter className="w-5 h-5" />
+            </Button>
+
+            {/* Export Button */}
+            <Button
+              variant="outline"
+              onClick={handleExportToExcel}
+              className="flex items-center gap-2"
+              title="Export transfers data"
+            >
+              <Download className="w-5 h-5" />
+            </Button>
+
+            {/* Print Button */}
+            <Button
+              variant="outline"
+              onClick={handlePrintReport}
+              className="flex items-center gap-2"
+              title="Print transfers report"
+            >
+              <Printer className="w-5 h-5" />
+            </Button>
+
+            {/* Create Borrow Request Button */}
+            <Button
+              variant="outline"
+              onClick={handleCreateBorrowRequest}
+              className="flex items-center gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+              title="Create borrow request"
+            >
+              <ArrowRight className="w-5 h-5" />
+            </Button>
+
+            {/* Create Transfer Button */}
+            <Button
+              variant="outline"
+              onClick={handleCreateTransfer}
+              className="flex items-center gap-2"
+              title="Create new transfer"
+            >
+              <Plus className="w-5 h-5" />
+            </Button>
           </div>
-        </Card>
+        </div>
 
         {/* Transfers Table */}
         {filteredTransfers.length === 0 ? (
-          <Card className="p-12">
+          <Card className="p-6 md:p-8 lg:p-12">
             <div className="text-center">
-              <ArrowRightLeft className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Transfers Found</h3>
-              <p className="text-gray-600">
+              <ArrowRightLeft className="h-12 w-12 md:h-16 md:w-16 text-gray-400 mx-auto mb-3 md:mb-4" />
+              <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-2">No Transfers Found</h3>
+              <p className="text-sm md:text-base text-gray-600">
                 {searchTerm || Object.values(filters).some(f => f !== 'all' && f !== '') || selectedTransferType !== 'all'
                   ? 'Try adjusting your search or filters'
                   : 'Get started by creating your first stock transfer or borrow request'
@@ -2237,33 +2329,33 @@ const StockTransfer = () => {
             </div>
           </Card>
         ) : (
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
+          <Card className="overflow-hidden w-full">
+            <div className="overflow-x-auto max-w-full">
+              <table className="w-full divide-y divide-gray-200 table-fixed">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-[15%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Transfer ID
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="hidden md:table-cell w-[10%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Type
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-[25%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       From → To
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="hidden lg:table-cell w-[12%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Date
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="hidden md:table-cell w-[8%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Items
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="hidden lg:table-cell w-[12%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Value
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-[10%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-[8%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -2281,86 +2373,94 @@ const StockTransfer = () => {
               
               return (
                 <tr key={transfer.id} className={`hover:bg-gray-50 ${isIncomingBorrowRequest ? 'bg-purple-50' : ''}`}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{transfer.id}</div>
+                  <td className="px-2 md:px-3 py-2 md:py-3">
+                    <div className="flex items-center min-w-0">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs md:text-sm font-medium text-gray-900 truncate">{transfer.id}</div>
                         {transfer.reason && (
-                          <div className="text-xs text-gray-500 max-w-32 truncate" title={transfer.reason}>
+                          <div className="text-xs text-gray-500 truncate" title={transfer.reason}>
                             {transfer.reason}
                           </div>
                         )}
+                        {/* Show type badge inline on mobile */}
+                        <span className={`md:hidden inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium mt-1 ${
+                          transfer.transferType === 'borrow' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {transfer.transferType === 'borrow' ? 'Borrow' : 'Transfer'}
+                        </span>
                       </div>
                       {transfer.toBranchHasSystem === false && (
-                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
-                          Manual
+                        <span className="ml-1 inline-flex items-center px-1 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                          M
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  <td className="hidden md:table-cell px-2 md:px-3 py-2 md:py-3">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                       transfer.transferType === 'borrow' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
                     }`}>
                       {transfer.transferType === 'borrow' ? 'Borrow' : 'Transfer'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    <div className="flex items-center">
-                      <ArrowRightLeft className="h-4 w-4 mr-2 text-gray-400" />
-                      <div>
-                        <div className="font-medium">{transfer.fromBranchName}</div>
-                        <div className="text-xs text-gray-500">→ {transfer.toBranchName}</div>
+                  <td className="px-2 md:px-3 py-2 md:py-3 text-xs md:text-sm text-gray-900">
+                    <div className="min-w-0">
+                      <div className="font-medium text-xs md:text-sm truncate">{transfer.fromBranchName}</div>
+                      <div className="text-xs text-gray-500 truncate">→ {transfer.toBranchName}</div>
+                      {/* Show date on mobile since date column is hidden */}
+                      <div className="lg:hidden text-xs text-gray-400 mt-0.5">
+                        {format(transfer.transferDate, 'MMM dd')}
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="hidden lg:table-cell px-2 md:px-3 py-2 md:py-3 text-xs text-gray-900">
                     {format(transfer.transferDate, 'MMM dd, yyyy')}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="hidden md:table-cell px-2 md:px-3 py-2 md:py-3 text-xs text-gray-900 text-center">
                     {transfer.totalItems || 0}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="hidden lg:table-cell px-2 md:px-3 py-2 md:py-3 text-xs text-gray-900">
                     ₱{transfer.totalValue?.toLocaleString() || '0'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  <td className="px-2 md:px-3 py-2 md:py-3">
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${
                       transfer.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
                       transfer.status === 'In Transit' ? 'bg-blue-100 text-blue-800' :
                       transfer.status === 'Completed' ? 'bg-green-100 text-green-800' :
                       'bg-red-100 text-red-800'
                     }`}>
-                      {transfer.status}
+                      <span className="hidden sm:inline">{transfer.status}</span>
+                      <span className="sm:hidden">{transfer.status === 'In Transit' ? 'Transit' : transfer.status.slice(0, 4)}</span>
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
+                  <td className="px-2 md:px-3 py-2 md:py-3 text-sm font-medium">
+                          <div className="flex gap-1">
+                            <button
                               onClick={() => handleViewDetails(transfer)}
+                              className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                              title="View details"
                             >
                               <Eye className="h-4 w-4" />
-                            </Button>
+                            </button>
 
                             {isIncomingBorrowRequest && (
-                              <Button
-                                size="sm"
+                              <button
                                 onClick={() => handleReviewBorrowRequest(transfer)}
-                                className="bg-purple-600 hover:bg-purple-700"
+                                className="p-1.5 text-purple-600 hover:text-purple-900 hover:bg-purple-100 rounded transition-colors"
+                                title="Review borrow request"
                               >
                                 <CheckCircle className="h-4 w-4" />
-                              </Button>
+                              </button>
                             )}
 
                             {transfer.status === 'Pending' && transfer.fromBranchId === userData?.branchId && (
-                              <Button
-                                variant="outline"
-                                size="sm"
+                              <button
                                 onClick={() => handleEditTransfer(transfer)}
+                                className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                                title="Edit transfer"
                               >
                                 <Edit className="h-4 w-4" />
-                              </Button>
+                              </button>
                             )}
                           </div>
                         </td>
@@ -2373,9 +2473,9 @@ const StockTransfer = () => {
 
             {/* Pagination Info */}
             {filteredTransfers.length > 0 && (
-              <div className="px-6 py-3 bg-gray-50 border-t border-gray-200">
+              <div className="px-3 md:px-6 py-2 md:py-3 bg-gray-50 border-t border-gray-200">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm text-gray-700">
+                  <div className="text-xs md:text-sm text-gray-700">
                     Showing {filteredTransfers.length} of {totalItems} transfers
                   </div>
                   {hasMore && (
@@ -2384,14 +2484,15 @@ const StockTransfer = () => {
                       size="sm"
                       onClick={loadMoreTransfers}
                       disabled={loadingMore}
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
                     >
                       {loadingMore ? (
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-3.5 w-3.5 md:h-4 md:w-4 animate-spin" />
                       ) : (
-                        <ArrowRightLeft className="h-4 w-4" />
+                        <ArrowRightLeft className="h-3.5 w-3.5 md:h-4 md:w-4" />
                       )}
-                      Load More
+                      <span className="hidden sm:inline">Load More</span>
+                      <span className="sm:hidden">More</span>
                     </Button>
                   )}
                 </div>
@@ -2403,28 +2504,32 @@ const StockTransfer = () => {
 
         {/* Empty State */}
         {filteredTransfers.length === 0 && !loading && (
-          <Card className="p-12 text-center">
-            <ArrowRightLeft className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Transfers Found</h3>
-            <p className="text-gray-600 mb-4">
+          <Card className="p-6 md:p-8 lg:p-12 text-center">
+            <ArrowRightLeft className="h-12 w-12 md:h-16 md:w-16 text-gray-400 mx-auto mb-3 md:mb-4" />
+            <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-2">No Transfers Found</h3>
+            <p className="text-sm md:text-base text-gray-600 mb-4">
               {searchTerm || Object.values(filters).some(f => f !== 'all' && f !== '') || selectedTransferType !== 'all'
                 ? 'Try adjusting your search or filters'
                 : 'Get started by creating your first stock transfer or borrow request'
               }
             </p>
-            <div className="flex gap-3 justify-center">
-              <Button 
+            <div className="flex flex-col sm:flex-row gap-2 md:gap-3 justify-center">
+              <Button
                 variant="outline"
-                onClick={handleCreateBorrowRequest} 
-                className="flex items-center gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+                onClick={handleCreateBorrowRequest}
+                className="flex items-center justify-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3 border-purple-300 text-purple-700 hover:bg-purple-50"
+                title="Create borrow request"
               >
-                <ArrowRight className="h-4 w-4" />
-                Create Borrow Request
+                <ArrowRight className="h-3.5 w-3.5 md:h-4 md:w-4" />
               </Button>
-              <Button onClick={handleCreateTransfer} className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Create Transfer
-            </Button>
+              <Button
+                variant="outline"
+                onClick={handleCreateTransfer}
+                className="flex items-center justify-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
+                title="Create new transfer"
+              >
+                <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
+              </Button>
             </div>
           </Card>
         )}
@@ -2755,6 +2860,9 @@ const StockTransfer = () => {
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit Cost</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+                        {selectedTransfer.status === 'Completed' && selectedTransfer.fromBranchId === userData?.branchId && (
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -2764,6 +2872,17 @@ const StockTransfer = () => {
                           <td className="px-4 py-2 text-sm text-gray-900">{item.quantity}</td>
                           <td className="px-4 py-2 text-sm text-gray-900">₱{item.unitCost.toLocaleString()}</td>
                           <td className="px-4 py-2 text-sm font-medium text-gray-900">₱{item.totalCost.toLocaleString()}</td>
+                          {selectedTransfer.status === 'Completed' && selectedTransfer.fromBranchId === userData?.branchId && (
+                            <td className="px-4 py-2 text-sm">
+                              <button
+                                onClick={() => handleOpenReturnExpirationModal(selectedTransfer, item)}
+                                className="p-1.5 text-blue-600 hover:text-blue-900 hover:bg-blue-100 rounded transition-colors"
+                                title="Return stock with expiration status"
+                              >
+                                <ArrowRightLeft className="h-4 w-4" />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -3101,15 +3220,14 @@ const StockTransfer = () => {
                       </div>
                       
                       <div className="col-span-1">
-                        <Button
+                        <button
                           type="button"
-                          variant="outline"
-                          size="sm"
                           onClick={() => removeItem(index)}
-                          className="w-full"
+                          className="w-full p-1.5 text-red-600 hover:text-red-900 hover:bg-red-100 rounded transition-colors"
+                          title="Remove item"
                         >
                           <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -3547,9 +3665,8 @@ const StockTransfer = () => {
                       </div>
                     )}
                   </div>
-                  <Button type="button" onClick={addItem} className="flex items-center gap-2">
+                  <Button type="button" variant="outline" onClick={addItem} className="flex items-center gap-2" title="Add item">
                     <Plus className="h-4 w-4" />
-                    Add Item
                   </Button>
                 </div>
                 
@@ -3564,15 +3681,14 @@ const StockTransfer = () => {
                           </div>
                           <h4 className="text-base font-semibold text-gray-800">Transfer Item #{index + 1}</h4>
                         </div>
-                        <Button
+                        <button
                           type="button"
-                          variant="outline"
-                          size="sm"
                           onClick={() => removeItem(index)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                          className="p-1.5 text-red-600 hover:text-red-900 hover:bg-red-100 rounded transition-colors"
+                          title="Remove item"
                         >
                           <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </button>
                       </div>
 
                       <div className="space-y-5">
@@ -4063,8 +4179,8 @@ const StockTransfer = () => {
                 })}>
                   Reset
                 </Button>
-                <Button onClick={() => setIsFilterModalOpen(false)}>
-                  Apply Filters
+                <Button variant="outline" onClick={() => setIsFilterModalOpen(false)} title="Apply filters">
+                  <CheckCircle className="h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -4091,6 +4207,134 @@ const StockTransfer = () => {
               >
                 Close
               </Button>
+            </div>
+          </Modal>
+        )}
+
+        {/* Return with Expiration Status Modal */}
+        {isReturnExpirationModalOpen && returnExpirationData.item && (
+          <Modal
+            isOpen={isReturnExpirationModalOpen}
+            onClose={() => setIsReturnExpirationModalOpen(false)}
+            title="Return Stock with Expiration Status"
+            size="md"
+          >
+            <div className="space-y-6">
+              {/* Product Info */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="text-sm text-gray-600">Product</p>
+                <p className="text-lg font-semibold text-gray-900">{returnExpirationData.item.productName}</p>
+                <p className="text-sm text-gray-600 mt-2">Transferred Quantity: {returnExpirationData.item.quantity}</p>
+              </div>
+
+              {/* Return Quantity */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Return Quantity *</label>
+                <input
+                  type="number"
+                  min="1"
+                  max={returnExpirationData.item.quantity}
+                  value={returnExpirationData.returnQuantity}
+                  onChange={(e) => setReturnExpirationData(prev => ({
+                    ...prev,
+                    returnQuantity: parseInt(e.target.value) || 0
+                  }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Return Reason */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Return Reason</label>
+                <textarea
+                  value={returnExpirationData.returnReason}
+                  onChange={(e) => setReturnExpirationData(prev => ({
+                    ...prev,
+                    returnReason: e.target.value
+                  }))}
+                  placeholder="Enter reason for return (optional)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows="3"
+                />
+              </div>
+
+              {/* Expiration Status */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">Expiration Status *</label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="expirationStatus"
+                      value="good"
+                      checked={returnExpirationData.expirationStatus === 'good'}
+                      onChange={(e) => setReturnExpirationData(prev => ({
+                        ...prev,
+                        expirationStatus: e.target.value
+                      }))}
+                      className="w-4 h-4"
+                    />
+                    <div>
+                      <p className="font-medium text-gray-900">Good Condition</p>
+                      <p className="text-sm text-gray-600">Product is in good condition and can be restocked</p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="expirationStatus"
+                      value="damaged"
+                      checked={returnExpirationData.expirationStatus === 'damaged'}
+                      onChange={(e) => setReturnExpirationData(prev => ({
+                        ...prev,
+                        expirationStatus: e.target.value
+                      }))}
+                      className="w-4 h-4"
+                    />
+                    <div>
+                      <p className="font-medium text-gray-900">Damaged</p>
+                      <p className="text-sm text-gray-600">Product is damaged and cannot be sold</p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="expirationStatus"
+                      value="expired"
+                      checked={returnExpirationData.expirationStatus === 'expired'}
+                      onChange={(e) => setReturnExpirationData(prev => ({
+                        ...prev,
+                        expirationStatus: e.target.value
+                      }))}
+                      className="w-4 h-4"
+                    />
+                    <div>
+                      <p className="font-medium text-gray-900">Expired</p>
+                      <p className="text-sm text-gray-600">Product has expired and cannot be sold</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsReturnExpirationModalOpen(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleReturnWithExpirationStatus}
+                  disabled={isSubmitting}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                >
+                  {isSubmitting ? 'Processing...' : 'Return Stock'}
+                </Button>
+              </div>
             </div>
           </Modal>
         )}

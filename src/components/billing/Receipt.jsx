@@ -29,21 +29,34 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
     return labels[method] || method;
   };
 
+  const getClientTypeLabel = (type) => {
+    const labels = {
+      'X': 'New Client',
+      'R': 'Regular',
+      'TR': 'Transfer'
+    };
+    return labels[type] || type;
+  };
+
+  // Separate services and products
+  const services = bill.items?.filter(item => item.type === 'service') || [];
+  const products = bill.items?.filter(item => item.type === 'product') || [];
+
   return (
     <div ref={ref} className="bg-white p-8 max-w-md mx-auto" style={{ fontFamily: 'monospace' }}>
       {/* Header */}
       <div className="text-center border-b-2 border-dashed border-gray-300 pb-4 mb-4">
         <h1 className="text-2xl font-bold mb-2">DAVID'S SALON</h1>
-        {branch && (
+        {(branch || bill.branchName) && (
           <>
-            <p className="text-sm font-semibold">{branch.branchName || bill.branchName}</p>
-            {branch.address && (
+            <p className="text-sm font-semibold">{branch?.branchName || branch?.name || bill.branchName}</p>
+            {branch?.address && (
               <div className="flex items-center justify-center gap-1 text-xs mt-1">
                 <MapPin className="w-3 h-3" />
                 <span>{branch.address}</span>
               </div>
             )}
-            {branch.phoneNumber && (
+            {branch?.phoneNumber && (
               <div className="flex items-center justify-center gap-1 text-xs">
                 <Phone className="w-3 h-3" />
                 <span>{branch.phoneNumber}</span>
@@ -93,47 +106,110 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
             <span>{bill.clientPhone}</span>
           </div>
         )}
+        {bill.clientEmail && (
+          <div className="flex justify-between">
+            <span>Email:</span>
+            <span>{bill.clientEmail}</span>
+          </div>
+        )}
       </div>
 
-      {/* Items */}
-      <div className="mb-4">
-        <div className="font-bold text-sm mb-2 border-b border-gray-300 pb-1">ITEMS</div>
-        <div className="space-y-2 text-sm">
-          {bill.items?.map((item, index) => (
-            <div key={index}>
-              <div className="flex justify-between">
-                <div className="flex-1">
-                  <span>{item.name}</span>
-                  {(item.type === 'product' || item.quantity > 1) && (
-                    <span className="text-xs text-gray-600 ml-1">
-                      x{item.quantity || 1}
-                    </span>
-                  )}
+      {/* Services Section */}
+      {services.length > 0 && (
+        <div className="mb-4">
+          <div className="font-bold text-sm mb-2 border-b border-gray-300 pb-1">SERVICES</div>
+          <div className="space-y-3 text-sm">
+            {services.map((item, index) => (
+              <div key={index} className="border-b border-dotted border-gray-200 pb-2">
+                <div className="flex justify-between">
+                  <div className="flex-1">
+                    <span className="font-medium">{item.name}</span>
+                    {item.quantity > 1 && (
+                      <span className="text-xs text-gray-600 ml-1">x{item.quantity}</span>
+                    )}
+                  </div>
+                  <span className="font-semibold">
+                    ₱{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                  </span>
                 </div>
-                <span className="font-semibold">
-                  {item.type === 'product' && item.quantity > 1 ? (
-                    <>
-                      ₱{item.basePrice?.toFixed(2) || item.price?.toFixed(2)}
-                      {item.basePrice && (
-                        <span className="text-xs text-gray-500 ml-1">
-                          = ₱{item.price?.toFixed(2)}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    `₱${item.price?.toFixed(2)}`
-                  )}
-                </span>
+                {item.stylistName && (
+                  <div className="text-xs text-gray-600 ml-2">
+                    Stylist: {item.stylistName}
+                  </div>
+                )}
+                {item.clientType && (
+                  <div className="text-xs text-gray-600 ml-2">
+                    Client Type: {getClientTypeLabel(item.clientType)}
+                  </div>
+                )}
+                {item.adjustment !== 0 && item.adjustment !== undefined && (
+                  <div className="text-xs text-gray-600 ml-2">
+                    Adjustment: {item.adjustment > 0 ? '+' : ''}₱{item.adjustment?.toFixed(2)}
+                    {item.adjustmentReason && ` (${item.adjustmentReason})`}
+                  </div>
+                )}
+                {item.quantity > 1 && (
+                  <div className="text-xs text-gray-500 ml-2">
+                    Unit Price: ₱{(item.price || 0).toFixed(2)}
+                  </div>
+                )}
               </div>
-              {item.stylistName && item.type !== 'product' && (
-                <div className="text-xs text-gray-600 ml-2">
-                  Stylist: {item.stylistName}
-                </div>
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Products Section */}
+      {products.length > 0 && (
+        <div className="mb-4">
+          <div className="font-bold text-sm mb-2 border-b border-gray-300 pb-1">PRODUCTS</div>
+          <div className="space-y-2 text-sm">
+            {products.map((item, index) => (
+              <div key={index}>
+                <div className="flex justify-between">
+                  <div className="flex-1">
+                    <span>{item.name}</span>
+                    <span className="text-xs text-gray-600 ml-1">x{item.quantity || 1}</span>
+                  </div>
+                  <span className="font-semibold">
+                    ₱{((item.price || item.unitCost || 0) * (item.quantity || 1)).toFixed(2)}
+                  </span>
+                </div>
+                {item.quantity > 1 && (
+                  <div className="text-xs text-gray-500 ml-2">
+                    Unit Price: ₱{(item.price || item.unitCost || 0).toFixed(2)}
+                  </div>
+                )}
+                {item.commissionerName && (
+                  <div className="text-xs text-gray-600 ml-2">
+                    Commissioner: {item.commissionerName}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Service Product Charges (Salon Use) */}
+      {bill.serviceProductCharges && bill.serviceProductCharges.length > 0 && (
+        <div className="mb-4">
+          <div className="font-bold text-sm mb-2 border-b border-gray-300 pb-1">SERVICE PRODUCT USAGE</div>
+          <div className="space-y-1 text-xs">
+            {bill.serviceProductCharges.map((charge, index) => (
+              <div key={index} className="flex justify-between">
+                <div className="flex-1">
+                  <span>{charge.productName}</span>
+                  <span className="text-gray-500 ml-1">
+                    ({charge.percentage}% - {charge.quantityUsed}{charge.unit})
+                  </span>
+                </div>
+                <span>₱{charge.charge?.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Totals */}
       <div className="border-t border-dashed border-gray-300 pt-3 mb-4 space-y-2 text-sm">
@@ -141,20 +217,35 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
           <span>Subtotal:</span>
           <span>₱{bill.subtotal?.toFixed(2) || '0.00'}</span>
         </div>
+
+        {(bill.serviceProductChargeTotal || 0) > 0 && (
+          <div className="flex justify-between">
+            <span>Service Product Charges:</span>
+            <span>₱{bill.serviceProductChargeTotal?.toFixed(2)}</span>
+          </div>
+        )}
         
         {bill.discount > 0 && (
           <div className="flex justify-between text-green-600">
             <span>
               Discount
-              {bill.discountCode && ` (${bill.discountCode})`}:
+              {bill.discountType === 'percent' && ` (${bill.discount}%)`}
+              {bill.promotionCode && ` - ${bill.promotionCode}`}:
             </span>
-            <span>-₱{bill.discount?.toFixed(2)}</span>
+            <span>-₱{(bill.discountType === 'percent' ? (bill.subtotal * bill.discount / 100) : bill.discount)?.toFixed(2)}</span>
+          </div>
+        )}
+
+        {bill.promotionDiscount > 0 && !bill.discount && (
+          <div className="flex justify-between text-green-600">
+            <span>Promo ({bill.promotionCode}):</span>
+            <span>-₱{bill.promotionDiscount?.toFixed(2)}</span>
           </div>
         )}
 
         {bill.loyaltyPointsUsed > 0 && (
           <div className="flex justify-between text-green-600">
-            <span>Loyalty Points:</span>
+            <span>Loyalty Points ({bill.loyaltyPointsUsed} pts):</span>
             <span>-₱{bill.loyaltyPointsUsed?.toFixed(2)}</span>
           </div>
         )}
@@ -178,17 +269,34 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
           <span>₱{bill.total?.toFixed(2) || '0.00'}</span>
         </div>
 
-        <div className="flex justify-between">
-          <span>Payment Method:</span>
-          <span className="font-semibold">{getPaymentMethodLabel(bill.paymentMethod)}</span>
-        </div>
-
-        {bill.paymentReference && (
-          <div className="flex justify-between text-xs">
-            <span>Ref:</span>
-            <span>{bill.paymentReference}</span>
+        <div className="border-t border-gray-200 pt-2">
+          <div className="flex justify-between">
+            <span>Payment Method:</span>
+            <span className="font-semibold">{getPaymentMethodLabel(bill.paymentMethod)}</span>
           </div>
-        )}
+
+          {bill.paymentMethod === 'cash' && bill.amountReceived > 0 && (
+            <>
+              <div className="flex justify-between">
+                <span>Amount Received:</span>
+                <span className="font-semibold">₱{bill.amountReceived?.toFixed(2)}</span>
+              </div>
+              {bill.change > 0 && (
+                <div className="flex justify-between text-green-600 font-bold">
+                  <span>Change:</span>
+                  <span>₱{bill.change?.toFixed(2)}</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {bill.paymentReference && (
+            <div className="flex justify-between text-xs mt-1">
+              <span>Reference:</span>
+              <span>{bill.paymentReference}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Status Badge */}
@@ -207,14 +315,19 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
         </div>
       )}
 
+      {/* Notes */}
+      {bill.notes && (
+        <div className="border-t border-dashed border-gray-300 pt-3 mb-4 text-sm">
+          <div className="font-semibold mb-1">Notes:</div>
+          <p className="text-gray-600 italic">{bill.notes}</p>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="border-t-2 border-dashed border-gray-300 pt-4 text-center text-xs space-y-1">
         <p className="font-bold">THANK YOU FOR CHOOSING DAVID'S SALON!</p>
         <p>This serves as your official receipt.</p>
         <p className="text-gray-600">Please keep this for your records.</p>
-        {bill.notes && (
-          <p className="text-gray-500 italic mt-2">{bill.notes}</p>
-        )}
       </div>
 
       {/* Transaction ID Footer */}

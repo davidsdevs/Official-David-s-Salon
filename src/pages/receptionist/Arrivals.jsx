@@ -3,7 +3,7 @@
  * For managing client arrivals and check-ins
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { 
@@ -21,7 +21,7 @@ import {
   Timer,
   Check,
   X,
-  Receipt,
+  Receipt as ReceiptIcon,
   Eye
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -47,6 +47,7 @@ import { getUsersByRole } from '../../services/userService';
 import { USER_ROLES } from '../../utils/constants';
 import { createBill } from '../../services/billingService';
 import BillingModalPOS from '../../components/billing/BillingModalPOS';
+import Receipt from '../../components/billing/Receipt';
 import AppointmentDetails from '../../components/appointment/AppointmentDetails';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -56,7 +57,7 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import toast from 'react-hot-toast';
 
 const ReceptionistArrivals = () => {
-  const { currentUser, userBranch, userBranchData } = useAuth();
+  const { currentUser, userBranch, userData } = useAuth();
   const navigate = useNavigate();
   
   console.log('🎨 ReceptionistArrivals render - userBranch:', userBranch, 'currentUser:', currentUser?.uid);
@@ -69,6 +70,7 @@ const ReceptionistArrivals = () => {
   const [dateFilter, setDateFilter] = useState('today'); // 'today', 'tomorrow', 'week', 'custom'
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [showDateFilter, setShowDateFilter] = useState(false);
 
   // Helper function to get date range based on filter
   const getDateRange = (filterType) => {
@@ -111,6 +113,7 @@ const ReceptionistArrivals = () => {
   const [services, setServices] = useState([]);
   const [stylists, setStylists] = useState([]);
   const [clients, setClients] = useState([]);
+  const [branchData, setBranchData] = useState(null);
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [arrivalToBill, setArrivalToBill] = useState(null);
   const [processingBilling, setProcessingBilling] = useState(false);
@@ -127,6 +130,11 @@ const ReceptionistArrivals = () => {
   const [arrivalToStartService, setArrivalToStartService] = useState(null);
   const [showCompleteServiceConfirmModal, setShowCompleteServiceConfirmModal] = useState(false);
   const [arrivalToCompleteService, setArrivalToCompleteService] = useState(null);
+  
+  // Receipt modal state - shown after billing modal closes
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [completedBill, setCompletedBill] = useState(null);
+  const receiptRef = useRef(null);
 
   useEffect(() => {
     console.log('🔄 useEffect triggered, userBranch:', userBranch, 'type:', typeof userBranch);
@@ -135,11 +143,24 @@ const ReceptionistArrivals = () => {
       console.log('🏪 Branch loaded, ARRIVAL_STATUS constants:', ARRIVAL_STATUS);
       fetchArrivals();
       fetchServicesAndStylists();
+      fetchBranchData();
     } else {
       console.log('⚠️ useEffect skipped - userBranch not ready:', userBranch);
       setLoading(false);
     }
   }, [userBranch]);
+
+  const fetchBranchData = async () => {
+    if (!userBranch) return;
+    try {
+      const { getBranchById } = await import('../../services/branchService');
+      const branch = await getBranchById(userBranch);
+      setBranchData(branch);
+      console.log('✅ Fetched branch data:', branch);
+    } catch (error) {
+      console.error('Error fetching branch data:', error);
+    }
+  };
 
   // Refetch when date filter changes
   useEffect(() => {
@@ -431,6 +452,20 @@ const ReceptionistArrivals = () => {
       setProcessing('walkin');
       setShowWalkInConfirmModal(false);
       
+      // Ensure branch name is available - fetch if not loaded
+      let finalBranchName = pendingWalkInData.branchName || branchData?.name || branchData?.branchName;
+      if (!finalBranchName || finalBranchName === 'Unknown Branch') {
+        try {
+          const { getBranchById } = await import('../../services/branchService');
+          const branch = await getBranchById(userBranch);
+          finalBranchName = branch?.name || branch?.branchName || 'Unknown Branch';
+          console.log('✅ Fetched branch name on-demand:', finalBranchName);
+        } catch (error) {
+          console.error('Error fetching branch name:', error);
+          finalBranchName = 'Unknown Branch';
+        }
+      }
+      
       // Create walk-in arrival with ARRIVED status
       const firstService = pendingWalkInData.items.find(item => item.type === 'service');
       const walkInArrival = {
@@ -438,8 +473,8 @@ const ReceptionistArrivals = () => {
         clientName: pendingWalkInData.clientName.trim(),
         clientPhone: pendingWalkInData.clientPhone || '',
         clientEmail: pendingWalkInData.clientEmail || '',
-        branchId: pendingWalkInData.branchId,
-        branchName: pendingWalkInData.branchName || '',
+        branchId: userBranch,
+        branchName: finalBranchName,
         services: pendingWalkInData.items
           .filter(item => item.type === 'service')
           .map(item => ({
@@ -470,6 +505,11 @@ const ReceptionistArrivals = () => {
         status: ARRIVAL_STATUS.ARRIVED
       };
 
+      console.log('🏪 Creating walk-in arrival with branchName:', walkInArrival.branchName, 'sources:', {
+        pendingBranchName: pendingWalkInData.branchName,
+        branchDataName: branchData?.name,
+        userBranch: userBranch
+      });
       console.log('🏪 Creating walk-in with services:', walkInArrival.services);
       console.log('🏪 Creating walk-in with products:', walkInArrival.products);
       
@@ -512,14 +552,16 @@ const ReceptionistArrivals = () => {
           clientName: formData.clientName || '',
           clientPhone: formData.clientPhone || '',
           clientEmail: formData.clientEmail || '',
-          branchId: formData.branchId,
-          branchName: formData.branchName || '',
+          branchId: userBranch,
+          branchName: formData.branchName || branchData?.name || '',
           services: formData.items
             .filter(item => item.type === 'service')
             .map(item => ({
               serviceId: item.serviceId || item.id || null, // Support both serviceId and id
               serviceName: item.name || '',
               price: item.price || 0,
+              duration: item.duration || 30, // Add duration
+              quantity: item.quantity || 1, // Add quantity - FIX: was missing!
               stylistId: item.stylistId || null,
               stylistName: item.stylistName || ''
             }))
@@ -655,6 +697,7 @@ const ReceptionistArrivals = () => {
           serviceId: arrivalToCompleteService.serviceId,
           serviceName: arrivalToCompleteService.serviceName || '',
           price: arrivalToCompleteService.servicePrice || 0,
+          quantity: 1, // Default quantity for legacy data
           stylistId: arrivalToCompleteService.stylistId || null,
           stylistName: arrivalToCompleteService.stylistName || ''
         }] : []),
@@ -668,6 +711,8 @@ const ReceptionistArrivals = () => {
       
       // Open billing modal (status will be updated after payment)
       console.log('💰 Opening billing modal with products:', arrivalForBilling.products);
+      console.log('💰 Opening billing modal with services:', arrivalForBilling.services);
+      console.log('💰 arrivalToCompleteService.services:', arrivalToCompleteService.services);
       setArrivalToBill(arrivalForBilling);
       setShowBillingModal(true);
       setArrivalToCompleteService(null);
@@ -689,25 +734,29 @@ const ReceptionistArrivals = () => {
         billData.appointmentId = arrivalToBill.appointmentId || arrivalToBill.id;
       }
       
-      // Create the bill
-      await createBill(billData, currentUser);
+      // Create the bill and get the transaction ID
+      const transactionId = await createBill(billData, currentUser);
       
       // Update arrival status to COMPLETED after successful payment
       if (arrivalToBill && arrivalToBill.arrivalId) {
         await updateArrivalStatus(arrivalToBill.arrivalId, ARRIVAL_STATUS.COMPLETED, currentUser);
       }
       
-      // Close modal and reset
-      setShowBillingModal(false);
-      setArrivalToBill(null);
-      
       // Refresh arrivals
       await fetchArrivals();
       
       toast.success('Payment processed successfully!');
+      
+      // Return the bill data with the ID so receipt can be displayed
+      return {
+        ...billData,
+        id: transactionId,
+        createdByName: currentUser?.displayName || `${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`.trim() || 'Staff'
+      };
     } catch (error) {
       console.error('Error processing payment:', error);
       toast.error('Failed to process payment');
+      throw error; // Re-throw so BillingModalPOS knows it failed
     } finally {
       setProcessingBilling(false);
     }
@@ -845,6 +894,19 @@ const ReceptionistArrivals = () => {
         console.log('🔍 handleViewDetails - Processed services array:', servicesArray);
         console.log('🔍 handleViewDetails - Processed products array:', productsArray);
         
+        // Fetch branch name from database if needed
+        let displayBranchName = arrivalData.branchName;
+        if (!displayBranchName || displayBranchName === 'Unknown Branch') {
+          try {
+            const { getBranchById } = await import('../../services/branchService');
+            const branch = await getBranchById(arrivalData.branchId);
+            displayBranchName = branch?.name || branch?.branchName || 'Unknown Branch';
+          } catch (error) {
+            console.error('Error fetching branch name for display:', error);
+            displayBranchName = branchData?.name || branchData?.branchName || 'Unknown Branch';
+          }
+        }
+        
         const arrivalAsAppointment = {
           ...arrivalData,
           appointmentDate: arrivalData.arrivedAt || arrivalData.appointmentDate,
@@ -855,7 +917,9 @@ const ReceptionistArrivals = () => {
           history: arrivalData.history || [],
           // Explicitly preserve services and products as arrays
           services: servicesArray,
-          products: productsArray
+          products: productsArray,
+          // Ensure branchName is preserved
+          branchName: displayBranchName
         };
         
         console.log('🔍 handleViewDetails - Transformed arrivalAsAppointment:', arrivalAsAppointment);
@@ -906,83 +970,6 @@ const ReceptionistArrivals = () => {
               Add Walk-in
             </Button>
           </div>
-        </div>
-
-        {/* Statistics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Card className="p-4">
-            <div className="flex items-center">
-              <Calendar className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Upcoming</p>
-                <p className="text-xl font-bold text-gray-900">{stats.upcoming}</p>
-              </div>
-            </div>
-          </Card>
-          
-          <Card className="p-4">
-            <div className="flex items-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Arrived</p>
-                <p className="text-xl font-bold text-gray-900">{stats.arrived}</p>
-              </div>
-            </div>
-          </Card>
-          
-          <Card className="p-4">
-            <div className="flex items-center">
-              <Play className="h-8 w-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">In Service</p>
-                <p className="text-xl font-bold text-gray-900">{stats.inService}</p>
-              </div>
-            </div>
-          </Card>
-          
-          <Card className="p-4">
-            <div className="flex items-center">
-              <Clock className="h-8 w-8 text-orange-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Today</p>
-                <p className="text-xl font-bold text-gray-900">{stats.totalToday}</p>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
-          <button
-            onClick={() => setActiveTab('upcoming')}
-            className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              activeTab === 'upcoming'
-                ? 'bg-white text-blue-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Upcoming ({stats.upcoming})
-          </button>
-          <button
-            onClick={() => setActiveTab('arrived')}
-            className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              activeTab === 'arrived'
-                ? 'bg-white text-green-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Arrived ({stats.arrived})
-          </button>
-          <button
-            onClick={() => setActiveTab('in-service')}
-            className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              activeTab === 'in-service'
-                ? 'bg-white text-purple-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            In Service ({stats.inService})
-          </button>
         </div>
 
         {/* Analytics for Upcoming Tab */}
@@ -1079,148 +1066,243 @@ const ReceptionistArrivals = () => {
           </div>
         )}
 
-        {/* Date Filter for Upcoming Tab */}
-        {activeTab === 'upcoming' && (
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-gray-700">Filter by Date</h3>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Calendar className="w-4 h-4" />
-                <span>{stats.upcoming} appointments</span>
-              </div>
+        {/* Search and Filter Row */}
+        <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
+          <div className="flex items-center gap-4">
+            {/* Search Bar */}
+            <div className="flex-1">
+              <SearchInput
+                placeholder="Search by client name, phone, service, or stylist..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full"
+              />
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-              <button
-                type="button"
-                onClick={() => setDateFilter('today')}
-                className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                  dateFilter === 'today'
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                onClick={() => setDateFilter('tomorrow')}
-                className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                  dateFilter === 'tomorrow'
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Tomorrow
-              </button>
-              <button
-                type="button"
-                onClick={() => setDateFilter('week')}
-                className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                  dateFilter === 'week'
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                This Week
-              </button>
-              <button
-                type="button"
-                onClick={() => setDateFilter('custom')}
-                className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                  dateFilter === 'custom'
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Custom
-              </button>
-            </div>
+            {/* Date Filter Button - Only for Upcoming Tab */}
+            {activeTab === 'upcoming' && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowDateFilter(!showDateFilter)}
+                  className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors ${
+                    dateFilter !== 'today' 
+                      ? 'bg-blue-50 border-blue-300 text-blue-700' 
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                  title="Filter by date"
+                >
+                  <Calendar className="w-5 h-5" />
+                  <span className="text-sm font-medium">
+                    {dateFilter === 'today' && 'Today'}
+                    {dateFilter === 'tomorrow' && 'Tomorrow'}
+                    {dateFilter === 'week' && 'This Week'}
+                    {dateFilter === 'custom' && 'Custom'}
+                  </span>
+                </button>
 
-            {dateFilter === 'custom' && (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
-                  <input
-                    type="date"
-                    value={customStartDate}
-                    onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">To Date</label>
-                  <input
-                    type="date"
-                    value={customEndDate}
-                    onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                  />
-                </div>
+                {/* Date Filter Dropdown */}
+                {showDateFilter && (
+                  <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-20 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-medium text-gray-700">Filter by Date</h4>
+                      <span className="text-xs text-gray-500">{stats.upcoming} appointments</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <button
+                        type="button"
+                        onClick={() => { setDateFilter('today'); setShowDateFilter(false); }}
+                        className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                          dateFilter === 'today'
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        Today
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setDateFilter('tomorrow'); setShowDateFilter(false); }}
+                        className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                          dateFilter === 'tomorrow'
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        Tomorrow
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setDateFilter('week'); setShowDateFilter(false); }}
+                        className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                          dateFilter === 'week'
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        This Week
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDateFilter('custom')}
+                        className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                          dateFilter === 'custom'
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        Custom
+                      </button>
+                    </div>
+
+                    {dateFilter === 'custom' && (
+                      <div className="space-y-3 pt-3 border-t">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
+                          <input
+                            type="date"
+                            value={customStartDate}
+                            onChange={(e) => setCustomStartDate(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">To Date</label>
+                          <input
+                            type="date"
+                            value={customEndDate}
+                            onChange={(e) => setCustomEndDate(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowDateFilter(false)}
+                          className="w-full px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
+        </div>
 
-        {/* Search */}
-        <div className="bg-white p-4 rounded-lg shadow">
-          <SearchInput
-            placeholder="Search by client name, phone, service, or stylist..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full"
-          />
+        {/* Status Tabs */}
+        <div className="border-b border-gray-200">
+          <nav className="flex space-x-1" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('upcoming')}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'upcoming'
+                  ? 'border-blue-500 text-blue-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                <span>Upcoming</span>
+                <span className={`px-2 py-0.5 text-xs rounded-full ${
+                  activeTab === 'upcoming' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {stats.upcoming}
+                </span>
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('arrived')}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'arrived'
+                  ? 'border-green-500 text-green-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                <span>Arrived</span>
+                <span className={`px-2 py-0.5 text-xs rounded-full ${
+                  activeTab === 'arrived' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {stats.arrived}
+                </span>
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('in-service')}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'in-service'
+                  ? 'border-purple-500 text-purple-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Play className="w-4 h-4" />
+                <span>In Service</span>
+                <span className={`px-2 py-0.5 text-xs rounded-full ${
+                  activeTab === 'in-service' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {stats.inService}
+                </span>
+              </div>
+            </button>
+          </nav>
         </div>
 
         {/* Arrivals List */}
-        <div className="space-y-3">
-          {filteredArrivals.length === 0 ? (
-            <Card className="p-8 text-center">
-              <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">
-                {activeTab === 'upcoming' && 'No upcoming appointments'}
-                {activeTab === 'arrived' && 'No clients have arrived yet'}
-                {activeTab === 'in-service' && 'No appointments in service'}
-              </p>
-            </Card>
-          ) : (
-            filteredArrivals.map((arrival) => {
-              const isProcessing = processing === arrival.id;
-              // Calculate appropriate time based on status
-              let displayTime = null;
-              let timeLabel = '';
-              if (arrival.isUpcoming === false) {
-                if (arrival.status === ARRIVAL_STATUS.IN_SERVICE && arrival.startedAt) {
-                  // Show service time for customers in service
-                  displayTime = getServiceTime(arrival.startedAt);
-                  timeLabel = 'service';
-                } else if (arrival.status === ARRIVAL_STATUS.ARRIVED && arrival.arrivedAt) {
-                  // Show wait time for customers waiting
-                  displayTime = getWaitTime(arrival.arrivedAt);
-                  timeLabel = 'waiting';
+        <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+          {/* Arrivals Content */}
+          <div className="p-4 space-y-3">
+            {filteredArrivals.length === 0 ? (
+              <div className="p-8 text-center">
+                <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">
+                  {activeTab === 'upcoming' && 'No upcoming appointments'}
+                  {activeTab === 'arrived' && 'No clients have arrived yet'}
+                  {activeTab === 'in-service' && 'No appointments in service'}
+                </p>
+              </div>
+            ) : (
+              filteredArrivals.map((arrival) => {
+                const isProcessing = processing === arrival.id;
+                // Calculate appropriate time based on status
+                let displayTime = null;
+                let timeLabel = '';
+                if (arrival.isUpcoming === false) {
+                  if (arrival.status === ARRIVAL_STATUS.IN_SERVICE && arrival.startedAt) {
+                    // Show service time for customers in service
+                    displayTime = getServiceTime(arrival.startedAt);
+                    timeLabel = 'service';
+                  } else if (arrival.status === ARRIVAL_STATUS.ARRIVED && arrival.arrivedAt) {
+                    // Show wait time for customers waiting
+                    displayTime = getWaitTime(arrival.arrivedAt);
+                    timeLabel = 'waiting';
+                  }
                 }
-              }
-              const timeUntil = activeTab === 'upcoming' && arrival.isUpcoming === true && arrival.appointmentDate ? getTimeUntilAppointment(arrival.appointmentDate) : null;
-              const isWalkIn = arrival.isWalkIn === true;
+                const timeUntil = activeTab === 'upcoming' && arrival.isUpcoming === true && arrival.appointmentDate ? getTimeUntilAppointment(arrival.appointmentDate) : null;
+                const isWalkIn = arrival.isWalkIn === true;
 
-              return (
-                <Card key={arrival.id} className="p-4 hover:shadow-md transition-shadow">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    {/* Left: Client Info */}
-                    <div className="flex-1 flex items-start gap-4">
-                      <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${isWalkIn ? 'bg-green-100' : 'bg-blue-100'}`}>
-                        <User className={`h-6 w-6 ${isWalkIn ? 'text-green-600' : 'text-blue-600'}`} />
-                      </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-semibold text-gray-900 truncate">
-                            {arrival.clientName || 'Unknown Client'}
-                          </h3>
-                          {isWalkIn && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                              Walk-in
-                            </span>
+                return (
+                  <Card key={arrival.id} className="p-4 hover:shadow-md transition-shadow">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                      {/* Left: Client Info */}
+                      <div className="flex-1 flex items-start gap-4">
+                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${isWalkIn ? 'bg-green-100' : 'bg-blue-100'}`}>
+                          <User className={`h-6 w-6 ${isWalkIn ? 'text-green-600' : 'text-blue-600'}`} />
+                        </div>
+                        
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-semibold text-gray-900 truncate">
+                              {arrival.clientName || 'Unknown Client'}
+                            </h3>
+                            {isWalkIn && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                Walk-in
+                              </span>
                           )}
                           {displayTime !== null && displayTime >= 0 && (
                             <>
@@ -1264,16 +1346,16 @@ const ReceptionistArrivals = () => {
                           )}
                         </div>
                         
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
                           {arrival.isUpcoming && arrival.appointmentDate && (
                             <div className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
+                              <Clock className="h-2.5 w-2.5" />
                               <span>Appointment: {formatTime(arrival.appointmentDate)}</span>
                               {timeUntil && (
-                                <span className={`px-2 py-0.5 rounded ${
-                                  timeUntil.includes('late') ? 'bg-red-100 text-red-700' : 
-                                  timeUntil.includes('in') && parseInt(timeUntil) < 30 ? 'bg-green-100 text-green-700' : 
-                                  'bg-gray-100 text-gray-700'
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                  timeUntil.includes('late') ? 'bg-red-100 text-red-600' : 
+                                  timeUntil.includes('in') && parseInt(timeUntil) < 30 ? 'bg-green-100 text-green-600' : 
+                                  'bg-gray-100 text-gray-500'
                                 }`}>
                                   {timeUntil}
                                 </span>
@@ -1283,7 +1365,7 @@ const ReceptionistArrivals = () => {
                           
                           {!arrival.isUpcoming && arrival.arrivedAt && (
                             <div className="flex items-center gap-1">
-                              <CheckCircle className="h-3 w-3 text-green-600" />
+                              <CheckCircle className="h-2.5 w-2.5 text-green-500" />
                               <span>Arrived: {formatTime(arrival.arrivedAt)}</span>
                             </div>
                           )}
@@ -1292,11 +1374,11 @@ const ReceptionistArrivals = () => {
                     </div>
 
                     {/* Right: Actions */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-3 flex-shrink-0">
                       <Button
                         onClick={() => handleViewDetails(arrival)}
                         disabled={loadingDetails}
-                        className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700"
+                        className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-700"
                       >
                         <Eye className="h-4 w-4" />
                         View Details
@@ -1306,7 +1388,7 @@ const ReceptionistArrivals = () => {
                         <Button
                           onClick={() => handleCheckIn(arrival)}
                           disabled={isProcessing}
-                          className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+                          className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-700"
                         >
                           <Check className="h-4 w-4" />
                           Check In
@@ -1317,7 +1399,7 @@ const ReceptionistArrivals = () => {
                         <Button
                           onClick={() => handleStartService(arrival)}
                           disabled={isProcessing}
-                          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700"
+                          className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 hover:bg-purple-700"
                         >
                           <Play className="h-4 w-4" />
                           Start Service
@@ -1328,9 +1410,9 @@ const ReceptionistArrivals = () => {
                         <Button
                           onClick={() => handleCompleteService(arrival)}
                           disabled={isProcessing}
-                          className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+                          className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-700"
                         >
-                          <Receipt className="h-4 w-4" />
+                          <ReceiptIcon className="h-4 w-4" />
                           Check-out
                         </Button>
                       )}
@@ -1340,6 +1422,7 @@ const ReceptionistArrivals = () => {
               );
             })
           )}
+          </div>
         </div>
       </div>
 
@@ -1372,12 +1455,18 @@ const ReceptionistArrivals = () => {
           stylists={stylists}
           clients={clients}
           mode="billing"
-          onClose={() => {
+          onClose={(billData) => {
             if (!processingBilling) {
               setShowBillingModal(false);
               setArrivalToBill(null);
               // Reset processing state when modal is closed so checkout button can be clicked again
               setProcessing(null);
+              
+              // If bill data is passed, show the receipt modal
+              if (billData && billData.id) {
+                setCompletedBill(billData);
+                setShowReceiptModal(true);
+              }
             }
           }}
           onSubmit={handleSubmitBill}
@@ -1470,6 +1559,465 @@ const ReceptionistArrivals = () => {
         type="default"
         loading={processing === arrivalToCompleteService?.id}
       />
+
+      {/* Receipt Modal - Shown after billing modal closes */}
+      {showReceiptModal && completedBill && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-green-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Payment Successful!</h3>
+                  <p className="text-sm text-gray-600">Transaction #{completedBill.id}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReceiptModal(false);
+                  setCompletedBill(null);
+                }}
+                className="p-1 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4">
+              <div ref={receiptRef}>
+                <Receipt bill={completedBill} branch={branchData} />
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-gray-200 flex gap-3 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => {
+                  const bill = completedBill;
+                  const branch = branchData;
+                  
+                  // Get services and products from items
+                  const services = bill.items?.filter(item => item.type === 'service') || [];
+                  const products = bill.items?.filter(item => item.type === 'product') || [];
+                  
+                  // Format date
+                  const formatDate = (date) => {
+                    if (!date) return 'N/A';
+                    const d = date.toDate ? date.toDate() : new Date(date);
+                    return d.toLocaleString('en-US', { 
+                      month: 'short', 
+                      day: 'numeric', 
+                      year: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true
+                    });
+                  };
+
+                  // Get client type label
+                  const getClientTypeLabel = (type) => {
+                    switch(type) {
+                      case 'X': return 'New';
+                      case 'R': return 'Regular';
+                      case 'TR': return 'Transfer';
+                      default: return type || 'Regular';
+                    }
+                  };
+
+                  // Build services HTML
+                  let servicesHtml = '';
+                  services.forEach(service => {
+                    const qty = service.quantity > 1 ? ` x${service.quantity}` : '';
+                    const price = (service.price * (service.quantity || 1)).toFixed(2);
+                    servicesHtml += `
+                      <div class="item">
+                        <div class="item-name">${service.name}${qty}</div>
+                        <div class="item-price">₱${price}</div>
+                      </div>
+                      ${service.stylistName ? `<div class="item-detail">Stylist: ${service.stylistName}</div>` : ''}
+                      ${service.clientType ? `<div class="item-detail">Client Type: ${getClientTypeLabel(service.clientType)}</div>` : ''}
+                      ${service.adjustment && service.adjustment !== 0 ? `<div class="item-detail">Adjustment: ${service.adjustment > 0 ? '+' : ''}₱${service.adjustment.toFixed(2)}${service.adjustmentReason ? ` (${service.adjustmentReason})` : ''}</div>` : ''}
+                    `;
+                  });
+
+                  // Build products HTML
+                  let productsHtml = '';
+                  products.forEach(product => {
+                    const qty = product.quantity > 1 ? ` x${product.quantity}` : '';
+                    const price = (product.price * (product.quantity || 1)).toFixed(2);
+                    productsHtml += `
+                      <div class="item">
+                        <div class="item-name">${product.name}${qty}</div>
+                        <div class="item-price">₱${price}</div>
+                      </div>
+                    `;
+                  });
+
+                  // Build service product charges HTML
+                  let serviceProductChargesHtml = '';
+                  if (bill.serviceProductCharges && bill.serviceProductCharges.length > 0) {
+                    serviceProductChargesHtml = `<div class="section-title">SERVICE PRODUCT USAGE</div>`;
+                    bill.serviceProductCharges.forEach(charge => {
+                      serviceProductChargesHtml += `
+                        <div class="item">
+                          <div class="item-name">${charge.productName}</div>
+                          <div class="item-price">₱${charge.charge?.toFixed(2) || '0.00'}</div>
+                        </div>
+                        <div class="item-detail">${charge.usageDisplay || ''}</div>
+                      `;
+                    });
+                  }
+
+                  const printWindow = window.open('', '_blank');
+                  printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                      <title>Receipt - ${bill.receiptNumber || 'Transaction'}</title>
+                      <style>
+                        @page {
+                          size: 58mm auto;
+                          margin: 0;
+                        }
+                        * { 
+                          margin: 0; 
+                          padding: 0; 
+                          box-sizing: border-box; 
+                        }
+                        html, body {
+                          width: 58mm;
+                          max-width: 58mm;
+                          margin: 0 auto;
+                          padding: 3mm;
+                          font-family: 'Courier New', 'Lucida Console', monospace;
+                          font-size: 8pt;
+                          line-height: 1.2;
+                          color: #000;
+                          background: #fff;
+                          -webkit-print-color-adjust: exact;
+                          print-color-adjust: exact;
+                        }
+                        .receipt {
+                          width: 100%;
+                        }
+                        .header {
+                          text-align: center;
+                          margin-bottom: 2mm;
+                          padding-bottom: 2mm;
+                          border-bottom: 1px dashed #000;
+                        }
+                        .salon-name {
+                          font-size: 11pt;
+                          font-weight: bold;
+                          margin-bottom: 1mm;
+                        }
+                        .branch-name {
+                          font-size: 9pt;
+                          margin-bottom: 1mm;
+                        }
+                        .branch-address {
+                          font-size: 7pt;
+                          margin-bottom: 2mm;
+                        }
+                        .receipt-title {
+                          font-size: 9pt;
+                          font-weight: bold;
+                          margin-top: 2mm;
+                        }
+                        .info-section {
+                          margin: 2mm 0;
+                          padding: 2mm 0;
+                          border-bottom: 1px dashed #000;
+                        }
+                        .info-row {
+                          display: flex;
+                          justify-content: space-between;
+                          margin: 0.5mm 0;
+                          font-size: 7pt;
+                        }
+                        .info-label {
+                          color: #333;
+                        }
+                        .info-value {
+                          font-weight: bold;
+                          text-align: right;
+                          max-width: 55%;
+                          word-break: break-word;
+                        }
+                        .section-title {
+                          font-size: 8pt;
+                          font-weight: bold;
+                          margin: 2mm 0 1mm 0;
+                          text-align: center;
+                          border-top: 1px dashed #000;
+                          border-bottom: 1px dashed #000;
+                          padding: 1mm 0;
+                        }
+                        .item {
+                          display: flex;
+                          justify-content: space-between;
+                          margin: 1mm 0;
+                          font-size: 7pt;
+                        }
+                        .item-name {
+                          flex: 1;
+                          word-break: break-word;
+                        }
+                        .item-price {
+                          font-weight: bold;
+                          text-align: right;
+                          min-width: 12mm;
+                        }
+                        .item-detail {
+                          font-size: 6pt;
+                          color: #555;
+                          margin-left: 2mm;
+                          margin-bottom: 0.5mm;
+                        }
+                        .totals-section {
+                          margin-top: 2mm;
+                          padding-top: 2mm;
+                          border-top: 1px dashed #000;
+                        }
+                        .total-row {
+                          display: flex;
+                          justify-content: space-between;
+                          margin: 0.5mm 0;
+                          font-size: 7pt;
+                        }
+                        .total-row.grand-total {
+                          font-size: 10pt;
+                          font-weight: bold;
+                          border-top: 1px solid #000;
+                          padding-top: 1mm;
+                          margin-top: 1mm;
+                        }
+                        .total-row.discount {
+                          color: #006600;
+                        }
+                        .payment-section {
+                          margin-top: 2mm;
+                          padding-top: 2mm;
+                          border-top: 1px dashed #000;
+                        }
+                        .change-row {
+                          font-size: 9pt;
+                          font-weight: bold;
+                          background: #eee;
+                          padding: 1mm;
+                          margin: 1mm 0;
+                        }
+                        .notes-section {
+                          margin-top: 2mm;
+                          padding-top: 2mm;
+                          border-top: 1px dashed #000;
+                          font-size: 7pt;
+                        }
+                        .footer {
+                          text-align: center;
+                          margin-top: 3mm;
+                          padding-top: 2mm;
+                          border-top: 1px dashed #000;
+                          font-size: 7pt;
+                        }
+                        .footer-thanks {
+                          font-size: 8pt;
+                          font-weight: bold;
+                          margin-bottom: 1mm;
+                        }
+                        .footer-note {
+                          margin: 1mm 0;
+                        }
+                        .footer-ids {
+                          margin-top: 2mm;
+                          font-size: 7pt;
+                        }
+                        @media print {
+                          html, body {
+                            width: 58mm !important;
+                            max-width: 58mm !important;
+                            min-width: 58mm !important;
+                            padding: 2mm !important;
+                            margin: 0 !important;
+                          }
+                        }
+                        @media screen {
+                          html, body {
+                            background: #f5f5f5;
+                          }
+                          .receipt {
+                            background: #fff;
+                            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                            padding: 3mm;
+                          }
+                        }
+                      </style>
+                    </head>
+                    <body>
+                      <div class="receipt">
+                        <div class="header">
+                          <div class="salon-name">DAVID'S SALON</div>
+                          <div class="branch-name">${branch?.name || branch?.branchName || bill.branchName || 'Branch'}</div>
+                          ${branch?.address ? `<div class="branch-address">${branch.address}</div>` : ''}
+                          <div class="receipt-title">OFFICIAL RECEIPT</div>
+                        </div>
+
+                        <div class="info-section">
+                          <div class="info-row">
+                            <span class="info-label">Receipt No:</span>
+                            <span class="info-value">#${bill.receiptNumber || 'N/A'}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Transaction ID:</span>
+                            <span class="info-value">${bill.id || 'N/A'}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Date:</span>
+                            <span class="info-value">${formatDate(bill.createdAt)}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Cashier:</span>
+                            <span class="info-value">${bill.createdByName || 'Staff'}</span>
+                          </div>
+                        </div>
+
+                        <div class="info-section">
+                          <div class="info-row">
+                            <span class="info-label">Customer:</span>
+                            <span class="info-value">${bill.clientName || 'Guest'}</span>
+                          </div>
+                          ${bill.clientPhone ? `
+                          <div class="info-row">
+                            <span class="info-label">Phone:</span>
+                            <span class="info-value">${bill.clientPhone}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.clientEmail ? `
+                          <div class="info-row">
+                            <span class="info-label">Email:</span>
+                            <span class="info-value">${bill.clientEmail}</span>
+                          </div>
+                          ` : ''}
+                        </div>
+
+                        ${services.length > 0 ? `
+                        <div class="section-title">SERVICES</div>
+                        ${servicesHtml}
+                        ` : ''}
+
+                        ${products.length > 0 ? `
+                        <div class="section-title">PRODUCTS</div>
+                        ${productsHtml}
+                        ` : ''}
+
+                        ${serviceProductChargesHtml}
+
+                        <div class="totals-section">
+                          <div class="total-row">
+                            <span>Subtotal:</span>
+                            <span>₱${(bill.subtotal || 0).toFixed(2)}</span>
+                          </div>
+                          ${bill.serviceProductChargeTotal > 0 ? `
+                          <div class="total-row">
+                            <span>Product Usage:</span>
+                            <span>₱${bill.serviceProductChargeTotal.toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.promotionDiscount > 0 ? `
+                          <div class="total-row discount">
+                            <span>Promo (${bill.promotionCode}):</span>
+                            <span>-₱${bill.promotionDiscount.toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.discount > 0 ? `
+                          <div class="total-row discount">
+                            <span>Discount:</span>
+                            <span>-₱${bill.discount.toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.loyaltyPointsUsed > 0 ? `
+                          <div class="total-row discount">
+                            <span>Points Used:</span>
+                            <span>-₱${bill.loyaltyPointsUsed.toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          <div class="total-row grand-total">
+                            <span>TOTAL:</span>
+                            <span>₱${(bill.total || 0).toFixed(2)}</span>
+                          </div>
+                        </div>
+
+                        <div class="payment-section">
+                          <div class="total-row">
+                            <span>Payment Method:</span>
+                            <span>${bill.paymentMethod ? bill.paymentMethod.charAt(0).toUpperCase() + bill.paymentMethod.slice(1) : 'Cash'}</span>
+                          </div>
+                          ${bill.paymentMethod === 'cash' && bill.amountReceived ? `
+                          <div class="total-row">
+                            <span>Amount Received:</span>
+                            <span>₱${bill.amountReceived.toFixed(2)}</span>
+                          </div>
+                          <div class="total-row change-row">
+                            <span>Change:</span>
+                            <span>₱${(bill.change || 0).toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.paymentReference ? `
+                          <div class="total-row">
+                            <span>Reference:</span>
+                            <span>${bill.paymentReference}</span>
+                          </div>
+                          ` : ''}
+                        </div>
+
+                        ${bill.notes ? `
+                        <div class="notes-section">
+                          <strong>Notes:</strong> ${bill.notes}
+                        </div>
+                        ` : ''}
+
+                        <div class="footer">
+                          <div class="footer-thanks">THANK YOU FOR CHOOSING DAVID'S SALON!</div>
+                          <div class="footer-note">This serves as your official receipt.</div>
+                          <div class="footer-note">Please keep this for your records.</div>
+                          <div class="footer-ids">
+                            <div>Transaction ID: ${bill.id || 'N/A'}</div>
+                            <div>Receipt No: ${bill.receiptNumber || 'N/A'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </body>
+                    </html>
+                  `);
+                  printWindow.document.close();
+                  setTimeout(() => { printWindow.print(); }, 250);
+                }}
+                className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium flex items-center justify-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                  <rect x="6" y="14" width="12" height="8"></rect>
+                </svg>
+                Print Receipt
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReceiptModal(false);
+                  setCompletedBill(null);
+                }}
+                className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </>
   );

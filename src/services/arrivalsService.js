@@ -222,6 +222,27 @@ export const createArrivalFromAppointment = async (appointmentIdOrObject, dataOr
       }
     });
 
+    // Send check-in arrived notification to stylist
+    if (appointmentData.stylistId) {
+      try {
+        const { storeCheckInArrived } = await import('./notificationService');
+        const now = new Date();
+        await storeCheckInArrived({
+          id: docRef.id,
+          checkInId: docRef.id,
+          stylistId: appointmentData.stylistId,
+          clientName: appointmentData.clientName || 'Client',
+          serviceName: appointmentData.serviceName || 'Service',
+          branchName: appointmentData.branchName || '',
+          arrivedAt: now
+        });
+        console.log('📱 Check-in arrived notification sent to stylist:', appointmentData.stylistId);
+      } catch (error) {
+        console.error('Error sending check-in notification:', error);
+        // Don't fail the check-in if notification fails
+      }
+    }
+
     toast.success('Client checked in and added to arrivals queue');
     const createdArrival = { id: docRef.id, ...arrival };
     console.log('🎉 Returning created arrival:', createdArrival);
@@ -291,6 +312,27 @@ export const createWalkInArrival = async (walkInData, currentUser) => {
         status: arrival.status
       }
     });
+
+    // Send check-in arrived notification to stylist (if assigned)
+    if (walkInData.stylistId) {
+      try {
+        const { storeCheckInArrived } = await import('./notificationService');
+        const now = new Date();
+        await storeCheckInArrived({
+          id: docRef.id,
+          checkInId: docRef.id,
+          stylistId: walkInData.stylistId,
+          clientName: walkInData.clientName || 'Walk-in Client',
+          serviceName: walkInData.serviceName || 'Service',
+          branchName: walkInData.branchName || '',
+          arrivedAt: now
+        });
+        console.log('📱 Check-in arrived notification sent to stylist:', walkInData.stylistId);
+      } catch (error) {
+        console.error('Error sending check-in notification:', error);
+        // Don't fail the walk-in creation if notification fails
+      }
+    }
 
     toast.success('Walk-in client added to arrivals queue');
     const createdArrival = { id: docRef.id, ...arrival };

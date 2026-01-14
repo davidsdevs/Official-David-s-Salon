@@ -231,14 +231,24 @@ const CalendarManagement = () => {
       );
       const branchSnapshot = await getDocs(branchQuery);
       const allEntries = branchSnapshot.docs
-        .map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          date: doc.data().date?.toDate()
-        }))
+        .map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            // Convert all date fields from Firestore Timestamps to Date objects
+            date: data.date?.toDate ? data.date.toDate() : data.date,
+            startDate: data.startDate?.toDate ? data.startDate.toDate() : data.startDate,
+            endDate: data.endDate?.toDate ? data.endDate.toDate() : data.endDate
+          };
+        })
+        // Filter to show: active reminders, approved branch_close, or entries without status (backward compatibility)
+        .filter(entry => entry.status === 'active' || entry.status === 'approved' || !entry.status)
         .sort((a, b) => {
-          if (!a.date || !b.date) return 0;
-          return a.date.getTime() - b.date.getTime();
+          const dateA = a.startDate || a.date;
+          const dateB = b.startDate || b.date;
+          if (!dateA || !dateB) return 0;
+          return dateA.getTime() - dateB.getTime();
         });
       
       setEntries(allEntries);
@@ -1206,15 +1216,68 @@ const CalendarManagement = () => {
   const entriesByDate = useMemo(() => {
     const map = {};
     entries.forEach(entry => {
-      if (!entry.date) return;
-      const key = formatDateKey(entry.date);
-      if (!map[key]) {
-        map[key] = [];
+      // Handle date ranges
+      const startDate = entry.startDate || entry.date;
+      const endDate = entry.endDate || entry.date;
+      
+      if (!startDate) return;
+      
+      const start = new Date(startDate);
+      const end = new Date(endDate || startDate);
+      
+      // Create an entry for each date in the range
+      const currentDate = new Date(start);
+      while (currentDate <= end) {
+        const key = formatDateKey(currentDate);
+        if (!map[key]) {
+          map[key] = [];
+        }
+        map[key].push({
+          ...entry,
+          displayDate: currentDate, // The specific date being displayed
+          isRangeEntry: start.getTime() !== end.getTime() // Flag to indicate this is part of a range
+        });
+        currentDate.setDate(currentDate.getDate() + 1);
       }
-      map[key].push(entry);
     });
     return map;
   }, [entries]);
+
+  // Filtered entries based on date range
+  const filteredEntries = useMemo(() => {
+    return entries;
+  }, [entries]);
+
+  // Filtered entries by date for display
+  const filteredEntriesByDate = useMemo(() => {
+    const map = {};
+    filteredEntries.forEach(entry => {
+      // Handle date ranges
+      const startDate = entry.startDate || entry.date;
+      const endDate = entry.endDate || entry.date;
+      
+      if (!startDate) return;
+      
+      const start = new Date(startDate);
+      const end = new Date(endDate || startDate);
+      
+      // Create an entry for each date in the range
+      const currentDate = new Date(start);
+      while (currentDate <= end) {
+        const key = formatDateKey(currentDate);
+        if (!map[key]) {
+          map[key] = [];
+        }
+        map[key].push({
+          ...entry,
+          displayDate: currentDate, // The specific date being displayed
+          isRangeEntry: start.getTime() !== end.getTime() // Flag to indicate this is part of a range
+        });
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    });
+    return map;
+  }, [filteredEntries]);
 
   const holidaysByDate = useMemo(() => {
     const map = {};
@@ -1253,20 +1316,24 @@ const CalendarManagement = () => {
   }, []);
 
   const upcomingEntries = useMemo(() => {
-    return entries.filter(e => {
-      const entryDate = new Date(e.date);
+    return filteredEntries.filter(e => {
+      const startDate = e.startDate || e.date;
+      if (!startDate) return false;
+      const entryDate = new Date(startDate);
       entryDate.setHours(0, 0, 0, 0);
       return entryDate >= today && (e.status === 'active' || !e.status);
     });
-  }, [entries, today]);
+  }, [filteredEntries, today]);
 
   const pastEntries = useMemo(() => {
-    return entries.filter(e => {
-      const entryDate = new Date(e.date);
+    return filteredEntries.filter(e => {
+      const startDate = e.startDate || e.date;
+      if (!startDate) return false;
+      const entryDate = new Date(startDate);
       entryDate.setHours(0, 0, 0, 0);
       return entryDate < today && (e.status === 'active' || !e.status);
     });
-  }, [entries, today]);
+  }, [filteredEntries, today]);
 
   // Memoize scheduled stylists by date for performance
   const scheduledStylistsByDate = useMemo(() => {
@@ -1299,13 +1366,15 @@ const CalendarManagement = () => {
           <h1 className="text-2xl font-bold text-gray-900">Calendar</h1>
           <p className="text-gray-600">View Philippine holidays and manage calendar reminders</p>
         </div>
-        <button
-          onClick={handleAddEntry}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          Add Reminder
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleAddEntry}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Add Calendar Entry
+          </button>
+        </div>
       </div>
 
       {/* Info Banner */}
@@ -1329,11 +1398,10 @@ const CalendarManagement = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={handlePrintCalendar}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
               title="Print Calendar"
             >
-              <Printer className="w-4 h-4" />
-              Print
+              <Printer className="w-5 h-5 text-gray-600" />
             </button>
             <button
               onClick={() => handleMonthChange('prev')}
@@ -1366,7 +1434,7 @@ const CalendarManagement = () => {
           <div className="grid grid-cols-7 gap-2">
             {calendarDays.map(({ date, inCurrentMonth }, index) => {
               const dateKey = formatDateKey(date);
-              const dayEntries = entriesByDate[dateKey] || [];
+              const dayEntries = filteredEntriesByDate[dateKey] || [];
               const holiday = holidaysByDate[dateKey];
               const isToday = date.getTime() === today.getTime();
               const isWeekend = date.getDay() === 0 || date.getDay() === 6;
@@ -1703,7 +1771,12 @@ const CalendarManagement = () => {
                             {typeInfo?.label}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-600 mb-1">{formatDate(entry.date, 'EEEE, MMMM dd, yyyy')}</p>
+                        <p className="text-sm text-gray-600 mb-1">
+                          {entry.startDate && entry.endDate && entry.startDate.getTime() !== entry.endDate.getTime()
+                            ? `${formatDate(entry.startDate, 'MMM dd')} - ${formatDate(entry.endDate, 'MMM dd, yyyy')}`
+                            : formatDate(entry.startDate || entry.date, 'EEEE, MMMM dd, yyyy')
+                          }
+                        </p>
                         {entry.description && (
                           <p className="text-sm text-gray-500">{entry.description}</p>
                         )}
@@ -1747,7 +1820,12 @@ const CalendarManagement = () => {
                       <CalendarIcon className="w-4 h-4 text-gray-400" />
                       <div>
                         <p className="text-sm font-medium text-gray-900">{entry.title}</p>
-                        <p className="text-xs text-gray-500">{formatDate(entry.date, 'MMM dd, yyyy')}</p>
+                        <p className="text-xs text-gray-500">
+                          {entry.startDate && entry.endDate && entry.startDate.getTime() !== entry.endDate.getTime()
+                            ? `${formatDate(entry.startDate, 'MMM dd')} - ${formatDate(entry.endDate, 'MMM dd, yyyy')}`
+                            : formatDate(entry.startDate || entry.date, 'MMM dd, yyyy')
+                          }
+                        </p>
                       </div>
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${typeInfo?.color}`}>
                         {typeInfo?.label}
@@ -2028,7 +2106,10 @@ const CalendarManagement = () => {
                   <div>
                     <label className="text-sm font-medium text-gray-500">Date</label>
                     <p className="text-base text-gray-900">
-                      {selectedItem.date ? formatDate(selectedItem.date, 'MMM dd, yyyy') : 'N/A'}
+                      {selectedItem.startDate && selectedItem.endDate && selectedItem.startDate.getTime() !== selectedItem.endDate.getTime()
+                        ? `${formatDate(selectedItem.startDate, 'MMM dd')} - ${formatDate(selectedItem.endDate, 'MMM dd, yyyy')}`
+                        : formatDate(selectedItem.startDate || selectedItem.date, 'MMM dd, yyyy') || 'N/A'
+                      }
                     </p>
                   </div>
                   {selectedItem.description && (
@@ -2147,7 +2228,7 @@ const CalendarManagement = () => {
           }}>
             {calendarDays.map(({ date, inCurrentMonth }, index) => {
               const dateKey = formatDateKey(date);
-              const dayEntries = entriesByDate[dateKey] || [];
+              const dayEntries = filteredEntriesByDate[dateKey] || [];
               const holiday = holidaysByDate[dateKey];
               const isToday = date.getTime() === today.getTime();
               const isWeekend = date.getDay() === 0 || date.getDay() === 6;

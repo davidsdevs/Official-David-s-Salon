@@ -308,108 +308,108 @@ const InventoryAudit = () => {
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Inventory Audit</h1>
-            <p className="text-sm md:text-base text-gray-600">Conduct stock counts and reconcile inventory discrepancies</p>
+            <h1 className="text-lg md:text-xl lg:text-2xl font-bold text-gray-900">Inventory Audit</h1>
+            <p className="text-xs md:text-sm text-gray-600">Conduct stock counts and reconcile inventory discrepancies</p>
           </div>
-          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-            <Button variant="outline" className="flex items-center gap-2 text-xs md:text-sm">
-              <Upload className="h-4 w-4" />
+          <div className="flex items-center gap-1 md:gap-2 flex-wrap">
+            <Button variant="outline" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+              <Upload className="h-3.5 w-3.5 md:h-4 md:w-4" />
               <span className="hidden sm:inline">Import</span>
             </Button>
-            <Button variant="outline" className="flex items-center gap-2 text-xs md:text-sm">
-              <Download className="h-4 w-4" />
+            <Button variant="outline" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+              <Download className="h-3.5 w-3.5 md:h-4 md:w-4" />
               <span className="hidden sm:inline">Export</span>
             </Button>
-            <Button onClick={handleCreateAudit} className="flex items-center gap-2 text-xs md:text-sm">
-              <Plus className="h-4 w-4" />
-              New Audit
+            <Button onClick={handleCreateAudit} className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+              <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">New</span> Audit
             </Button>
           </div>
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 md:gap-4">
-          <Card className="p-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3 lg:gap-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <ClipboardList className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Audits</p>
-                <p className="text-xl font-bold text-gray-900">{auditStats.totalAudits}</p>
+              <ClipboardList className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Audits</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{auditStats.totalAudits}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Completed</p>
-                <p className="text-xl font-bold text-gray-900">{auditStats.completedAudits}</p>
+              <CheckCircle className="h-6 w-6 md:h-8 md:w-8 text-green-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Completed</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{auditStats.completedAudits}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Clock className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">In Progress</p>
-                <p className="text-xl font-bold text-gray-900">{auditStats.inProgressAudits}</p>
+              <Clock className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">In Progress</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{auditStats.inProgressAudits}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Calendar className="h-8 w-8 text-yellow-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Scheduled</p>
-                <p className="text-xl font-bold text-gray-900">{auditStats.scheduledAudits}</p>
+              <Calendar className="h-6 w-6 md:h-8 md:w-8 text-yellow-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Scheduled</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{auditStats.scheduledAudits}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Package className="h-8 w-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Items</p>
-                <p className="text-xl font-bold text-gray-900">{auditStats.totalItems}</p>
+              <Package className="h-6 w-6 md:h-8 md:w-8 text-purple-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Items</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{auditStats.totalItems}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <BarChart3 className="h-8 w-8 text-orange-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Avg Accuracy</p>
-                <p className="text-xl font-bold text-gray-900">{auditStats.averageAccuracy.toFixed(1)}%</p>
+              <BarChart3 className="h-6 w-6 md:h-8 md:w-8 text-orange-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Avg Accuracy</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{auditStats.averageAccuracy.toFixed(1)}%</p>
               </div>
             </div>
           </Card>
         </div>
 
         {/* Search and Filters */}
-        <Card className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1">
+        <Card className="p-3 md:p-4 lg:p-6">
+          <div className="flex flex-col gap-3 md:gap-4">
+            <div className="w-full">
               <SearchInput
                 placeholder="Search by audit ID, branch, or auditor..."
                 value={searchTerm}
                 onChange={setSearchTerm}
-                className="w-full"
+                className="w-full text-sm"
               />
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2 md:gap-3">
               <select
                 value={filters.status}
                 onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="all">All Status</option>
                 <option value="Completed">Completed</option>
@@ -420,7 +420,7 @@ const InventoryAudit = () => {
               <select
                 value={filters.branch}
                 onChange={(e) => setFilters(prev => ({ ...prev, branch: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="all">All Branches</option>
                 {branches.map(branch => (
@@ -430,10 +430,10 @@ const InventoryAudit = () => {
               <Button
                 variant="outline"
                 onClick={() => setIsFilterModalOpen(true)}
-                className="flex items-center gap-2"
+                className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
               >
-                <Filter className="h-4 w-4" />
-                More Filters
+                <Filter className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <span className="hidden sm:inline">More</span> Filters
               </Button>
               <Button
                 variant="outline"
@@ -443,10 +443,10 @@ const InventoryAudit = () => {
                   auditor: 'all',
                   dateRange: { start: '', end: '' }
                 })}
-                className="flex items-center gap-2"
+                className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
               >
-                <RefreshCw className="h-4 w-4" />
-                Reset
+                <RefreshCw className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <span className="hidden sm:inline">Reset</span>
               </Button>
             </div>
           </div>
@@ -458,28 +458,28 @@ const InventoryAudit = () => {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Audit ID
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Branch
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Auditor
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden md:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Audit Date
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden md:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Progress
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Accuracy
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -487,61 +487,61 @@ const InventoryAudit = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredAudits.map((audit) => (
                   <tr key={audit.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{audit.id}</div>
+                    <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm font-medium text-gray-900">{audit.id}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{audit.branchName}</div>
+                    <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm text-gray-900">{audit.branchName}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{audit.auditor}</div>
+                    <td className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm text-gray-900">{audit.auditor}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{format(new Date(audit.auditDate), 'MMM dd, yyyy')}</div>
+                    <td className="hidden md:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm text-gray-900">{format(new Date(audit.auditDate), 'MMM dd, yyyy')}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(audit.status)}`}>
+                    <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1 px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-xs font-medium ${getStatusColor(audit.status)}`}>
                         {getStatusIcon(audit.status)}
-                        {audit.status}
+                        <span className="hidden sm:inline">{audit.status}</span>
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{audit.countedItems}/{audit.totalItems}</div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                    <td className="hidden md:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm text-gray-900">{audit.countedItems}/{audit.totalItems}</div>
+                      <div className="w-full bg-gray-200 rounded-full h-1.5 md:h-2 mt-1">
                         <div 
-                          className="bg-blue-600 h-2 rounded-full" 
+                          className="bg-blue-600 h-1.5 md:h-2 rounded-full" 
                           style={{ width: `${(audit.countedItems / audit.totalItems) * 100}%` }}
                         ></div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
+                    <td className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm text-gray-900">
                         {audit.status === 'Completed' ? `${audit.accuracy}%` : '-'}
                       </div>
                       {audit.discrepancies > 0 && (
                         <div className="text-xs text-red-600">{audit.discrepancies} discrepancies</div>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex gap-2">
+                    <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap text-xs md:text-sm font-medium">
+                      <div className="flex gap-1 md:gap-2">
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => handleViewDetails(audit)}
-                          className="flex items-center gap-1"
+                          className="flex items-center gap-1 text-xs px-1.5 md:px-2"
                         >
                           <Eye className="h-3 w-3" />
-                          View
+                          <span className="hidden sm:inline">View</span>
                         </Button>
                         {audit.status === 'Scheduled' && (
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => handleStartCounting(audit)}
-                            className="flex items-center gap-1"
+                            className="flex items-center gap-1 text-xs px-1.5 md:px-2"
                           >
                             <CheckSquare className="h-3 w-3" />
-                            Start
+                            <span className="hidden sm:inline">Start</span>
                           </Button>
                         )}
                         {audit.status === 'In Progress' && (
@@ -549,10 +549,10 @@ const InventoryAudit = () => {
                             variant="outline"
                             size="sm"
                             onClick={() => handleStartCounting(audit)}
-                            className="flex items-center gap-1"
+                            className="flex items-center gap-1 text-xs px-1.5 md:px-2"
                           >
                             <Clock className="h-3 w-3" />
-                            Continue
+                            <span className="hidden md:inline">Continue</span>
                           </Button>
                         )}
                       </div>
@@ -566,17 +566,17 @@ const InventoryAudit = () => {
 
         {/* Empty State */}
         {filteredAudits.length === 0 && (
-          <Card className="p-12 text-center">
-            <ClipboardList className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Audits Found</h3>
-            <p className="text-gray-600 mb-4">
+          <Card className="p-6 md:p-8 lg:p-12 text-center">
+            <ClipboardList className="h-12 w-12 md:h-16 md:w-16 text-gray-400 mx-auto mb-3 md:mb-4" />
+            <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-2">No Audits Found</h3>
+            <p className="text-sm md:text-base text-gray-600 mb-3 md:mb-4">
               {searchTerm || Object.values(filters).some(f => f !== 'all' && f !== '')
                 ? 'Try adjusting your search or filters'
                 : 'Get started by creating your first inventory audit'
               }
             </p>
-            <Button onClick={handleCreateAudit} className="flex items-center gap-2 mx-auto">
-              <Plus className="h-4 w-4" />
+            <Button onClick={handleCreateAudit} className="flex items-center gap-1 md:gap-2 mx-auto text-xs md:text-sm">
+              <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
               New Audit
             </Button>
           </Card>

@@ -40,7 +40,10 @@ export const getBranchCalendar = async (branchId) => {
       .map(doc => ({
         id: doc.id,
         ...doc.data(),
-        date: doc.data().date?.toDate() // Convert Firestore Timestamp to Date
+        startDate: doc.data().startDate?.toDate(), // Convert Firestore Timestamp to Date
+        endDate: doc.data().endDate?.toDate(), // Convert Firestore Timestamp to Date
+        // For backward compatibility, use startDate as date if available
+        date: doc.data().startDate?.toDate() || doc.data().date?.toDate()
       }))
       .filter(entry => entry.status === 'active' || !entry.status) // Include active reminders or entries without status
       .sort((a, b) => {
@@ -67,8 +70,8 @@ export const getUpcomingReminders = async (branchId) => {
     const q = query(
       calendarRef,
       where('branchId', '==', branchId),
-      where('date', '>=', today),
-      orderBy('date', 'asc')
+      where('startDate', '>=', today),
+      orderBy('startDate', 'asc')
     );
     const snapshot = await getDocs(q);
     
@@ -76,7 +79,9 @@ export const getUpcomingReminders = async (branchId) => {
       .map(doc => ({
         id: doc.id,
         ...doc.data(),
-        date: doc.data().date?.toDate()
+        startDate: doc.data().startDate?.toDate(),
+        endDate: doc.data().endDate?.toDate(),
+        date: doc.data().startDate?.toDate() || doc.data().date?.toDate()
       }))
       .filter(entry => entry.status === 'active' || !entry.status);
   } catch (error) {
@@ -108,24 +113,25 @@ export const saveBranchCalendarEntry = async (branchId, entryData, currentUser) 
     
     const data = {
       branchId, // Add branchId to the document
-      date: Timestamp.fromDate(new Date(entryData.date)),
+      startDate: Timestamp.fromDate(new Date(entryData.startDate)),
+      endDate: Timestamp.fromDate(new Date(entryData.endDate)),
       title: entryData.title,
       description: entryData.description || '',
-      type: entryData.type || 'reminder', // 'reminder' only
-      allDay: true, // Reminders are always all-day
+      type: entryData.type || 'reminder',
+      allDay: true,
       updatedAt: Timestamp.now(),
       updatedBy: currentUser.uid
     };
-    
+
     if (!entryData.id) {
-      // New reminder entry - no approval needed
       data.createdAt = Timestamp.now();
       data.createdBy = currentUser.uid;
-      data.status = 'active'; // Reminders are active immediately
+      // If branch_close, set to pending for approval, else active
+      data.status = entryData.type === 'branch_close' ? 'pending' : 'active';
     } else {
-      // Update existing reminder
+      // Update existing entry
       if (existingData) {
-        data.status = existingData.status || 'active';
+        data.status = existingData.status || (entryData.type === 'branch_close' ? 'pending' : 'active');
       }
     }
     
@@ -140,7 +146,8 @@ export const saveBranchCalendarEntry = async (branchId, entryData, currentUser) 
         branchId,
         entryId,
         title: entryData.title,
-        date: entryData.date,
+        startDate: entryData.startDate,
+        endDate: entryData.endDate,
         type: entryData.type,
         status: data.status
       }
@@ -165,14 +172,16 @@ export const getPendingCalendarEntries = async () => {
     const q = query(
       calendarRef,
       where('status', '==', 'pending'),
-      orderBy('date', 'asc')
+      orderBy('startDate', 'asc')
     );
     const snapshot = await getDocs(q);
     
     return snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      date: doc.data().date?.toDate()
+      startDate: doc.data().startDate?.toDate(),
+      endDate: doc.data().endDate?.toDate(),
+      date: doc.data().startDate?.toDate() || doc.data().date?.toDate()
     }));
   } catch (error) {
     console.error('Error fetching pending calendar entries:', error);
@@ -265,6 +274,7 @@ export const deleteBranchCalendarEntry = async (branchId, entryId, currentUser) 
  */
 export const getCalendarEntryTypes = () => {
   return [
-    { value: 'reminder', label: 'Reminder', color: 'bg-blue-100 text-blue-700' }
+    { value: 'reminder', label: 'Reminder', color: 'bg-blue-100 text-blue-700' },
+    { value: 'branch_close', label: 'Branch Close Request', color: 'bg-red-100 text-red-700' }
   ];
 };

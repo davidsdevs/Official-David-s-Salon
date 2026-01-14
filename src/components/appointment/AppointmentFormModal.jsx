@@ -6,8 +6,10 @@
 import { useState, useEffect } from 'react';
 import { X, Calendar, Clock, AlertCircle } from 'lucide-react';
 import { APPOINTMENT_STATUS, getAvailableTimeSlots } from '../../services/appointmentService';
+import { isBranchClosedOnDate } from '../../services/branchCloseUtils';
 import { formatTime } from '../../utils/helpers';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import Modal from '../ui/Modal';
 
 const AppointmentFormModal = ({ 
   isOpen, 
@@ -19,9 +21,10 @@ const AppointmentFormModal = ({
   onClose, 
   onSubmit,
   loading = false,
-    isGuest = false,
+  isGuest = false,
   userBranch = null, // Auto-select branch for staff
-  isEditing = false
+  isEditing = false,
+  existingAppointments = [] // Appointments to check for duplicates
 }) => {
   const [formData, setFormData] = useState({
     clientId: '',
@@ -39,6 +42,8 @@ const AppointmentFormModal = ({
   
   const [availableSlots, setAvailableSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+    const [showClosedModal, setShowClosedModal] = useState(false);
+    const [closedReason, setClosedReason] = useState('');
   const [unavailableMessage, setUnavailableMessage] = useState(null);
   const [isGuestMode, setIsGuestMode] = useState(isGuest || false);
   const [clientSearchTerm, setClientSearchTerm] = useState('');
@@ -285,56 +290,112 @@ const AppointmentFormModal = ({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    
+
     if (!formData.timeSlot) {
       alert('Please select a time slot');
       return;
     }
-    
-    // Get appointment date/time from selected slot
-    const appointmentDateTime = new Date(formData.timeSlot.time);
-    
-    // Get branch name from branches array
-    const selectedBranch = branches && branches.filter(b => b && b.id).find(b => b.id === formData.branchId);
-    
-    // Enrich services with full details
-    // Remove status field if it exists (redundant - appointment has status, not individual services)
-    const enrichedServices = formData.services.map(serviceObj => {
-      const service = services.find(s => s.id === serviceObj.serviceId);
-      const stylist = stylists && stylists.find(s => s.id === serviceObj.stylistId);
-      
-      const enrichedService = {
-        serviceId: serviceObj.serviceId,
-        serviceName: service?.name || '',
-        price: service?.price || 0,
-        quantity: serviceObj.quantity || 1,
-        stylistId: serviceObj.stylistId || null,
-        stylistName: stylist ? `${stylist.firstName} ${stylist.lastName}` : 'Any available'
-      };
-      // Explicitly remove status if it exists
-      delete enrichedService.status;
-      return enrichedService;
-    });
-    
-    // Calculate totals (multiply by quantity)
-    const totalPrice = enrichedServices.reduce((sum, s) => sum + (s.price * s.quantity), 0);
-    
-    // Remove timeSlot from submitData - it's just UI state, not needed in Firestore
-    const { timeSlot, ...dataWithoutTimeSlot } = formData;
-    
-    const submitData = {
-      ...dataWithoutTimeSlot,
-      appointmentDate: appointmentDateTime,
-      branchName: selectedBranch?.name || selectedBranch?.branchName,
-      services: enrichedServices,  // Array of enriched service objects
-      products: formData.products || [], // Include any products that were added
-      totalPrice,
-      isGuest: isGuestMode,
-      // For guest clients, set clientId to null if not provided
-      clientId: isGuestMode ? (formData.clientId || null) : formData.clientId
-    };
 
-    onSubmit(submitData);
+    // Block booking if branch is closed on selected date
+    const selectedDate = formData.appointmentDate || (formData.timeSlot?.date || '');
+    if (formData.branchId && selectedDate) {
+      isBranchClosedOnDate(formData.branchId, selectedDate).then(closeCheck => {
+        if (closeCheck.closed) {
+          alert('This branch is closed on the selected date. Reason: ' + (closeCheck.entry?.title || 'Branch Closed'));
+          return;
+        } else {
+          // Get appointment date/time from selected slot
+          const appointmentDateTime = new Date(formData.timeSlot.time);
+
+          // Get branch name from branches array
+          const selectedBranch = branches && branches.filter(b => b && b.id).find(b => b.id === formData.branchId);
+
+          // Enrich services with full details
+          // Remove status field if it exists (redundant - appointment has status, not individual services)
+          const enrichedServices = formData.services.map(serviceObj => {
+            const service = services.find(s => s.id === serviceObj.serviceId);
+            const stylist = stylists && stylists.find(s => s.id === serviceObj.stylistId);
+
+            const enrichedService = {
+              serviceId: serviceObj.serviceId,
+              serviceName: service?.name || '',
+              price: service?.price || 0,
+              quantity: serviceObj.quantity || 1,
+              stylistId: serviceObj.stylistId || null,
+              stylistName: stylist ? `${stylist.firstName} ${stylist.lastName}` : 'Any available'
+            };
+            // Explicitly remove status if it exists
+            delete enrichedService.status;
+            return enrichedService;
+          });
+
+          // Calculate totals (multiply by quantity)
+          const totalPrice = enrichedServices.reduce((sum, s) => sum + (s.price * s.quantity), 0);
+
+          // Remove timeSlot from submitData - it's just UI state, not needed in Firestore
+          const { timeSlot, ...dataWithoutTimeSlot } = formData;
+
+          const submitData = {
+            ...dataWithoutTimeSlot,
+            appointmentDate: appointmentDateTime,
+            branchName: selectedBranch?.name || selectedBranch?.branchName,
+            services: enrichedServices,  // Array of enriched service objects
+            products: formData.products || [], // Include any products that were added
+            totalPrice,
+            isGuest: isGuestMode,
+            // For guest clients, set clientId to null if not provided
+            clientId: isGuestMode ? (formData.clientId || null) : formData.clientId
+          };
+
+          onSubmit(submitData);
+        }
+      });
+    } else {
+      // Get appointment date/time from selected slot
+      const appointmentDateTime = new Date(formData.timeSlot.time);
+
+      // Get branch name from branches array
+      const selectedBranch = branches && branches.filter(b => b && b.id).find(b => b.id === formData.branchId);
+
+      // Enrich services with full details
+      // Remove status field if it exists (redundant - appointment has status, not individual services)
+      const enrichedServices = formData.services.map(serviceObj => {
+        const service = services.find(s => s.id === serviceObj.serviceId);
+        const stylist = stylists && stylists.find(s => s.id === serviceObj.stylistId);
+
+        const enrichedService = {
+          serviceId: serviceObj.serviceId,
+          serviceName: service?.name || '',
+          price: service?.price || 0,
+          quantity: serviceObj.quantity || 1,
+          stylistId: serviceObj.stylistId || null,
+          stylistName: stylist ? `${stylist.firstName} ${stylist.lastName}` : 'Any available'
+        };
+        // Explicitly remove status if it exists
+        delete enrichedService.status;
+        return enrichedService;
+      });
+
+      // Calculate totals (multiply by quantity)
+      const totalPrice = enrichedServices.reduce((sum, s) => sum + (s.price * s.quantity), 0);
+
+      // Remove timeSlot from submitData - it's just UI state, not needed in Firestore
+      const { timeSlot, ...dataWithoutTimeSlot } = formData;
+
+      const submitData = {
+        ...dataWithoutTimeSlot,
+        appointmentDate: appointmentDateTime,
+        branchName: selectedBranch?.name || selectedBranch?.branchName,
+        services: enrichedServices,  // Array of enriched service objects
+        products: formData.products || [], // Include any products that were added
+        totalPrice,
+        isGuest: isGuestMode,
+        // For guest clients, set clientId to null if not provided
+        clientId: isGuestMode ? (formData.clientId || null) : formData.clientId
+      };
+
+      onSubmit(submitData);
+    }
   };
 
   // Calculate minimum date/time (today for all clients)
@@ -906,7 +967,49 @@ const AppointmentFormModal = ({
                 type="date"
                 required
                 value={formData.appointmentDate}
-                onChange={(e) => setFormData({ ...formData, appointmentDate: e.target.value, timeSlot: null })}
+                onChange={async (e) => {
+                  const dateValue = e.target.value;
+
+                  // Check duplicate appointment for this client on the selected date
+                  if (dateValue && existingAppointments.length > 0) {
+                    const selected = new Date(dateValue);
+                    const startOfDay = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate());
+                    const endOfDay = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate(), 23, 59, 59);
+
+                    const duplicateAppointment = existingAppointments.find(apt => {
+                      const aptDate = apt.appointmentDate?.toDate ? apt.appointmentDate.toDate() : new Date(apt.appointmentDate);
+                      return aptDate >= startOfDay &&
+                             aptDate <= endOfDay &&
+                             apt.status !== APPOINTMENT_STATUS.CANCELLED &&
+                             apt.status !== APPOINTMENT_STATUS.COMPLETED;
+                    });
+
+                    if (duplicateAppointment) {
+                      // Keep existing behavior: alert and don't set date
+                      alert('You already have an appointment on this date. Please choose a different date.');
+                      return;
+                    }
+                  }
+
+                  // Immediately block booking if branch has an approved branch_close on this date
+                  if (formData.branchId && dateValue) {
+                    try {
+                      const closeCheck = await isBranchClosedOnDate(formData.branchId, dateValue);
+                      if (closeCheck.closed) {
+                        const reason = closeCheck.entry?.title || closeCheck.entry?.description || 'Branch closed on this date.';
+                        setClosedReason(reason);
+                        setShowClosedModal(true);
+                        setFormData({ ...formData, appointmentDate: '', timeSlot: null });
+                        return;
+                      }
+                    } catch (err) {
+                      console.error('Error checking branch close:', err);
+                      // fail-open: proceed to set the date
+                    }
+                  }
+
+                  setFormData({ ...formData, appointmentDate: dateValue, timeSlot: null });
+                }}
                 disabled={!allowReschedule}
                 min={getMinDateTime()}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -919,13 +1022,13 @@ const AppointmentFormModal = ({
             {/* Time Slot Selection */}
             {formData.appointmentDate && (
               <div className="bg-white border border-gray-200 rounded-lg p-4">
-                <p className="text-xs text-gray-500 mb-3">
+                <p className="text-[11px] text-gray-400 mb-2">
                   Select available time slot
                 </p>
                 {loadingSlots ? (
                   <div className="flex flex-col items-center justify-center py-12">
                     <LoadingSpinner size="md" />
-                    <p className="text-sm text-gray-500 mt-3">Loading available slots...</p>
+                    <p className="text-xs text-gray-500 mt-3">Loading available slots...</p>
                   </div>
                 ) : availableSlots.length === 0 ? (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 text-center">
@@ -935,7 +1038,7 @@ const AppointmentFormModal = ({
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-4 gap-1.5">
                     {(() => {
                       console.log('🎨 RENDERING SLOTS:', {
                         slotsToRender: availableSlots.length,
@@ -950,12 +1053,12 @@ const AppointmentFormModal = ({
                           type="button"
                           onClick={() => allowReschedule && slot.available && setFormData({ ...formData, timeSlot: slot })}
                           disabled={!allowReschedule || !slot.available}
-                          className={`px-3 py-2 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                          className={`px-2 py-1.5 text-xs font-medium rounded-md border transition-colors whitespace-nowrap ${
                             formData.timeSlot?.time === slot.time
                               ? 'bg-[#2D1B4E] text-white border-[#2D1B4E]'
                               : slot.available
-                              ? 'bg-white text-gray-700 border-gray-300 hover:border-[#2D1B4E] hover:text-[#2D1B4E]'
-                              : 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+                              ? 'bg-white text-gray-600 border-gray-200 hover:border-[#2D1B4E] hover:text-[#2D1B4E]'
+                              : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
                           }`}
                         >
                           {formatTime(slot.time)}
@@ -1045,6 +1148,20 @@ const AppointmentFormModal = ({
 
           </div>
         </form>
+        {/* Closed Date Modal */}
+        {showClosedModal && (
+          <Modal isOpen={showClosedModal} onClose={() => setShowClosedModal(false)} title="Branch Temporarily Closed">
+            <div className="space-y-3 text-center p-4">
+              <p className="text-lg font-semibold text-red-600">You cannot book for this day.</p>
+              <p className="text-gray-700">The branch is temporarily closed for this date.</p>
+              <p className="text-sm text-gray-500">Reason: <span className="font-semibold">{closedReason}</span></p>
+              <div className="mt-4 flex gap-3 justify-center">
+                <button onClick={() => setShowClosedModal(false)} className="px-4 py-2 border rounded-lg">Close</button>
+                <button onClick={() => { setShowClosedModal(false); setFormData({ ...formData, appointmentDate: '', timeSlot: null }); }} className="px-4 py-2 bg-[#2D1B4E] text-white rounded-lg">Choose Another Date</button>
+              </div>
+            </div>
+          </Modal>
+        )}
       </div>
     </div>
   );

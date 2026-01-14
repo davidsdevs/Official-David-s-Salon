@@ -9,6 +9,8 @@ import { useAuth } from '../../context/AuthContext';
 import { getPortfoliosByStylist, createPortfolio, deletePortfolio } from '../../services/portfolioService';
 import { uploadToCloudinary } from '../../services/imageService';
 import { validateImageFile } from '../../services/imageService';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 
@@ -20,6 +22,8 @@ const Portfolio = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
+  const [serviceCategories, setServiceCategories] = useState([]);
+  const [stylistServices, setStylistServices] = useState([]);
   const [uploadForm, setUploadForm] = useState({
     title: '',
     category: '',
@@ -31,6 +35,7 @@ const Portfolio = () => {
   useEffect(() => {
     if (currentUser?.uid) {
       fetchPortfolios();
+      fetchStylistServiceCategories();
     }
   }, [currentUser]);
 
@@ -45,6 +50,56 @@ const Portfolio = () => {
       console.error('Error fetching portfolios:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch services that the stylist offers
+  const fetchStylistServiceCategories = async () => {
+    if (!currentUser?.uid) return;
+
+    try {
+      // Get stylist document to retrieve service IDs
+      const stylistDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      
+      if (!stylistDoc.exists()) {
+        setStylistServices([]);
+        return;
+      }
+
+      const stylistData = stylistDoc.data();
+      const serviceIds = stylistData.service_id || stylistData.serviceIds || [];
+      
+      if (serviceIds.length === 0) {
+        setStylistServices([]);
+        return;
+      }
+
+      // Fetch service details and get service names
+      const services = [];
+      
+      for (const serviceId of serviceIds) {
+        try {
+          const serviceDoc = await getDoc(doc(db, 'services', serviceId));
+          if (serviceDoc.exists()) {
+            const serviceData = serviceDoc.data();
+            const serviceName = serviceData.name || serviceData.serviceName;
+            if (serviceName) {
+              services.push({
+                id: serviceId,
+                name: serviceName,
+                category: serviceData.category || serviceData.serviceCategory || ''
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching service:', serviceId, error);
+        }
+      }
+
+      setStylistServices(services.sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
+      console.error('Error fetching stylist services:', error);
+      setStylistServices([]);
     }
   };
 
@@ -77,6 +132,11 @@ const Portfolio = () => {
       return;
     }
 
+    if (!uploadForm.category) {
+      toast.error('Please select a service');
+      return;
+    }
+
     try {
       setUploading(true);
 
@@ -87,7 +147,7 @@ const Portfolio = () => {
       await createPortfolio({
         stylistId: currentUser.uid,
         title: uploadForm.title.trim(),
-        category: uploadForm.category.trim() || 'Uncategorized',
+        category: uploadForm.category,
         description: uploadForm.description.trim(),
         imageUrl,
         thumbnailUrl: imageUrl // Use same URL for thumbnail
@@ -435,15 +495,26 @@ const Portfolio = () => {
                 {/* Category */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Category
+                    Service *
                   </label>
-                  <input
-                    type="text"
-                    value={uploadForm.category}
-                    onChange={(e) => setUploadForm(prev => ({ ...prev, category: e.target.value }))}
-                    placeholder="e.g., Haircut, Coloring, Styling"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  />
+                  {stylistServices.length > 0 ? (
+                    <select
+                      value={uploadForm.category}
+                      onChange={(e) => setUploadForm(prev => ({ ...prev, category: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="">Select a service</option>
+                      {stylistServices.map((service) => (
+                        <option key={service.id} value={service.name}>
+                          {service.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="text-sm text-gray-500 p-3 bg-gray-50 rounded-lg">
+                      No services found. Please contact your manager to assign services to your profile.
+                    </div>
+                  )}
                 </div>
 
                 {/* Description */}
@@ -464,7 +535,7 @@ const Portfolio = () => {
                 <div className="flex items-center gap-3 pt-4">
                   <button
                     onClick={handleUpload}
-                    disabled={uploading || !uploadForm.imageFile || !uploadForm.title.trim()}
+                    disabled={uploading || !uploadForm.imageFile || !uploadForm.title.trim() || !uploadForm.category}
                     className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {uploading ? 'Uploading...' : 'Upload Portfolio'}
@@ -494,28 +565,36 @@ const Portfolio = () => {
       {/* Preview Modal */}
       {previewImage && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
-          <div className="relative max-w-4xl w-full">
+          <div className="relative max-w-3xl w-full max-h-[90vh] flex flex-col">
             <button
               onClick={() => setPreviewImage(null)}
-              className="absolute top-4 right-4 bg-white/90 p-2 rounded-full hover:bg-white transition-colors z-10"
+              className="absolute -top-2 -right-2 bg-white p-2 rounded-full hover:bg-gray-100 transition-colors z-10 shadow-lg"
             >
-              <X className="w-6 h-6 text-gray-700" />
+              <X className="w-5 h-5 text-gray-700" />
             </button>
-            <img
-              src={previewImage.imageUrl}
-              alt={previewImage.title}
-              className="w-full h-auto rounded-lg"
-            />
-            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 mt-4">
-              <h3 className="text-xl font-bold text-gray-900 mb-2">{previewImage.title}</h3>
+            
+            {/* Image Container */}
+            <div className="flex-shrink-0 max-h-[60vh] overflow-hidden rounded-t-lg bg-black flex items-center justify-center">
+              <img
+                src={previewImage.imageUrl}
+                alt={previewImage.title}
+                className="max-w-full max-h-[60vh] object-contain"
+              />
+            </div>
+            
+            {/* Details Container */}
+            <div className="bg-white rounded-b-lg p-4 flex-shrink-0">
+              <h3 className="text-lg font-bold text-gray-900">{previewImage.title}</h3>
               {previewImage.category && (
-                <p className="text-sm text-gray-600 mb-2">Category: {previewImage.category}</p>
+                <p className="text-sm text-primary-600 font-medium mt-1">
+                  {previewImage.category}
+                </p>
               )}
               {previewImage.description && (
-                <p className="text-sm text-gray-700 mb-2">{previewImage.description}</p>
+                <p className="text-sm text-gray-600 mt-2 line-clamp-3">{previewImage.description}</p>
               )}
-              <div className="flex items-center gap-2 mt-4">
-                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${getStatusBadge(previewImage.status)}`}>
+              <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-gray-100">
+                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold border ${getStatusBadge(previewImage.status)}`}>
                   {getStatusIcon(previewImage.status)}
                   {previewImage.status === 'active' ? 'Approved' : previewImage.status.charAt(0).toUpperCase() + previewImage.status.slice(1)}
                 </span>
@@ -524,9 +603,9 @@ const Portfolio = () => {
                 </span>
               </div>
               {previewImage.status === 'rejected' && previewImage.rejectionRemark && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4">
-                  <p className="text-sm font-semibold text-red-800 mb-1">Rejection Reason:</p>
-                  <p className="text-sm text-red-700">{previewImage.rejectionRemark}</p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-3">
+                  <p className="text-xs font-semibold text-red-800 mb-1">Rejection Reason:</p>
+                  <p className="text-xs text-red-700">{previewImage.rejectionRemark}</p>
                 </div>
               )}
             </div>

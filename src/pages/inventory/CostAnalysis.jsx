@@ -317,106 +317,106 @@ const CostAnalysis = () => {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Cost Analysis</h1>
-            <p className="text-sm md:text-base text-gray-600">Analyze product costs, margins, and profitability</p>
+            <h1 className="text-lg md:text-xl lg:text-2xl font-bold text-gray-900">Cost Analysis</h1>
+            <p className="text-xs md:text-sm text-gray-600">Analyze product costs, margins, and profitability</p>
           </div>
-          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-            <Button variant="outline" className="flex items-center gap-2 text-xs md:text-sm">
-              <Upload className="h-4 w-4" />
+          <div className="flex items-center gap-1 md:gap-2 flex-wrap">
+            <Button variant="outline" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+              <Upload className="h-3.5 w-3.5 md:h-4 md:w-4" />
               <span className="hidden sm:inline">Import</span>
             </Button>
-            <Button variant="outline" className="flex items-center gap-2 text-xs md:text-sm">
-              <Download className="h-4 w-4" />
+            <Button variant="outline" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+              <Download className="h-3.5 w-3.5 md:h-4 md:w-4" />
               <span className="hidden sm:inline">Export</span>
             </Button>
-            <Button onClick={handleCreateAnalysis} className="flex items-center gap-2 text-xs md:text-sm">
-              <Plus className="h-4 w-4" />
-              New Analysis
+            <Button onClick={handleCreateAnalysis} className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+              <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">New Analysis</span>
             </Button>
           </div>
         </div>
 
         {/* Summary Statistics */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 md:gap-4">
-          <Card className="p-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3 lg:gap-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Package className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Products</p>
-                <p className="text-xl font-bold text-gray-900">{summaryStats.totalProducts}</p>
+              <Package className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Products</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">{summaryStats.totalProducts}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Banknote className="h-8 w-8 text-red-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Cost</p>
-                <p className="text-xl font-bold text-gray-900">₱{summaryStats.totalCost.toLocaleString()}</p>
+              <Banknote className="h-6 w-6 md:h-8 md:w-8 text-red-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Cost</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">₱{summaryStats.totalCost.toLocaleString()}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <TrendingUp className="h-8 w-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-                <p className="text-xl font-bold text-gray-900">₱{summaryStats.totalRevenue.toLocaleString()}</p>
+              <TrendingUp className="h-6 w-6 md:h-8 md:w-8 text-green-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Revenue</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">₱{summaryStats.totalRevenue.toLocaleString()}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Target className="h-8 w-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Profit</p>
-                <p className="text-xl font-bold text-gray-900">₱{summaryStats.totalProfit.toLocaleString()}</p>
+              <Target className="h-6 w-6 md:h-8 md:w-8 text-purple-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Profit</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">₱{summaryStats.totalProfit.toLocaleString()}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Percent className="h-8 w-8 text-orange-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Avg Margin</p>
-                <p className="text-xl font-bold text-gray-900">{summaryStats.averageMargin.toFixed(1)}%</p>
+              <Percent className="h-6 w-6 md:h-8 md:w-8 text-orange-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Avg Margin</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">{summaryStats.averageMargin.toFixed(1)}%</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <BarChart3 className="h-8 w-8 text-indigo-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">High Performers</p>
-                <p className="text-xl font-bold text-gray-900">{summaryStats.highPerformers}</p>
+              <BarChart3 className="h-6 w-6 md:h-8 md:w-8 text-indigo-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">High Performers</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">{summaryStats.highPerformers}</p>
               </div>
             </div>
           </Card>
         </div>
 
         {/* Search and Filters */}
-        <Card className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1">
+        <Card className="p-3 md:p-4 lg:p-6">
+          <div className="flex flex-col gap-3 md:gap-4">
+            <div className="w-full">
               <SearchInput
                 placeholder="Search by product name, brand, or category..."
                 value={searchTerm}
                 onChange={setSearchTerm}
-                className="w-full"
+                className="w-full text-sm"
               />
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2 md:gap-3">
               <select
                 value={filters.category}
                 onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="all">All Categories</option>
                 {categories.map(category => (
@@ -426,7 +426,7 @@ const CostAnalysis = () => {
               <select
                 value={filters.period}
                 onChange={(e) => setFilters(prev => ({ ...prev, period: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="monthly">Monthly</option>
                 <option value="quarterly">Quarterly</option>
@@ -435,10 +435,10 @@ const CostAnalysis = () => {
               <Button
                 variant="outline"
                 onClick={() => setIsFilterModalOpen(true)}
-                className="flex items-center gap-2"
+                className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
               >
-                <Filter className="h-4 w-4" />
-                More Filters
+                <Filter className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <span className="hidden sm:inline">More Filters</span>
               </Button>
               <Button
                 variant="outline"
@@ -448,10 +448,10 @@ const CostAnalysis = () => {
                   costRange: { min: '', max: '' },
                   marginRange: { min: '', max: '' }
                 })}
-                className="flex items-center gap-2"
+                className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
               >
-                <RefreshCw className="h-4 w-4" />
-                Reset
+                <RefreshCw className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <span className="hidden sm:inline">Reset</span>
               </Button>
             </div>
           </div>
@@ -463,28 +463,28 @@ const CostAnalysis = () => {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Product
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Unit Cost
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden md:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Selling Price
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Margin
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Performance
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Total Profit
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Trend
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -492,56 +492,56 @@ const CostAnalysis = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredData.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{item.productName}</div>
-                        <div className="text-sm text-gray-500">{item.brand} • {item.category}</div>
-                        <div className="text-xs text-gray-400">{item.branchName}</div>
+                        <div className="text-xs md:text-sm font-medium text-gray-900">{item.productName}</div>
+                        <div className="text-xs text-gray-500">{item.brand} • {item.category}</div>
+                        <div className="text-xs text-gray-400 hidden md:block">{item.branchName}</div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">₱{item.unitCost.toLocaleString()}</div>
+                    <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm font-medium text-gray-900">₱{item.unitCost.toLocaleString()}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">₱{item.sellingPrice.toLocaleString()}</div>
+                    <td className="hidden md:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm font-medium text-gray-900">₱{item.sellingPrice.toLocaleString()}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">₱{item.margin.toLocaleString()}</div>
+                    <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm font-medium text-gray-900">₱{item.margin.toLocaleString()}</div>
                       <div className="text-xs text-gray-500">{item.marginPercentage}%</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getPerformanceColor(item.performance)}`}>
                         {getPerformanceIcon(item.performance)}
                         {item.performance}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">₱{item.totalProfit.toLocaleString()}</div>
+                    <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                      <div className="text-xs md:text-sm font-medium text-gray-900">₱{item.totalProfit.toLocaleString()}</div>
                       <div className="text-xs text-gray-500">{item.totalUnits} units</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         {getTrendIcon(item.trend)}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex gap-2">
+                    <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex gap-1 md:gap-2">
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => handleViewDetails(item)}
-                          className="flex items-center gap-1"
+                          className="flex items-center gap-1 text-xs md:text-sm px-2 md:px-3"
                         >
-                          <Eye className="h-3 w-3" />
-                          View
+                          <Eye className="h-3 w-3 md:h-3.5 md:w-3.5" />
+                          <span className="hidden sm:inline">View</span>
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
-                          className="flex items-center gap-1"
+                          className="flex items-center gap-1 text-xs md:text-sm px-2 md:px-3"
                         >
-                          <Edit className="h-3 w-3" />
-                          Edit
+                          <Edit className="h-3 w-3 md:h-3.5 md:w-3.5" />
+                          <span className="hidden sm:inline">Edit</span>
                         </Button>
                       </div>
                     </td>
@@ -554,17 +554,17 @@ const CostAnalysis = () => {
 
         {/* Empty State */}
         {filteredData.length === 0 && (
-          <Card className="p-12 text-center">
-            <Banknote className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Analysis Data Found</h3>
-            <p className="text-gray-600 mb-4">
+          <Card className="p-6 md:p-8 lg:p-12 text-center">
+            <Banknote className="h-12 w-12 md:h-16 md:w-16 text-gray-400 mx-auto mb-3 md:mb-4" />
+            <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-2">No Analysis Data Found</h3>
+            <p className="text-sm md:text-base text-gray-600 mb-4">
               {searchTerm || Object.values(filters).some(f => f !== 'all' && f !== '')
                 ? 'Try adjusting your search or filters'
                 : 'Get started by creating your first cost analysis'
               }
             </p>
-            <Button onClick={handleCreateAnalysis} className="flex items-center gap-2 mx-auto">
-              <Plus className="h-4 w-4" />
+            <Button onClick={handleCreateAnalysis} className="flex items-center gap-1 md:gap-2 mx-auto text-xs md:text-sm px-2 md:px-3">
+              <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
               New Analysis
             </Button>
           </Card>

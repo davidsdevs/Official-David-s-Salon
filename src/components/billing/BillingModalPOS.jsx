@@ -3,14 +3,16 @@
  * Design matches modern POS interface
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Banknote, Tag, Search, CreditCard, Wallet, Gift, Scissors, Package, Smartphone, Star, CheckCircle, AlertCircle, QrCode, Camera } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { X, Banknote, Tag, Search, CreditCard, Wallet, Gift, Scissors, Package, Smartphone, Star, CheckCircle, AlertCircle, QrCode, Camera, Printer, Bluetooth } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { PAYMENT_METHODS, calculateBillTotals, checkReceiptNumberExists } from '../../services/billingService';
+import { getActiveBIRReceiptBatch, getNextReceiptNumber } from '../../services/birReceiptService';
 import { getBranchById } from '../../services/branchService';
 import { getLoyaltyPoints } from '../../services/loyaltyService';
 import { validatePromotionCode, calculatePromotionDiscount, trackPromotionUsage } from '../../services/promotionService';
+import { thermalPrinter } from '../../services/thermalPrinterService';
 import { useAuth } from '../../context/AuthContext';
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -39,29 +41,12 @@ const BillingModalPOS = ({
     loyaltyPointsUsed: '',
     paymentMethod: PAYMENT_METHODS.CASH,
     paymentReference: '',
-    receiptNumber: '', // Receipt number from physical receipt
-    notes: '',
+    receiptNumber: '',
     amountReceived: '',
-    // Client info for walk-in customers
-    clientName: '',
-    clientPhone: '',
-    clientEmail: '',
-    clientId: ''
-  });
-
-  // Tax is removed - always 0
-
-  const [totals, setTotals] = useState({
-    subtotal: 0,
-    discount: 0,
-    serviceCharge: 0,
-    tax: 0,
-    total: 0
+    notes: '',
   });
 
   const [serviceSearch, setServiceSearch] = useState('');
-  const [salePanelWidth, setSalePanelWidth] = useState(384); // 384px = w-96
-  const [isResizing, setIsResizing] = useState(false);
   const [matchedClient, setMatchedClient] = useState(null);
   const [clientSearch, setClientSearch] = useState('');
   const [showClientList, setShowClientList] = useState(false);
@@ -92,88 +77,130 @@ const BillingModalPOS = ({
   const [existingReceipt, setExistingReceipt] = useState(null);
   const [showReceiptDetails, setShowReceiptDetails] = useState(false);
   
+  // BIR Receipt Batch states
+  const [activeBatch, setActiveBatch] = useState(null);
+  const [nextReceiptNumber, setNextReceiptNumber] = useState('');
+  const [loadingReceiptNumber, setLoadingReceiptNumber] = useState(false);
+  const [receiptNumberError, setReceiptNumberError] = useState('');
+  
+  // Thermal Printer states
+  const [printerConnected, setPrinterConnected] = useState(false);
+  const [printerName, setPrinterName] = useState('');
+  const [connectingPrinter, setConnectingPrinter] = useState(false);
+  
   // Transaction ID preview
   const [previewTransactionId, setPreviewTransactionId] = useState(null);
   const [loadingTransactionId, setLoadingTransactionId] = useState(false);
+  const [serviceProductCharges, setServiceProductCharges] = useState([]);
+  
+  // Confirmation modal state
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingBillData, setPendingBillData] = useState(null);
+  
+  // Receipt modal state
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [completedBill, setCompletedBill] = useState(null);
+  const receiptRef = useRef(null);
+  
+  const [totals, setTotals] = useState({
+    subtotal: 0,
+    discount: 0,
+    discountAmount: 0,
+    promotionDiscount: 0,
+    loyaltyDiscount: 0,
+    serviceProductCharge: 0,
+    total: 0,
+    grandTotal: 0,
+    vat: 0,
+    cashChange: 0,
+  });
 
-  // Fetch branch data on mount
+  // Branch-filtered products (must exist in this branch's stocks)
+  const branchProducts = useMemo(() => {
+    const branchId = userBranch?.id || userBranch;
+    const branchStocks = (stocksData || []).filter(s => !s.branchId || (branchId && s.branchId === branchId));
+    const branchProductIds = new Set(branchStocks.map(s => s.productId));
+    // If we have no branch stocks yet, allow all products so UI is usable; otherwise enforce branch products
+    if (branchProductIds.size === 0) return availableProducts || [];
+    return (availableProducts || []).filter(p => branchProductIds.has(p.id));
+  }, [availableProducts, stocksData, userBranch]);
+
+  // Get eligible stylists for a service (based on stylist.serviceId or service_id array)
+  const getEligibleStylistsForService = useCallback((serviceId) => {
+    if (!stylists || stylists.length === 0) return [];
+    if (!serviceId) return stylists; // If no serviceId, return all stylists
+    
+    // Filter stylists who can perform this service
+    const eligible = stylists.filter(stylist => {
+      const stylistServiceIds = stylist.serviceId || stylist.service_id || [];
+      // If stylist has no service restrictions, they can do any service
+      if (!Array.isArray(stylistServiceIds) || stylistServiceIds.length === 0) return true;
+      return stylistServiceIds.includes(serviceId);
+    });
+    
+    // If no eligible stylists found, return all stylists as fallback
+    return eligible.length > 0 ? eligible : stylists;
+  }, [stylists]);
+
+  // Debug: log mapped products per service (e.g., Balayage) and branch-filtered availability
   useEffect(() => {
-    const fetchBranchData = async () => {
-      if (userBranch) {
-        try {
-          const branch = await getBranchById(userBranch);
-          setBranchData(branch);
-          console.log('✅ Fetched branch data:', branch?.name);
-        } catch (error) {
-          console.error('Error fetching branch data:', error);
-        }
-      }
-    };
-    fetchBranchData();
-  }, [userBranch]);
-
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (!isResizing) return;
-      
-      const modalRect = document.querySelector('.billing-modal-content')?.getBoundingClientRect();
-      if (!modalRect) return;
-      
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const newWidth = modalRect.right - clientX;
-      const minWidth = 300;
-      const maxWidth = 800;
-      
-      if (newWidth >= minWidth && newWidth <= maxWidth) {
-        setSalePanelWidth(newWidth);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.addEventListener('touchmove', handleMouseMove);
-      document.addEventListener('touchend', handleMouseUp);
+    if (!services || services.length === 0) return;
+    const balayage = services.find(s => (s.serviceName || s.name || '').toLowerCase().includes('balayage'));
+    if (balayage) {
+      console.log('🧾 Balayage product mappings:', balayage.productMappings || []);
+      console.log('🏪 Branch products (id only):', branchProducts.map(p => p.id));
+      console.log('🏪 Branch products (detailed):', branchProducts);
+      console.log('📦 Available products (detailed):', availableProducts);
     }
+  }, [services, branchProducts, availableProducts]);
 
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('touchmove', handleMouseMove);
-      document.removeEventListener('touchend', handleMouseUp);
-    };
-  }, [isResizing]);
+  // Map productId -> price for quick lookup
+  const productPriceMap = useMemo(() => {
+    return (availableProducts || []).reduce((acc, p) => {
+      acc[p.id] = p.price || p.otcPrice || 0;
+      return acc;
+    }, {});
+  }, [availableProducts]);
+
+  const getServiceProductCharge = useCallback((serviceItem) => {
+    if (!serviceItem || serviceItem.type !== 'service') return 0;
+    if (!Array.isArray(serviceItem.productMappings) || serviceItem.productMappings.length === 0) return 0;
+    let total = 0;
+    const qty = serviceItem.quantity || 1;
+    serviceItem.productMappings.forEach(mapping => {
+      if (!mapping?.productId || !mapping?.percentage) return;
+      const pct = parseFloat(mapping.percentage) || 0;
+      const productPrice = productPriceMap[mapping.productId] || 0;
+      total += (productPrice * (pct / 100)) * qty;
+    });
+    return total;
+  }, [productPriceMap]);
+
+  // Clear loyalty state outside of checkout contexts
+  useEffect(() => {
+    if (mode !== 'billing' && mode !== 'products-only') {
+      setClientLoyaltyPoints(0);
+      setFormData(prev => ({ ...prev, loyaltyPointsUsed: '' }));
+    }
+  }, [mode]);
 
   // Fetch client loyalty points when appointment/client changes
   useEffect(() => {
     const fetchLoyaltyPoints = async () => {
-      // Priority: appointment.clientId (from appointment) > formData.clientId (from walk-in selection)
       const clientId = appointment?.clientId || formData.clientId;
-      // Get branchId from appointment or userBranch
-      const branchId = appointment?.branchId || userBranch;
-      
-      if (clientId && branchId && isOpen) {
-        try {
-          console.log('🔍 Fetching loyalty points for client:', clientId, 'at branch:', branchId);
-          const points = await getLoyaltyPoints(clientId, branchId);
-          setClientLoyaltyPoints(points);
-          console.log('✅ Fetched loyalty points:', points, 'for client:', clientId, 'at branch:', branchId);
-        } catch (error) {
-          console.error('❌ Error fetching loyalty points:', error);
-          setClientLoyaltyPoints(0);
-        }
-      } else {
+      const branchId = appointment?.branchId || userBranch?.id || userBranch;
+      if (!clientId || !branchId || !isOpen) return;
+
+      try {
+        const points = await getLoyaltyPoints(clientId, branchId);
+        setClientLoyaltyPoints(points);
+      } catch (error) {
+        console.error('Error fetching loyalty points:', error);
         setClientLoyaltyPoints(0);
       }
     };
 
-    if (isOpen) {
-      fetchLoyaltyPoints();
-    }
+    fetchLoyaltyPoints();
   }, [isOpen, appointment?.clientId, appointment?.branchId, formData.clientId, userBranch]);
 
   // Calculate preview transaction ID
@@ -232,6 +259,56 @@ const BillingModalPOS = ({
     calculatePreviewTransactionId();
   }, [isOpen, userBranch, mode]);
 
+  // Fetch active BIR receipt batch and preview next receipt number
+  useEffect(() => {
+    const fetchBIRBatchInfo = async () => {
+      if (!isOpen || !userBranch || (mode !== 'billing' && mode !== 'products-only')) {
+        setActiveBatch(null);
+        setNextReceiptNumber('');
+        setReceiptNumberError('');
+        return;
+      }
+
+      try {
+        setLoadingReceiptNumber(true);
+        setReceiptNumberError('');
+        
+        const branchId = userBranch?.id || userBranch;
+        const batch = await getActiveBIRReceiptBatch(branchId);
+        
+        if (batch) {
+          setActiveBatch(batch);
+          // Preview the next receipt number (currentNumber + 1) - just the number, no prefix
+          const nextNum = batch.currentNumber + 1;
+          const paddedNumber = String(nextNum).padStart(String(batch.endNumber).length, '0');
+          setNextReceiptNumber(paddedNumber);
+          
+          // Auto-fill the receipt number in form
+          setFormData(prev => ({ ...prev, receiptNumber: paddedNumber }));
+          
+          // Warn if batch is running low
+          if (batch.remainingReceipts <= 10) {
+            toast(`⚠️ Receipt batch running low: ${batch.remainingReceipts} remaining`, {
+              icon: '📋',
+              duration: 4000
+            });
+          }
+        } else {
+          setActiveBatch(null);
+          setNextReceiptNumber('');
+          setReceiptNumberError('No active receipt batch. Please ask your Branch Manager to add a new batch.');
+        }
+      } catch (error) {
+        console.error('Error fetching BIR batch info:', error);
+        setReceiptNumberError(error.message || 'Failed to load receipt batch');
+      } finally {
+        setLoadingReceiptNumber(false);
+      }
+    };
+
+    fetchBIRBatchInfo();
+  }, [isOpen, userBranch, mode]);
+
   // Reset form data when modal closes
   useEffect(() => {
     if (!isOpen) {
@@ -250,6 +327,9 @@ const BillingModalPOS = ({
       setPromotionCode('');
       setPromotionDiscount(0);
       setPreviewTransactionId(null);
+      setActiveBatch(null);
+      setNextReceiptNumber('');
+      setReceiptNumberError('');
     }
   }, [isOpen]);
 
@@ -468,14 +548,21 @@ const BillingModalPOS = ({
       // If appointment/arrival exists and has services/products, load them
       // This includes walk-in checkouts and regular billing with existing data
       if (appointment) {
+        console.log('📋 BillingModalPOS - Loading appointment services:', appointment.services);
+        
         // Load services
         const serviceItems = appointment.services && appointment.services.length > 0
           ? appointment.services.map(svc => {
+              console.log('📋 Processing service:', svc.serviceName, 'quantity:', svc.quantity);
               // Read client type and adjustments from appointment if they exist
               // These should be set when confirming/starting the appointment
               const basePrice = svc.price || svc.basePrice || 0;
               const adjustment = svc.adjustment || 0;
               const adjustedPrice = svc.adjustedPrice || (basePrice + adjustment);
+              
+              // Look up the full service from the services prop to get productMappings
+              const fullService = services.find(s => s.id === svc.serviceId);
+              const serviceMappings = Array.isArray(fullService?.productMappings) ? fullService.productMappings : [];
               
               return {
                 type: 'service',
@@ -490,25 +577,37 @@ const BillingModalPOS = ({
                 originalStylistName: svc.stylistName, // Store original stylist name for restoration
                 clientType: svc.clientType || 'R', // Read from appointment
                 adjustment: adjustment, // Read from appointment
-                adjustmentReason: svc.adjustmentReason || '' // Read from appointment
+                adjustmentReason: svc.adjustmentReason || '', // Read from appointment
+                productMappings: serviceMappings,
+                // Start with empty usages - user will click "Add Product" to add them
+                serviceProductUsages: []
               };
             })
           : appointment.serviceName
-          ? [{
-              type: 'service',
-              id: appointment.serviceId || '',
-              name: appointment.serviceName,
-              basePrice: appointment.servicePrice || appointment.basePrice || 0,
-              price: appointment.adjustedPrice || appointment.servicePrice || 0,
-              quantity: 1,
-              stylistId: appointment.stylistId,
-              stylistName: appointment.stylistName,
-              originalStylistId: appointment.stylistId, // Store original stylist for restoration
-              originalStylistName: appointment.stylistName, // Store original stylist name for restoration
-              clientType: appointment.clientType || 'R',
-              adjustment: appointment.adjustment || 0,
-              adjustmentReason: appointment.adjustmentReason || ''
-            }]
+          ? (() => {
+              // Look up the full service from the services prop to get productMappings
+              const fullService = services.find(s => s.id === appointment.serviceId);
+              const serviceMappings = Array.isArray(fullService?.productMappings) ? fullService.productMappings : [];
+              
+              return [{
+                type: 'service',
+                id: appointment.serviceId || '',
+                name: appointment.serviceName,
+                basePrice: appointment.servicePrice || appointment.basePrice || 0,
+                price: appointment.adjustedPrice || appointment.servicePrice || 0,
+                quantity: 1,
+                stylistId: appointment.stylistId,
+                stylistName: appointment.stylistName,
+                originalStylistId: appointment.stylistId, // Store original stylist for restoration
+                originalStylistName: appointment.stylistName, // Store original stylist name for restoration
+                clientType: appointment.clientType || 'R',
+                adjustment: appointment.adjustment || 0,
+                adjustmentReason: appointment.adjustmentReason || '',
+                productMappings: serviceMappings,
+                // Start with empty usages - user will click "Add Product" to add them
+                serviceProductUsages: []
+              }];
+            })()
           : [];
 
         // Load products from appointment (pre-selected products should load immediately)
@@ -710,18 +809,57 @@ const BillingModalPOS = ({
       setPromotionDiscount(0);
     }
 
+    // Compute service product charges (salon-use upsell) based on service productMappings
+    const mappedCharges = [];
+    (formData.items || [])
+      .filter(it => it.type === 'service')
+      .forEach(it => {
+        const mappings = Array.isArray(it.productMappings) ? it.productMappings : [];
+        const adHoc = Array.isArray(it.serviceProductUsages) ? it.serviceProductUsages : [];
+        const combined = [...mappings, ...adHoc];
+        combined.forEach(mapping => {
+          if (!mapping?.productId || !mapping?.percentage) return;
+          const productPrice = productPriceMap[mapping.productId] || 0;
+          const pct = parseFloat(mapping.percentage) || 0;
+          // Charge is % of product price; apply per service quantity. Quantity captured for reference.
+          const amount = ((productPrice * (pct / 100)) || 0) * (it.quantity || 1);
+          if (amount > 0) {
+            mappedCharges.push({
+              serviceId: it.id,
+              serviceName: it.name,
+              productId: mapping.productId,
+              productName: mapping.productName || 'Mapped Product',
+              percentage: pct,
+              quantityUsed: mapping.quantity || '',
+              unit: mapping.unit || '',
+              charge: amount
+            });
+          }
+        });
+      });
+    const serviceProductChargeTotal = mappedCharges.reduce((sum, c) => sum + (c.charge || 0), 0);
+    setServiceProductCharges(mappedCharges);
+
+    // If a promotion is applied, manual discount is disabled/ignored
+    const effectiveDiscount = appliedPromotion ? 0 : (parseFloat(formData.discount) || 0);
+    const effectiveDiscountType = appliedPromotion ? 'fixed' : formData.discountType;
+
     const calculated = calculateBillTotals({
       items: formData.items,
-      discount: parseFloat(formData.discount) || 0,
-      discountType: formData.discountType,
+      discount: effectiveDiscount,
+      discountType: effectiveDiscountType,
       serviceChargeRate: 0,
       loyaltyPointsUsed: parseInt(formData.loyaltyPointsUsed) || 0,
-      promotionDiscount: promoDiscount // Add promotion discount
+      promotionDiscount: promoDiscount
     });
+    calculated.serviceProductCharge = serviceProductChargeTotal;
+    calculated.total = (calculated.total || 0) + serviceProductChargeTotal;
     setTotals(calculated);
-  }, [formData.items, formData.discount, formData.discountType, formData.loyaltyPointsUsed, appliedPromotion]);
+  }, [formData.items, formData.discount, formData.discountType, formData.loyaltyPointsUsed, appliedPromotion, availableProducts]);
 
   const handleToggleService = (service) => {
+    console.log('🎯 handleToggleService - service:', service);
+    console.log('🎯 handleToggleService - productMappings:', service.productMappings);
     const existing = formData.items.find(item => item.id === service.id && item.type === 'service');
     if (existing) {
       setFormData(prev => ({
@@ -729,6 +867,8 @@ const BillingModalPOS = ({
         items: prev.items.filter(item => !(item.id === service.id && item.type === 'service'))
       }));
     } else {
+      const serviceMappings = Array.isArray(service.productMappings) ? service.productMappings : [];
+      console.log('🎯 handleToggleService - serviceMappings:', serviceMappings);
       setFormData(prev => ({
         ...prev,
         items: [...prev.items, {
@@ -744,7 +884,10 @@ const BillingModalPOS = ({
           originalStylistName: '', // No original stylist for manually added items
           clientType: 'R',
           adjustment: 0,
-          adjustmentReason: ''
+          adjustmentReason: '',
+          productMappings: serviceMappings,
+          // Start with empty usages - user will click "Add Product" to add them
+          serviceProductUsages: []
         }]
       }));
     }
@@ -1465,23 +1608,19 @@ const BillingModalPOS = ({
     const isWalkIn = appointment?.isWalkIn || !appointment?.clientId;
 
     // Validate receipt number for billing and products-only modes
-    if ((mode === 'billing' || mode === 'products-only') && !formData.receiptNumber.trim()) {
-      toast.error('Receipt number is required');
-      return;
-    }
-
-    // Check for duplicate receipt number before submitting
-    if ((mode === 'billing' || mode === 'products-only') && formData.receiptNumber.trim()) {
-      const existing = await checkReceiptNumberExists(formData.receiptNumber.trim(), userBranch);
-      if (existing) {
-        toast.error(`Receipt number "${formData.receiptNumber.trim()}" already exists! Please use a different receipt number.`, {
-          duration: 5000
-        });
-        setExistingReceipt(existing);
-        setShowReceiptDetails(true);
+    if ((mode === 'billing' || mode === 'products-only')) {
+      if (!activeBatch) {
+        toast.error('No active receipt batch. Please ask your Branch Manager to add a new batch.');
+        return;
+      }
+      if (!formData.receiptNumber.trim()) {
+        toast.error('Receipt number is required');
         return;
       }
     }
+
+    // Note: Receipt number will be auto-generated from BIR batch in billingService
+    // The formData.receiptNumber is just a preview - actual number is assigned atomically
 
     // For product-only transactions, use Guest client if no client selected
 
@@ -1504,8 +1643,8 @@ const BillingModalPOS = ({
       clientName: clientName,
       clientPhone: clientPhone,
       clientEmail: clientEmail,
-      branchId: appointment?.branchId || userBranch,
-      branchName: appointment?.branchName || branchData?.name || 'Unknown Branch',
+      branchId: userBranch,
+      branchName: appointment?.branchName || branchData?.name || branchData?.branchName || userData?.branchName || 'Unknown Branch',
       stylistId: appointment?.stylistId || formData.items[0]?.stylistId,
       stylistName: appointment?.stylistName || formData.items[0]?.stylistName,
       items: formData.items,
@@ -1515,17 +1654,72 @@ const BillingModalPOS = ({
       promotionCode: appliedPromotion ? promotionCode.trim().toUpperCase() : null,
       promotionId: appliedPromotion?.id || null,
       promotionDiscount: promotionDiscount || 0,
+      serviceProductCharges: serviceProductCharges || [],
+      serviceProductChargeTotal: totals.serviceProductCharge || 0,
       loyaltyPointsUsed: parseInt(formData.loyaltyPointsUsed) || 0,
       tax: 0, // Tax removed - always 0
       taxRate: 0, // Tax rate removed - always 0
       total: totals.total,
       paymentMethod: formData.paymentMethod,
       paymentReference: formData.paymentReference,
-      receiptNumber: formData.receiptNumber.trim(), // Receipt number from physical receipt
+      // Don't pass receiptNumber - let billingService auto-generate from BIR batch atomically
       amountReceived: formData.paymentMethod === PAYMENT_METHODS.CASH ? (parseFloat(formData.amountReceived) || 0) : totals.total,
+      change: formData.paymentMethod === PAYMENT_METHODS.CASH ? Math.max(0, (parseFloat(formData.amountReceived) || 0) - totals.total) : 0,
       notes: formData.notes || (isWalkIn ? 'Walk-in customer' : '')
     };
 
+    console.log('🏪 BillingModalPOS - billData branchName:', billData.branchName, 'sources:', {
+      appointmentBranchName: appointment?.branchName,
+      branchDataName: branchData?.name,
+      userDataBranchName: userData?.branchName
+    });
+
+    // Show confirmation modal instead of submitting directly (only for billing mode)
+    if (mode === 'billing' || mode === 'products-only') {
+      setPendingBillData(billData);
+      setShowConfirmModal(true);
+    } else {
+      // For checkin mode, submit directly without confirmation
+      onSubmit(billData);
+    }
+  };
+
+  // Connect to Bluetooth thermal printer (one-time pairing)
+  const handleConnectPrinter = async () => {
+    if (!thermalPrinter.isSupported()) {
+      toast.error('Web Bluetooth not supported. Use Chrome or Edge.');
+      return;
+    }
+
+    try {
+      setConnectingPrinter(true);
+      const result = await thermalPrinter.connect();
+      setPrinterConnected(true);
+      setPrinterName(result.printerName);
+      toast.success(`Printer connected: ${result.printerName}`, { icon: '🖨️' });
+    } catch (error) {
+      console.error('Printer connection error:', error);
+      if (!error.message?.includes('cancelled')) {
+        toast.error(`Connection failed: ${error.message}`);
+      }
+    } finally {
+      setConnectingPrinter(false);
+    }
+  };
+
+  // Check printer status on modal open
+  useEffect(() => {
+    if (isOpen) {
+      const status = thermalPrinter.getStatus();
+      setPrinterConnected(status.isConnected);
+      setPrinterName(status.printerName || '');
+    }
+  }, [isOpen]);
+
+  // Confirm payment and auto-print receipt
+  const confirmPayment = async () => {
+    if (!pendingBillData) return;
+    
     // Track promotion usage if promotion was applied
     if (appliedPromotion) {
       try {
@@ -1533,11 +1727,118 @@ const BillingModalPOS = ({
         await trackPromotionUsage(appliedPromotion.id, clientId);
       } catch (error) {
         console.error('Error tracking promotion usage:', error);
-        // Don't block the submission if tracking fails
       }
     }
 
-    onSubmit(billData);
+    setShowConfirmModal(false);
+    
+    // Call onSubmit and wait for result
+    try {
+      const result = await onSubmit(pendingBillData);
+      
+      if (result && result.id) {
+        const billWithDetails = { ...pendingBillData, ...result, createdAt: new Date() };
+        
+        // Auto-print to thermal printer if connected
+        if (printerConnected) {
+          try {
+            await thermalPrinter.printReceipt(billWithDetails, branchData);
+            toast.success('Receipt printed!', { icon: '🖨️', duration: 1500 });
+          } catch (printError) {
+            console.error('Print error:', printError);
+            toast.error('Print failed - check printer connection');
+          }
+        }
+        
+        setPendingBillData(null);
+        onClose(billWithDetails);
+        return;
+      }
+      
+      setPendingBillData(null);
+      onClose();
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      setPendingBillData(null);
+    }
+  };
+
+  // Print receipt (manual)
+  const handlePrintReceipt = () => {
+    if (receiptRef.current) {
+      const printContents = receiptRef.current.innerHTML;
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Receipt - ${completedBill?.receiptNumber || 'Transaction'}</title>
+            <style>
+              body { 
+                font-family: 'Courier New', monospace; 
+                padding: 20px;
+                max-width: 400px;
+                margin: 0 auto;
+              }
+              .text-center { text-align: center; }
+              .text-right { text-align: right; }
+              .font-bold { font-weight: bold; }
+              .font-semibold { font-weight: 600; }
+              .text-xs { font-size: 10px; }
+              .text-sm { font-size: 12px; }
+              .text-lg { font-size: 16px; }
+              .text-2xl { font-size: 20px; }
+              .text-green-600 { color: #059669; }
+              .text-gray-500, .text-gray-600 { color: #6b7280; }
+              .border-dashed { border-style: dashed; }
+              .border-dotted { border-style: dotted; }
+              .border-gray-300 { border-color: #d1d5db; }
+              .border-t { border-top-width: 1px; }
+              .border-b { border-bottom-width: 1px; }
+              .border-t-2 { border-top-width: 2px; }
+              .border-b-2 { border-bottom-width: 2px; }
+              .py-3 { padding-top: 12px; padding-bottom: 12px; }
+              .pt-2, .pt-3, .pt-4 { padding-top: 8px; }
+              .pb-1, .pb-2, .pb-4 { padding-bottom: 4px; }
+              .mb-1 { margin-bottom: 4px; }
+              .mb-2 { margin-bottom: 8px; }
+              .mb-4 { margin-bottom: 16px; }
+              .mt-1 { margin-top: 4px; }
+              .mt-2 { margin-top: 8px; }
+              .mt-3 { margin-top: 12px; }
+              .ml-1 { margin-left: 4px; }
+              .ml-2 { margin-left: 8px; }
+              .space-y-1 > * + * { margin-top: 4px; }
+              .space-y-2 > * + * { margin-top: 8px; }
+              .space-y-3 > * + * { margin-top: 12px; }
+              .flex { display: flex; }
+              .justify-between { justify-content: space-between; }
+              .items-center { align-items: center; }
+              .flex-1 { flex: 1; }
+              .gap-1 { gap: 4px; }
+              .gap-2 { gap: 8px; }
+              .italic { font-style: italic; }
+              svg { display: none; }
+              @media print {
+                body { padding: 0; margin: 0; }
+                @page { margin: 10mm; }
+              }
+            </style>
+          </head>
+          <body>${printContents}</body>
+        </html>
+      `);
+      printWindow.document.close();
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    }
+  };
+
+  // Close receipt modal and billing modal
+  const handleCloseReceipt = () => {
+    setShowReceiptModal(false);
+    setCompletedBill(null);
+    onClose();
   };
 
   if (!isOpen) return null;
@@ -1556,6 +1857,33 @@ const BillingModalPOS = ({
             >
               <X className="w-5 h-5" />
             </button>
+            
+            {/* Printer Status Indicator */}
+            <div className="absolute top-4 right-14">
+              {printerConnected ? (
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-green-500/20 rounded-full">
+                  <Printer className="w-3.5 h-3.5 text-green-400" />
+                  <span className="text-xs text-green-300">{printerName || 'Connected'}</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleConnectPrinter}
+                  disabled={connectingPrinter}
+                  className="flex items-center gap-1.5 px-2 py-1 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  {connectingPrinter ? (
+                    <LoadingSpinner size="xs" />
+                  ) : (
+                    <Bluetooth className="w-3.5 h-3.5 text-white/70" />
+                  )}
+                  <span className="text-xs text-white/70">
+                    {connectingPrinter ? 'Pairing...' : 'Pair Printer'}
+                  </span>
+                </button>
+              )}
+            </div>
+            
             <h2 className="text-2xl font-bold text-white mb-1">
               {mode === 'checkin'
                 ? (appointment?.isWalkIn ? 'Add Walk-in Client' : 'Check-in Client')
@@ -1580,9 +1908,9 @@ const BillingModalPOS = ({
           </div>
 
           {/* Main Content - Two Columns */}
-          <div className="flex-1 flex overflow-hidden billing-modal-content">
-            {/* LEFT SIDE - Services Selection */}
-            <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
+          <div className="flex-1 flex flex-col xl:flex-row overflow-hidden billing-modal-content">
+            {/* LEFT SIDE - Services Selection (~40%) */}
+            <div className="basis-full xl:basis-[40%] min-w-[360px] max-w-[640px] flex flex-col overflow-hidden bg-gray-50 border-b xl:border-b-0 xl:border-r border-gray-200">
               {/* Client Info */}
               <div className="bg-white p-6 border-b border-gray-200">
                 <div className="flex items-center gap-2 mb-4 pb-2 border-b-2 border-[#2D1B4E]">
@@ -1908,7 +2236,7 @@ const BillingModalPOS = ({
                     return (
                       <div
                         key={service.id}
-                        className={`relative px-3 py-2.5 rounded-lg border-2 text-left transition-all ${
+                        className={`relative px-2.5 py-1.5 rounded-lg border-2 text-left transition-all overflow-hidden ${
                           isSelected
                             ? 'border-[#2D1B4E] bg-purple-50 shadow-md'
                             : 'border-gray-300 bg-white hover:border-gray-400 cursor-pointer'
@@ -1926,14 +2254,14 @@ const BillingModalPOS = ({
                         >
                           <div className="flex items-center gap-1 mb-0.5">
                             <Scissors className="w-3 h-3 text-blue-600" />
-                            <p className={`font-semibold text-sm ${isSelected ? 'text-[#2D1B4E]' : 'text-gray-900'}`}>
+                            <p className={`font-semibold text-[12px] leading-tight break-words ${isSelected ? 'text-[#2D1B4E]' : 'text-gray-900'}`}>
                               {service.serviceName || service.name || 'Unknown Service'}
                             </p>
                           </div>
-                          <p className={`text-base font-bold mb-0.5 ${isSelected ? 'text-purple-700' : 'text-gray-900'}`}>
+                          <p className={`text-[11px] font-semibold leading-tight mb-0.5 ${isSelected ? 'text-purple-700' : 'text-gray-900'}`}>
                             ₱{service.price}
                           </p>
-                          <p className="text-xs text-gray-500">{service.duration || '30'} m</p>
+                          <p className="text-[10px] leading-tight text-gray-500">{service.duration || '30'} m</p>
                         </button>
 
                         {isSelected && (mode === 'checkin' || mode === 'billing') && (
@@ -1996,7 +2324,7 @@ const BillingModalPOS = ({
                               type="button"
                               onClick={() => handleToggleProduct(product)}
                               disabled={isOutOfStock || loadingProducts}
-                              className={`px-3 py-2.5 rounded-lg border-2 text-left transition-all ${
+                              className={`px-3 py-2.5 rounded-lg border-2 text-left transition-all min-w-0 overflow-hidden ${
                                 isOutOfStock
                                   ? 'border-red-300 bg-red-50 opacity-60 cursor-not-allowed'
                                   : loadingProducts
@@ -2006,9 +2334,9 @@ const BillingModalPOS = ({
                                   : 'border-gray-300 bg-white hover:border-gray-400'
                               }`}
                             >
-                              <div className="flex items-center gap-1 mb-0.5">
-                                <Package className={`w-3 h-3 ${isOutOfStock ? 'text-red-600' : 'text-green-600'}`} />
-                                <p className={`font-semibold text-sm ${isSelected ? 'text-[#2D1B4E]' : isOutOfStock ? 'text-red-700' : 'text-gray-900'}`}>
+                              <div className="flex items-start gap-1 mb-0.5">
+                                <Package className={`w-3 h-3 flex-shrink-0 mt-0.5 ${isOutOfStock ? 'text-red-600' : 'text-green-600'}`} />
+                                <p className={`font-semibold text-sm break-words line-clamp-2 ${isSelected ? 'text-[#2D1B4E]' : isOutOfStock ? 'text-red-700' : 'text-gray-900'}`}>
                                   {product.name || 'Unknown Product'}
                                 </p>
                               </div>
@@ -2034,22 +2362,10 @@ const BillingModalPOS = ({
               </div>
             </div>
 
-            {/* RIGHT SIDE - Current Sale */}
+            {/* RIGHT SIDE - Current Sale (~60%) */}
             <div 
-              className="flex flex-col bg-gray-50 border-l border-gray-300 relative"
-              style={{ width: `${salePanelWidth}px` }}
+              className="flex-1 xl:basis-[60%] min-w-0 flex flex-col bg-gray-50 relative"
             >
-              {/* Resize Handle */}
-              <div
-                onMouseDown={() => setIsResizing(true)}
-                onTouchStart={() => setIsResizing(true)}
-                className={`absolute left-0 top-0 bottom-0 w-4 cursor-col-resize hover:bg-[#2D1B4E]/20 active:bg-[#2D1B4E]/30 transition-colors z-20 ${
-                  isResizing ? 'bg-[#2D1B4E]/30' : 'bg-transparent'
-                }`}
-                title="Drag to resize"
-              >
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-16 bg-gray-400 rounded-full" />
-              </div>
 
               {/* Sale Header */}
               <div className="flex-1 p-4 overflow-hidden flex flex-col">
@@ -2115,8 +2431,9 @@ const BillingModalPOS = ({
                                  </span>
                                  {/* Display all available OTC batches for inventory visibility */}
                                  {item.allBatches && Array.isArray(item.allBatches) && item.allBatches.length > 0 && (
-                                   <div className="mt-2 space-y-1">
-                                     <div className="text-xs font-medium text-gray-600">Available Stock Batches:</div>
+                                   <div className="mt-2">
+                                     <div className="text-xs font-medium text-gray-600 mb-2">Available Stock Batches:</div>
+                                     <div className="grid grid-cols-3 gap-2">
                                      {/* Sort batches by batch number (FIFO - incremental order) */}
                                      {[...(item.allBatches || [])].sort((a, b) => {
                                        // Sort by batch number for FIFO (lower numbers first)
@@ -2203,6 +2520,7 @@ const BillingModalPOS = ({
                                          </div>
                                        );
                                      })}
+                                     </div>
                                    </div>
                                  )}
                                </>
@@ -2371,11 +2689,15 @@ const BillingModalPOS = ({
                                   }`}
                                 >
                                   <option value="">Select Stylist *</option>
-                                  {stylists.map(stylist => (
-                                    <option key={stylist.id} value={stylist.id}>
-                                      {stylist.firstName} {stylist.lastName}
-                                    </option>
-                                  ))}
+                                  {(() => {
+                                    const serviceId = item.serviceId || item.id;
+                                    const eligible = getEligibleStylistsForService(serviceId);
+                                    return eligible.map(stylist => (
+                                      <option key={stylist.id} value={stylist.id}>
+                                        {stylist.firstName} {stylist.lastName}
+                                      </option>
+                                    ));
+                                  })()}
                                 </select>
                                 {(mode === 'checkin' || item.clientType === 'TR') && !item.stylistId && (
                                   <p className="text-xs text-red-500 mt-1">
@@ -2438,8 +2760,8 @@ const BillingModalPOS = ({
                       </div>
                       )}
 
-                      {/* Price Adjustment (only for services) */}
-                      {item.type === 'service' && (
+                      {/* Price Adjustment (for every service) - only in billing mode, not checkin */}
+                        {mode !== 'checkin' && item.type === 'service' && (
                         <div className="space-y-2 mt-2 pt-2 border-t border-gray-200">
                           <label className="text-xs text-gray-500">Price Adjustment:</label>
                           <div className="flex flex-col sm:flex-row gap-2">
@@ -2474,6 +2796,185 @@ const BillingModalPOS = ({
                             <span className="font-semibold text-green-600">₱{item.price}</span>
                           </div>
                         )}
+                            {getServiceProductCharge(item) > 0 && (
+                              <div className="text-xs text-blue-700 mt-2">
+                                Service Product Charge: ₱{getServiceProductCharge(item).toFixed(2)}
+                              </div>
+                            )}
+
+                            {/* Ad-hoc Service Product Usage */}
+                            <div className="mt-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-semibold text-gray-700">Service Product Usage</label>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFormData(prev => {
+                                      const items = [...prev.items];
+                                      const current = items[index];
+                                      const usages = current.serviceProductUsages || [];
+                                      items[index] = {
+                                        ...current,
+                                        serviceProductUsages: [...usages, { productId: '', productName: '', percentage: '', quantity: '', unit: 'ml' }]
+                                      };
+                                      return { ...prev, items };
+                                    });
+                                  }}
+                                  className="text-[11px] px-2 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                                >
+                                  Add Product
+                                </button>
+                              </div>
+
+                              {(item.serviceProductUsages || []).length === 0 && (
+                                <p className="text-[11px] text-gray-500">No usage added for this service.</p>
+                              )}
+
+                              {console.log('🔧 Rendering usages for item:', item.name, 'productMappings:', item.productMappings, 'usages:', item.serviceProductUsages)}
+
+                              {(item.serviceProductUsages || []).map((usage, uIdx) => (
+                                <div key={uIdx} className="border border-gray-200 rounded p-2 space-y-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="block text-[11px] font-medium text-gray-700 mb-1">Product</label>
+                                        <select
+                                          value={usage.productId || ''}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => {
+                                              const items = [...prev.items];
+                                              const current = items[index];
+                                              const usages = [...(current.serviceProductUsages || [])];
+                                              const mapping = (current.productMappings || []).find(m => m.productId === val);
+                                              const branchProduct = branchProducts.find(bp => bp.id === val);
+                                              const globalProduct = availableProducts.find(p => p.id === val);
+                                              const firstInstr = mapping?.instructions?.[0];
+                                              usages[uIdx] = {
+                                                ...(usages[uIdx] || {}),
+                                                productId: val,
+                                                productName: mapping?.productName || branchProduct?.name || globalProduct?.name || 'Mapped Product',
+                                                percentage: firstInstr?.percentage ?? mapping?.percentage ?? 0,
+                                                quantity: firstInstr?.quantity ?? mapping?.quantity ?? usages[uIdx]?.quantity ?? '',
+                                                unit: mapping?.unit ?? usages[uIdx]?.unit ?? 'ml'
+                                              };
+                                              items[index] = { ...current, serviceProductUsages: usages };
+                                              return { ...prev, items };
+                                            });
+                                          }}
+                                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
+                                      >
+                                        <option value="">Select product</option>
+                                        {(item.productMappings || []).map((m, mapIdx) => (
+                                          <option key={`${m.productId || mapIdx}-mapped`} value={m.productId}>
+                                            {m.productName || 'Mapped Product'}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="block text-[11px] font-medium text-gray-700 mb-1">Quantity</label>
+                                        <select
+                                          value={usage.quantity ?? ''}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => {
+                                              const items = [...prev.items];
+                                              const current = items[index];
+                                              const usages = [...(current.serviceProductUsages || [])];
+                                              const mapping = (current.productMappings || []).find(m => m.productId === usage.productId);
+                                              const instr = (mapping?.instructions || []).find(ins => `${ins.quantity}` === val);
+                                              usages[uIdx] = {
+                                                ...(usages[uIdx] || {}),
+                                                quantity: val,
+                                                percentage: instr?.percentage ?? usages[uIdx]?.percentage ?? mapping?.percentage ?? 0,
+                                                unit: instr?.unit ?? usages[uIdx]?.unit ?? mapping?.unit ?? 'ml',
+                                                instruction: instr?.instruction ?? usages[uIdx]?.instruction ?? ''
+                                              };
+                                              items[index] = { ...current, serviceProductUsages: usages };
+                                              return { ...prev, items };
+                                            });
+                                          }}
+                                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
+                                        >
+                                          <option value="">Select qty</option>
+                                          {(item.productMappings || [])
+                                            .filter(m => m.productId === usage.productId)
+                                            .flatMap((m, mapIdx) => (m.instructions && m.instructions.length > 0)
+                                              ? m.instructions.map((ins, insIdx) => (
+                                                  <option key={`${m.productId || mapIdx}-ins-${insIdx}`} value={ins.quantity || ''}>
+                                                    {ins.instruction ? `${ins.instruction} (${ins.quantity || ''}${ins.unit || ''})` : (ins.quantity || '')}
+                                                  </option>
+                                                ))
+                                              : [
+                                                  <option key={`${m.productId || mapIdx}-qty`} value={m.quantity || ''}>
+                                                    {m.quantity || ''}
+                                                  </option>
+                                                ]
+                                            )}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="block text-[11px] font-medium text-gray-700 mb-1">Unit</label>
+                                        <input
+                                          type="text"
+                                          value={usage.unit || 'ml'}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => {
+                                              const items = [...prev.items];
+                                              const current = items[index];
+                                              const usages = [...(current.serviceProductUsages || [])];
+                                              usages[uIdx] = { ...(usages[uIdx] || {}), unit: val };
+                                              items[index] = { ...current, serviceProductUsages: usages };
+                                              return { ...prev, items };
+                                            });
+                                          }}
+                                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                                    <div>
+                                      <label className="block text-[11px] font-medium text-gray-700 mb-1">% of product price</label>
+                                      <div className="flex items-center gap-1 text-[11px] text-gray-700">
+                                        <span className="px-2 py-1 bg-gray-100 rounded border border-gray-200 font-semibold min-w-[48px] text-center">
+                                          {usage.percentage ?? 0}
+                                        </span>
+                                        <span className="text-gray-600">%</span>
+                                        <span className="text-gray-400">(auto from {usage.instruction || 'selected qty'})</span>
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Charge (auto)</label>
+                                      <div className="px-2 py-1 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-800">
+                                        ₱{(((productPriceMap[usage.productId] || 0) * ((usage.percentage ?? 0) / 100)) * (item.quantity || 1)).toFixed(2)}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-end justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setFormData(prev => {
+                                            const items = [...prev.items];
+                                            const current = items[index];
+                                            const usages = [...(current.serviceProductUsages || [])];
+                                            usages.splice(uIdx, 1);
+                                            items[index] = { ...current, serviceProductUsages: usages };
+                                            return { ...prev, items };
+                                          });
+                                        }}
+                                        className="text-[11px] px-3 py-1 rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                         </div>
                       )}
                     </div>
@@ -2485,186 +2986,140 @@ const BillingModalPOS = ({
               {/* Fixed Bottom Section */}
               <div className="border-t bg-white p-3 flex-shrink-0">
                 <div className="space-y-2 mb-3">
-                  {/* Promotion Code */}
-                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-2 mb-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <Tag className="h-4 w-4 text-purple-600" />
-                        <label className="block text-xs font-medium text-gray-700">
-                          Promotion Code
-                        </label>
-                      </div>
-                      {appliedPromotion && (
-                        <button
-                          type="button"
-                          onClick={handleRemovePromotion}
-                          className="text-xs text-red-600 hover:text-red-700 font-medium"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={promotionCode}
-                        onChange={(e) => {
-                          setPromotionCode(e.target.value.toUpperCase());
-                          setPromotionError('');
-                          if (appliedPromotion) {
-                            setAppliedPromotion(null);
-                            setPromotionDiscount(0);
-                          }
-                        }}
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleValidatePromotionCode();
-                          }
-                        }}
-                        disabled={validatingPromotion || !!appliedPromotion}
-                        className={`flex-1 px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-purple-500 focus:border-transparent ${
-                          appliedPromotion
-                            ? 'bg-green-50 border-green-300'
-                            : promotionError
-                            ? 'border-red-300 bg-red-50'
-                            : 'border-purple-300'
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                        placeholder="Enter promotion code"
-                      />
-                      {!appliedPromotion && (
-                        <button
-                          type="button"
-                          onClick={handleValidatePromotionCode}
-                          disabled={validatingPromotion || !promotionCode.trim()}
-                          className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                        >
-                          {validatingPromotion ? (
-                            <>
-                              <LoadingSpinner size="sm" />
-                              Validating...
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle className="h-3 w-3" />
-                              Apply
-                            </>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {/* Promotion Code (checkout only) */}
+                    {mode === 'billing' && (
+                      <div className="bg-purple-50 border border-purple-200 rounded-lg p-2 flex flex-col gap-2 h-full">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Tag className="h-4 w-4 text-purple-700" />
+                            <label className="block text-xs font-medium text-gray-700">
+                              Promotion Code
+                            </label>
+                          </div>
+                          {appliedPromotion && (
+                            <span className="text-[11px] text-purple-700 font-medium">
+                              Applied: {appliedPromotion.title || appliedPromotion.code}
+                            </span>
                           )}
-                        </button>
-                      )}
-                    </div>
-                    {appliedPromotion && (
-                      <div className="mt-2 p-2 bg-green-100 border border-green-300 rounded">
-                        <div className="flex items-center gap-2 mb-1">
-                          <CheckCircle className="h-3 w-3 text-green-600" />
-                          <p className="text-xs font-semibold text-green-800">{appliedPromotion.title}</p>
                         </div>
-                        <p className="text-xs text-green-700">{appliedPromotion.description}</p>
-                        <p className="text-xs font-bold text-green-800 mt-1">
-                          Discount: ₱{promotionDiscount.toFixed(2)}
-                        </p>
-                      </div>
-                    )}
-                    {promotionError && !appliedPromotion && (
-                      <div className="mt-2 flex items-center gap-1 text-xs text-red-600">
-                        <AlertCircle className="h-3 w-3" />
-                        <span>{promotionError}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Loyalty Points (only for registered clients) */}
-                  {(appointment?.clientId || formData.clientId) && clientLoyaltyPoints > 0 && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-2">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <Star className={`h-4 w-4 ${appliedPromotion ? 'text-gray-400' : 'text-yellow-600 fill-yellow-600'}`} />
-                          <label className={`block text-xs font-medium ${appliedPromotion ? 'text-gray-500' : 'text-gray-700'}`}>
-                            Loyalty Points Available: <span className={`font-bold ${appliedPromotion ? 'text-gray-500' : 'text-yellow-700'}`}>{clientLoyaltyPoints}</span>
-                            {appliedPromotion && (
-                              <span className="ml-2 text-xs text-red-500 font-medium">
-                                Disabled - Promotion Applied
-                              </span>
-                            )}
-                          </label>
-                        </div>
-                        <span className={`text-xs ${appliedPromotion ? 'text-gray-400' : 'text-gray-500'}`}>1 pt = ₱1</span>
-                      </div>
-                      <input
-                        type="number"
-                        min="0"
-                        max={clientLoyaltyPoints}
-                        step="1"
-                        value={formData.loyaltyPointsUsed || ''}
-                        onChange={(e) => {
-                          if (appliedPromotion) {
-                            toast.error('Cannot redeem loyalty points when a promotion code is active');
-                            return;
-                          }
-                          const points = parseInt(e.target.value) || 0;
-                          if (points <= clientLoyaltyPoints) {
-                            setFormData(prev => ({ ...prev, loyaltyPointsUsed: points.toString() }));
-                          }
-                        }}
-                        disabled={!!appliedPromotion}
-                        className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent ${
-                          appliedPromotion
-                            ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
-                            : 'border-yellow-300'
-                        }`}
-                        placeholder={appliedPromotion ? "Disabled - Promotion Applied" : "Enter points to redeem"}
-                      />
-                      {formData.loyaltyPointsUsed && parseInt(formData.loyaltyPointsUsed) > 0 && (
-                        <p className="text-xs text-green-600 mt-1">
-                          Discount: ₱{parseInt(formData.loyaltyPointsUsed) || 0}
-                        </p>
-                      )}
-                      {appliedPromotion && (
-                        <p className="text-xs text-red-500 mt-1">
-                          Remove promotion code to redeem loyalty points
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Discount - Disabled when promotion applied */}
-                  <div className="grid grid-cols-1 gap-2">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        Discount (%)
-                        {appliedPromotion && (
-                          <span className="ml-2 text-xs text-red-500 font-medium">
-                            Disabled - Promotion Applied
-                          </span>
+                        {!appliedPromotion ? (
+                          <div className="grid grid-cols-[1fr_auto] gap-2">
+                            <input
+                              type="text"
+                              value={promotionCode}
+                              onChange={(e) => setPromotionCode(e.target.value)}
+                              className="w-full px-2 py-1 text-sm border border-purple-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
+                              placeholder="Enter promotion code"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleValidatePromotionCode}
+                              disabled={validatingPromotion || !promotionCode.trim()}
+                              className="px-3 py-1.5 text-xs bg-[#2D1B4E] text-white rounded hover:bg-[#3d2a5f] disabled:opacity-50"
+                            >
+                              {validatingPromotion ? 'Validating…' : 'Apply'}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-gray-600">Promotion active. Discounts disabled.</p>
+                            <button
+                              type="button"
+                              onClick={handleRemovePromotion}
+                              className="text-xs text-red-600 hover:text-red-800 underline"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         )}
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.1"
-                        value={formData.discount}
-                        onChange={(e) => {
-                          if (appliedPromotion) {
-                            toast.error('Cannot apply additional discounts when a promotion code is active');
-                            return;
-                          }
-                          setFormData(prev => ({ ...prev, discount: e.target.value, discountType: 'percentage' }));
-                        }}
-                        disabled={!!appliedPromotion}
-                        className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent ${
-                          appliedPromotion
-                            ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
-                            : 'border-gray-300'
-                        }`}
-                        placeholder={appliedPromotion ? "Disabled - Promotion Applied" : "0"}
-                      />
-                      {appliedPromotion && (
-                        <p className="text-xs text-red-500 mt-1">
-                          Remove promotion code to apply additional discounts
-                        </p>
-                      )}
-                    </div>
+                        {promotionError && (
+                          <p className="text-xs text-red-600">{promotionError}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Discounts (checkout only; hidden when promotion is applied) */}
+                    {mode === 'billing' && !appliedPromotion && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 flex flex-col gap-2 h-full">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Wallet className="h-4 w-4 text-blue-700" />
+                            <label className="block text-xs font-medium text-gray-700">Discounts</label>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs">
+                            <label className="flex items-center gap-1">
+                              <input
+                                type="radio"
+                                name="discountType"
+                                value="percent"
+                                checked={formData.discountType === 'percent'}
+                                onChange={(e) => setFormData(prev => ({ ...prev, discountType: e.target.value }))}
+                                disabled={!!appliedPromotion}
+                              />
+                              <span>%</span>
+                            </label>
+                            <label className="flex items-center gap-1">
+                              <input
+                                type="radio"
+                                name="discountType"
+                                value="fixed"
+                                checked={formData.discountType === 'fixed'}
+                                onChange={(e) => setFormData(prev => ({ ...prev, discountType: e.target.value }))}
+                                disabled={!!appliedPromotion}
+                              />
+                              <span>₱</span>
+                            </label>
+                          </div>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={formData.discount}
+                          onChange={(e) => setFormData(prev => ({ ...prev, discount: e.target.value }))}
+                          disabled={!!appliedPromotion}
+                          className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent ${appliedPromotion ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed' : 'border-blue-300'}`}
+                          placeholder={appliedPromotion ? 'Disabled - Promotion Applied' : (formData.discountType === 'percent' ? 'Enter % discount' : 'Enter ₱ discount')}
+                        />
+                        {appliedPromotion && (
+                          <p className="text-[11px] text-gray-500">Discounts are disabled while a promotion is applied.</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Loyalty Points (checkout only; available when a client is selected) */}
+                    {(mode === 'billing' || mode === 'products-only') && (appointment?.clientId || formData.clientId) && clientLoyaltyPoints > 0 && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 flex flex-col gap-2 h-full">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Star className="h-4 w-4 text-yellow-600 fill-yellow-600" />
+                            <label className="block text-xs font-medium text-gray-700">
+                              Loyalty Points: <span className="font-bold text-yellow-700">{clientLoyaltyPoints}</span>
+                            </label>
+                          </div>
+                          <span className="text-xs text-gray-500">1 pt = ₱1</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          max={clientLoyaltyPoints}
+                          step="1"
+                          value={formData.loyaltyPointsUsed || ''}
+                          onChange={(e) => {
+                            const points = parseInt(e.target.value) || 0;
+                            if (points <= clientLoyaltyPoints) {
+                              setFormData(prev => ({ ...prev, loyaltyPointsUsed: points.toString() }));
+                            }
+                          }}
+                          className="w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent border-yellow-300"
+                          placeholder="Enter points to redeem"
+                        />
+                        {formData.loyaltyPointsUsed && parseInt(formData.loyaltyPointsUsed) > 0 && (
+                          <p className="text-xs text-green-600">Loyalty Applied: ₱{parseInt(formData.loyaltyPointsUsed) || 0}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                 {/* Payment Method - Show in billing mode and products-only mode */}
@@ -2755,51 +3210,46 @@ const BillingModalPOS = ({
                       />
                     )}
 
-                    {/* Receipt Number Input - Required when processing payment */}
+                    {/* Receipt Number - Auto-generated from BIR Batch */}
                     <div className="mt-3">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Receipt Number *
-                        {checkingReceipt && (
-                          <span className="ml-2 text-xs text-gray-500">Checking...</span>
+                        {loadingReceiptNumber && (
+                          <span className="ml-2 text-xs text-gray-500">Loading...</span>
                         )}
                       </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={formData.receiptNumber}
-                          onChange={(e) => setFormData(prev => ({ ...prev, receiptNumber: e.target.value }))}
-                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#2D1B4E] focus:border-transparent ${
-                            existingReceipt 
-                              ? 'border-red-500 bg-red-50' 
-                              : formData.receiptNumber && !checkingReceipt && !existingReceipt
-                              ? 'border-green-500 bg-green-50'
-                              : 'border-gray-300'
-                          }`}
-                          placeholder="Enter receipt number from physical receipt"
-                          required
-                        />
-                        {existingReceipt && (
-                          <button
-                            type="button"
-                            onClick={() => setShowReceiptDetails(true)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-red-600 hover:text-red-800 underline"
-                          >
-                            View Existing Receipt
-                          </button>
-                        )}
-                      </div>
-                      {existingReceipt ? (
-                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3" />
-                          This receipt number already exists! Click "View Existing Receipt" to see details.
-                        </p>
-                      ) : formData.receiptNumber && !checkingReceipt ? (
-                        <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                          <CheckCircle className="w-3 h-3" />
-                          Receipt number is available
-                        </p>
+                      
+                      {receiptNumberError ? (
+                        <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                          <p className="text-sm text-red-600 flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4" />
+                            {receiptNumberError}
+                          </p>
+                        </div>
+                      ) : activeBatch ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 px-3 py-2 bg-green-50 border border-green-300 rounded-lg">
+                              <span className="text-lg font-bold text-green-700">{nextReceiptNumber}</span>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-gray-500">Remaining</p>
+                              <p className={`text-sm font-semibold ${activeBatch.remainingReceipts <= 10 ? 'text-orange-600' : 'text-green-600'}`}>
+                                {activeBatch.remainingReceipts}
+                              </p>
+                            </div>
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            Batch: {String(activeBatch.startNumber).padStart(4, '0')} to {String(activeBatch.endNumber).padStart(4, '0')}
+                          </p>
+                        </div>
                       ) : (
-                        <p className="text-xs text-gray-500 mt-1">Enter the receipt number from the physical receipt</p>
+                        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                          <p className="text-sm text-yellow-700 flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4" />
+                            No active receipt batch found
+                          </p>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2817,9 +3267,21 @@ const BillingModalPOS = ({
                       <span>-₱{promotionDiscount.toFixed(2)}</span>
                     </div>
                   )}
-                  {totals.discount > 0 && (
+                  {totals.serviceProductCharge > 0 && (
+                    <div className="flex justify-between text-blue-700">
+                      <span>Service Product Charges:</span>
+                      <span>₱{totals.serviceProductCharge.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {totals.discount > 0 && !appliedPromotion && (
                     <div className="flex justify-between">
-                      <span>Discount ({formData.discount || 0}%):</span>
+                      <span>
+                        Discount (
+                        {formData.discountType === 'percent'
+                          ? `${formData.discount || 0}%`
+                          : `₱${(parseFloat(formData.discount) || 0).toFixed(2)}`}
+                        ):
+                      </span>
                       <span>-₱{totals.discount.toFixed(2)}</span>
                       </div>
                     )}
@@ -2936,6 +3398,99 @@ const BillingModalPOS = ({
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Confirmation Modal */}
+      {showConfirmModal && pendingBillData && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-8 h-8 text-purple-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Confirm Payment</h3>
+              <p className="text-gray-600">Please verify the payment details below</p>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-4 mb-6 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Customer:</span>
+                <span className="font-semibold">{pendingBillData.clientName}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Payment Method:</span>
+                <span className="font-semibold capitalize">{pendingBillData.paymentMethod}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Receipt No:</span>
+                <span className="font-semibold text-green-600">#{nextReceiptNumber || 'Auto-generated'}</span>
+              </div>
+              <div className="border-t border-gray-200 pt-2 mt-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Subtotal:</span>
+                  <span>₱{pendingBillData.subtotal?.toFixed(2)}</span>
+                </div>
+                {pendingBillData.discount > 0 && (
+                  <div className="flex justify-between text-sm text-green-600">
+                    <span>Discount:</span>
+                    <span>-₱{pendingBillData.discount?.toFixed(2)}</span>
+                  </div>
+                )}
+                {(pendingBillData.serviceProductChargeTotal || 0) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Product Charges:</span>
+                    <span>₱{pendingBillData.serviceProductChargeTotal?.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-between font-bold text-lg border-t border-gray-200 pt-2">
+                <span>Total:</span>
+                <span className="text-purple-600">₱{pendingBillData.total?.toFixed(2)}</span>
+              </div>
+              {pendingBillData.paymentMethod === 'cash' && (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Amount Received:</span>
+                    <span className="font-semibold">₱{pendingBillData.amountReceived?.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-bold text-green-600">
+                    <span>Change:</span>
+                    <span>₱{pendingBillData.change?.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirmModal(false);
+                  setPendingBillData(null);
+                }}
+                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmPayment}
+                className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center gap-2"
+                disabled={loading}
+              >
+                {loading ? (
+                  <LoadingSpinner size="small" />
+                ) : (
+                  <>
+                    <CheckCircle className="w-5 h-5" />
+                    Confirm Payment
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

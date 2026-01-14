@@ -196,10 +196,7 @@ const ReceptionistDashboard = () => {
 
       {/* Statistics Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card 
-          className="p-4 cursor-pointer hover:shadow-md transition-shadow"
-          onClick={() => navigate(ROUTES.RECEPTIONIST_ARRIVALS)}
-        >
+        <Card className="p-4">
           <div className="flex items-center">
             <Users className="h-8 w-8 text-yellow-600" />
             <div className="ml-3">
@@ -209,10 +206,7 @@ const ReceptionistDashboard = () => {
           </div>
         </Card>
 
-        <Card 
-          className="p-4 cursor-pointer hover:shadow-md transition-shadow"
-          onClick={() => navigate(ROUTES.RECEPTIONIST_ARRIVALS)}
-        >
+        <Card className="p-4">
           <div className="flex items-center">
             <Play className="h-8 w-8 text-purple-600" />
             <div className="ml-3">
@@ -222,10 +216,7 @@ const ReceptionistDashboard = () => {
           </div>
         </Card>
 
-        <Card 
-          className="p-4 cursor-pointer hover:shadow-md transition-shadow"
-          onClick={() => navigate(ROUTES.RECEPTIONIST_ARRIVALS)}
-        >
+        <Card className="p-4">
           <div className="flex items-center">
             <Calendar className="h-8 w-8 text-blue-600" />
             <div className="ml-3">
@@ -235,10 +226,7 @@ const ReceptionistDashboard = () => {
           </div>
         </Card>
 
-        <Card 
-          className="p-4 cursor-pointer hover:shadow-md transition-shadow"
-          onClick={() => navigate(ROUTES.RECEPTIONIST_BILLING)}
-        >
+        <Card className="p-4">
           <div className="flex items-center">
             <Banknote className="h-8 w-8 text-green-600" />
             <div className="ml-3">

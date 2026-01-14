@@ -18,7 +18,12 @@ import {
   RefreshCw,
   Eye,
   Printer,
-  X
+  X,
+  ChevronsLeft,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
+  Search
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getBillsByBranch, getDailySalesSummary, BILL_STATUS } from '../../services/billingService';
@@ -43,7 +48,10 @@ const ReceptionistSalesReport = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBill, setSelectedBill] = useState(null);
   const [showBillDetails, setShowBillDetails] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
   const [branchData, setBranchData] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const printRef = useRef();
   const receiptRef = useRef();
   
@@ -117,6 +125,11 @@ const ReceptionistSalesReport = () => {
   };
 
   // Filter bills
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, dateFilter, customStartDate, customEndDate]);
+
   const filteredBills = useMemo(() => {
     let filtered = bills;
 
@@ -137,6 +150,14 @@ const ReceptionistSalesReport = () => {
 
     return filtered;
   }, [bills, statusFilter, searchTerm]);
+
+  // Paginated bills
+  const totalPages = Math.ceil(filteredBills.length / pageSize);
+  const paginatedBills = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return filteredBills.slice(startIndex, endIndex);
+  }, [filteredBills, currentPage, pageSize]);
 
   // Calculate summary statistics
   const summaryStats = useMemo(() => {
@@ -299,113 +320,199 @@ const ReceptionistSalesReport = () => {
           <p className="text-gray-600 mt-1">View sales data and transaction reports</p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
+          <button
             onClick={fetchBills}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
             Refresh
-          </Button>
-          <Button
-            variant="outline"
+          </button>
+          <button
             onClick={exportToCSV}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <Download className="w-4 h-4" />
             Export CSV
-          </Button>
-          <Button
+          </button>
+          <button
             onClick={exportToPDF}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Print Report"
           >
-            <FileText className="w-4 h-4" />
-            Export PDF
-          </Button>
+            <Printer className="w-5 h-5 text-gray-600" />
+            Print Report
+          </button>
         </div>
       </div>
 
-      {/* Filters */}
-      <Card className="p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Date Filter */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Date Range
-            </label>
-            <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-            >
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-              <option value="custom">Custom Range</option>
-            </select>
+      {/* Search and Filter */}
+      <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search by client, transaction ID, stylist..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
           </div>
+          
+          {/* Filter Button */}
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+              (statusFilter !== 'all' || dateFilter !== 'month')
+                ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredBills.length} transactions`}
+          >
+            <Filter className="w-5 h-5" />
+            {filteredBills.length > 0 && (
+              <span className="bg-primary-600 text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                {filteredBills.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
 
-          {/* Custom Date Range */}
-          {dateFilter === 'custom' && (
-            <>
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-900">Filter Transactions</h2>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Status Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Start Date
+                  Status
                 </label>
-                <Input
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
-                />
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Status</option>
+                  <option value={BILL_STATUS.PAID}>Paid</option>
+                  <option value={BILL_STATUS.REFUNDED}>Refunded</option>
+                  <option value={BILL_STATUS.VOIDED}>Voided</option>
+                </select>
               </div>
+
+              {/* Date Range */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  End Date
+                  Date Range
                 </label>
-                <Input
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
-                />
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setDateFilter('today')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilter === 'today'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDateFilter('week')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilter === 'week'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    This Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDateFilter('month')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilter === 'month'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDateFilter('custom')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilter === 'custom'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Custom Range
+                  </button>
+                </div>
+
+                {/* Custom Date Range Inputs */}
+                {dateFilter === 'custom' && (
+                  <div className="grid grid-cols-2 gap-4 mt-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Start Date</label>
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">End Date</label>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        min={customStartDate || undefined}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
-            </>
-          )}
+            </div>
 
-          {/* Status Filter */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Status
-            </label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-            >
-              <option value="all">All Status</option>
-              <option value={BILL_STATUS.PAID}>Paid</option>
-              <option value={BILL_STATUS.REFUNDED}>Refunded</option>
-              <option value={BILL_STATUS.VOIDED}>Voided</option>
-            </select>
-          </div>
-
-          {/* Search */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Search
-            </label>
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="Search transactions..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-              <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setStatusFilter('all');
+                  setDateFilter('month');
+                  setCustomStartDate(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+                  setCustomEndDate(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+                }}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Clear Filters
+              </button>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                Apply Filters
+              </button>
             </div>
           </div>
         </div>
-      </Card>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -534,7 +641,7 @@ const ReceptionistSalesReport = () => {
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-bold text-gray-900">Transactions</h2>
           <p className="text-sm text-gray-600 mt-1">
-            Showing {filteredBills.length} transaction{filteredBills.length !== 1 ? 's' : ''}
+            Showing {Math.min((currentPage - 1) * pageSize + 1, filteredBills.length)} to {Math.min(currentPage * pageSize, filteredBills.length)} of {filteredBills.length} transaction{filteredBills.length !== 1 ? 's' : ''}
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -574,14 +681,14 @@ const ReceptionistSalesReport = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredBills.length === 0 ? (
+              {paginatedBills.length === 0 ? (
                 <tr>
                   <td colSpan="10" className="px-6 py-12 text-center text-gray-500">
                     No transactions found
                   </td>
                 </tr>
               ) : (
-                filteredBills.map((bill) => {
+                paginatedBills.map((bill) => {
                   const date = bill.createdAt?.toDate 
                     ? bill.createdAt.toDate() 
                     : new Date(bill.createdAt);
@@ -664,6 +771,116 @@ const ReceptionistSalesReport = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 0 && (
+          <div className="px-6 py-3 border-t border-gray-200">
+            <div className="flex flex-col space-y-3">
+              {/* Top row: Items per page and page info */}
+              <div className="flex flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-600">Show</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value={10}>10</option>
+                  </select>
+                  <span className="text-xs text-gray-600">per page</span>
+                </div>
+
+                <div className="text-xs text-gray-600">
+                  Showing <span className="font-semibold text-gray-900">{Math.min((currentPage - 1) * pageSize + 1, filteredBills.length)}</span> to{' '}
+                  <span className="font-semibold text-gray-900">{Math.min(currentPage * pageSize, filteredBills.length)}</span> of{' '}
+                  <span className="font-semibold text-gray-900">{filteredBills.length.toLocaleString()}</span> bills
+                </div>
+              </div>
+
+              {/* Bottom row: Navigation buttons */}
+              <div className="flex items-center justify-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="First page"
+                >
+                  <ChevronsLeft className="w-4 h-4" />
+                  First
+                </button>
+                <button
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Prev
+                </button>
+
+                {/* Page numbers */}
+                <div className="flex items-center gap-1">
+                  {totalPages > 0 && (
+                    <>
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`px-3 py-1.5 text-xs min-w-[32px] rounded border transition-colors ${
+                              currentPage === pageNum 
+                                ? 'bg-primary-600 text-white border-primary-600 font-semibold' 
+                                : 'border-gray-300 hover:bg-gray-50 text-gray-700'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      {totalPages > 5 && (
+                        <span className="px-2 text-xs text-gray-500">
+                          ... of {totalPages}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="Next page"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="Last page"
+                >
+                  Last
+                  <ChevronsRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* Hidden printable component for PDF export */}

@@ -576,14 +576,15 @@ export const getScheduleHistoryByEmployee = async (employeeId, branchId) => {
 
 /**
  * Create or update a complete shift configuration for a branch
- * All shifts for ALL staff in the branch are stored in ONE document with a startDate
- * When creating a new configuration, the old one is marked inactive (preserves history)
+ * All shifts for ALL staff in the branch are stored in ONE document per week
+ * Each week has its own document with startDate (Monday) and endDate (Sunday)
+ * If a document for the same week exists, it will be UPDATED instead of creating a new one
  * @param {Object} scheduleData - Schedule data
  * @param {string} scheduleData.branchId - Branch ID
  * @param {Object} scheduleData.shifts - Object with employee shifts: { employeeId: { monday: {start, end}, ... }, ... }
- * @param {string} scheduleData.startDate - Start date for this configuration (YYYY-MM-DD format, defaults to today)
+ * @param {string} scheduleData.startDate - Start date for this configuration (YYYY-MM-DD format, defaults to Monday of current week)
  * @param {string} scheduleData.notes - Optional notes
- * @returns {Promise<string>} New schedule document ID
+ * @returns {Promise<string>} Schedule document ID (new or existing)
  */
 export const createOrUpdateScheduleConfiguration = async (scheduleData) => {
   try {
@@ -619,57 +620,98 @@ export const createOrUpdateScheduleConfiguration = async (scheduleData) => {
       }
     }
     
+    // Parse start date and normalize to Monday of that week
+    const startDateObj = startDate ? new Date(startDate) : new Date();
+    startDateObj.setHours(0, 0, 0, 0);
+    
+    // Ensure startDate is a Monday (adjust if not)
+    const dayOfWeek = startDateObj.getDay();
+    const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Sunday = 0, Monday = 1
+    startDateObj.setDate(startDateObj.getDate() + daysToMonday);
+    
+    // Calculate end date (Sunday of the same week)
+    const endDateObj = new Date(startDateObj);
+    endDateObj.setDate(startDateObj.getDate() + 6);
+    endDateObj.setHours(23, 59, 59, 999);
+    
     const schedulesRef = collection(db, 'schedules');
     
-    // Find existing active schedule configuration for this branch
+    // Find existing schedule configuration for this branch and SAME WEEK
+    // We look for documents where startDate matches the week's Monday
     const existingQuery = query(
       schedulesRef,
-      where('branchId', '==', branchId),
-      where('isActive', '==', true)
+      where('branchId', '==', branchId)
     );
     
     const existingSnapshot = await getDocs(existingQuery);
     
-    // Mark existing active configuration as inactive (preserves history)
-    // Note: We do NOT set endDate - schedules are determined by startDate only
-    const updatePromises = [];
-    existingSnapshot.forEach((doc) => {
-      const data = doc.data();
-      // Only mark as inactive if it's a full configuration (has shifts object with employee structure)
+    // Find if there's an existing document for this exact week
+    let existingDocForWeek = null;
+    const startDateStr = startDateObj.toISOString().split('T')[0];
+    
+    existingSnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      // Only check full configurations (has shifts object, no employeeId)
       if (data.shifts && typeof data.shifts === 'object' && !data.employeeId) {
-        const scheduleRef = doc.ref;
-        updatePromises.push(
-          updateDoc(scheduleRef, {
-            isActive: false,
-            updatedAt: Timestamp.now()
-          })
-        );
+        // Check if startDate matches
+        if (data.startDate) {
+          const docStartDate = data.startDate?.toDate ? data.startDate.toDate() : new Date(data.startDate);
+          docStartDate.setHours(0, 0, 0, 0);
+          const docStartDateStr = docStartDate.toISOString().split('T')[0];
+          
+          if (docStartDateStr === startDateStr) {
+            existingDocForWeek = { id: docSnap.id, ref: docSnap.ref, data };
+          }
+        }
       }
     });
     
-    // Wait for all updates to complete
-    if (updatePromises.length > 0) {
-      await Promise.all(updatePromises);
+    if (existingDocForWeek) {
+      // UPDATE existing document for this week - merge shifts
+      const existingShifts = existingDocForWeek.data.shifts || {};
+      const mergedShifts = { ...existingShifts };
+      
+      // Merge new shifts into existing (new shifts take priority)
+      Object.entries(shifts).forEach(([employeeId, employeeShifts]) => {
+        if (!mergedShifts[employeeId]) {
+          mergedShifts[employeeId] = {};
+        }
+        Object.entries(employeeShifts).forEach(([dayKey, shift]) => {
+          if (shift && shift.start && shift.end) {
+            mergedShifts[employeeId][dayKey] = {
+              start: shift.start,
+              end: shift.end
+            };
+          }
+        });
+      });
+      
+      await updateDoc(existingDocForWeek.ref, {
+        shifts: mergedShifts,
+        endDate: Timestamp.fromDate(endDateObj),
+        updatedAt: Timestamp.now(),
+        notes: notes || existingDocForWeek.data.notes || ''
+      });
+      
+      console.log(`[Schedule] Updated existing document ${existingDocForWeek.id} for week ${startDateStr}`);
+      return existingDocForWeek.id;
+    } else {
+      // Create NEW document for this week
+      const newSchedule = {
+        branchId,
+        shifts,
+        startDate: Timestamp.fromDate(startDateObj),
+        endDate: Timestamp.fromDate(endDateObj),
+        isActive: true,
+        notes: notes || '',
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
+      };
+      
+      const docRef = await addDoc(schedulesRef, newSchedule);
+      console.log(`[Schedule] Created new document ${docRef.id} for week ${startDateStr}`);
+      return docRef.id;
     }
-    
-    // Parse start date (default to today if not provided)
-    const startDateObj = startDate ? new Date(startDate) : new Date();
-    startDateObj.setHours(0, 0, 0, 0);
-    
-    // Create new active schedule configuration for the entire branch
-    // Note: No endDate - schedules are determined by startDate only
-    const newSchedule = {
-      branchId,
-      shifts, // All employees' shifts: { employeeId1: { monday: {...}, ... }, employeeId2: {...}, ... }
-      startDate: Timestamp.fromDate(startDateObj),
-      isActive: true,
-      notes: notes || '',
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now()
-    };
-    
-    const docRef = await addDoc(schedulesRef, newSchedule);
-    return docRef.id;
   } catch (error) {
     console.error('Error creating/updating schedule configuration:', error);
     toast.error(error.message || 'Failed to save schedule');

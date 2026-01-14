@@ -62,22 +62,32 @@ const ImportModal = ({
       let data = [];
 
       if (file.name.endsWith('.csv')) {
-        // Parse CSV
+        // Parse CSV using Papa Parse or manual parsing with proper quote handling
         const text = await file.text();
+        console.log('📄 CSV Text:', text.substring(0, 200));
+        
         const lines = text.split('\n').filter(line => line.trim());
-        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        console.log('📊 Total lines:', lines.length);
+        
+        // Parse CSV header with proper quote handling
+        const headerLine = lines[0];
+        const headers = parseCSVLine(headerLine);
+        console.log('📋 Headers:', headers);
         
         // Validate headers
         const missingHeaders = templateColumns.filter(col => !headers.includes(col));
         if (missingHeaders.length > 0) {
+          console.error('❌ Missing headers:', missingHeaders);
           setError(`Missing required columns: ${missingHeaders.join(', ')}`);
           setLoading(false);
           return;
         }
 
-        // Parse data rows
+        // Parse data rows with proper quote handling
         for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+          const values = parseCSVLine(lines[i]);
+          console.log(`Row ${i}:`, values);
+          
           if (values.length === headers.length && values.some(v => v)) {
             const row = {};
             headers.forEach((header, index) => {
@@ -86,6 +96,7 @@ const ImportModal = ({
             data.push(row);
           }
         }
+        console.log('✅ Parsed data rows:', data.length);
       } else {
         // Parse Excel file using xlsx
         const arrayBuffer = await file.arrayBuffer();
@@ -128,6 +139,8 @@ const ImportModal = ({
         }
       }
 
+      console.log('📦 Total data to import:', data.length);
+
       // Validate data if validation rules provided
       if (validationRules) {
         const validationErrors = [];
@@ -149,14 +162,17 @@ const ImportModal = ({
         });
 
         if (validationErrors.length > 0) {
+          console.error('❌ Validation errors:', validationErrors);
           setError(`Validation errors:\n${validationErrors.slice(0, 5).join('\n')}${validationErrors.length > 5 ? `\n... and ${validationErrors.length - 5} more` : ''}`);
           setLoading(false);
           return;
         }
       }
 
+      console.log('🚀 Calling onImport with', data.length, 'records');
       // Call the import handler
       const result = await onImport(data);
+      console.log('📨 Import result:', result);
       
       if (result && result.success !== false) {
         setSuccess(`Successfully imported ${data.length} records`);
@@ -170,11 +186,44 @@ const ImportModal = ({
         setError(result?.error || 'Import failed');
       }
     } catch (err) {
-      console.error('Import error:', err);
+      console.error('❌ Import error:', err);
       setError(err.message || 'An error occurred during import');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper function to parse CSV line with proper quote handling
+  const parseCSVLine = (line) => {
+    const result = [];
+    let current = '';
+    let insideQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+
+      if (char === '"') {
+        if (insideQuotes && nextChar === '"') {
+          // Escaped quote
+          current += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          insideQuotes = !insideQuotes;
+        }
+      } else if (char === ',' && !insideQuotes) {
+        // End of field
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+
+    // Add last field
+    result.push(current.trim());
+    return result;
   };
 
   const downloadTemplate = () => {

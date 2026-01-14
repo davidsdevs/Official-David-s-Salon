@@ -29,13 +29,22 @@ import toast from 'react-hot-toast';
 export const getAllServices = async () => {
   try {
     const servicesRef = collection(db, 'services');
-    const q = query(servicesRef, orderBy('name', 'asc'));
-    const snapshot = await getDocs(q);
+    // Simple fetch without orderBy to avoid index issues
+    const snapshot = await getDocs(servicesRef);
     
-    return snapshot.docs.map(doc => ({
+    const services = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    
+    // Sort manually by name or serviceName field
+    services.sort((a, b) => {
+      const nameA = (a.name || a.serviceName || '').toLowerCase();
+      const nameB = (b.name || b.serviceName || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+    
+    return services;
   } catch (error) {
     console.error('Error fetching all services:', error);
     throw error;

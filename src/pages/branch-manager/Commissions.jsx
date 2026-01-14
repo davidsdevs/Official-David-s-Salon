@@ -4,33 +4,33 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Banknote, Calendar, User, Search, Download, TrendingUp, Filter, Receipt, Printer } from 'lucide-react';
+import { Banknote, Calendar, User, Search, Download, Filter, Receipt, Printer, X, Upload, ArrowUp } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import PDFPreviewModal from '../../components/ui/PDFPreviewModal';
-import { formatDate } from '../../utils/helpers';
+import { formatDate, formatCurrencyBigData } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 
 const Commissions = () => {
   const { userBranch } = useAuth();
   const [transactions, setTransactions] = useState([]);
-  const [stylists, setStylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStylist, setSelectedStylist] = useState('all');
-  const [dateRange, setDateRange] = useState({
-    start: '',
-    end: ''
-  });
   const [showPDFPreview, setShowPDFPreview] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [selectedStylists, setSelectedStylists] = useState([]); // Array for multiple selection
+  const [selectedProducts, setSelectedProducts] = useState([]); // Array for multiple product selection
+  const [minCommission, setMinCommission] = useState('');
+  const [maxCommission, setMaxCommission] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const printRef = useRef(null);
 
   useEffect(() => {
     if (userBranch) {
       fetchTransactions();
-      fetchStylists();
     }
   }, [userBranch]);
 
@@ -191,67 +191,29 @@ const Commissions = () => {
     }
   };
 
-  const fetchStylists = async () => {
-    try {
-      // Fetch stylists from users collection
-      // Handle both legacy (role) and new (roles array) formats
-      const usersRef = collection(db, 'users');
-      
-      // Query 1: Users with role == 'stylist' (legacy format)
-      const legacyQuery = query(
-        usersRef,
-        where('branchId', '==', userBranch),
-        where('role', '==', 'stylist')
-      );
-      
-      // Query 2: Users with roles array containing 'stylist' (new format)
-      const rolesQuery = query(
-        usersRef,
-        where('branchId', '==', userBranch),
-        where('roles', 'array-contains', 'stylist')
-      );
-      
-      // Execute both queries
-      const [legacySnapshot, rolesSnapshot] = await Promise.all([
-        getDocs(legacyQuery),
-        getDocs(rolesQuery)
-      ]);
-      
-      // Combine results and remove duplicates, filter for active users
-      const stylistsMap = new Map();
-      
-      legacySnapshot.forEach((doc) => {
-        const userData = doc.data();
-        // Filter for active users (check both isActive and active fields)
-        if (userData.isActive !== false && userData.active !== false) {
-          stylistsMap.set(doc.id, {
-            id: doc.id,
-            name: `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email || 'Unknown',
-            email: userData.email || ''
-          });
-        }
-      });
-      
-      rolesSnapshot.forEach((doc) => {
-        if (!stylistsMap.has(doc.id)) {
-          const userData = doc.data();
-          // Filter for active users (check both isActive and active fields)
-          if (userData.isActive !== false && userData.active !== false) {
-            stylistsMap.set(doc.id, {
-              id: doc.id,
-              name: `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email || 'Unknown',
-              email: userData.email || ''
-            });
-          }
-        }
-      });
-      
-      setStylists(Array.from(stylistsMap.values()));
-    } catch (error) {
-      console.error('Error fetching stylists:', error);
-      toast.error('Failed to load stylists');
-    }
-  };
+  // Check if any filters are active
+  const hasActiveFilters = useMemo(() => {
+    return searchTerm !== '' ||
+           selectedStylists.length > 0 ||
+           selectedProducts.length > 0 ||
+           minCommission !== '' ||
+           maxCommission !== '' ||
+           startDate !== '' ||
+           endDate !== '';
+  }, [searchTerm, selectedStylists, selectedProducts, minCommission, maxCommission, startDate, endDate]);
+
+  // Count active filters for badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm !== '') count++;
+    if (selectedStylists.length > 0) count++;
+    if (selectedProducts.length > 0) count++;
+    if (minCommission !== '') count++;
+    if (maxCommission !== '') count++;
+    if (startDate !== '') count++;
+    if (endDate !== '') count++;
+    return count;
+  }, [searchTerm, selectedStylists, selectedProducts, minCommission, maxCommission, startDate, endDate]);
 
   // Filter transactions
   const filteredTransactions = useMemo(() => {
@@ -268,27 +230,40 @@ const Commissions = () => {
       );
     }
     
-    // Filter by stylist
-    if (selectedStylist !== 'all') {
-      filtered = filtered.filter(t => t.commissionerId === selectedStylist);
+    // Filter by selected stylists (multiple selection)
+    if (selectedStylists.length > 0) {
+      filtered = filtered.filter(t => selectedStylists.includes(t.commissionerName));
+    }
+    
+    // Filter by selected products (multiple selection)
+    if (selectedProducts.length > 0) {
+      filtered = filtered.filter(t => selectedProducts.includes(t.productName));
+    }
+    
+    // Filter by commission amount range
+    if (minCommission !== '') {
+      const min = parseFloat(minCommission);
+      filtered = filtered.filter(t => t.commissionPoints >= min);
+    }
+    if (maxCommission !== '') {
+      const max = parseFloat(maxCommission);
+      filtered = filtered.filter(t => t.commissionPoints <= max);
     }
     
     // Filter by date range
-    if (dateRange.start) {
-      const startDate = new Date(dateRange.start);
-      startDate.setHours(0, 0, 0, 0);
+    if (startDate) {
+      const start = new Date(startDate);
       filtered = filtered.filter(t => {
         const transactionDate = t.transactionDate?.toDate ? t.transactionDate.toDate() : new Date(t.transactionDate);
-        return transactionDate >= startDate;
+        return transactionDate >= start;
       });
     }
-    
-    if (dateRange.end) {
-      const endDate = new Date(dateRange.end);
-      endDate.setHours(23, 59, 59, 999);
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Include the entire end date
       filtered = filtered.filter(t => {
         const transactionDate = t.transactionDate?.toDate ? t.transactionDate.toDate() : new Date(t.transactionDate);
-        return transactionDate <= endDate;
+        return transactionDate <= end;
       });
     }
     
@@ -297,7 +272,29 @@ const Commissions = () => {
       const dateB = b.transactionDate?.toDate ? b.transactionDate.toDate() : new Date(b.transactionDate);
       return dateB - dateA;
     });
-  }, [transactions, searchTerm, selectedStylist, dateRange]);
+  }, [transactions, searchTerm, selectedStylists, selectedProducts, minCommission, maxCommission, startDate, endDate]);
+
+  // Get unique stylists for filter dropdown
+  const uniqueStylists = useMemo(() => {
+    const stylists = new Set();
+    transactions.forEach(t => {
+      if (t.commissionerName) {
+        stylists.add(t.commissionerName);
+      }
+    });
+    return Array.from(stylists).sort();
+  }, [transactions]);
+
+  // Get unique products for filter dropdown
+  const uniqueProducts = useMemo(() => {
+    const products = new Set();
+    transactions.forEach(t => {
+      if (t.productName) {
+        products.add(t.productName);
+      }
+    });
+    return Array.from(products).sort();
+  }, [transactions]);
 
   // Calculate commission summary by stylist
   const commissionSummary = useMemo(() => {
@@ -436,6 +433,11 @@ const Commissions = () => {
     }
   };
 
+  const handleImportCSV = () => {
+    // TODO: Implement CSV import functionality
+    toast.info('CSV import functionality will be implemented');
+  };
+
   const totalCommission = filteredTransactions.reduce((sum, t) => sum + t.commissionPoints, 0);
   const totalSales = filteredTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
 
@@ -458,24 +460,6 @@ const Commissions = () => {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Track stylist commissions from product sales</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            title="Print PDF"
-          >
-            <Printer className="h-4 w-4" />
-            <span className="hidden sm:inline">Print</span>
-          </button>
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            title="Export to CSV"
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Export CSV</span>
-          </button>
-        </div>
       </div>
 
       {/* Summary Cards */}
@@ -485,7 +469,7 @@ const Commissions = () => {
             <div>
               <p className="text-sm text-gray-500">Total Commissions</p>
               <p className="text-2xl font-bold text-purple-600 mt-1">
-                ₱{totalCommission.toFixed(2)}
+                {formatCurrencyBigData(totalCommission)}
               </p>
             </div>
             <Banknote className="h-10 w-10 text-purple-200" />
@@ -497,10 +481,10 @@ const Commissions = () => {
             <div>
               <p className="text-sm text-gray-500">Total Sales</p>
               <p className="text-2xl font-bold text-green-600 mt-1">
-                ₱{totalSales.toFixed(2)}
+                {formatCurrencyBigData(totalSales)}
               </p>
             </div>
-            <TrendingUp className="h-10 w-10 text-green-200" />
+            <ArrowUp className="h-10 w-10 text-green-200" />
           </div>
         </div>
         
@@ -540,6 +524,7 @@ const Commissions = () => {
                   <td colSpan="5" className="px-6 py-12 text-center">
                     <User className="h-12 w-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-500">No commission data available</p>
+                    <p className="text-sm text-gray-400 mt-1">Filtered results show no commissions</p>
                   </td>
                 </tr>
               ) : (
@@ -562,10 +547,10 @@ const Commissions = () => {
                         {summary.transactionCount}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
-                        ₱{summary.totalSales.toFixed(2)}
+                        {formatCurrencyBigData(summary.totalSales)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-semibold text-purple-600">
-                        ₱{summary.totalCommission.toFixed(2)}
+                        {formatCurrencyBigData(summary.totalCommission)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
                         {avgCommissionPercent.toFixed(1)}%
@@ -581,8 +566,8 @@ const Commissions = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
+        <div className="flex items-end gap-4">
+          <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -595,41 +580,44 @@ const Commissions = () => {
               />
             </div>
           </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Stylist</label>
-            <select
-              value={selectedStylist}
-              onChange={(e) => setSelectedStylist(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setShowFilterModal(true)}
+              className={`flex items-center justify-center w-10 h-10 border rounded-lg transition-colors relative ${
+                hasActiveFilters
+                  ? 'bg-purple-600 border-purple-600 text-white hover:bg-purple-700'
+                  : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+              title={`Filter - ${activeFilterCount} active filter${activeFilterCount !== 1 ? 's' : ''}`}
             >
-              <option value="all">All Stylists</option>
-              {stylists.map(stylist => (
-                <option key={stylist.id} value={stylist.id}>
-                  {stylist.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-            <input
-              type="date"
-              value={dateRange.start}
-              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-            <input
-              type="date"
-              value={dateRange.end}
-              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
+              <Filter className="h-4 w-4" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-2 -right-2 bg-purple-600 text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center justify-center w-10 h-10 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              title="Export CSV"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleImportCSV}
+              className="flex items-center justify-center w-10 h-10 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              title="Import CSV"
+            >
+              <Upload className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handlePrint}
+              className="flex items-center justify-center w-10 h-10 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              title="Report"
+            >
+              <Printer className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </div>
@@ -661,6 +649,7 @@ const Commissions = () => {
                   <td colSpan="10" className="px-6 py-12 text-center">
                     <Banknote className="h-12 w-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-500">No commission transactions found</p>
+                    <p className="text-sm text-gray-400 mt-1">Try adjusting your filters</p>
                   </td>
                 </tr>
               ) : (
@@ -848,6 +837,210 @@ const Commissions = () => {
         title="Commissions Report - PDF Preview"
         fileName={`Commissions_Report_${new Date().toISOString().split('T')[0]}`}
       />
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Filter Commissions</h3>
+                <button
+                  onClick={() => setShowFilterModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Stylist Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Stylists</label>
+                  <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id="select-all-stylists"
+                        checked={selectedStylists.length === uniqueStylists.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedStylists([...uniqueStylists]);
+                          } else {
+                            setSelectedStylists([]);
+                          }
+                        }}
+                        className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                      />
+                      <label htmlFor="select-all-stylists" className="ml-2 text-sm text-gray-700 font-medium">
+                        Select All Stylists
+                      </label>
+                    </div>
+                    <hr className="border-gray-200" />
+                    {uniqueStylists.map((stylist) => (
+                      <div key={stylist} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id={`stylist-${stylist}`}
+                          checked={selectedStylists.includes(stylist)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedStylists([...selectedStylists, stylist]);
+                            } else {
+                              setSelectedStylists(selectedStylists.filter(s => s !== stylist));
+                            }
+                          }}
+                          className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                        />
+                        <label htmlFor={`stylist-${stylist}`} className="ml-2 text-sm text-gray-700">
+                          {stylist}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedStylists.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {selectedStylists.length} stylist{selectedStylists.length !== 1 ? 's' : ''} selected
+                    </p>
+                  )}
+                </div>
+
+                {/* Product Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Products/Items Sold</label>
+                  <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id="select-all-products"
+                        checked={selectedProducts.length === uniqueProducts.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedProducts([...uniqueProducts]);
+                          } else {
+                            setSelectedProducts([]);
+                          }
+                        }}
+                        className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                      />
+                      <label htmlFor="select-all-products" className="ml-2 text-sm text-gray-700 font-medium">
+                        Select All Products
+                      </label>
+                    </div>
+                    <hr className="border-gray-200" />
+                    {uniqueProducts.map((product) => (
+                      <div key={product} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id={`product-${product}`}
+                          checked={selectedProducts.includes(product)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedProducts([...selectedProducts, product]);
+                            } else {
+                              setSelectedProducts(selectedProducts.filter(p => p !== product));
+                            }
+                          }}
+                          className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                        />
+                        <label htmlFor={`product-${product}`} className="ml-2 text-sm text-gray-700">
+                          {product}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedProducts.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {selectedProducts.length} product{selectedProducts.length !== 1 ? 's' : ''} selected
+                    </p>
+                  )}
+                </div>
+
+                {/* Commission Amount Range */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Min Commission (₱)
+                    </label>
+                    <input
+                      type="number"
+                      value={minCommission}
+                      onChange={(e) => setMinCommission(e.target.value)}
+                      placeholder="0.00"
+                      min="0"
+                      step="0.01"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Max Commission (₱)
+                    </label>
+                    <input
+                      type="number"
+                      value={maxCommission}
+                      onChange={(e) => setMaxCommission(e.target.value)}
+                      placeholder="9999.99"
+                      min="0"
+                      step="0.01"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                {/* Date Range */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mt-6">
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedStylists([]);
+                    setSelectedProducts([]);
+                    setMinCommission('');
+                    setMaxCommission('');
+                    setStartDate('');
+                    setEndDate('');
+                  }}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  Clear Filters
+                </button>
+                <button
+                  onClick={() => setShowFilterModal(false)}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                >
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

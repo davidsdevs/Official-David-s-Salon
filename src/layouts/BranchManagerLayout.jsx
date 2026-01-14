@@ -16,7 +16,7 @@ const BranchManagerLayout = () => {
     { path: '/manager/leave-management', label: 'Leave Management', icon: CalendarDays },
     { path: '/manager/settings', label: 'Settings', icon: Settings },
     { path: ROUTES.MANAGER_APPOINTMENTS, label: 'Appointments', icon: Calendar },
-    { path: '/manager/billing', label: 'Billing', icon: Receipt },
+    { path: '/manager/billing', label: 'Transactions', icon: Receipt },
     { path: '/manager/commissions', label: 'Commissions', icon: Banknote },
     { section: 'Operations' },
     { path: '/manager/inventory', label: 'Inventory', icon: Package },
@@ -29,14 +29,14 @@ const BranchManagerLayout = () => {
   ];
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-screen flex bg-gray-50 overflow-hidden">
       <Sidebar isOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(false)} menuItems={menuItems} />
       
-      <div className="flex-1 flex flex-col md:ml-64">
+      <div className="flex-1 flex flex-col md:ml-64 min-w-0 overflow-hidden">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
         
-        <div className="flex-1 flex flex-col overflow-y-auto">
-          <main className="flex-1 p-4 md:p-6">
+        <div className="flex-1 flex flex-col overflow-y-auto min-h-0">
+          <main className="flex-1 p-4 md:p-6 min-w-0 max-w-full">
             <Outlet />
           </main>
         </div>

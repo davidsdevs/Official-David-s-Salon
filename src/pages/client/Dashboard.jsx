@@ -49,7 +49,12 @@ const ClientDashboard = () => {
         getAllReferralCodes(currentUser.uid)
       ]);
 
-      setAppointments(appointmentsData);
+      // Handle both array and object response from getAppointmentsByClient
+      const appointmentsList = Array.isArray(appointmentsData) 
+        ? appointmentsData 
+        : (appointmentsData?.appointments || []);
+      
+      setAppointments(appointmentsList);
 
       // Calculate total loyalty points
       const total = pointsData.reduce((sum, item) => sum + (item.loyaltyPoints || 0), 0);
@@ -60,7 +65,7 @@ const ClientDashboard = () => {
 
       // Find next appointment
       const now = new Date();
-      const upcoming = appointmentsData
+      const upcoming = appointmentsList
         .filter(apt => {
           const aptDate = new Date(apt.appointmentDate);
           return aptDate >= now && 

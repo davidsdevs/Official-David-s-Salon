@@ -4,7 +4,8 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Clock, Users, ArrowRight, Edit, Plus, X, History, Printer } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, Users, ArrowRight, Edit, Plus, X, History, Printer, Search, Filter, Download } from 'lucide-react';
+import PDFPreviewModal from '../../components/ui/PDFPreviewModal';
 import { getUsersByBranch, getUserById } from '../../services/userService';
 import { getLendingRequests, getActiveLending, getActiveLendingFromBranch, getActiveLendingForBranch } from '../../services/stylistLendingService';
 import { getLeaveRequestsByBranch } from '../../services/leaveManagementService';
@@ -37,8 +38,9 @@ const DAYS_OF_WEEK = [
   { key: 'sunday', label: 'Sunday', short: 'Sun' }
 ];
 
-const StaffSchedule = () => {
+const StaffSchedule = ({ onEditTrigger }) => {
   const { userBranch, currentUser } = useAuth();
+  const [showPrintModal, setShowPrintModal] = useState(false);
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lendingData, setLendingData] = useState({}); // { stylistId: { branchName, startDate, endDate } } - staff lent TO other branches
@@ -69,6 +71,25 @@ const StaffSchedule = () => {
   const [branchHours, setBranchHours] = useState(null); // Branch operating hours
   const [leaveRequests, setLeaveRequests] = useState([]); // All leave requests for the branch
   const [staffLeaveMap, setStaffLeaveMap] = useState({}); // { staffId: [{ startDate, endDate, status, type }] }
+  const [showQuickBulkModal, setShowQuickBulkModal] = useState(false); // Quick bulk shift modal per employee
+  const [quickBulkEmployee, setQuickBulkEmployee] = useState(null); // Employee for quick bulk shifts
+  const [quickBulkForm, setQuickBulkForm] = useState({ start: '', end: '', days: [] }); // Quick bulk form data
+  const [viewMode, setViewMode] = useState('week'); // 'week' or 'month'
+    const [searchTerm, setSearchTerm] = useState('');
+    const [showFilterModalSchedule, setShowFilterModalSchedule] = useState(false);
+    const [showPDFPreviewSchedule, setShowPDFPreviewSchedule] = useState(false);
+  const [filters, setFilters] = useState({
+    roles: [], // Array of selected roles
+    shiftStatus: 'all', // 'all', 'withShifts', 'withoutShifts'
+    availabilityStatus: 'all', // 'all', 'available', 'onLeave', 'lentOut', 'lentIn'
+  });
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const date = new Date();
+    date.setDate(1); // First day of current month
+    return date;
+  });
+  const [showDayDetailsModal, setShowDayDetailsModal] = useState(false);
+  const [selectedDayDetails, setSelectedDayDetails] = useState({ date: null, staff: [] });
   const [currentWeek, setCurrentWeek] = useState(() => {
     const date = new Date();
     const day = date.getDay();
@@ -100,6 +121,49 @@ const StaffSchedule = () => {
     }
   }, [userBranch, currentWeek]); // Reload when week changes
 
+  // Export schedules to CSV
+  const exportSchedulesToCSV = () => {
+    if (!staff || staff.length === 0) {
+      toast.error('No schedule data to export');
+      return;
+    }
+
+    const exportData = staff.map(member => {
+      const roles = member.roles || (member.role ? [member.role] : []);
+      const shifts = member.shifts || {};
+      const shiftDays = Object.keys(shifts).map(day => {
+        const shift = shifts[day];
+        return `${day.charAt(0).toUpperCase() + day.slice(1)}: ${shift.start || ''}-${shift.end || ''}`;
+      }).join('; ');
+
+      return {
+        'Employee ID': member.id || member.uid || '',
+        'Full Name': getFullName(member),
+        'Email': member.email || '',
+        'Phone': member.phone || '',
+        'Roles': roles.join('; '),
+        'Shifts': shiftDays || 'No shifts',
+      };
+    });
+
+    const csvHeaders = Object.keys(exportData[0] || {});
+    const csvRows = [
+      csvHeaders.join(','),
+      ...exportData.map(row => csvHeaders.map(h => `"${String(row[h] || '').replace(/"/g, '""')}"`).join(','))
+    ];
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-');
+    link.download = `Staff_Schedules_${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   useEffect(() => {
     if (userBranch && staff.length > 0) {
       fetchLendingData();
@@ -114,6 +178,37 @@ const StaffSchedule = () => {
       setBulkStartDate(weekStart.toISOString().split('T')[0]);
     }
   }, [showBulkConfigModal, currentWeek, bulkStartDate]);
+
+  // Handle external edit trigger from parent component
+  useEffect(() => {
+    if (onEditTrigger) {
+      // Enter edit mode - initialize editable shifts with current shifts
+      const initialEditableShifts = {};
+      staff.forEach(member => {
+        const memberId = member.id || member.uid;
+        if (memberId) {
+          initialEditableShifts[memberId] = {};
+          DAYS_OF_WEEK.forEach(day => {
+            const existingShift = member.shifts?.[day.key];
+            if (existingShift) {
+              initialEditableShifts[memberId][day.key] = {
+                start: existingShift.start || '',
+                end: existingShift.end || ''
+              };
+            }
+          });
+        }
+      });
+      setEditableShifts(initialEditableShifts);
+      
+      // Set start date to the current week being viewed
+      const weekStart = new Date(currentWeek);
+      weekStart.setHours(0, 0, 0, 0);
+      setConfigStartDate(weekStart.toISOString().split('T')[0]);
+      
+      setIsEditMode(true);
+    }
+  }, [onEditTrigger, staff, currentWeek]);
 
   const fetchBranchHours = async () => {
     try {
@@ -506,6 +601,30 @@ const StaffSchedule = () => {
     return dates;
   };
 
+  const getMonthDates = () => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    
+    // Get day of week for first day (0 = Sunday, 1 = Monday, etc.)
+    const firstDayOfWeek = firstDay.getDay();
+    const startDate = new Date(firstDay);
+    // Adjust to Monday (if firstDayOfWeek is 0 (Sunday), go back 6 days, otherwise go back firstDayOfWeek - 1 days)
+    startDate.setDate(firstDay.getDate() - (firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1));
+    
+    const dates = [];
+    const current = new Date(startDate);
+    
+    // Generate 6 weeks (42 days) to cover all possible month layouts
+    for (let i = 0; i < 42; i++) {
+      dates.push(new Date(current));
+      current.setDate(current.getDate() + 1);
+    }
+    
+    return dates;
+  };
+
   const getDayKey = (date) => {
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     return days[date.getDay()];
@@ -861,6 +980,13 @@ const StaffSchedule = () => {
       return;
     }
     
+    // Auto-set configStartDate to the Monday of the current week if not already set
+    if (!configStartDate) {
+      const weekStart = new Date(currentWeek);
+      weekStart.setHours(0, 0, 0, 0);
+      setConfigStartDate(weekStart.toISOString().split('T')[0]);
+    }
+    
     setSelectedStaff(member);
     setSelectedDay(dayKey);
     setSelectedDate(date);
@@ -873,8 +999,161 @@ const StaffSchedule = () => {
     setShowEditShiftModal(true);
   };
 
-  const handleSaveShift = () => {
-    // Save shift to editableShifts state (not to database yet)
+  const handleOpenQuickBulk = (member) => {
+    setQuickBulkEmployee(member);
+    setQuickBulkForm({ start: '', end: '', days: [] });
+    setShowQuickBulkModal(true);
+  };
+
+  const handleSaveQuickBulk = async () => {
+    if (!quickBulkEmployee || !quickBulkForm.start || !quickBulkForm.end || quickBulkForm.days.length === 0) {
+      toast.error('Please fill in start time, end time, and select at least one day');
+      return;
+    }
+
+    if (!userBranch || !configStartDate) {
+      toast.error('Please set a start date for this configuration');
+      return;
+    }
+
+    const memberId = quickBulkEmployee.id || quickBulkEmployee.uid;
+
+    // Update editableShifts with all selected days
+    const updatedShifts = { ...editableShifts };
+    if (!updatedShifts[memberId]) {
+      updatedShifts[memberId] = {};
+    }
+
+    quickBulkForm.days.forEach(dayKey => {
+      updatedShifts[memberId][dayKey] = {
+        start: quickBulkForm.start,
+        end: quickBulkForm.end
+      };
+    });
+
+    setEditableShifts(updatedShifts);
+
+    // Auto-save to database
+    try {
+      // Prepare shifts data
+      const shiftsData = {};
+      Object.entries(updatedShifts).forEach(([employeeId, employeeShifts]) => {
+        const cleanedShifts = {};
+        Object.entries(employeeShifts).forEach(([dayKey, shift]) => {
+          if (shift.start && shift.end) {
+            cleanedShifts[dayKey] = {
+              start: shift.start,
+              end: shift.end
+            };
+          }
+        });
+        if (Object.keys(cleanedShifts).length > 0) {
+          shiftsData[employeeId] = cleanedShifts;
+        }
+      });
+
+      // Save to database
+      await createOrUpdateScheduleConfiguration({
+        branchId: userBranch,
+        shifts: shiftsData,
+        startDate: configStartDate,
+        notes: 'Calendar-based configuration'
+      });
+
+      toast.success(`${quickBulkForm.days.length} shift${quickBulkForm.days.length > 1 ? 's' : ''} added and saved ✓`);
+      
+      // Reload staff schedules
+      await fetchStaff();
+    } catch (error) {
+      console.error('Error saving bulk shifts:', error);
+      toast.error('Failed to save shifts: ' + (error.message || 'Unknown error'));
+      // Revert state on error
+      setEditableShifts(editableShifts);
+      return;
+    }
+
+    setShowQuickBulkModal(false);
+    setQuickBulkEmployee(null);
+    setQuickBulkForm({ start: '', end: '', days: [] });
+  };
+
+  const handleRemoveShiftFromEditModal = async () => {
+    if (!selectedStaff || !selectedDay) {
+      return;
+    }
+
+    if (!confirm(`Remove this shift?`)) {
+      return;
+    }
+
+    const memberId = selectedStaff.id || selectedStaff.uid;
+
+    // Remove from editableShifts
+    const updatedShifts = { ...editableShifts };
+    if (updatedShifts[memberId]) {
+      delete updatedShifts[memberId][selectedDay];
+      // If no shifts left for this member, remove the member key
+      if (Object.keys(updatedShifts[memberId]).length === 0) {
+        delete updatedShifts[memberId];
+      }
+    }
+
+    setEditableShifts(updatedShifts);
+
+    // Auto-save to database
+    try {
+      if (!userBranch || !configStartDate) {
+        toast.error('Configuration error');
+        return;
+      }
+
+      // Prepare shifts data from updated state
+      const shiftsData = {};
+      Object.entries(updatedShifts).forEach(([employeeId, employeeShifts]) => {
+        const cleanedShifts = {};
+        Object.entries(employeeShifts).forEach(([dayKey, shift]) => {
+          if (shift.start && shift.end) {
+            cleanedShifts[dayKey] = {
+              start: shift.start,
+              end: shift.end
+            };
+          }
+        });
+        if (Object.keys(cleanedShifts).length > 0) {
+          shiftsData[employeeId] = cleanedShifts;
+        }
+      });
+
+      // Save to database (empty shifts data if all removed)
+      await createOrUpdateScheduleConfiguration({
+        branchId: userBranch,
+        shifts: shiftsData,
+        startDate: configStartDate,
+        notes: 'Calendar-based configuration'
+      });
+
+      toast.success('Shift removed and saved ✓');
+      
+      // Reload staff schedules
+      await fetchStaff();
+    } catch (error) {
+      console.error('Error removing shift:', error);
+      toast.error('Failed to remove shift: ' + (error.message || 'Unknown error'));
+      // Revert the state change on error
+      setEditableShifts(editableShifts);
+      return;
+    }
+
+    setShowEditShiftModal(false);
+    setSelectedStaff(null);
+    setSelectedDay(null);
+    setSelectedDate(null);
+    setShiftForm({ start: '', end: '', date: '' });
+    setIsAddingShift(false);
+  };
+
+  const handleSaveShift = async () => {
+    // Auto-save shift immediately to database
     if (!selectedStaff || !selectedDay) {
       toast.error('Please select a staff member and day');
       return;
@@ -957,19 +1236,99 @@ const StaffSchedule = () => {
       }
     }
     
-    // Save to editableShifts state
-    setEditableShifts(prev => ({
-      ...prev,
+    // Update editableShifts state first
+    const updatedShifts = {
+      ...editableShifts,
       [memberId]: {
-        ...(prev[memberId] || {}),
+        ...(editableShifts[memberId] || {}),
         [selectedDay]: {
           start: shiftForm.start,
           end: shiftForm.end
         }
       }
-    }));
+    };
+    
+    setEditableShifts(updatedShifts);
 
-    toast.success(isAddingShift ? 'Shift added to list' : 'Shift updated');
+    // Auto-save to database immediately
+    try {
+      if (!userBranch || !configStartDate) {
+        toast.error('Please set a start date for this configuration');
+        return;
+      }
+
+      // IMPORTANT: Merge with existing shifts from all staff members
+      // This ensures we don't lose shifts from other staff when saving
+      const existingShiftsFromStaff = {};
+      staff.forEach(member => {
+        const staffId = member.id || member.uid;
+        if (staffId && member.shifts && Object.keys(member.shifts).length > 0) {
+          existingShiftsFromStaff[staffId] = {};
+          Object.entries(member.shifts).forEach(([dayKey, shift]) => {
+            if (shift && shift.start && shift.end) {
+              existingShiftsFromStaff[staffId][dayKey] = {
+                start: shift.start,
+                end: shift.end
+              };
+            }
+          });
+        }
+      });
+
+      // Merge existing shifts with updated shifts (updated shifts take priority)
+      const mergedShifts = { ...existingShiftsFromStaff };
+      Object.entries(updatedShifts).forEach(([employeeId, employeeShifts]) => {
+        if (!mergedShifts[employeeId]) {
+          mergedShifts[employeeId] = {};
+        }
+        Object.entries(employeeShifts).forEach(([dayKey, shift]) => {
+          if (shift.start && shift.end) {
+            mergedShifts[employeeId][dayKey] = {
+              start: shift.start,
+              end: shift.end
+            };
+          }
+        });
+      });
+
+      // Clean up empty entries
+      const shiftsData = {};
+      Object.entries(mergedShifts).forEach(([employeeId, employeeShifts]) => {
+        const cleanedShifts = {};
+        Object.entries(employeeShifts).forEach(([dayKey, shift]) => {
+          if (shift.start && shift.end) {
+            cleanedShifts[dayKey] = {
+              start: shift.start,
+              end: shift.end
+            };
+          }
+        });
+        if (Object.keys(cleanedShifts).length > 0) {
+          shiftsData[employeeId] = cleanedShifts;
+        }
+      });
+
+      // Save to database
+      await createOrUpdateScheduleConfiguration({
+        branchId: userBranch,
+        shifts: shiftsData,
+        startDate: configStartDate,
+        notes: 'Calendar-based configuration'
+      });
+
+      toast.success(isAddingShift ? 'Shift added and saved ✓' : 'Shift updated and saved ✓');
+      
+      // Reload staff schedules to show updated data
+      await fetchStaff();
+      await fetchAllScheduleConfigs();
+    } catch (error) {
+      console.error('Error auto-saving shift:', error);
+      toast.error('Failed to save shift: ' + (error.message || 'Unknown error'));
+      // Revert the state change on error
+      setEditableShifts(editableShifts);
+      return;
+    }
+
     setShowEditShiftModal(false);
     setSelectedStaff(null);
     setSelectedDay(null);
@@ -1472,17 +1831,88 @@ const StaffSchedule = () => {
     );
   }, [printOnlyWithSchedules, staff, weekDates]);
 
-  const totalStaffPages = useMemo(() => Math.max(1, Math.ceil(staff.length / staffItemsPerPage)), [staff.length, staffItemsPerPage]);
+  // Filter staff based on search term and filters
+  const filteredStaff = useMemo(() => {
+    let result = [...staff];
+
+    // Filter by search term
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
+      result = result.filter(member => {
+        const fullName = getFullName(member).toLowerCase();
+        const email = (member.email || '').toLowerCase();
+        return fullName.includes(searchLower) || email.includes(searchLower);
+      });
+    }
+
+    // Filter by roles
+    if (filters.roles.length > 0) {
+      result = result.filter(member => {
+        const userRoles = member.roles || (member.role ? [member.role] : []);
+        return filters.roles.some(role => userRoles.includes(role));
+      });
+    }
+
+    // Filter by shift status
+    if (filters.shiftStatus === 'withShifts') {
+      result = result.filter(member => {
+        return weekDates.some(date => {
+          const dayKey = getDayKey(date);
+          const shift = getShiftForDay(member, dayKey, date);
+          return shift && shift.start && shift.end;
+        });
+      });
+    } else if (filters.shiftStatus === 'withoutShifts') {
+      result = result.filter(member => {
+        return !weekDates.some(date => {
+          const dayKey = getDayKey(date);
+          const shift = getShiftForDay(member, dayKey, date);
+          return shift && shift.start && shift.end;
+        });
+      });
+    }
+
+    // Filter by availability status
+    if (filters.availabilityStatus === 'onLeave') {
+      result = result.filter(member => {
+        const memberId = member.id || member.uid;
+        return weekDates.some(date => isStaffOnLeave(memberId, date));
+      });
+    } else if (filters.availabilityStatus === 'lentOut') {
+      result = result.filter(member => {
+        const memberId = member.id || member.uid;
+        return weekDates.some(date => isStaffLentOut(memberId, date));
+      });
+    } else if (filters.availabilityStatus === 'lentIn') {
+      result = result.filter(member => member.isLent);
+    } else if (filters.availabilityStatus === 'available') {
+      result = result.filter(member => {
+        const memberId = member.id || member.uid;
+        const hasLeave = weekDates.some(date => isStaffOnLeave(memberId, date));
+        const isLent = weekDates.some(date => isStaffLentOut(memberId, date));
+        return !hasLeave && !isLent && !member.isLent;
+      });
+    }
+
+    return result;
+  }, [staff, searchTerm, filters, weekDates, lendingData, lentOutData, staffLeaveMap, allScheduleConfigs]);
+
+  const totalStaffPages = useMemo(() => Math.max(1, Math.ceil(filteredStaff.length / staffItemsPerPage)), [filteredStaff.length, staffItemsPerPage]);
   const safeStaffPage = Math.min(staffPage, totalStaffPages);
   const staffStartIndex = (safeStaffPage - 1) * staffItemsPerPage;
   const staffEndIndex = staffStartIndex + staffItemsPerPage;
-  const paginatedStaff = useMemo(() => staff.slice(staffStartIndex, staffEndIndex), [staff, staffStartIndex, staffEndIndex]);
+  const paginatedStaff = useMemo(() => filteredStaff.slice(staffStartIndex, staffEndIndex), [filteredStaff, staffStartIndex, staffEndIndex]);
 
   useEffect(() => {
     if (staffPage > totalStaffPages) {
       setStaffPage(totalStaffPages);
     }
   }, [staffPage, totalStaffPages]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setStaffPage(1);
+  }, [filters, searchTerm]);
 
   // Print handler using window.open method
   const handlePrintSchedule = () => {
@@ -1619,114 +2049,357 @@ const StaffSchedule = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Staff Schedule</h1>
-          <p className="text-gray-600 mt-1">Weekly view of staff shifts and availability</p>
-        </div>
-        <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg px-3 py-2 whitespace-nowrap">
-            <input
-              type="checkbox"
-              checked={printOnlyWithSchedules}
-              onChange={(e) => setPrintOnlyWithSchedules(e.target.checked)}
-              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-            />
-            Print only staff with schedules
-          </label>
-          {!isEditMode ? (
-            <>
+      {/* Filter Modal */}
+      {showFilterModalSchedule && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Filter Staff Schedules</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Select filters to refine the staff schedule view
+                </p>
+              </div>
               <button
-                onClick={handlePrintSchedule}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
+                onClick={() => setShowFilterModalSchedule(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <Printer className="w-4 h-4" />
-                Print Schedule
-              </button>
-              <button
-                onClick={() => {
-                  // Enter edit mode - initialize editable shifts with current shifts
-                  const initialEditableShifts = {};
-                  staff.forEach(member => {
-                    const memberId = member.id || member.uid;
-                    if (memberId) {
-                      initialEditableShifts[memberId] = {};
-                      DAYS_OF_WEEK.forEach(day => {
-                        const existingShift = member.shifts?.[day.key];
-                        if (existingShift) {
-                          initialEditableShifts[memberId][day.key] = {
-                            start: existingShift.start || '',
-                            end: existingShift.end || ''
-                          };
-                        }
-                      });
-                    }
-                  });
-                  setEditableShifts(initialEditableShifts);
-                  
-                  // Set start date to the current week being viewed
-                  const weekStart = new Date(currentWeek);
-                  weekStart.setHours(0, 0, 0, 0);
-                  setConfigStartDate(weekStart.toISOString().split('T')[0]);
-                  
-                  setIsEditMode(true);
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors whitespace-nowrap"
-              >
-                <Plus className="w-4 h-4" />
-                Add Shift
-              </button>
-            </>
-          ) : (
-            <div className="flex items-center gap-2 flex-nowrap">
-              <button
-                onClick={handleSaveAllShifts}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-              >
-                <Calendar className="w-4 h-4" />
-                Save All Shifts
-              </button>
-              <button
-                onClick={() => {
-                  setIsEditMode(false);
-                  setEditableShifts({});
-                  setConfigStartDate('');
-                }}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
-              >
-                Cancel
+                <X className="w-5 h-5" />
               </button>
             </div>
-          )}
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Filter by Roles */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Filter by Role
+                </label>
+                <div className="space-y-2">
+                  {MANAGEABLE_ROLES.map(role => (
+                    <label key={role} className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={filters.roles.includes(role)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setFilters(prev => ({
+                              ...prev,
+                              roles: [...prev.roles, role]
+                            }));
+                          } else {
+                            setFilters(prev => ({
+                              ...prev,
+                              roles: prev.roles.filter(r => r !== role)
+                            }));
+                          }
+                        }}
+                        className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">
+                        {role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, ' ')}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Filter by Shift Status */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Filter by Shift Status
+                </label>
+                <div className="space-y-2">
+                  {[
+                    { value: 'all', label: 'All Staff' },
+                    { value: 'withShifts', label: 'With Shifts' },
+                    { value: 'withoutShifts', label: 'Without Shifts' }
+                  ].map(option => (
+                    <label key={option.value} className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="shiftStatus"
+                        value={option.value}
+                        checked={filters.shiftStatus === option.value}
+                        onChange={(e) => {
+                          setFilters(prev => ({
+                            ...prev,
+                            shiftStatus: e.target.value
+                          }));
+                        }}
+                        className="w-5 h-5 text-primary-600 border-gray-300 focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Filter by Availability Status */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Filter by Availability Status
+                </label>
+                <div className="space-y-2">
+                  {[
+                    { value: 'all', label: 'All Staff' },
+                    { value: 'available', label: 'Available' },
+                    { value: 'onLeave', label: 'On Leave' },
+                    { value: 'lentOut', label: 'Lent Out' },
+                    { value: 'lentIn', label: 'Lent In' }
+                  ].map(option => (
+                    <label key={option.value} className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="availabilityStatus"
+                        value={option.value}
+                        checked={filters.availabilityStatus === option.value}
+                        onChange={(e) => {
+                          setFilters(prev => ({
+                            ...prev,
+                            availabilityStatus: e.target.value
+                          }));
+                        }}
+                        className="w-5 h-5 text-primary-600 border-gray-300 focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Active Filters Summary */}
+              {(filters.roles.length > 0 || filters.shiftStatus !== 'all' || filters.availabilityStatus !== 'all') && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm font-medium text-blue-900 mb-2">Active Filters:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {filters.roles.map(role => (
+                      <span key={role} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                        {role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                    {filters.shiftStatus !== 'all' && (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                        {filters.shiftStatus === 'withShifts' ? 'With Shifts' : 'Without Shifts'}
+                      </span>
+                    )}
+                    {filters.availabilityStatus !== 'all' && (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                        {filters.availabilityStatus === 'available' ? 'Available' :
+                         filters.availabilityStatus === 'onLeave' ? 'On Leave' :
+                         filters.availabilityStatus === 'lentOut' ? 'Lent Out' :
+                         filters.availabilityStatus === 'lentIn' ? 'Lent In' : filters.availabilityStatus}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setFilters({
+                    roles: [],
+                    shiftStatus: 'all',
+                    availabilityStatus: 'all'
+                  });
+                  setStaffPage(1);
+                }}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Clear All Filters
+              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowFilterModalSchedule(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    setShowFilterModalSchedule(false);
+                    setStaffPage(1);
+                  }}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print choice modal */}
+      {showPrintModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black opacity-40" onClick={() => setShowPrintModal(false)} />
+          <div className="bg-white rounded-lg shadow-lg z-10 w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold mb-3">Print Weekly Schedules</h3>
+            <p className="text-sm text-gray-600 mb-4">Choose which schedules to include in the printout.</p>
+            <div className="flex gap-3">
+              <button
+                className="flex-1 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+                onClick={() => {
+                  setPrintOnlyWithSchedules(false);
+                  setShowPrintModal(false);
+                  // Allow state to update/render before printing
+                  setTimeout(() => handlePrintSchedule(), 50);
+                }}
+              >
+                Print All Schedules
+              </button>
+              <button
+                className="flex-1 px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900"
+                onClick={() => {
+                  setPrintOnlyWithSchedules(true);
+                  setShowPrintModal(false);
+                  setTimeout(() => handlePrintSchedule(), 50);
+                }}
+              >
+                Only Staff With Schedules
+              </button>
+            </div>
+            <div className="text-right mt-4">
+              <button className="text-sm text-gray-600" onClick={() => setShowPrintModal(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
+          {/* View Mode Toggle */}
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('week')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                viewMode === 'week'
+                  ? 'bg-white text-primary-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Week
+            </button>
+            <button
+              onClick={() => setViewMode('month')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                viewMode === 'month'
+                  ? 'bg-white text-primary-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Month
+            </button>
+          </div>
+        </div>
+        {/* Edit mode indicator and exit button */}
+        {isEditMode && (
+          <div className="flex items-center gap-2 flex-nowrap">
+            <div className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-lg border border-green-200">
+              <Calendar className="w-4 h-4" />
+              <span className="text-sm font-medium">Auto-save enabled</span>
+            </div>
+            <button
+              onClick={() => {
+                setIsEditMode(false);
+                setEditableShifts({});
+                setConfigStartDate('');
+              }}
+              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
+            >
+              Done
+            </button>
+          </div>
+        )}
+        {/* Right side: Navigation controls */}
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
           <button
-            onClick={() => navigateWeek('prev')}
+            onClick={() => viewMode === 'week' ? navigateWeek('prev') : setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
             className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
-            title="Previous Week"
+            title={viewMode === 'week' ? 'Previous Week' : 'Previous Month'}
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           <button
-            onClick={goToToday}
+            onClick={viewMode === 'week' ? goToToday : () => {
+              const today = new Date();
+              today.setDate(1);
+              setCurrentMonth(today);
+            }}
             className={`px-4 py-2 rounded-lg border transition-colors text-sm ${
-              isCurrentWeek
-                ? 'bg-primary-600 text-white border-primary-600'
-                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+              viewMode === 'week' 
+                ? (isCurrentWeek ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50')
+                : (currentMonth.getMonth() === new Date().getMonth() && currentMonth.getFullYear() === new Date().getFullYear() 
+                    ? 'bg-primary-600 text-white border-primary-600' 
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50')
             }`}
           >
             Today
           </button>
-          <div className="min-w-[200px] text-center font-semibold text-gray-900">
-            {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
-            {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </div>
           <button
-            onClick={() => navigateWeek('next')}
+            onClick={() => viewMode === 'week' ? navigateWeek('next') : setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
             className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
-            title="Next Week"
+            title={viewMode === 'week' ? 'Next Week' : 'Next Month'}
           >
             <ChevronRight className="w-5 h-5" />
+          </button>
+          <div className="min-w-[200px] text-right font-semibold text-gray-900">
+            {viewMode === 'week' ? (
+              <>
+                {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
+                {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </>
+            ) : (
+              currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Search and Actions - single row */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search staff or schedules..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+            />
+          </div>
+
+          <button
+            onClick={() => setShowFilterModalSchedule(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors text-sm ${
+              (filters.roles.length > 0 || filters.shiftStatus !== 'all' || filters.availabilityStatus !== 'all')
+                ? 'border-primary-500 bg-primary-50 text-primary-700 hover:bg-primary-100'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <Filter className="w-5 h-5" />
+            <span className="px-1.5 py-0.5 bg-primary-600 text-white text-xs rounded-full">
+              {filteredStaff.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setShowPrintModal(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+          >
+            <Printer className="w-5 h-5 text-gray-600" />
+          </button>
+
+          <button
+            onClick={() => exportSchedulesToCSV()}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+          >
+            <Download className="w-5 h-5 text-gray-600" />
           </button>
         </div>
       </div>
@@ -1772,12 +2445,17 @@ const StaffSchedule = () => {
         </div>
       </div>
 
-      {/* Schedule Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <div className="text-sm text-gray-700">
-            Showing {staffStartIndex + 1} to {Math.min(staffEndIndex, staff.length)} of {staff.length} staff
-          </div>
+      {/* Schedule Content - Weekly or Monthly View */}
+      {viewMode === 'week' ? (
+        /* Weekly Schedule Table */
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="p-4 border-b border-gray-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div className="text-sm text-gray-700">
+              Showing {filteredStaff.length > 0 ? staffStartIndex + 1 : 0} to {Math.min(staffEndIndex, filteredStaff.length)} of {filteredStaff.length} staff
+              {filteredStaff.length !== staff.length && (
+                <span className="text-gray-500"> (filtered from {staff.length} total)</span>
+              )}
+            </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 text-sm text-gray-600">
               Items per page:
@@ -1884,6 +2562,15 @@ const StaffSchedule = () => {
                         <div className="flex-shrink-0 w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-semibold">
                           {getInitials(member)}
                         </div>
+                        {isEditMode && (
+                          <button
+                            onClick={() => handleOpenQuickBulk(member)}
+                            className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center text-white transition-colors shadow-sm"
+                            title="Quick add shifts"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                           <div className="text-sm font-medium text-gray-900">
@@ -2030,31 +2717,50 @@ const StaffSchedule = () => {
                               // Show editable shift if exists
                               if (editableShift && editableShift.start && editableShift.end) {
                                 return (
-                                  <div 
-                                    className={`flex flex-col items-center gap-1 ${cannotEdit ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                                    onClick={() => !cannotEdit && handleEditShift(member, dayKey, date)}
-                                    title={cannotEdit ? (onLeave ? `Cannot edit: Staff member is on leave from ${formatDate(leaveInfo.startDate, 'MMM dd, yyyy')} to ${formatDate(leaveInfo.endDate, 'MMM dd, yyyy')}` : isBorrowedOutsidePeriod ? `Cannot edit: Staff only lent to this branch from ${formatDate(member.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(member.lendingEndDate, 'MMM dd, yyyy')}` : 'Cannot edit: Staff member is lent out') : 'Click to edit'}
-                                  >
-                                    <div className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
-                                      cannotEdit 
-                                        ? 'bg-gray-100 text-gray-500' 
-                                        : 'bg-primary-100 text-primary-800 hover:bg-primary-200'
-                                    }`}>
-                                      {formatTime12Hour(editableShift.start)} - {formatTime12Hour(editableShift.end)}
-                                    </div>
-                                    <div className="text-xs text-gray-500">
-                                      {Math.round(
-                                        ((new Date(`2000-01-01 ${editableShift.end}`) - new Date(`2000-01-01 ${editableShift.start}`)) / (1000 * 60 * 60)) * 10
-                                      ) / 10}h
-                                    </div>
-                                    {cannotEdit ? (
-                                      <div className="text-xs text-red-600 font-medium">
-                                        {onLeave ? 'On Leave' : isBorrowedOutsidePeriod ? 'Outside lending period' : 'Lent out'}
+                                  <div className="relative group">
+                                    <div 
+                                      className={`flex flex-col items-center gap-1 ${cannotEdit ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                      onClick={() => !cannotEdit && handleEditShift(member, dayKey, date)}
+                                      title={cannotEdit ? (onLeave ? `Cannot edit: Staff member is on leave from ${formatDate(leaveInfo.startDate, 'MMM dd, yyyy')} to ${formatDate(leaveInfo.endDate, 'MMM dd, yyyy')}` : isBorrowedOutsidePeriod ? `Cannot edit: Staff only lent to this branch from ${formatDate(member.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(member.lendingEndDate, 'MMM dd, yyyy')}` : 'Cannot edit: Staff member is lent out') : 'Click to edit'}
+                                    >
+                                      <div className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
+                                        cannotEdit 
+                                          ? 'bg-gray-100 text-gray-500' 
+                                          : 'bg-primary-100 text-primary-800 hover:bg-primary-200'
+                                      }`}>
+                                        {formatTime12Hour(editableShift.start)} - {formatTime12Hour(editableShift.end)}
                                       </div>
-                                    ) : (
-                                      <div className="text-xs text-primary-600 font-medium">
-                                        Click to edit
+                                      <div className="text-xs text-gray-500">
+                                        {Math.round(
+                                          ((new Date(`2000-01-01 ${editableShift.end}`) - new Date(`2000-01-01 ${editableShift.start}`)) / (1000 * 60 * 60)) * 10
+                                        ) / 10}h
                                       </div>
+                                      {cannotEdit ? (
+                                        <div className="text-xs text-red-600 font-medium">
+                                          {onLeave ? 'On Leave' : isBorrowedOutsidePeriod ? 'Outside lending period' : 'Lent out'}
+                                        </div>
+                                      ) : (
+                                        <div className="text-xs text-primary-600 font-medium">
+                                          Click to edit
+                                        </div>
+                                      )}
+                                    </div>
+                                    {!cannotEdit && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleRemoveShiftFromEditModal();
+                                        }}
+                                        onMouseEnter={() => {
+                                          setSelectedStaff(member);
+                                          setSelectedDay(dayKey);
+                                          setSelectedDate(date);
+                                        }}
+                                        className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full items-center justify-center hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100 hidden group-hover:flex"
+                                        title="Remove shift"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
                                     )}
                                   </div>
                                 );
@@ -2200,7 +2906,85 @@ const StaffSchedule = () => {
             </tbody>
           </table>
         </div>
-      </div>
+        </div>
+      ) : (
+        /* Monthly Calendar View */
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="p-6">
+            <div className="grid grid-cols-7 gap-2">
+              {/* Day headers */}
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+                <div key={day} className="text-center font-semibold text-gray-700 py-2 text-sm">
+                  {day}
+                </div>
+              ))}
+              {/* Calendar dates */}
+              {getMonthDates().map((date, index) => {
+                const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
+                const isToday = date.toDateString() === new Date().toDateString();
+                const dayKey = getDayKey(date);
+                
+                // Count staff with shifts on this day
+                const staffWithShifts = staff.filter(member => {
+                  const shift = getShiftForDay(member, dayKey, date);
+                  return shift && shift.start && shift.end;
+                });
+
+                return (
+                  <div
+                    key={index}
+                    onClick={() => {
+                      if (isCurrentMonth && staffWithShifts.length > 0) {
+                        setSelectedDayDetails({ date, staff: staffWithShifts });
+                        setShowDayDetailsModal(true);
+                      }
+                    }}
+                    className={`min-h-[100px] border rounded-lg p-2 ${ 
+                      isCurrentMonth ? 'bg-white' : 'bg-gray-50'
+                    } ${
+                      isToday ? 'ring-2 ring-primary-500' : ''
+                    } ${
+                      isCurrentMonth && staffWithShifts.length > 0 ? 'cursor-pointer hover:shadow-md transition-shadow' : ''
+                    }`}
+                  >
+                    <div className={`text-sm font-semibold mb-1 ${
+                      isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
+                    } ${
+                      isToday ? 'text-primary-600' : ''
+                    }`}>
+                      {date.getDate()}
+                    </div>
+                    {isCurrentMonth && staffWithShifts.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-xs text-gray-600 font-medium">
+                          {staffWithShifts.length} staff
+                        </div>
+                        {staffWithShifts.slice(0, 2).map(member => {
+                          const shift = getShiftForDay(member, dayKey, date);
+                          return (
+                            <div
+                              key={member.id}
+                              className="text-xs bg-primary-50 text-primary-700 px-2 py-1 rounded truncate"
+                              title={`${getFullName(member)}: ${formatTime12Hour(shift.start)} - ${formatTime12Hour(shift.end)}`}
+                            >
+                              {getFullName(member).split(' ')[0]}
+                            </div>
+                          );
+                        })}
+                        {staffWithShifts.length > 2 && (
+                          <div className="text-xs text-gray-500">
+                            +{staffWithShifts.length - 2} more
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Shift Modal - Full Page */}
       {showShiftModal && (
@@ -2937,25 +3721,153 @@ const StaffSchedule = () => {
                   Branch hours: {formatTime12Hour(branchHours[selectedDay].open)} - {formatTime12Hour(branchHours[selectedDay].close)}
                 </div>
               )}
+            </div>
 
-              {/* Date-specific option */}
-              {selectedDate && (
-                <div className="flex items-center gap-2">
+            {/* Footer */}
+            <div className="flex items-center justify-between gap-3 p-6 border-t border-gray-200">
+              <div>
+                {!isAddingShift && (
+                  <button
+                    onClick={handleRemoveShiftFromEditModal}
+                    className="px-4 py-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors font-medium"
+                  >
+                    Remove Shift
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setShowEditShiftModal(false);
+                    setSelectedStaff(null);
+                    setSelectedDay(null);
+                    setSelectedDate(null);
+                    setShiftForm({ start: '', end: '', date: '' });
+                    setIsAddingShift(false);
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveShift}
+                  disabled={!shiftForm.start || !shiftForm.end}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isAddingShift ? 'Add Shift' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Bulk Shift Modal - Per Employee */}
+      {showQuickBulkModal && quickBulkEmployee && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Quick Add Shifts</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {getFullName(quickBulkEmployee)}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowQuickBulkModal(false);
+                  setQuickBulkEmployee(null);
+                  setQuickBulkForm({ start: '', end: '', days: [] });
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              {/* Time Inputs */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Time *
+                  </label>
                   <input
-                    type="checkbox"
-                    id="date-specific"
-                    checked={!!shiftForm.date}
+                    type="time"
+                    value={quickBulkForm.start}
                     onChange={(e) => {
-                      setShiftForm(prev => ({
+                      const newStart = e.target.value;
+                      setQuickBulkForm(prev => ({
                         ...prev,
-                        date: e.target.checked ? selectedDate.toISOString().split('T')[0] : ''
+                        start: newStart,
+                        end: prev.end && newStart >= prev.end ? '' : prev.end
                       }));
                     }}
-                    className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    required
                   />
-                  <label htmlFor="date-specific" className="text-sm text-gray-700">
-                    Make this a one-time shift for this specific date
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    End Time *
                   </label>
+                  <input
+                    type="time"
+                    value={quickBulkForm.end}
+                    onChange={(e) => setQuickBulkForm(prev => ({ ...prev, end: e.target.value }))}
+                    min={quickBulkForm.start || undefined}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:opacity-50"
+                    disabled={!quickBulkForm.start}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Day Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Select Days *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {DAYS_OF_WEEK.map(day => (
+                    <button
+                      key={day.key}
+                      type="button"
+                      onClick={() => {
+                        setQuickBulkForm(prev => ({
+                          ...prev,
+                          days: prev.days.includes(day.key)
+                            ? prev.days.filter(d => d !== day.key)
+                            : [...prev.days, day.key]
+                        }));
+                      }}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        quickBulkForm.days.includes(day.key)
+                          ? 'bg-primary-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
+                {quickBulkForm.days.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    {quickBulkForm.days.length} day{quickBulkForm.days.length > 1 ? 's' : ''} selected
+                  </p>
+                )}
+              </div>
+
+              {/* Preview */}
+              {quickBulkForm.start && quickBulkForm.end && quickBulkForm.days.length > 0 && (
+                <div className="bg-primary-50 border border-primary-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-primary-900 mb-1">Preview:</p>
+                  <p className="text-sm text-primary-700">
+                    {formatTime12Hour(quickBulkForm.start)} - {formatTime12Hour(quickBulkForm.end)} on{' '}
+                    {quickBulkForm.days.map(d => DAYS_OF_WEEK.find(day => day.key === d)?.short).join(', ')}
+                  </p>
                 </div>
               )}
             </div>
@@ -2964,23 +3876,107 @@ const StaffSchedule = () => {
             <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
               <button
                 onClick={() => {
-                  setShowEditShiftModal(false);
-                  setSelectedStaff(null);
-                  setSelectedDay(null);
-                  setSelectedDate(null);
-                  setShiftForm({ start: '', end: '', date: '' });
-                  setIsAddingShift(false);
+                  setShowQuickBulkModal(false);
+                  setQuickBulkEmployee(null);
+                  setQuickBulkForm({ start: '', end: '', days: [] });
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={handleSaveShift}
-                disabled={!shiftForm.start || !shiftForm.end}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleSaveQuickBulk}
+                disabled={!quickBulkForm.start || !quickBulkForm.end || quickBulkForm.days.length === 0}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
               >
-                {isAddingShift ? 'Add to List' : 'Update'}
+                Add {quickBulkForm.days.length > 0 ? `${quickBulkForm.days.length} Shift${quickBulkForm.days.length > 1 ? 's' : ''}` : 'Shifts'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Day Details Modal - Monthly View */}
+      {showDayDetailsModal && selectedDayDetails.date && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">
+                  {selectedDayDetails.date.toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    month: 'long', 
+                    day: 'numeric', 
+                    year: 'numeric' 
+                  })}
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {selectedDayDetails.staff.length} staff member{selectedDayDetails.staff.length !== 1 ? 's' : ''} scheduled
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDayDetailsModal(false);
+                  setSelectedDayDetails({ date: null, staff: [] });
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-3">
+                {selectedDayDetails.staff.map(member => {
+                  const dayKey = getDayKey(selectedDayDetails.date);
+                  const shift = getShiftForDay(member, dayKey, selectedDayDetails.date);
+                  
+                  return (
+                    <div
+                      key={member.id}
+                      className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-semibold">
+                          {getInitials(member)}
+                        </div>
+                        <div>
+                          <div className="font-medium text-gray-900">
+                            {getFullName(member)}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {member.role}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold text-gray-900">
+                          {formatTime12Hour(shift.start)} - {formatTime12Hour(shift.end)}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {Math.round(
+                            ((new Date(`2000-01-01 ${shift.end}`) - new Date(`2000-01-01 ${shift.start}`)) / (1000 * 60 * 60)) * 10
+                          ) / 10}h
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowDayDetailsModal(false);
+                  setSelectedDayDetails({ date: null, staff: [] });
+                }}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>
@@ -3170,6 +4166,8 @@ const StaffSchedule = () => {
         </div>
       </div>
     </div>
+
+      
   );
 };
 

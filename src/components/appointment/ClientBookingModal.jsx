@@ -3,12 +3,13 @@
  * Multi-step procedural booking with timeline
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Calendar, Clock, MapPin, Scissors, User, ChevronRight, ChevronLeft, Check, Plus, Trash2, FileText, AlertTriangle, Eye, Image as ImageIcon, Phone, CheckCircle2, Timer } from 'lucide-react';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { formatTime, formatTime12Hour } from '../../utils/helpers';
 import { getPortfoliosByStylist } from '../../services/portfolioService';
 import toast from 'react-hot-toast';
+import { isBranchClosedOnDate } from '../../services/branchCloseUtils';
 import { APPOINTMENT_STATUS } from '../../utils/constants';
 
 const ClientBookingModal = ({
@@ -50,6 +51,9 @@ const ClientBookingModal = ({
 
   // Final terms confirmation modal
   const [showTermsModal, setShowTermsModal] = useState(false);
+  // Closed-date modal
+  const [showClosedModal, setShowClosedModal] = useState(false);
+  const [closedReason, setClosedReason] = useState('');
 
   // Reset function when modal closes
   const handleClose = () => {
@@ -65,6 +69,53 @@ const ClientBookingModal = ({
     });
     onClose();
   };
+
+  // Get selected branch object
+  const selectedBranch = useMemo(() => {
+    return branches.find(b => b.id === bookingData.branchId);
+  }, [bookingData.branchId, branches]);
+
+  // Calculate minimum date for date input (memoized to prevent recalculation on every render)
+  const minDate = useMemo(() => {
+    const now = new Date();
+    
+    // Get today's operating hours to check closing time
+    const todayWeekday = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    const todayHours = selectedBranch?.operatingHours?.[todayWeekday];
+    const todayCloseTime = todayHours?.close || '18:00';
+    
+    // Check if branch is already closed for today
+    const [closeH, closeM] = todayCloseTime.split(':').map(Number);
+    const closingTime = new Date(now);
+    closingTime.setHours(closeH, closeM, 0, 0);
+    
+    // If current time is past closing time, disable today
+    if (now >= closingTime) {
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const year = tomorrow.getFullYear();
+      const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+      const day = String(tomorrow.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    // Check if there's enough time to book (2-hour minimum before closing)
+    const nowPlus2Hours = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    if (nowPlus2Hours >= closingTime) {
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const year = tomorrow.getFullYear();
+      const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+      const day = String(tomorrow.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    // Otherwise, allow booking for today
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, [selectedBranch]);
 
   if (!isOpen) return null;
 
@@ -328,7 +379,6 @@ const ClientBookingModal = ({
 
       case 2: // Date and Time Selection
         // New: Show 30-minute interval boxes within branch open hours
-        const selectedBranch = branches.find(b => b.id === bookingData.branchId);
         let openTime = '09:00', closeTime = '18:00', isOpen = true;
         if (selectedBranch && bookingData.date) {
           const weekday = new Date(bookingData.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
@@ -384,13 +434,13 @@ const ClientBookingModal = ({
                   value={bookingData.date}
                   onChange={(e) => {
                     const selectedDate = e.target.value;
-                    
+
                     // Check if client already has an appointment on this date
                     if (selectedDate && existingAppointments.length > 0) {
                       const selected = new Date(selectedDate);
                       const startOfDay = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate());
                       const endOfDay = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate(), 23, 59, 59);
-                      
+
                       const duplicateAppointment = existingAppointments.find(apt => {
                         const aptDate = new Date(apt.appointmentDate);
                         return aptDate >= startOfDay && 
@@ -404,49 +454,31 @@ const ClientBookingModal = ({
                         return; // Don't update the date
                       }
                     }
-                    
-                    setBookingData({ ...bookingData, date: selectedDate, timeSlot: null });
+
+                    // Immediately block booking if branch has an approved branch_close on this date
+                    if (bookingData.branchId && selectedDate) {
+                      isBranchClosedOnDate(bookingData.branchId, selectedDate)
+                        .then(closeCheck => {
+                          if (closeCheck.closed) {
+                            const reason = closeCheck.entry?.title || closeCheck.entry?.description || 'Branch closed on this date.';
+                            setClosedReason(reason);
+                            setShowClosedModal(true);
+                            // Ensure date/time not set
+                            setBookingData({ ...bookingData, date: '', timeSlot: null });
+                          } else {
+                            setBookingData({ ...bookingData, date: selectedDate, timeSlot: null });
+                          }
+                        })
+                        .catch(err => {
+                          console.error('Error checking branch close:', err);
+                          // On error, allow user to set the date (fail-open)
+                          setBookingData({ ...bookingData, date: selectedDate, timeSlot: null });
+                        });
+                    } else {
+                      setBookingData({ ...bookingData, date: selectedDate, timeSlot: null });
+                    }
                   }}
-                  min={(() => {
-                    const now = new Date();
-                    
-                    // Get today's operating hours to check closing time
-                    const todayWeekday = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                    const todayHours = selectedBranch?.operatingHours?.[todayWeekday];
-                    const todayCloseTime = todayHours?.close || '18:00';
-                    
-                    // Check if branch is already closed for today
-                    const [closeH, closeM] = todayCloseTime.split(':').map(Number);
-                    const closingTime = new Date(now);
-                    closingTime.setHours(closeH, closeM, 0, 0);
-                    
-                    // If current time is past closing time, disable today
-                    if (now >= closingTime) {
-                      const tomorrow = new Date(now);
-                      tomorrow.setDate(tomorrow.getDate() + 1);
-                      const year = tomorrow.getFullYear();
-                      const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
-                      const day = String(tomorrow.getDate()).padStart(2, '0');
-                      return `${year}-${month}-${day}`;
-                    }
-                    
-                    // Check if there's enough time to book (2-hour minimum before closing)
-                    const nowPlus2Hours = new Date(now.getTime() + 2 * 60 * 60 * 1000);
-                    if (nowPlus2Hours >= closingTime) {
-                      const tomorrow = new Date(now);
-                      tomorrow.setDate(tomorrow.getDate() + 1);
-                      const year = tomorrow.getFullYear();
-                      const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
-                      const day = String(tomorrow.getDate()).padStart(2, '0');
-                      return `${year}-${month}-${day}`;
-                    }
-                    
-                    // Otherwise, allow booking for today
-                    const year = now.getFullYear();
-                    const month = String(now.getMonth() + 1).padStart(2, '0');
-                    const day = String(now.getDate()).padStart(2, '0');
-                    return `${year}-${month}-${day}`;
-                  })()}
+                  min={minDate}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] text-base transition-colors bg-white"
                   required
                 />
@@ -1426,6 +1458,35 @@ const ClientBookingModal = ({
                 {booking && <LoadingSpinner size="sm" />}
                 {booking ? 'Submitting...' : 'I Agree, Submit Appointment'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Closed date modal */}
+      {showClosedModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[80] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="bg-gradient-to-r from-[#160B53] to-[#2D1B69] p-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white">Date Unavailable</h3>
+                <p className="text-white/90 text-sm mt-1">Selected date is closed</p>
+              </div>
+              <button type="button" onClick={() => setShowClosedModal(false)} className="p-2 hover:bg-white/20 rounded-lg transition-colors">
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-700">The date you selected is unavailable due to:</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
+                {closedReason}
+              </div>
+              <p className="text-xs text-gray-500">Please choose another date.</p>
+            </div>
+
+            <div className="px-6 pb-6 pt-4 border-t border-gray-100 bg-gray-50 flex gap-3">
+              <button type="button" onClick={() => { setShowClosedModal(false); }} className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-all font-semibold">Close</button>
+              <button type="button" onClick={() => { setShowClosedModal(false); setBookingData({ ...bookingData, date: '', timeSlot: null }); }} className="flex-1 px-4 py-2 bg-gradient-to-r from-[#160B53] to-[#2D1B69] text-white rounded-lg font-semibold">Choose Another Date</button>
             </div>
           </div>
         </div>

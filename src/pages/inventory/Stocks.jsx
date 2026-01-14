@@ -8,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { SearchInput } from '../../components/ui/SearchInput';
 import Modal from '../../components/ui/Modal';
 import { productService } from '../../services/productService';
+import { inventoryService } from '../../services/inventoryService';
 import { logActivity as activityServiceLogActivity } from '../../services/activityService';
 import { stockListenerService } from '../../services/stockListenerService';
 import { weeklyStockRecorder } from '../../services/weeklyStockRecorder';
@@ -121,6 +122,30 @@ const Stocks = () => {
   const [allocatedQuantities, setAllocatedQuantities] = useState(new Map()); // batchId -> total allocated
   const [adjustmentDateFilter, setAdjustmentDateFilter] = useState('all'); // 'all', '7days', '30days', '90days', '1year'
   const [adjustmentSearchTerm, setAdjustmentSearchTerm] = useState('');
+  
+  // Manual salon-use deduction states
+  const [isSalonUseDeductionModalOpen, setIsSalonUseDeductionModalOpen] = useState(false);
+  const [salonUseDeductionForm, setSalonUseDeductionForm] = useState({
+    stockId: '',
+    productId: '',
+    productName: '',
+    batchId: '',
+    batchNumber: '',
+    currentStock: '',
+    quantity: '',
+    reason: '',
+    notes: ''
+  });
+  const [salonUseDeductionErrors, setSalonUseDeductionErrors] = useState({});
+  const [isSubmittingDeduction, setIsSubmittingDeduction] = useState(false);
+  
+  // Bulk salon-use deduction states
+  const [isBulkDeductionModalOpen, setIsBulkDeductionModalOpen] = useState(false);
+  const [bulkDeductionItems, setBulkDeductionItems] = useState([]); // Array of { stockId, productId, productName, batchNumber, currentStock, quantity }
+  const [bulkDeductionReason, setBulkDeductionReason] = useState('');
+  const [bulkDeductionNotes, setBulkDeductionNotes] = useState('');
+  const [bulkDeductionErrors, setBulkDeductionErrors] = useState({});
+  const [isSubmittingBulkDeduction, setIsSubmittingBulkDeduction] = useState(false);
   
   // Edit stock form state (removed - no longer using week stocks)
   // const [editStockForm, setEditStockForm] = useState({});
@@ -422,15 +447,15 @@ const Stocks = () => {
     }
   };
 
-  // Calculate computed stock (real stock minus allocated quantities)
+  // Calculate computed stock (same logic as Branch Manager)
   const getComputedStock = (stock) => {
-    const baseStock = stock.realTimeStock || stock.remainingQuantity || stock.beginningStock || 0;
-    const allocated = allocatedQuantities.get(stock.id) || 0;
-    const computed = Math.max(0, baseStock - allocated);
-    return computed;
+    // Use same priority as Branch Manager: remainingQuantity || realTimeStock || beginningStock
+    const baseStock = stock.remainingQuantity || stock.realTimeStock || stock.beginningStock || 0;
+    // Don't subtract allocated quantities - use raw remaining stock
+    return Math.max(0, baseStock);
   };
 
-  // Load allocated quantities from transactions for computed stock display
+  // Load allocated quantities from transactions (keeping for future use, but not subtracting from stock)
   const loadAllocatedQuantities = async () => {
     if (!userData?.branchId) return;
 
@@ -616,16 +641,17 @@ const Stocks = () => {
   };
 
   // Calculate stock status based on current stock levels (not batch)
+  // Low stock threshold is below 5 (items with less than 5 are "Low Stock")
   const calculateStockStatus = (stock) => {
     const currentStock = getComputedStock(stock);
-    const minStock = stock.minStock || stock.product?.minStock || 0;
-    const reorderThreshold = stock.reorderThreshold || stock.product?.reorderThreshold || (minStock * 1.5); // High stock threshold
+    const LOW_STOCK_THRESHOLD = 5; // Items below this are "Low Stock"
+    const HIGH_STOCK_THRESHOLD = 10; // Items above this are "High Stock"
     
     if (currentStock === 0) {
       return 'Out of Stock';
-    } else if (currentStock <= minStock) {
+    } else if (currentStock < LOW_STOCK_THRESHOLD) {
       return 'Low Stock';
-    } else if (currentStock > reorderThreshold) {
+    } else if (currentStock >= HIGH_STOCK_THRESHOLD) {
       return 'High Stock';
     } else {
       return 'In Stock';
@@ -926,6 +952,33 @@ const Stocks = () => {
     setIsDetailsModalOpen(true);
   };
 
+  // Handle salon-use deduction
+  const handleDeductSalonUse = (stock) => {
+    console.log('handleDeductSalonUse called with stock:', stock);
+    try {
+      const currentStock = getComputedStock(stock);
+      console.log('Current stock calculated:', currentStock);
+      
+      setSalonUseDeductionForm({
+        stockId: stock.id || stock.stockId || '',
+        productId: stock.productId || '',
+        productName: stock.productName || stock.product?.name || 'Unknown Product',
+        batchId: stock.batchId || stock.id || '',
+        batchNumber: stock.batchNumber || 'N/A',
+        currentStock: currentStock.toString(),
+        quantity: '',
+        reason: '',
+        notes: ''
+      });
+      setSalonUseDeductionErrors({});
+      setIsSalonUseDeductionModalOpen(true);
+      console.log('Modal should be open now, isSalonUseDeductionModalOpen:', true);
+    } catch (error) {
+      console.error('Error in handleDeductSalonUse:', error);
+      toast.error('Failed to open deduction modal. Please try again.');
+    }
+  };
+
   // Handle view stock history
   const handleViewHistory = (stock) => {
     setSelectedProductId(stock.productId);
@@ -1021,6 +1074,340 @@ const Stocks = () => {
       default: return <Clock className="h-4 w-4" />;
     }
   };// Print/Report function for PDF generation
+  const handlePrintDeductionHistory = () => {
+    // Get filtered deductions
+    const filteredDeductions = stockDeductions.filter(deduction => {
+      if (!deductionSearchTerm) return true;
+      const search = deductionSearchTerm.toLowerCase();
+      return (
+        deduction.productName?.toLowerCase().includes(search) ||
+        deduction.clientName?.toLowerCase().includes(search) ||
+        deduction.transactionId?.toLowerCase().includes(search) ||
+        deduction.movementId?.toLowerCase().includes(search) ||
+        deduction.transferId?.toLowerCase().includes(search) ||
+        deduction.toBranchName?.toLowerCase().includes(search) ||
+        deduction.notes?.toLowerCase().includes(search)
+      );
+    });
+
+    if (!filteredDeductions.length) {
+      toast.error('No deductions to print');
+      return;
+    }
+
+    // Get branch name
+    const branchName = userData?.branchName || 'N/A';
+    const currentDate = format(new Date(), 'MMMM dd, yyyy');
+    const currentTime = format(new Date(), 'hh:mm a');
+
+    // Get date range label
+    let dateRangeLabel = 'All Time';
+    if (deductionDateFilter === '7days') dateRangeLabel = 'Last 7 Days';
+    else if (deductionDateFilter === '30days') dateRangeLabel = 'Last 30 Days';
+    else if (deductionDateFilter === '90days') dateRangeLabel = 'Last 90 Days';
+
+    // Calculate totals
+    const totalQuantity = filteredDeductions.reduce((sum, d) => sum + (d.quantity || 0), 0);
+    const totalAmount = filteredDeductions.reduce((sum, d) => sum + (d.total || 0), 0);
+
+    // Create printable HTML
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Stock Deduction History - ${branchName}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+            @media print {
+              @page {
+                margin: 1cm;
+                size: A4 landscape;
+              }
+              body {
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+              }
+              .no-print { display: none; }
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              font-family: 'Poppins', sans-serif;
+              padding: 20px;
+              color: #333;
+              line-height: 1.5;
+              background: white;
+              margin: 0;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 3px solid #160B53;
+              padding-bottom: 20px;
+              margin-bottom: 30px;
+              background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+              padding: 20px;
+              border-radius: 8px;
+            }
+            .header h1 {
+              color: #160B53;
+              margin: 0;
+              font-size: 28px;
+              font-weight: 700;
+              font-family: 'Poppins', sans-serif;
+              letter-spacing: -0.5px;
+            }
+            .header-info {
+              display: flex;
+              flex-direction: column;
+              gap: 5px;
+              font-size: 12px;
+              color: #666;
+              text-align: right;
+            }
+            .header-info div {
+              font-weight: 500;
+            }
+            .summary {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 20px;
+              margin-bottom: 30px;
+              padding: 20px;
+              background: #f9f9f9;
+              border-radius: 8px;
+              border: 1px solid #ccc;
+            }
+            .summary-box {
+              text-align: center;
+              padding: 15px;
+              background: white;
+              border-radius: 6px;
+              border: 1px solid #999;
+              box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            }
+            .summary-box h3 {
+              margin: 0 0 10px 0;
+              font-size: 12px;
+              color: #666;
+              font-weight: 500;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .summary-box .value {
+              font-size: 24px;
+              font-weight: 700;
+              color: #160B53;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+              font-size: 11px;
+              background: white;
+            }
+            thead {
+              background: #160B53;
+              color: white;
+            }
+            th {
+              padding: 12px 8px;
+              text-align: left;
+              font-weight: 600;
+              text-transform: uppercase;
+              font-size: 10px;
+              letter-spacing: 0.5px;
+              border: 1px solid #0a0533;
+            }
+            td {
+              padding: 10px 8px;
+              border: 1px solid #ddd;
+              vertical-align: top;
+            }
+            tbody tr:nth-child(even) {
+              background: #f9f9f9;
+            }
+            tbody tr:hover {
+              background: #f0f0f0;
+            }
+            .badge {
+              display: inline-block;
+              padding: 4px 8px;
+              border-radius: 12px;
+              font-size: 9px;
+              font-weight: 600;
+              text-transform: uppercase;
+            }
+            .badge-salon-use {
+              background: #fed7aa;
+              color: #9a3412;
+            }
+            .badge-transfer {
+              background: #bfdbfe;
+              color: #1e3a8a;
+            }
+            .badge-service {
+              background: #e9d5ff;
+              color: #6b21a8;
+            }
+            .badge-transaction {
+              background: #d1fae5;
+              color: #065f46;
+            }
+            .text-right {
+              text-align: right;
+            }
+            .text-center {
+              text-align: center;
+            }
+            .font-mono {
+              font-family: 'Courier New', monospace;
+            }
+            .footer {
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 2px solid #ddd;
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h1>Stock Deduction History</h1>
+              <div style="margin-top: 10px; font-size: 14px; color: #666;">
+                <div><strong>Branch:</strong> ${branchName}</div>
+                <div><strong>Date Range:</strong> ${dateRangeLabel}</div>
+                ${deductionSearchTerm ? `<div><strong>Search:</strong> "${deductionSearchTerm}"</div>` : ''}
+              </div>
+            </div>
+            <div class="header-info">
+              <div>Generated: ${currentDate}</div>
+              <div>Time: ${currentTime}</div>
+              <div>Total Records: ${filteredDeductions.length}</div>
+            </div>
+          </div>
+
+          <div class="summary">
+            <div class="summary-box">
+              <h3>Total Deductions</h3>
+              <div class="value">${filteredDeductions.length}</div>
+            </div>
+            <div class="summary-box">
+              <h3>Total Quantity</h3>
+              <div class="value">${totalQuantity.toLocaleString()}</div>
+            </div>
+            <div class="summary-box">
+              <h3>Total Amount</h3>
+              <div class="value">₱${totalAmount.toLocaleString()}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Date & Time</th>
+                <th>Product</th>
+                <th class="text-center">Quantity</th>
+                <th>Source / Reason</th>
+                <th>Reference ID</th>
+                <th class="text-right">Amount</th>
+                <th>Processed By</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredDeductions.map(deduction => {
+                const dateStr = format(deduction.createdAt, 'MMM dd, yyyy');
+                const timeStr = format(deduction.createdAt, 'hh:mm a');
+                
+                // Determine source badge
+                let sourceBadge = '';
+                let sourceText = deduction.clientName || 'N/A';
+                
+                if (deduction.source === 'salon-use') {
+                  sourceBadge = '<span class="badge badge-salon-use">Salon Use</span>';
+                  sourceText = deduction.reason || deduction.clientName || 'Salon Use Deduction';
+                  if (deduction.notes) {
+                    sourceText += `<br><small style="color: #666; font-size: 9px;">${deduction.notes}</small>`;
+                  }
+                } else if (deduction.source === 'transfer' || deduction.source === 'stock_transfer') {
+                  sourceBadge = '<span class="badge badge-transfer">Transfer</span>';
+                } else if (deduction.source === 'service') {
+                  sourceBadge = '<span class="badge badge-service">Service</span>';
+                } else if (deduction.source === 'transaction') {
+                  sourceBadge = '<span class="badge badge-transaction">Sale</span>';
+                }
+                
+                const refId = deduction.transactionId 
+                  ? `#${deduction.transactionId.slice(-8)}` 
+                  : deduction.movementId 
+                    ? `#${deduction.movementId.slice(-8)}` 
+                    : deduction.transferId 
+                      ? `#${deduction.transferId.slice(-8)}` 
+                      : 'N/A';
+                
+                const batchInfo = deduction.batchDeductions && deduction.batchDeductions.length > 0
+                  ? `<br><small style="color: #666; font-size: 9px;">Batches: ${deduction.batchDeductions.map(b => b.batchNumber || b.batchId).join(', ')}</small>`
+                  : '';
+                
+                return `
+                  <tr>
+                    <td>
+                      <div>${dateStr}</div>
+                      <div style="font-size: 9px; color: #666;">${timeStr}</div>
+                    </td>
+                    <td><strong>${deduction.productName || 'Unknown Product'}</strong></td>
+                    <td class="text-center"><strong style="color: #dc2626;">-${deduction.quantity || 0}</strong></td>
+                    <td>
+                      ${sourceBadge}
+                      <div style="margin-top: 4px;">${sourceText}</div>
+                    </td>
+                    <td class="font-mono">
+                      ${refId}
+                      ${batchInfo}
+                    </td>
+                    <td class="text-right">
+                      ${deduction.total > 0 ? `₱${deduction.total.toLocaleString()}` : 'N/A'}
+                    </td>
+                    <td>${deduction.createdBy || 'System'}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+
+          <div class="footer">
+            <p>This report was generated from the Stock Management System</p>
+            <p>Branch: ${branchName} | Date Range: ${dateRangeLabel} | Generated on ${currentDate} at ${currentTime}</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.focus();
+      
+      // Wait for content to load, then print
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    } else {
+      toast.error('Please allow popups to print the report');
+    }
+  };
+
   const handlePrintReport = async () => {
     if (!filteredStocks.length) {
       toast.error('No stocks to print');
@@ -1280,15 +1667,27 @@ const Stocks = () => {
 
   // Calculate stock statistics (memoized for performance)
   const stockStats = useMemo(() => {
+    // Count items by status - "High Stock" and "In Stock" both count as "In Stock" for summary
+    const inStockCount = currentMonthStocks.filter(s => 
+      s.status === 'In Stock' || s.status === 'High Stock'
+    ).length;
+    const lowStockCount = currentMonthStocks.filter(s => s.status === 'Low Stock').length;
+    const outOfStockCount = currentMonthStocks.filter(s => s.status === 'Out of Stock').length;
+    
+    // Total items should be the count of loaded stocks (currentMonthStocks)
+    // since totalItems from Firestore might include inactive/old stocks
+    const totalItemsCount = currentMonthStocks.length;
+    
     return {
-      totalItems: totalItems, // Use total count from Firestore
+      totalItems: totalItemsCount,
       loadedItems: currentMonthStocks.length,
-      inStock: currentMonthStocks.filter(s => s.status === 'In Stock').length,
-      lowStock: currentMonthStocks.filter(s => s.status === 'Low Stock').length,
-      outOfStock: currentMonthStocks.filter(s => s.status === 'Out of Stock').length,
+      inStock: inStockCount,
+      lowStock: lowStockCount,
+      outOfStock: outOfStockCount,
       totalValue: currentMonthStocks.reduce((sum, s) => {
         const currentStock = getComputedStock(s);
-        const unitCost = s.unitCost || 0;
+        // Check stock's unitCost first, then fall back to product's unitCost
+        const unitCost = s.unitCost || s.product?.unitCost || 0;
         return sum + (currentStock * unitCost);
       }, 0),
       lowStockItems: currentMonthStocks.filter(s => {
@@ -1296,7 +1695,7 @@ const Stocks = () => {
         return currentStock <= (s.minStock || 0);
       })
     };
-  }, [currentMonthStocks, totalItems]);
+  }, [currentMonthStocks]);
 
 
   // Load activity logs for a product
@@ -1780,7 +2179,16 @@ const Stocks = () => {
           let sourceType = 'adjustment';
           let displayReason = movementData.reason || 'Stock Deduction';
           
-          if (movementData.reason === 'Stock Transfer' || movementData.notes?.includes('Transfer')) {
+          // Check for salon-use deductions (manual deductions)
+          const notes = (movementData.notes || '').toLowerCase();
+          const reason = (movementData.reason || '').toLowerCase();
+          
+          if (notes.includes('salon-use') || notes.includes('salon use') || 
+              notes.includes('manual salon') || notes.includes('bulk deduction') ||
+              reason.includes('salon-use') || reason.includes('salon use')) {
+            sourceType = 'salon-use';
+            displayReason = movementData.reason || 'Salon Use Deduction';
+          } else if (movementData.reason === 'Stock Transfer' || movementData.notes?.includes('Transfer')) {
             sourceType = 'transfer';
             // Extract transfer info from notes
             const transferMatch = movementData.notes?.match(/Transfer to (.+)/) || 
@@ -1811,6 +2219,7 @@ const Stocks = () => {
             branchName: userData.branchName || '',
             paymentMethod: 'N/A',
             source: sourceType,
+            reason: movementData.reason || displayReason,
             notes: movementData.notes || '',
             batchDeductions: movementData.batchDeductions || []
           });
@@ -2151,59 +2560,21 @@ const Stocks = () => {
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Stock Management</h1>
-            <p className="text-gray-600">Track inventory levels and stock movements</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button variant="outline" className="flex items-center gap-2" onClick={handleExportStocks}>
-              <Download className="h-4 w-4" />
-              Export
-            </Button>
-            <Button variant="outline" className="flex items-center gap-2" onClick={handlePrintReport}>
-              <Printer className="h-4 w-4" />
-              Report
-            </Button>
-            <Button 
-              variant="outline"
-              className={`flex items-center gap-2 ${showDeductionHistory ? 'bg-blue-50 border-blue-300' : ''}`}
-              onClick={() => {
-                setShowDeductionHistory(!showDeductionHistory);
-                if (!showDeductionHistory) {
-                  loadStockDeductions();
-                }
-              }}
-            >
-              <Activity className="h-4 w-4" />
-              {showDeductionHistory ? 'Hide' : 'Show'} Deduction History
-            </Button>
-            <Button 
-              variant="outline"
-              className={`flex items-center gap-2 ${showAdjustmentsHistory ? 'bg-orange-50 border-orange-300' : ''}`}
-              onClick={() => {
-                setShowAdjustmentsHistory(!showAdjustmentsHistory);
-                if (!showAdjustmentsHistory) {
-                  loadStockAdjustments();
-                }
-              }}
-            >
-              <AlertTriangle className="h-4 w-4" />
-              {showAdjustmentsHistory ? 'Hide' : 'Show'} Adjustments History
-            </Button>
-          </div>
+        <div>
+          <h1 className="text-lg md:text-xl lg:text-2xl font-bold text-gray-900">Stock Management</h1>
+          <p className="text-xs md:text-sm text-gray-600">Track inventory levels and stock movements</p>
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
-          <Card className="p-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3 lg:gap-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Package className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Items</p>
-                <p className="text-xl font-bold text-gray-900">{stockStats.totalItems}</p>
+              <Package className="h-6 w-6 md:h-8 md:w-8 text-blue-600 flex-shrink-0" />
+              <div className="ml-2 md:ml-3 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-gray-600 truncate">Total Items</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{stockStats.totalItems}</p>
                 {stockStats.totalItems > stockStats.loadedItems && (
                   <p className="text-xs text-gray-500">({stockStats.loadedItems} loaded)</p>
                 )}
@@ -2211,42 +2582,42 @@ const Stocks = () => {
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">In Stock</p>
-                <p className="text-xl font-bold text-gray-900">{stockStats.inStock}</p>
+              <CheckCircle className="h-6 w-6 md:h-8 md:w-8 text-green-600 flex-shrink-0" />
+              <div className="ml-2 md:ml-3 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-gray-600 truncate">In Stock</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{stockStats.inStock}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <AlertTriangle className="h-8 w-8 text-yellow-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Low Stock</p>
-                <p className="text-xl font-bold text-gray-900">{stockStats.lowStock}</p>
+              <AlertTriangle className="h-6 w-6 md:h-8 md:w-8 text-yellow-600 flex-shrink-0" />
+              <div className="ml-2 md:ml-3 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-gray-600 truncate">Low Stock</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{stockStats.lowStock}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <XCircle className="h-8 w-8 text-red-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Out of Stock</p>
-                <p className="text-xl font-bold text-gray-900">{stockStats.outOfStock}</p>
+              <XCircle className="h-6 w-6 md:h-8 md:w-8 text-red-600 flex-shrink-0" />
+              <div className="ml-2 md:ml-3 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-gray-600 truncate">Out of Stock</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{stockStats.outOfStock}</p>
               </div>
             </div>
           </Card>
 
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4 col-span-2 sm:col-span-1">
             <div className="flex items-center">
-              <Banknote className="h-8 w-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Value</p>
-                <p className="text-xl font-bold text-gray-900">₱{stockStats.totalValue.toLocaleString()}</p>
+              <Banknote className="h-6 w-6 md:h-8 md:w-8 text-purple-600 flex-shrink-0" />
+              <div className="ml-2 md:ml-3 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-gray-600 truncate">Total Value</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">₱{stockStats.totalValue.toLocaleString()}</p>
               </div>
             </div>
           </Card>
@@ -2254,17 +2625,17 @@ const Stocks = () => {
 
         {/* Stock Adjustments History */}
         {showAdjustmentsHistory && (
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-6">
+          <Card className="p-3 md:p-4 lg:p-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 md:mb-6">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">Stock Adjustments History</h2>
-                <p className="text-gray-600 text-sm mt-1">View all stock movements: Force Adjustments, Transactions (Sales), and Stock Transfers</p>
+                <h2 className="text-base md:text-lg lg:text-xl font-bold text-gray-900">Stock Adjustments History</h2>
+                <p className="text-gray-600 text-xs md:text-sm mt-1 hidden md:block">View all stock movements: Force Adjustments, Transactions (Sales), and Stock Transfers</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 md:gap-3">
                 <select
                   value={adjustmentDateFilter}
                   onChange={(e) => setAdjustmentDateFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                  className="px-2 md:px-3 py-1.5 md:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-xs md:text-sm"
                 >
                   <option value="all">All Time</option>
                   <option value="7days">Last 7 Days</option>
@@ -2277,16 +2648,16 @@ const Stocks = () => {
                   size="sm"
                   onClick={loadStockAdjustments}
                   disabled={loadingAdjustments}
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-1 md:gap-2 text-xs md:text-sm"
                 >
-                  <RefreshCw className={`h-4 w-4 ${loadingAdjustments ? 'animate-spin' : ''}`} />
-                  Refresh
+                  <RefreshCw className={`h-3.5 w-3.5 md:h-4 md:w-4 ${loadingAdjustments ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Refresh</span>
                 </Button>
               </div>
             </div>
 
             {/* Search */}
-            <div className="mb-4">
+            <div className="mb-3 md:mb-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <Input
@@ -2294,7 +2665,7 @@ const Stocks = () => {
                   placeholder="Search by product name, reason, or notes..."
                   value={adjustmentSearchTerm}
                   onChange={(e) => setAdjustmentSearchTerm(e.target.value)}
-                  className="pl-10 w-full"
+                  className="pl-10 w-full text-sm"
                 />
               </div>
             </div>
@@ -2474,6 +2845,16 @@ const Stocks = () => {
                   <RefreshCw className={`h-4 w-4 ${loadingDeductions ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrintDeductionHistory}
+                  disabled={loadingDeductions || stockDeductions.length === 0}
+                  className="flex items-center gap-2"
+                >
+                  <Printer className="h-4 w-4" />
+                  Print
+                </Button>
               </div>
             </div>
 
@@ -2561,7 +2942,19 @@ const Stocks = () => {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            {deduction.source === 'transfer' ? (
+                            {deduction.source === 'salon-use' ? (
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                  Salon Use
+                                </span>
+                                <div className="flex flex-col">
+                                  <span className="text-sm text-gray-700">{deduction.clientName}</span>
+                                  {deduction.notes && (
+                                    <span className="text-xs text-gray-500 mt-0.5">{deduction.notes}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : deduction.source === 'transfer' ? (
                               <div className="flex items-center gap-2">
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                                   Transfer
@@ -2650,151 +3043,260 @@ const Stocks = () => {
           </Card>
         )}
 
-        {/* Search and Filters */}
-        <Card className="p-4 md:p-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <SearchInput
-                placeholder="Search by product name, brand, or UPC... (debounced for performance)"
+        {/* Filter Row */}
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="flex items-center gap-4">
+            {/* Search Bar */}
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by product, brand, or UPC..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
               />
-              {searchTerm !== debouncedSearchTerm && (
-                <p className="text-xs text-gray-500 mt-1">Searching...</p>
-              )}
             </div>
-            <div className="flex gap-2 md:gap-3 flex-wrap">
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Status</option>
-                <option value="High Stock">High Stock</option>
-                <option value="In Stock">In Stock</option>
-                <option value="Low Stock">Low Stock</option>
-                <option value="Out of Stock">Out of Stock</option>
-              </select>
-              <select
-                value={filters.usageType}
-                onChange={(e) => setFilters(prev => ({ ...prev, usageType: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Usage Types</option>
-                <option value="otc">OTC Only</option>
-                <option value="salon-use">Salon Use Only</option>
-              </select>
-              <Button
-                variant="outline"
-                onClick={() => setIsFilterModalOpen(true)}
-                className="flex items-center gap-2"
-              >
-                <Filter className="h-4 w-4" />
-                More Filters
-              </Button>
-            </div>
+
+            {/* Filter Button */}
+            <button
+              onClick={() => setIsFilterModalOpen(true)}
+              className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+                (filters.status !== 'all' || filters.category !== 'all' || 
+                 filters.stockRange.min || filters.stockRange.max || 
+                 filters.lowStock || filters.usageType !== 'all' || filters.batchNumber)
+                  ? 'bg-[#160B53]/10 border-[#160B53]/30 text-[#160B53] hover:bg-[#160B53]/20'
+                  : 'border-gray-300 hover:bg-gray-50'
+              }`}
+              title={`Filter - ${visibleStocks.length} stocks`}
+            >
+              <Filter className="w-5 h-5" />
+              <span className="bg-[#160B53] text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                {visibleStocks.length}
+              </span>
+            </button>
+
+            {/* Export Button */}
+            <button
+              onClick={handleExportStocks}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              title="Export Stocks Data"
+            >
+              <Download className="w-5 h-5 text-gray-600" />
+            </button>
+
+            {/* Print Button */}
+            <button
+              onClick={handlePrintReport}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              title="Print Report"
+            >
+              <Printer className="w-5 h-5 text-gray-600" />
+            </button>
+
+            {/* Show Deductions Button */}
+            <button
+              onClick={() => {
+                setShowDeductionHistory(!showDeductionHistory);
+                if (!showDeductionHistory) {
+                  loadStockDeductions();
+                }
+              }}
+              className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors ${
+                showDeductionHistory 
+                  ? 'bg-blue-50 border-blue-300 text-blue-700' 
+                  : 'border-gray-300 hover:bg-gray-50'
+              }`}
+              title="Show Deduction History"
+            >
+              <Activity className="w-5 h-5" />
+            </button>
+
+            {/* Show Adjustments Button */}
+            <button
+              onClick={() => {
+                setShowAdjustmentsHistory(!showAdjustmentsHistory);
+                if (!showAdjustmentsHistory) {
+                  loadStockAdjustments();
+                }
+              }}
+              className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors ${
+                showAdjustmentsHistory 
+                  ? 'bg-orange-50 border-orange-300 text-orange-700' 
+                  : 'border-gray-300 hover:bg-gray-50'
+              }`}
+              title="Show Adjustments History"
+            >
+              <AlertTriangle className="w-5 h-5" />
+            </button>
+
+            {/* Bulk Deduct Button */}
+            <button
+              onClick={() => {
+                // Get all salon-use stocks
+                const salonUseStocks = groupedStocks.filter(group => 
+                  group.usageType === 'salon-use' || 
+                  (group.batches && group.batches[0]?.usageType === 'salon-use')
+                );
+                
+                // Initialize bulk deduction items
+                const initialItems = salonUseStocks.map(group => {
+                  const stock = group.batches[0];
+                  const currentStock = getComputedStock(stock);
+                  return {
+                    stockId: stock.id || stock.stockId || '',
+                    productId: stock.productId || group.productId || '',
+                    productName: stock.productName || group.productName || stock.product?.name || 'Unknown Product',
+                    batchId: stock.batchId || stock.id || '',
+                    batchNumber: stock.batchNumber || group.batchNumber || 'N/A',
+                    currentStock: currentStock,
+                    quantity: ''
+                  };
+                });
+                
+                setBulkDeductionItems(initialItems);
+                setBulkDeductionReason('');
+                setBulkDeductionNotes('');
+                setBulkDeductionErrors({});
+                setIsBulkDeductionModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 border border-blue-300 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+              title="Bulk Deduct Salon Use Products"
+            >
+              <Minus className="w-5 h-5" />
+              <span className="hidden sm:inline">Bulk Deduct</span>
+            </button>
           </div>
-        </Card>
+        </div>
 
         {/* Stock Table */}
         <Card className="overflow-hidden">
-          <div className="overflow-x-auto -mx-4 md:mx-0">
-            <div className="inline-block min-w-full align-middle md:px-0">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Product / Batch
-                    </th>
-                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
-                      Beginning
-                    </th>
-                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Current
-                    </th>
-                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
-                      Status
-                    </th>
-                    <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {visibleStocks.map((groupData) => {
-                  const firstBatch = groupData.batches[0];
-                  const product = groupData.product;
-                  const productName = groupData.productName;
-                  const brand = groupData.brand;
-                  const upc = groupData.upc;
-                  const category = groupData.category;
-                  const isExpanded = expandedProducts.has(`${groupData.productId}_${groupData.usageType}`);
-                  const hasMultipleBatches = groupData.batches.length > 1 && !groupData.isNonBatch;
-                  
-                  // For non-batch stocks, render as before
-                  if (groupData.isNonBatch) {
-                    const stock = firstBatch;
-                    const currentStock = getComputedStock(stock);
-                    const monthLabel = stock.startPeriod ? format(new Date(stock.startPeriod), 'MMMM yyyy') : 'Unknown';
-                    
-                    return (
-                      <tr key={stock.id} className="hover:bg-gray-50">
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <div className="text-sm font-medium text-gray-900">{productName}</div>
-                              {stock.usageType && (
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${
-                                  stock.usageType === 'salon-use'
-                                    ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                                    : 'bg-green-100 text-green-800 border border-green-200'
-                                }`}>
-                                  {stock.usageType === 'salon-use' ? 'Salon Use' : 'OTC'}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-xs md:text-sm text-gray-500">{brand} • {upc}</div>
-                            <div className="text-xs text-gray-400 hidden md:block">{category}</div>
-                          </div>
-                        </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden md:table-cell">
-                          <div className="text-sm font-medium text-blue-900">{stock.beginningStock || 0}</div>
-                          <div className="text-xs text-blue-600">Beginning</div>
-                        </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{currentStock}</div>
-                          <div className="text-xs text-gray-500">{monthLabel}</div>
-                        </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(stock.status || 'In Stock')}`}>
-                            {getStatusIcon(stock.status || 'In Stock')}
-                            {stock.status || 'In Stock'}
-                          </span>
-                        </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => handleViewDetails(stock)} className="flex items-center gap-1">
-                              <Eye className="h-3 w-3" /> View
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => handleViewHistory(stock)} className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" /> History
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-                  
-                  // For batch stocks with grouping
-                  const firstBatchStock = getComputedStock(firstBatch);
-                  const firstBatchBeginningStock = firstBatch.beginningStock || 0;
-                  const firstBatchNumber = firstBatch.batchNumber || 'N/A';
-                  const firstBatchExpiration = firstBatch.expirationDate ? format(new Date(firstBatch.expirationDate), 'MMM dd, yyyy') : null;
-                  const firstBatchReceived = firstBatch.receivedDate ? format(new Date(firstBatch.receivedDate), 'MMM dd, yyyy') : null;
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-2 md:px-4 lg:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Product / Batch
+                  </th>
+                  <th className="px-2 md:px-4 lg:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                    Beginning
+                  </th>
+                  <th className="px-2 md:px-4 lg:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Current
+                  </th>
+                  <th className="px-2 md:px-4 lg:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
+                    Status
+                  </th>
+                  <th className="px-2 md:px-4 lg:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {visibleStocks.map((groupData) => {
+                const firstBatch = groupData.batches[0];
+                const product = groupData.product;
+                const productName = groupData.productName;
+                const brand = groupData.brand;
+                const upc = groupData.upc;
+                const category = groupData.category;
+                const isExpanded = expandedProducts.has(`${groupData.productId}_${groupData.usageType}`);
+                const hasMultipleBatches = groupData.batches.length > 1 && !groupData.isNonBatch;
+                
+                // For non-batch stocks, render as before
+                if (groupData.isNonBatch) {
+                  const stock = firstBatch;
+                  const currentStock = getComputedStock(stock);
+                  const monthLabel = stock.startPeriod ? format(new Date(stock.startPeriod), 'MMMM yyyy') : 'Unknown';
                   
                   return (
-                    <React.Fragment key={`${groupData.productId}_${groupData.usageType}`}>
+                    <tr key={stock.id} className="hover:bg-gray-50">
+                      <td className="px-2 md:px-4 lg:px-6 py-2 md:py-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1 md:gap-2 flex-wrap">
+                            <div className="text-xs md:text-sm font-medium text-gray-900 truncate">{productName}</div>
+                            {stock.usageType && (
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold ${
+                                stock.usageType === 'salon-use'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-green-100 text-green-800'
+                              }`}>
+                                {stock.usageType === 'salon-use' ? 'Salon' : 'OTC'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate">{brand} • {upc}</div>
+                          <div className="text-xs text-gray-400 hidden lg:block">{category}</div>
+                        </div>
+                      </td>
+                      <td className="px-2 md:px-4 lg:px-6 py-2 md:py-4 hidden lg:table-cell">
+                        <div className="text-sm font-medium text-blue-900">{stock.beginningStock || 0}</div>
+                        <div className="text-xs text-blue-600">Beginning</div>
+                      </td>
+                      <td className="px-2 md:px-4 lg:px-6 py-2 md:py-4">
+                        <div className="text-xs md:text-sm font-medium text-gray-900">{currentStock}</div>
+                        <div className="text-xs text-gray-500 hidden md:block">{monthLabel}</div>
+                      </td>
+                      <td className="px-2 md:px-4 lg:px-6 py-2 md:py-4 hidden md:table-cell">
+                        <span className={`inline-flex items-center gap-1 px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-xs font-medium ${getStatusColor(stock.status || 'In Stock')}`}>
+                          {getStatusIcon(stock.status || 'In Stock')}
+                          <span className="hidden lg:inline">{stock.status || 'In Stock'}</span>
+                        </span>
+                      </td>
+                      <td className="px-2 md:px-4 lg:px-6 py-2 md:py-4 text-sm font-medium">
+                        <div className="flex gap-1 md:gap-2">
+                          <button 
+                            onClick={() => handleViewDetails(stock)} 
+                            className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                            title="View details"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleViewHistory(stock)} 
+                            className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors hidden md:block"
+                            title="View history"
+                          >
+                            <Calendar className="h-4 w-4" />
+                          </button>
+                          {(() => {
+                            // Check if this is a salon-use product
+                            const stockUsageType = stock.usageType || groupData?.usageType || '';
+                            const isSalonUse = stockUsageType === 'salon-use';
+                            
+                            if (!isSalonUse) return null;
+                            
+                            return (
+                              <button 
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  console.log('Deduct button clicked for stock:', stock);
+                                  handleDeductSalonUse(stock);
+                                }} 
+                                className="p-1.5 text-blue-600 hover:text-blue-900 hover:bg-blue-100 rounded transition-colors"
+                                title="Deduct salon use stock"
+                                type="button"
+                              >
+                                <Minus className="h-4 w-4" />
+                              </button>
+                            );
+                          })()}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+                
+                // For batch stocks with grouping
+                const firstBatchStock = getComputedStock(firstBatch);
+                const firstBatchBeginningStock = firstBatch.beginningStock || 0;
+                const firstBatchNumber = firstBatch.batchNumber || 'N/A';
+                const firstBatchExpiration = firstBatch.expirationDate ? format(new Date(firstBatch.expirationDate), 'MMM dd, yyyy') : null;
+                const firstBatchReceived = firstBatch.receivedDate ? format(new Date(firstBatch.receivedDate), 'MMM dd, yyyy') : null;
+                
+                return (
+                  <React.Fragment key={`${groupData.productId}_${groupData.usageType}`}>
                       {/* Main row - First batch */}
                       <tr className="hover:bg-gray-50 bg-blue-50/30">
                         <td className="px-3 md:px-6 py-4 whitespace-nowrap">
@@ -2881,12 +3383,29 @@ const Stocks = () => {
                         </td>
                         <td className="px-3 md:px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => handleViewDetails(firstBatch)} className="flex items-center gap-1">
-                              <Eye className="h-3 w-3" /> View
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => handleViewHistory(firstBatch)} className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" /> History
-                            </Button>
+                            <button 
+                              onClick={() => handleViewDetails(firstBatch)} 
+                              className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                              title="View details"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleViewHistory(firstBatch)} 
+                              className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                              title="View history"
+                            >
+                              <Calendar className="h-4 w-4" />
+                            </button>
+                            {groupData.usageType === 'salon-use' && (
+                              <button 
+                                onClick={() => handleDeductSalonUse(firstBatch)} 
+                                className="p-1.5 text-blue-600 hover:text-blue-900 hover:bg-blue-100 rounded transition-colors"
+                                title="Deduct salon use stock"
+                              >
+                                <Minus className="h-4 w-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -2940,12 +3459,29 @@ const Stocks = () => {
                             </td>
                             <td className="px-3 md:px-6 py-4 whitespace-nowrap text-sm font-medium">
                               <div className="flex gap-2">
-                                <Button variant="outline" size="sm" onClick={() => handleViewDetails(batch)} className="flex items-center gap-1">
-                                  <Eye className="h-3 w-3" /> View
-                                </Button>
-                                <Button variant="outline" size="sm" onClick={() => handleViewHistory(batch)} className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" /> History
-                                </Button>
+                                <button 
+                                  onClick={() => handleViewDetails(batch)} 
+                                  className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                                  title="View details"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                                <button 
+                                  onClick={() => handleViewHistory(batch)} 
+                                  className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                                  title="View history"
+                                >
+                                  <Calendar className="h-4 w-4" />
+                                </button>
+                                {groupData.usageType === 'salon-use' && (
+                                  <button 
+                                    onClick={() => handleDeductSalonUse(batch)} 
+                                    className="p-1.5 text-blue-600 hover:text-blue-900 hover:bg-blue-100 rounded transition-colors"
+                                    title="Deduct salon use stock"
+                                  >
+                                    <Minus className="h-4 w-4" />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -2956,7 +3492,6 @@ const Stocks = () => {
                 })}
               </tbody>
             </table>
-          </div>
           </div>
           
           {/* Pagination Controls */}
@@ -3809,90 +4344,690 @@ const Stocks = () => {
           <Modal
             isOpen={isFilterModalOpen}
             onClose={() => setIsFilterModalOpen(false)}
-            title="Advanced Filters"
+            title="Filter Stocks"
             size="md"
           >
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                <select
-                  value={filters.category}
-                  onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="all">All Categories</option>
-                  {categories.map(category => (
-                    <option key={category} value={category}>{category}</option>
-                  ))}
-                </select>
+            <div className="space-y-6">
+              {/* Results Summary */}
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-sm text-gray-600">
+                  Showing <span className="font-semibold text-gray-900">{visibleStocks.length}</span> of <span className="font-semibold text-gray-900">{groupedStocks.length}</span> stocks
+                </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Stock Range</label>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-6">
+                {/* Status Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <select
+                    value={filters.status}
+                    onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="High Stock">High Stock</option>
+                    <option value="In Stock">In Stock</option>
+                    <option value="Low Stock">Low Stock</option>
+                    <option value="Out of Stock">Out of Stock</option>
+                  </select>
+                </div>
+
+                {/* Category Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                  <select
+                    value={filters.category}
+                    onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                  >
+                    <option value="all">All Categories</option>
+                    {categories.map(category => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Stock Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Stock Range</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      type="number"
+                      placeholder="Min Stock"
+                      value={filters.stockRange.min}
+                      onChange={(e) => setFilters(prev => ({ 
+                        ...prev, 
+                        stockRange: { ...prev.stockRange, min: e.target.value }
+                      }))}
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Max Stock"
+                      value={filters.stockRange.max}
+                      onChange={(e) => setFilters(prev => ({ 
+                        ...prev, 
+                        stockRange: { ...prev.stockRange, max: e.target.value }
+                      }))}
+                    />
+                  </div>
+                </div>
+
+                {/* Usage Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Usage Type</label>
+                  <select
+                    value={filters.usageType}
+                    onChange={(e) => setFilters(prev => ({ ...prev, usageType: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                  >
+                    <option value="all">All Usage Types</option>
+                    <option value="otc">OTC Only</option>
+                    <option value="salon-use">Salon Use Only</option>
+                  </select>
+                </div>
+
+                {/* Batch Number */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Batch Number</label>
                   <Input
-                    type="number"
-                    placeholder="Min Stock"
-                    value={filters.stockRange.min}
-                    onChange={(e) => setFilters(prev => ({ 
-                      ...prev, 
-                      stockRange: { ...prev.stockRange, min: e.target.value }
-                    }))}
+                    type="text"
+                    placeholder="Filter by batch number"
+                    value={filters.batchNumber}
+                    onChange={(e) => setFilters(prev => ({ ...prev, batchNumber: e.target.value }))}
+                    className="w-full"
                   />
-                  <Input
-                    type="number"
-                    placeholder="Max Stock"
-                    value={filters.stockRange.max}
-                    onChange={(e) => setFilters(prev => ({ 
-                      ...prev, 
-                      stockRange: { ...prev.stockRange, max: e.target.value }
-                    }))}
+                </div>
+
+                {/* Low Stock Checkbox */}
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="lowStock"
+                    checked={filters.lowStock}
+                    onChange={(e) => setFilters(prev => ({ ...prev, lowStock: e.target.checked }))}
+                    className="h-4 w-4 text-[#160B53] focus:ring-[#160B53] border-gray-300 rounded"
                   />
+                  <label htmlFor="lowStock" className="ml-2 block text-sm text-gray-900">
+                    Show only low stock items
+                  </label>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Usage Type</label>
-                <select
-                  value={filters.usageType}
-                  onChange={(e) => setFilters(prev => ({ ...prev, usageType: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              {/* Footer Buttons */}
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setFilters({
+                      status: 'all',
+                      category: 'all',
+                      stockRange: { min: '', max: '' },
+                      lowStock: false,
+                      usageType: 'all',
+                      batchNumber: ''
+                    });
+                  }}
                 >
-                  <option value="all">All Usage Types</option>
-                  <option value="otc">OTC Only</option>
-                  <option value="salon-use">Salon Use Only</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Batch Number</label>
-                <Input
-                  type="text"
-                  placeholder="Filter by batch number"
-                  value={filters.batchNumber}
-                  onChange={(e) => setFilters(prev => ({ ...prev, batchNumber: e.target.value }))}
-                  className="w-full"
-                />
-              </div>
-
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="lowStock"
-                  checked={filters.lowStock}
-                  onChange={(e) => setFilters(prev => ({ ...prev, lowStock: e.target.checked }))}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="lowStock" className="ml-2 block text-sm text-gray-900">
-                  Show only low stock items
-                </label>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4">
+                  Reset Filters
+                </Button>
                 <Button onClick={() => setIsFilterModalOpen(false)}>
                   Apply Filters
                 </Button>
               </div>
+            </div>
+          </Modal>
+        )}
+
+        {/* Manual Salon-Use Deduction Modal */}
+        {isSalonUseDeductionModalOpen && (
+          <Modal
+            isOpen={isSalonUseDeductionModalOpen}
+            onClose={() => {
+              setIsSalonUseDeductionModalOpen(false);
+              setSalonUseDeductionForm({
+                stockId: '',
+                productId: '',
+                productName: '',
+                batchId: '',
+                batchNumber: '',
+                currentStock: '',
+                quantity: '',
+                reason: '',
+                notes: ''
+              });
+              setSalonUseDeductionErrors({});
+            }}
+            title="Deduct Salon Use Stock"
+            size="md"
+          >
+            <div className="space-y-6">
+              {/* Product Info */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 mb-2">{salonUseDeductionForm.productName}</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-blue-700">Batch:</span>
+                    <span className="ml-2 font-medium text-blue-900">{salonUseDeductionForm.batchNumber}</span>
+                  </div>
+                  <div>
+                    <span className="text-blue-700">Current Stock:</span>
+                    <span className="ml-2 font-medium text-blue-900">{salonUseDeductionForm.currentStock} units</span>
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+                    Salon Use Only - Manual Counting Required
+                  </span>
+                </div>
+              </div>
+
+              {/* Quantity */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Quantity to Deduct <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="number"
+                  min="1"
+                  max={salonUseDeductionForm.currentStock}
+                  step="1"
+                  placeholder="Enter quantity to deduct"
+                  value={salonUseDeductionForm.quantity}
+                  onChange={(e) => {
+                    const qty = e.target.value;
+                    setSalonUseDeductionForm(prev => ({ ...prev, quantity: qty }));
+                    setSalonUseDeductionErrors(prev => ({ ...prev, quantity: '' }));
+                  }}
+                  className={salonUseDeductionErrors.quantity ? 'border-red-500' : ''}
+                />
+                {salonUseDeductionErrors.quantity && (
+                  <p className="text-xs text-red-500 mt-1">{salonUseDeductionErrors.quantity}</p>
+                )}
+                {salonUseDeductionForm.quantity && parseInt(salonUseDeductionForm.quantity) > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    New stock after deduction: <span className="font-medium text-gray-900">
+                      {Math.max(0, parseInt(salonUseDeductionForm.currentStock) - parseInt(salonUseDeductionForm.quantity))} units
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Reason <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="text"
+                  placeholder="e.g., Service: Haircut for Client X, or Manual count adjustment"
+                  value={salonUseDeductionForm.reason}
+                  onChange={(e) => {
+                    setSalonUseDeductionForm(prev => ({ ...prev, reason: e.target.value }));
+                    setSalonUseDeductionErrors(prev => ({ ...prev, reason: '' }));
+                  }}
+                  className={salonUseDeductionErrors.reason ? 'border-red-500' : ''}
+                />
+                {salonUseDeductionErrors.reason && (
+                  <p className="text-xs text-red-500 mt-1">{salonUseDeductionErrors.reason}</p>
+                )}
+                <p className="text-xs text-gray-500 mt-1">Required for audit trail</p>
+              </div>
+
+              {/* Notes (Optional) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Additional details about this deduction..."
+                  value={salonUseDeductionForm.notes}
+                  onChange={(e) => setSalonUseDeductionForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] resize-none"
+                />
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setIsSalonUseDeductionModalOpen(false);
+                    setSalonUseDeductionForm({
+                      stockId: '',
+                      productId: '',
+                      productName: '',
+                      batchId: '',
+                      batchNumber: '',
+                      currentStock: '',
+                      quantity: '',
+                      reason: '',
+                      notes: ''
+                    });
+                    setSalonUseDeductionErrors({});
+                  }}
+                  disabled={isSubmittingDeduction}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={async () => {
+                    // Validation
+                    const errors = {};
+                    
+                    if (!salonUseDeductionForm.quantity || parseInt(salonUseDeductionForm.quantity) <= 0) {
+                      errors.quantity = 'Quantity must be greater than 0';
+                    } else if (parseInt(salonUseDeductionForm.quantity) > parseInt(salonUseDeductionForm.currentStock)) {
+                      errors.quantity = `Cannot deduct more than current stock (${salonUseDeductionForm.currentStock} units)`;
+                    }
+                    
+                    if (!salonUseDeductionForm.reason || salonUseDeductionForm.reason.trim() === '') {
+                      errors.reason = 'Reason is required';
+                    }
+                    
+                    if (Object.keys(errors).length > 0) {
+                      setSalonUseDeductionErrors(errors);
+                      return;
+                    }
+                    
+                    try {
+                      setIsSubmittingDeduction(true);
+                      setSalonUseDeductionErrors({});
+                      
+                      // Deduct using inventoryService
+                      const deductionResult = await inventoryService.deductStockFIFO({
+                        branchId: userData?.branchId,
+                        productId: salonUseDeductionForm.productId,
+                        quantity: parseInt(salonUseDeductionForm.quantity),
+                        reason: salonUseDeductionForm.reason,
+                        notes: salonUseDeductionForm.notes || `Manual salon-use deduction. ${salonUseDeductionForm.reason}`,
+                        createdBy: userData?.uid || 'system',
+                        productName: salonUseDeductionForm.productName,
+                        usageType: 'salon-use', // Only deduct from salon-use batches
+                        batches: salonUseDeductionForm.batchId ? [{ batchId: salonUseDeductionForm.batchId }] : undefined
+                      });
+                      
+                      if (!deductionResult.success) {
+                        setSalonUseDeductionErrors({ general: deductionResult.message || 'Failed to deduct stock. Please try again.' });
+                        setIsSubmittingDeduction(false);
+                        return;
+                      }
+                      
+                      // Log activity
+                      await activityServiceLogActivity({
+                        action: 'salon_use_deduction',
+                        performedBy: userData?.uid,
+                        targetUser: null,
+                        branchId: userData?.branchId,
+                        details: {
+                          stockId: salonUseDeductionForm.stockId,
+                          productId: salonUseDeductionForm.productId,
+                          productName: salonUseDeductionForm.productName,
+                          batchNumber: salonUseDeductionForm.batchNumber,
+                          quantity: parseInt(salonUseDeductionForm.quantity),
+                          previousStock: parseInt(salonUseDeductionForm.currentStock),
+                          newStock: parseInt(salonUseDeductionForm.currentStock) - parseInt(salonUseDeductionForm.quantity),
+                          reason: salonUseDeductionForm.reason,
+                          notes: salonUseDeductionForm.notes
+                        }
+                      });
+                      
+                      // Reset form and close modal
+                      setSalonUseDeductionForm({
+                        stockId: '',
+                        productId: '',
+                        productName: '',
+                        batchId: '',
+                        batchNumber: '',
+                        currentStock: '',
+                        quantity: '',
+                        reason: '',
+                        notes: ''
+                      });
+                      setIsSalonUseDeductionModalOpen(false);
+                      
+                      // Reload stocks
+                      await reloadStocks();
+                      
+                      toast.success(`Successfully deducted ${salonUseDeductionForm.quantity} units from salon-use stock`);
+                    } catch (error) {
+                      console.error('Error deducting salon-use stock:', error);
+                      setSalonUseDeductionErrors({ general: 'Failed to deduct stock. Please try again.' });
+                    } finally {
+                      setIsSubmittingDeduction(false);
+                    }
+                  }}
+                  disabled={isSubmittingDeduction}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {isSubmittingDeduction ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Minus className="h-4 w-4 mr-2" />
+                      Deduct Stock
+                    </>
+                  )}
+                </Button>
+              </div>
+              
+              {salonUseDeductionErrors.general && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-700">{salonUseDeductionErrors.general}</p>
+                </div>
+              )}
+            </div>
+          </Modal>
+        )}
+
+        {/* Bulk Salon-Use Deduction Modal */}
+        {isBulkDeductionModalOpen && (
+          <Modal
+            isOpen={isBulkDeductionModalOpen}
+            onClose={() => {
+              setIsBulkDeductionModalOpen(false);
+              setBulkDeductionItems([]);
+              setBulkDeductionReason('');
+              setBulkDeductionNotes('');
+              setBulkDeductionErrors({});
+            }}
+            title="Bulk Deduct Salon Use Products"
+            size="xl"
+          >
+            <div className="space-y-6">
+              {/* Info Banner */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-semibold text-blue-900 mb-1">Bulk Deduction for Salon Use Products</h4>
+                    <p className="text-sm text-blue-700">
+                      Enter quantities to deduct for each product. All deductions will be processed together with a single reason.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reason (Required) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Reason for All Deductions <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="text"
+                  placeholder="e.g., Weekly usage for week of Jan 1-7, 2026"
+                  value={bulkDeductionReason}
+                  onChange={(e) => {
+                    setBulkDeductionReason(e.target.value);
+                    setBulkDeductionErrors(prev => ({ ...prev, reason: '' }));
+                  }}
+                  className={bulkDeductionErrors.reason ? 'border-red-500' : ''}
+                />
+                {bulkDeductionErrors.reason && (
+                  <p className="text-xs text-red-500 mt-1">{bulkDeductionErrors.reason}</p>
+                )}
+                <p className="text-xs text-gray-500 mt-1">This reason will apply to all deductions</p>
+              </div>
+
+              {/* Products List */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Products to Deduct ({bulkDeductionItems.filter(item => item.quantity && parseInt(item.quantity) > 0).length} selected)
+                </label>
+                <div className="border border-gray-200 rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Product
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Batch
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Current Stock
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Quantity to Deduct
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          New Stock
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {bulkDeductionItems.map((item, index) => {
+                        const quantity = parseInt(item.quantity) || 0;
+                        const newStock = Math.max(0, item.currentStock - quantity);
+                        const hasError = quantity > item.currentStock;
+                        
+                        return (
+                          <tr key={index} className={hasError ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                            <td className="px-4 py-3">
+                              <div className="text-sm font-medium text-gray-900">{item.productName}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm text-gray-600">{item.batchNumber}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm text-gray-900">{item.currentStock} units</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Input
+                                type="number"
+                                min="0"
+                                max={item.currentStock}
+                                step="1"
+                                placeholder="0"
+                                value={item.quantity}
+                                onChange={(e) => {
+                                  const newItems = [...bulkDeductionItems];
+                                  newItems[index].quantity = e.target.value;
+                                  setBulkDeductionItems(newItems);
+                                }}
+                                className={`w-24 ${hasError ? 'border-red-500' : ''}`}
+                              />
+                              {hasError && (
+                                <p className="text-xs text-red-500 mt-1">Exceeds stock</p>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className={`text-sm font-medium ${hasError ? 'text-red-600' : 'text-gray-900'}`}>
+                                {newStock} units
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {bulkDeductionItems.length === 0 && (
+                        <tr>
+                          <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                            <Package className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                            <p>No salon-use products found</p>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Summary */}
+              {bulkDeductionItems.filter(item => item.quantity && parseInt(item.quantity) > 0).length > 0 && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-900 mb-2">Summary</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Products to Deduct:</span>
+                      <span className="ml-2 font-medium text-gray-900">
+                        {bulkDeductionItems.filter(item => item.quantity && parseInt(item.quantity) > 0).length}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Total Quantity:</span>
+                      <span className="ml-2 font-medium text-red-600">
+                        -{bulkDeductionItems.reduce((sum, item) => sum + (parseInt(item.quantity) || 0), 0)} units
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Notes (Optional) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Additional details about this bulk deduction..."
+                  value={bulkDeductionNotes}
+                  onChange={(e) => setBulkDeductionNotes(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] resize-none"
+                />
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setIsBulkDeductionModalOpen(false);
+                    setBulkDeductionItems([]);
+                    setBulkDeductionReason('');
+                    setBulkDeductionNotes('');
+                    setBulkDeductionErrors({});
+                  }}
+                  disabled={isSubmittingBulkDeduction}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={async () => {
+                    // Validation
+                    const errors = {};
+                    
+                    if (!bulkDeductionReason || bulkDeductionReason.trim() === '') {
+                      errors.reason = 'Reason is required';
+                    }
+                    
+                    const itemsToDeduct = bulkDeductionItems.filter(item => 
+                      item.quantity && parseInt(item.quantity) > 0
+                    );
+                    
+                    if (itemsToDeduct.length === 0) {
+                      errors.general = 'Please enter at least one quantity to deduct';
+                    }
+                    
+                    // Check for quantity errors
+                    const hasQuantityErrors = itemsToDeduct.some(item => 
+                      parseInt(item.quantity) > item.currentStock
+                    );
+                    
+                    if (hasQuantityErrors) {
+                      errors.general = 'Some quantities exceed available stock. Please adjust.';
+                    }
+                    
+                    if (Object.keys(errors).length > 0) {
+                      setBulkDeductionErrors(errors);
+                      return;
+                    }
+                    
+                    try {
+                      setIsSubmittingBulkDeduction(true);
+                      setBulkDeductionErrors({});
+                      
+                      // Process all deductions
+                      const deductionPromises = itemsToDeduct.map(async (item) => {
+                        const deductionResult = await inventoryService.deductStockFIFO({
+                          branchId: userData?.branchId,
+                          productId: item.productId,
+                          quantity: parseInt(item.quantity),
+                          reason: bulkDeductionReason,
+                          notes: bulkDeductionNotes || `Bulk deduction: ${bulkDeductionReason}`,
+                          createdBy: userData?.uid || 'system',
+                          productName: item.productName,
+                          usageType: 'salon-use',
+                          batches: item.batchId ? [{ batchId: item.batchId }] : undefined
+                        });
+                        
+                        if (!deductionResult.success) {
+                          throw new Error(`${item.productName}: ${deductionResult.message}`);
+                        }
+                        
+                        // Log activity
+                        await activityServiceLogActivity({
+                          action: 'salon_use_deduction',
+                          performedBy: userData?.uid,
+                          targetUser: null,
+                          branchId: userData?.branchId,
+                          details: {
+                            stockId: item.stockId,
+                            productId: item.productId,
+                            productName: item.productName,
+                            batchNumber: item.batchNumber,
+                            quantity: parseInt(item.quantity),
+                            previousStock: item.currentStock,
+                            newStock: item.currentStock - parseInt(item.quantity),
+                            reason: bulkDeductionReason,
+                            notes: bulkDeductionNotes,
+                            isBulkDeduction: true
+                          }
+                        });
+                        
+                        return { success: true, productName: item.productName, quantity: parseInt(item.quantity) };
+                      });
+                      
+                      const results = await Promise.all(deductionPromises);
+                      
+                      // Reset form and close modal
+                      setBulkDeductionItems([]);
+                      setBulkDeductionReason('');
+                      setBulkDeductionNotes('');
+                      setIsBulkDeductionModalOpen(false);
+                      
+                      // Reload stocks
+                      await reloadStocks();
+                      
+                      const totalQuantity = results.reduce((sum, r) => sum + r.quantity, 0);
+                      toast.success(`Successfully deducted ${totalQuantity} units from ${results.length} salon-use product(s)`);
+                    } catch (error) {
+                      console.error('Error in bulk deduction:', error);
+                      setBulkDeductionErrors({ general: error.message || 'Failed to process bulk deduction. Please try again.' });
+                    } finally {
+                      setIsSubmittingBulkDeduction(false);
+                    }
+                  }}
+                  disabled={isSubmittingBulkDeduction}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {isSubmittingBulkDeduction ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Minus className="h-4 w-4 mr-2" />
+                      Deduct All ({bulkDeductionItems.filter(item => item.quantity && parseInt(item.quantity) > 0).length} items)
+                    </>
+                  )}
+                </Button>
+              </div>
+              
+              {bulkDeductionErrors.general && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-700">{bulkDeductionErrors.general}</p>
+                </div>
+              )}
+              {bulkDeductionErrors.reason && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-700">{bulkDeductionErrors.reason}</p>
+                </div>
+              )}
             </div>
           </Modal>
         )}

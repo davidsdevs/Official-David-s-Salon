@@ -33,9 +33,12 @@ import {
   X,
   Plus,
   Trash2,
-  Receipt
+  Receipt,
+  Download,
+  Printer
 } from 'lucide-react';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 
 const Deposits = () => {
   const { userData } = useAuth();
@@ -51,6 +54,7 @@ const Deposits = () => {
   const [validationFilter, setValidationFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [dateFilterType, setDateFilterType] = useState('all'); // 'all', 'today', 'thisWeek', 'thisMonth', 'custom'
   const [sortBy, setSortBy] = useState('date'); // 'date', 'amount', 'difference'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
   
@@ -78,6 +82,10 @@ const Deposits = () => {
   
   // Expenses/Justifications state
   const [expenses, setExpenses] = useState([]);
+  
+  // Filter modal state
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showDuplicateWarningModal, setShowDuplicateWarningModal] = useState(false);
 
   // Load deposits
   const loadDeposits = async () => {
@@ -180,10 +188,29 @@ const Deposits = () => {
     setFilteredDeposits(filtered);
   }, [deposits, searchTerm, statusFilter, validationFilter, dateFrom, dateTo, sortBy, sortOrder]);
 
-  // Get daily sales total when deposit date changes
+  // Get daily sales total when deposit date changes and check for duplicates
   useEffect(() => {
     const fetchDailySales = async () => {
       if (!userData?.branchId || !depositDate) return;
+      
+      // Check for duplicate deposit immediately when date changes
+      if (checkDuplicateDeposit(depositDate)) {
+        setError(`A deposit already exists for ${format(new Date(depositDate), 'MMMM dd, yyyy')}. You cannot submit another deposit for this date.`);
+        // Show modal immediately when duplicate date is selected
+        setShowDuplicateWarningModal(true);
+      } else {
+        // Clear duplicate error and close modal if date is valid (but keep other errors)
+        setError(prevError => {
+          if (prevError && prevError.includes('already exists')) {
+            return '';
+          }
+          return prevError;
+        });
+        // Close modal if it was open for duplicate
+        if (showDuplicateWarningModal) {
+          setShowDuplicateWarningModal(false);
+        }
+      }
       
       try {
         const salesTotal = await depositService.getDailySalesTotal(
@@ -197,7 +224,7 @@ const Deposits = () => {
     };
 
     fetchDailySales();
-  }, [depositDate, userData?.branchId]);
+  }, [depositDate, userData?.branchId, deposits.length]);
 
   // Handle image upload
   const handleImageUpload = async (e) => {
@@ -403,9 +430,20 @@ const Deposits = () => {
   };
 
   // Handle form submission
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  // Check if deposit exists for the selected date
+  const checkDuplicateDeposit = (date) => {
+    const selectedDate = new Date(date);
+    selectedDate.setHours(0, 0, 0, 0);
     
+    return deposits.some(deposit => {
+      const depositDate = new Date(deposit.depositDate);
+      depositDate.setHours(0, 0, 0, 0);
+      return depositDate.getTime() === selectedDate.getTime();
+    });
+  };
+
+  // Actual deposit submission function
+  const submitDeposit = async () => {
     if (!userData?.branchId) {
       setError('Branch ID not found');
       return;
@@ -513,15 +551,59 @@ const Deposits = () => {
       // Reset form
       resetForm();
       setIsModalOpen(false);
+      setShowDuplicateWarningModal(false);
       await loadDeposits();
       
-      alert('Deposit submitted successfully!');
+      toast.success('Deposit submitted successfully!');
     } catch (err) {
       console.error('Error submitting deposit:', err);
       setError(err.message || 'Failed to submit deposit');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Handle form submission with duplicate check
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!userData?.branchId) {
+      setError('Branch ID not found');
+      return;
+    }
+
+    if (!depositDate) {
+      setError('Please select deposit date');
+      return;
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      setError('Please enter a valid deposit amount');
+      return;
+    }
+
+    if (!receiptImage) {
+      setError('Please upload receipt image');
+      return;
+    }
+
+    // Check for duplicate deposit - STOP submission if exists
+    if (checkDuplicateDeposit(depositDate)) {
+      const existingDeposit = deposits.find(deposit => {
+        const depositDateObj = new Date(deposit.depositDate);
+        depositDateObj.setHours(0, 0, 0, 0);
+        const selectedDateObj = new Date(depositDate);
+        selectedDateObj.setHours(0, 0, 0, 0);
+        return depositDateObj.getTime() === selectedDateObj.getTime();
+      });
+      
+      setShowDuplicateWarningModal(true);
+      setError(`A deposit already exists for ${format(new Date(depositDate), 'MMMM dd, yyyy')}. You cannot submit another deposit for this date.`);
+      return;
+    }
+
+    // No duplicate, proceed with submission
+    await submitDeposit();
   };
 
   // Reset form
@@ -617,248 +699,390 @@ const Deposits = () => {
     }
   };
 
-  return (
+  // Helper function to get date range based on preset type
+  const getDateRange = (type) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     
-    <div className="max-w-7xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Bank Deposits</h1>
-          <p className="text-gray-600">Submit daily deposit receipts for validation</p>
-        </div>
-        <Button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-[#160B53] text-white hover:bg-[#12094A] flex items-center gap-2"
-        >
-          <Upload className="h-4 w-4" />
-          Submit Deposit
-        </Button>
-      </div>
+    switch (type) {
+      case 'today':
+        return {
+          startDate: today.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      case 'thisWeek':
+        const thisWeekStart = new Date(today);
+        thisWeekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
+        return {
+          startDate: thisWeekStart.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
 
-      {/* Filters and Search */}
-      <Card className="p-6">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Filters & Search</h3>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setSearchTerm('');
+      case 'thisMonth':
+        const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        return {
+          startDate: thisMonthStart.toISOString().split('T')[0],
+          endDate: today.toISOString().split('T')[0]
+        };
+      
+      default:
+        return { startDate: '', endDate: '' };
+    }
+  };
+
+  // Handle date filter type change
+  const handleDateFilterTypeChange = (type) => {
+    setDateFilterType(type);
+    if (type === 'all') {
+      setDateFrom('');
+      setDateTo('');
+    } else if (type !== 'custom') {
+      const range = getDateRange(type);
+      setDateFrom(range.startDate);
+      setDateTo(range.endDate);
+    }
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
                 setStatusFilter('all');
                 setValidationFilter('all');
                 setDateFrom('');
                 setDateTo('');
-                setSortBy('date');
-                setSortOrder('desc');
-              }}
-              className="flex items-center gap-2"
-            >
-              <X className="h-4 w-4" />
-              Clear All
-            </Button>
+    setDateFilterType('all');
+  };
+
+  // Check if filters are active
+  const hasActiveFilters = statusFilter !== 'all' || validationFilter !== 'all' || dateFilterType !== 'all' || dateFrom || dateTo;
+
+  // Export handler
+  const handleExportData = async () => {
+    try {
+      if (!filteredDeposits || filteredDeposits.length === 0) {
+        toast.error('No deposit data to export');
+        return;
+      }
+
+      // Create CSV content
+      const headers = [
+        'Date',
+        'Amount',
+        'Daily Sales',
+        'Expenses',
+        'Difference',
+        'Bank Name',
+        'Account Number',
+        'Reference Number',
+        'Validation Status',
+        'Status',
+        'Submitted By',
+        'Notes'
+      ];
+
+      const csvRows = [headers.join(',')];
+
+      filteredDeposits.forEach(deposit => {
+        const dateStr = format(new Date(deposit.depositDate), 'MMM dd, yyyy');
+        
+        const row = [
+          `"${dateStr}"`,
+          `"${deposit.amount || 0}"`,
+          `"${deposit.dailySalesTotal || 0}"`,
+          `"${deposit.totalExpenses || 0}"`,
+          `"${deposit.difference || 0}"`,
+          `"${deposit.bankName || 'N/A'}"`,
+          `"${deposit.accountNumber || 'N/A'}"`,
+          `"${deposit.referenceNumber || 'N/A'}"`,
+          `"${deposit.validationStatus || 'pending'}"`,
+          `"${deposit.status || 'submitted'}"`,
+          `"${deposit.submittedByName || 'N/A'}"`,
+          `"${(deposit.notes || '').replace(/"/g, '""')}"`
+        ];
+
+        csvRows.push(row.join(','));
+      });
+
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+
+      if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `deposits_export_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('Deposits exported successfully');
+      }
+    } catch (error) {
+      console.error('Error exporting deposits:', error);
+      toast.error('Failed to export deposits');
+    }
+  };
+
+  // Print handler - prints only the data table
+  const handlePrintReport = () => {
+    try {
+      // Create print window
+      const printWindow = window.open('', '_blank', 'width=1200,height=800');
+      if (!printWindow) {
+        toast.error('Please allow pop-ups to print the report');
+        return;
+      }
+
+      // Generate deposit rows
+      const depositRows = filteredDeposits.map(deposit => {
+        const dateStr = format(new Date(deposit.depositDate), 'MMM dd, yyyy');
+        const status = deposit.status === 'approved' ? 'Approved' :
+                      deposit.status === 'rejected' ? 'Rejected' : 'Pending';
+        const validationStatus = deposit.validationStatus === 'match' ? 'Match' :
+                                deposit.validationStatus === 'mismatch' ? 'Mismatch' :
+                                deposit.validationStatus === 'manual_review' ? 'Review Needed' : 'Pending';
+
+        return `
+          <tr>
+            <td>${dateStr}</td>
+            <td>₱${(deposit.amount || 0).toLocaleString()}</td>
+            <td>₱${(deposit.dailySalesTotal || 0).toLocaleString()}</td>
+            <td>₱${(deposit.totalExpenses || 0).toLocaleString()}</td>
+            <td>${deposit.difference >= 0 ? '+' : ''}₱${Math.abs(deposit.difference || 0).toFixed(2)}</td>
+            <td>${deposit.bankName || 'N/A'}</td>
+            <td>${deposit.referenceNumber || 'N/A'}</td>
+            <td>${validationStatus}</td>
+            <td>${status}</td>
+            <td>${deposit.submittedByName || 'N/A'}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const printContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Deposits Report</title>
+          <meta charset="utf-8">
+          <style>
+            @media print {
+              @page {
+                size: A4 landscape;
+                margin: 1cm;
+              }
+            }
+            * {
+              font-family: Arial, sans-serif;
+              box-sizing: border-box;
+            }
+            body {
+              margin: 0;
+              padding: 20px;
+              font-size: 11px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+            }
+            thead {
+              background: #000;
+              color: white;
+            }
+            th {
+              padding: 8px;
+              text-align: left;
+              font-weight: 600;
+              border: 1px solid #000;
+            }
+            td {
+              padding: 6px;
+              border: 1px solid #ccc;
+            }
+            tbody tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            @media print {
+              .no-print {
+                display: none;
+                  }
+            }
+          </style>
+        </head>
+        <body>
+          <h2 style="margin-bottom: 10px;">Bank Deposits Report</h2>
+          <p style="margin-bottom: 10px; color: #666;">Generated: ${new Date().toLocaleString()}</p>
+          
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Daily Sales</th>
+                <th>Expenses</th>
+                <th>Difference</th>
+                <th>Bank Name</th>
+                <th>Reference Number</th>
+                <th>Validation</th>
+                <th>Status</th>
+                <th>Submitted By</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${depositRows || '<tr><td colspan="10" style="text-align: center; padding: 20px;">No deposits found</td></tr>'}
+            </tbody>
+          </table>
+
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+                window.onafterprint = function() {
+                  window.close();
+                };
+              }, 250);
+            };
+          </script>
+        </body>
+        </html>
+      `;
+
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      toast.success('Opening print preview...');
+    } catch (error) {
+      console.error('Error generating print report:', error);
+      toast.error('Failed to generate print report');
+                  }
+  };
+
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Bank Deposits</h1>
+          <p className="text-gray-600">Submit daily deposit receipts for validation</p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            onClick={() => setIsModalOpen(true)}
+            className="bg-[#160B53] text-white hover:bg-[#12094A] flex items-center gap-2"
+              >
+            <Upload className="h-4 w-4" />
+            Submit Deposit
+              </Button>
+            </div>
           </div>
-            
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-            {/* Search */}
-            <div className="lg:col-span-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  type="text"
-                  placeholder="Search by reference, bank, notes..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
 
-            {/* Status Filter */}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
             <div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-              >
-                <option value="all">All Status</option>
-                <option value="submitted">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
+              <p className="text-sm text-gray-600">Total Deposits</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{deposits.length}</p>
+              <p className="text-xs text-gray-500 mt-1">of {filteredDeposits.length} filtered</p>
             </div>
-
-            {/* Validation Filter */}
-            <div>
-              <select
-                value={validationFilter}
-                onChange={(e) => setValidationFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-              >
-                <option value="all">All Validation</option>
-                <option value="match">Match</option>
-                <option value="mismatch">Mismatch</option>
-                <option value="manual_review">Review Needed</option>
-              </select>
-            </div>
-
-            {/* Date From */}
-            <div>
-              <Input
-                type="date"
-                placeholder="From Date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
-            </div>
-
-            {/* Date To */}
-            <div>
-              <Input
-                type="date"
-                placeholder="To Date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
-            </div>
+            <div className="p-3 bg-blue-100 rounded-lg">
+              <Banknote className="w-6 h-6 text-blue-600" />
           </div>
-
-          {/* Sort Options */}
-          <div className="flex items-center gap-4 flex-wrap">
-            <span className="text-sm font-medium text-gray-700">Sort by:</span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant={sortBy === 'date' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  if (sortBy === 'date') {
-                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                  } else {
-                    setSortBy('date');
-                    setSortOrder('desc');
-                  }
-                }}
-                className="flex items-center gap-1"
-              >
-                Date
-                {sortBy === 'date' && (sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
-              </Button>
-              <Button
-                variant={sortBy === 'amount' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  if (sortBy === 'amount') {
-                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                  } else {
-                    setSortBy('amount');
-                    setSortOrder('desc');
-                  }
-                }}
-                className="flex items-center gap-1"
-              >
-                Amount
-                {sortBy === 'amount' && (sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
-              </Button>
-              <Button
-                variant={sortBy === 'difference' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  if (sortBy === 'difference') {
-                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                  } else {
-                    setSortBy('difference');
-                    setSortOrder('desc');
-                  }
-                }}
-                className="flex items-center gap-1"
-              >
-                Difference
-                {sortBy === 'difference' && (sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
-              </Button>
-            </div>
-            <span className="text-xs text-gray-500">
-              Showing {filteredDeposits.length} of {deposits.length} deposits
-            </span>
           </div>
         </div>
-      </Card>
-
-      {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Deposits</p>
-              <p className="text-2xl font-bold text-gray-900">{deposits.length}</p>
-            </div>
-            <Banknote className="h-8 w-8 text-blue-600" />
-          </div>
-        </Card>
           
-        <Card className="p-6">
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Approved</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm text-gray-600">Approved</p>
+              <p className="text-2xl font-bold text-green-600 mt-1">
                 {deposits.filter(d => d.status === 'approved').length}
               </p>
             </div>
-            <CheckCircle className="h-8 w-8 text-green-600" />
+            <div className="p-3 bg-green-100 rounded-lg">
+              <CheckCircle className="w-6 h-6 text-green-600" />
           </div>
-        </Card>
+          </div>
+        </div>
           
-        <Card className="p-6">
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Pending</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-2xl font-bold text-yellow-600 mt-1">
                 {deposits.filter(d => d.status === 'submitted').length}
               </p>
             </div>
-            <AlertTriangle className="h-8 w-8 text-yellow-600" />
+            <div className="p-3 bg-yellow-100 rounded-lg">
+              <AlertTriangle className="w-6 h-6 text-yellow-600" />
           </div>
-        </Card>
+          </div>
+        </div>
           
-        <Card className="p-6">
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Total Amount</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm text-gray-600">Total Amount</p>
+              <p className="text-2xl font-bold text-purple-600 mt-1">
                 ₱{deposits.reduce((sum, d) => sum + (d.amount || 0), 0).toLocaleString()}
               </p>
             </div>
-            <TrendingUp className="h-8 w-8 text-purple-600" />
+            <div className="p-3 bg-purple-100 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-purple-600" />
           </div>
-        </Card>
-
-        {/* Net Sales Card - Total Sales - Justified Expenses */}
-        <Card className="p-6 bg-gradient-to-br from-green-50 to-blue-50 border-2 border-green-200">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-700 mb-1">Net Sales</p>
-              <p className="text-xs text-gray-600 mb-2">Sales - Expenses</p>
-              <p className="text-2xl font-bold text-green-700">
-                ₱{(() => {
-                  const totalSales = deposits.reduce((sum, d) => sum + (d.dailySalesTotal || 0), 0);
-                  const totalExpenses = deposits.reduce((sum, d) => sum + (d.totalExpenses || 0), 0);
-                  const netSales = totalSales - totalExpenses;
-                  return netSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                })()}
-              </p>
-              <div className="mt-2 space-y-1">
-                <p className="text-xs text-gray-600">
-                  Sales: ₱{deposits.reduce((sum, d) => sum + (d.dailySalesTotal || 0), 0).toLocaleString()}
-                </p>
-                <p className="text-xs text-orange-600">
-                  Expenses: ₱{deposits.reduce((sum, d) => sum + (d.totalExpenses || 0), 0).toLocaleString()}
-                </p>
               </div>
             </div>
-            <div className="bg-green-100 p-3 rounded-lg">
-              <TrendingDown className="h-8 w-8 text-green-600" />
             </div>
+
+      {/* Filters and Actions */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search deposits..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
           </div>
-        </Card>
+
+          {/* Filter Button */}
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+              hasActiveFilters
+                ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredDeposits.length} deposits`}
+          >
+            <Filter className="w-5 h-5" />
+            <span className="bg-primary-600 text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+              {filteredDeposits.length}
+            </span>
+          </button>
+
+          {/* Export Button */}
+          <button
+            onClick={handleExportData}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Export Deposits Data"
+          >
+            <Download className="w-5 h-5 text-gray-600" />
+          </button>
+
+          {/* Print Button */}
+          <button
+            onClick={handlePrintReport}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Print Report"
+          >
+            <Printer className="w-5 h-5 text-gray-600" />
+          </button>
+        </div>
       </div>
 
       {/* Deposits Table */}
@@ -1590,8 +1814,8 @@ const Deposits = () => {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={isSubmitting}
-                  className="bg-[#160B53] text-white hover:bg-[#12094A]"
+                  disabled={isSubmitting || checkDuplicateDeposit(depositDate)}
+                  className="bg-[#160B53] text-white hover:bg-[#12094A] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmitting ? (
                     <>
@@ -1772,6 +1996,164 @@ const Deposits = () => {
           </div>
         </div>
       )}
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">Filter Deposits</h2>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="submitted">Pending</option>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Validation Status</label>
+                    <select
+                      value={validationFilter}
+                      onChange={(e) => setValidationFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="all">All Validation</option>
+                      <option value="match">Match</option>
+                      <option value="mismatch">Mismatch</option>
+                      <option value="manual_review">Review Needed</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
+                    <select
+                      value={dateFilterType}
+                      onChange={(e) => handleDateFilterTypeChange(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent mb-3"
+                    >
+                      <option value="all">All Dates</option>
+                      <option value="today">Today</option>
+                      <option value="thisWeek">This Week</option>
+                      <option value="thisMonth">This Month</option>
+                      <option value="custom">Custom Range</option>
+                    </select>
+
+                    {dateFilterType === 'custom' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">From</label>
+                          <input
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">To</label>
+                          <input
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-6 border-t border-gray-200">
+              <button
+                onClick={clearFilters}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                Clear Filters
+              </button>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-600">
+                  {filteredDeposits.length} of {deposits.length} deposits
+                </span>
+                <Button
+                  onClick={() => setShowFilterModal(false)}
+                  className="bg-[#160B53] text-white hover:bg-[#12094A]"
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Deposit Error Modal */}
+      {showDuplicateWarningModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="p-3 bg-red-100 rounded-full">
+                  <XCircle className="w-6 h-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Cannot Submit Deposit</h3>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <p className="text-sm text-gray-700 mb-2">
+                  You already have a deposit for <strong className="text-red-600">{format(new Date(depositDate), 'MMMM dd, yyyy')}</strong>.
+                </p>
+                <p className="text-sm text-gray-600 mb-3">
+                  You cannot submit another deposit for this date. Please select a different date.
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-xs text-red-800 font-medium">
+                    ⚠️ Only one deposit per date is allowed.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end">
+                <Button
+                  onClick={() => {
+                    setShowDuplicateWarningModal(false);
+                    setError('');
+                  }}
+                  className="bg-[#160B53] text-white hover:bg-[#12094A]"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
     
   );

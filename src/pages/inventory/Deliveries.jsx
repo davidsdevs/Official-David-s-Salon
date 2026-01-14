@@ -10,6 +10,7 @@ import {
   Eye,
   RefreshCw,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
   XCircle,
   Clock,
@@ -28,10 +29,11 @@ import {
   UserCog,
   Calendar,
   PackageCheck,
-  Download,
   Printer,
   CheckSquare,
-  Square
+  Square,
+  Filter,
+  Download
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
@@ -69,25 +71,419 @@ const Deliveries = () => {
   const [isBatchExpirationModalOpen, setIsBatchExpirationModalOpen] = useState(false);
   const [batchExpirationDates, setBatchExpirationDates] = useState({}); // { productId: expirationDate }
   const [receivedDeliveryData, setReceivedDeliveryData] = useState(null); // Store delivery data after receiving
+  const [hasUnsavedBatchData, setHasUnsavedBatchData] = useState(false);
   
   // Receipt modal states
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
   const receiptRef = useRef();
   
-  // Print handler
-  const handlePrint = useReactToPrint({
-    content: () => receiptRef.current,
-    documentTitle: receiptData ? `Delivery_Receipt_${receiptData.receiptNumber}` : 'Delivery_Receipt',
-    onBeforeGetContent: () => {
-      return Promise.resolve();
-    }
+  // Print handler for deliveries table
+  const deliveriesTableRef = useRef();
+  const handlePrintDeliveries = useReactToPrint({
+    content: () => deliveriesTableRef.current,
+    documentTitle: 'Deliveries_List',
   });
+
+  // Enhanced print report function
+  const handlePrintReport = () => {
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Deliveries Report - ${new Date().toISOString().split('T')[0]}</title>
+          <meta charset="utf-8">
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            @media print {
+              @page {
+                size: A4 landscape;
+                margin: 0.5in;
+              }
+              * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+            }
+            body {
+              font-family: 'Poppins', sans-serif;
+              margin: 0;
+              padding: 20px;
+              background: white;
+              color: #000;
+              font-size: 12px;
+            }
+            .report-header {
+              text-align: center;
+              margin-bottom: 30px;
+              border-bottom: 3px solid #160B53;
+              padding-bottom: 20px;
+            }
+            .report-header h1 {
+              color: #160B53;
+              font-size: 24px;
+              margin: 0 0 10px 0;
+              font-weight: 700;
+            }
+            .report-info {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 20px;
+              font-size: 11px;
+            }
+            .summary-box {
+              background: #f8f9fa;
+              border: 1px solid #dee2e6;
+              border-radius: 8px;
+              padding: 15px;
+              margin-bottom: 20px;
+              display: flex;
+              justify-content: space-around;
+              gap: 20px;
+            }
+            .summary-item {
+              text-align: center;
+            }
+            .summary-value {
+              font-size: 18px;
+              font-weight: 700;
+              color: #160B53;
+              display: block;
+            }
+            .summary-label {
+              font-size: 10px;
+              color: #6c757d;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+              font-size: 10px;
+            }
+            th, td {
+              border: 1px solid #dee2e6;
+              padding: 8px 4px;
+              text-align: left;
+              vertical-align: top;
+            }
+            th {
+              background: #160B53;
+              color: white;
+              font-weight: 600;
+              text-transform: uppercase;
+              font-size: 9px;
+              letter-spacing: 0.5px;
+            }
+            tr:nth-child(even) {
+              background: #f8f9fa;
+            }
+            .status-badge {
+              padding: 2px 6px;
+              border-radius: 12px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+            }
+            .status-in-transit {
+              background: #fff3cd;
+              color: #856404;
+            }
+            .status-pending {
+              background: #f8d7da;
+              color: #721c24;
+            }
+            .status-approved {
+              background: #d1ecf1;
+              color: #0c5460;
+            }
+            .status-delivered {
+              background: #d4edda;
+              color: #155724;
+            }
+            .amount {
+              font-weight: 600;
+              color: #160B53;
+            }
+            .footer {
+              margin-top: 30px;
+              text-align: center;
+              font-size: 10px;
+              color: #6c757d;
+              border-top: 1px solid #dee2e6;
+              padding-top: 15px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="report-header">
+            <h1>Deliveries Report</h1>
+            <div class="report-info">
+              <div>Generated on: ${new Date().toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}</div>
+              <div>Total Records: ${filteredDeliveries.length}</div>
+            </div>
+          </div>
+
+          <div class="summary-box">
+            <div class="summary-item">
+              <span class="summary-value">${filteredDeliveries.length}</span>
+              <span class="summary-label">Total Deliveries</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-value">₱${filteredDeliveries.reduce((sum, delivery) => sum + (delivery.totalAmount || 0), 0).toLocaleString()}</span>
+              <span class="summary-label">Total Amount</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-value">${filteredDeliveries.reduce((sum, delivery) => sum + (delivery.items?.length || 0), 0)}</span>
+              <span class="summary-label">Total Items</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-value">${new Set(filteredDeliveries.map(d => d.supplierId)).size}</span>
+              <span class="summary-label">Suppliers</span>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 8%;">Order ID</th>
+                <th style="width: 15%;">Supplier</th>
+                <th style="width: 10%;">Order Date</th>
+                <th style="width: 10%;">Expected Delivery</th>
+                <th style="width: 10%;">Approved At</th>
+                <th style="width: 8%;">Amount</th>
+                <th style="width: 6%;">Items</th>
+                <th style="width: 8%;">Status</th>
+                <th style="width: 15%;">Created By</th>
+                <th style="width: 10%;">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredDeliveries.map(delivery => `
+                <tr>
+                  <td>${delivery.orderId || delivery.id}</td>
+                  <td>${delivery.supplierName || 'Unknown Supplier'}</td>
+                  <td>${delivery.orderDate ? new Date(delivery.orderDate).toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: '2-digit', 
+                    year: 'numeric' 
+                  }) : 'N/A'}</td>
+                  <td>${delivery.expectedDelivery ? new Date(delivery.expectedDelivery).toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: '2-digit', 
+                    year: 'numeric' 
+                  }) : 'N/A'}</td>
+                  <td>${delivery.approvedAt ? new Date(delivery.approvedAt).toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: '2-digit', 
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  }) : 'N/A'}</td>
+                  <td class="amount">₱${(delivery.totalAmount || 0).toLocaleString()}</td>
+                  <td>${delivery.items?.length || 0}</td>
+                  <td>
+                    <span class="status-badge status-${(delivery.status || 'pending').toLowerCase().replace('_', '-')}">
+                      ${delivery.status || 'Pending'}
+                    </span>
+                  </td>
+                  <td>${delivery.createdByName || 'Unknown'}</td>
+                  <td>${delivery.notes || '-'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="footer">
+            <p>This report was generated from the David Salon Management System</p>
+            <p>Report Date: ${new Date().toLocaleDateString('en-US', { 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            })}</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.focus();
+    
+    // Wait for content to load, then print
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
+  };
+
+  // Open a printable receipt in a new window so user can use browser Print (Ctrl+P)
+  const openReceiptWindow = (data) => {
+    if (!data) {
+      toast.error('No receipt data available to print');
+      return;
+    }
+
+    const itemsHtml = (data.items || []).map(item => `
+      <tr>
+        <td style="padding:8px;border:1px solid #ddd">${item.productName}</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:right">${item.orderedQuantity || 0}</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:right">${item.receivedQuantity || 0}</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:right">₱${(item.unitPrice || 0).toFixed(2)}</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:right">₱${((item.unitPrice || 0) * (item.receivedQuantity || 0)).toFixed(2)}</td>
+      </tr>
+    `).join('');
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Delivery Receipt - ${data.receiptNumber || ''}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #000; padding: 16px; }
+            h1 { text-align: center; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            th, td { padding: 8px; border: 1px solid #ddd; }
+            th { background: #f3f4f6; text-align: left; }
+            .totals { margin-top: 12px; float: right; width: 320px; }
+            .notes { margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <h1>DELIVERY RECEIPT</h1>
+          <div>
+            <strong>Receipt #:</strong> ${data.receiptNumber || ''}<br/>
+            <strong>Purchase Order:</strong> ${data.purchaseOrderId || ''}<br/>
+            <strong>Supplier:</strong> ${data.supplierName || ''}<br/>
+            <strong>Received Date:</strong> ${data.receivedDate || ''}<br/>
+            <strong>Received By:</strong> ${data.receivedBy || ''}
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th style="text-align:right">Ordered</th>
+                <th style="text-align:right">Received</th>
+                <th style="text-align:right">Unit Price</th>
+                <th style="text-align:right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+          </table>
+
+          <div class="totals">
+            <table style="width:100%;border-collapse:collapse">
+              <tr>
+                <td style="padding:6px;border:1px solid #ddd">Ordered Total</td>
+                <td style="padding:6px;border:1px solid #ddd;text-align:right">₱${(data.orderedTotal || 0).toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px;border:1px solid #ddd">Received Total</td>
+                <td style="padding:6px;border:1px solid #ddd;text-align:right">₱${(data.receivedTotal || 0).toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px;border:1px solid #ddd">Discrepancy</td>
+                <td style="padding:6px;border:1px solid #ddd;text-align:right">₱${(data.discrepancyAmount || 0).toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px;border:1px solid #ddd"><strong>Total Amount</strong></td>
+                <td style="padding:6px;border:1px solid #ddd;text-align:right"><strong>₱${(data.totalAmount || data.receivedTotal || 0).toFixed(2)}</strong></td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="notes">
+            <strong>Notes:</strong>
+            <div>${(data.notes || '').replace(/\n/g, '<br/>')}</div>
+          </div>
+
+          <div style="clear:both;margin-top:30px;font-size:12px;color:#666">Printed from David's Salon Management System</div>
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Unable to open print window. Please allow popups for this site.');
+      return;
+    }
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+
+    // Auto-trigger print when the window content is ready. Use both load listener and a fallback timeout.
+    const tryPrint = () => {
+      try {
+        // Focus and open print dialog
+        printWindow.focus();
+        printWindow.print();
+        // Close the print window shortly after printing
+        setTimeout(() => {
+          try {
+            printWindow.close();
+          } catch (err) {
+            // ignore
+          }
+        }, 600);
+      } catch (err) {
+        console.warn('Auto-print failed:', err);
+      }
+    };
+
+    // If the new window fires load, print then; otherwise fallback after delay
+    try {
+      printWindow.addEventListener?.('load', tryPrint);
+    } catch (e) {
+      // some browsers may not support addEventListener on the window object
+      // ignore and rely on timeout
+    }
+
+    // Fallback: attempt to print after 700ms in case load event doesn't fire
+    setTimeout(() => {
+      tryPrint();
+    }, 700);
+  };
+
+  // Filter states
+  const [minItems, setMinItems] = useState('');
+  const [maxItems, setMaxItems] = useState('');
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
   // Load deliveries (purchase orders with In Transit status)
   useEffect(() => {
     loadDeliveries();
   }, [userData?.branchId]);
+
+  // Check for unsaved batch expiration data on component mount
+  useEffect(() => {
+    const unsavedData = localStorage.getItem('unsavedDeliveryBatchExpiration');
+    if (unsavedData) {
+      try {
+        const parsed = JSON.parse(unsavedData);
+        // Keep data indefinitely (no expiry check)
+        setHasUnsavedBatchData(true);
+      } catch (err) {
+        console.error('Error parsing unsaved delivery batch data:', err);
+        localStorage.removeItem('unsavedDeliveryBatchExpiration');
+      }
+    }
+  }, []);
 
   const loadDeliveries = async () => {
     try {
@@ -103,8 +499,7 @@ const Deliveries = () => {
       const purchaseOrdersRef = collection(db, 'purchaseOrders');
       const q = query(
         purchaseOrdersRef,
-        where('branchId', '==', userData.branchId),
-        where('status', '==', 'In Transit')
+        where('branchId', '==', userData.branchId)
       );
       const snapshot = await getDocs(q);
 
@@ -137,6 +532,63 @@ const Deliveries = () => {
     }
   };
 
+  // Function to resume unsaved delivery batch expiration work
+  const handleResumeUnsavedDeliveryBatchWork = () => {
+    const unsavedData = localStorage.getItem('unsavedDeliveryBatchExpiration');
+    if (unsavedData) {
+      try {
+        const parsed = JSON.parse(unsavedData);
+        setReceivedDeliveryData(parsed.deliveryData);
+        setBatchExpirationDates(parsed.expirationDates);
+        setIsBatchExpirationModalOpen(true);
+        setHasUnsavedBatchData(false);
+      } catch (err) {
+        console.error('Error resuming unsaved delivery batch work:', err);
+        localStorage.removeItem('unsavedDeliveryBatchExpiration');
+        setHasUnsavedBatchData(false);
+      }
+    }
+  };
+
+  // Function to resume unsaved delivery batch expiration work for a specific delivery
+  const handleResumeUnsavedDeliveryBatchWorkForDelivery = (deliveryId) => {
+    const unsavedData = localStorage.getItem('unsavedDeliveryBatchExpiration');
+    if (unsavedData) {
+      try {
+        const parsed = JSON.parse(unsavedData);
+        // Verify this is the correct delivery
+        if (parsed.deliveryData?.purchaseOrderDocId === deliveryId) {
+          setReceivedDeliveryData(parsed.deliveryData);
+          setBatchExpirationDates(parsed.expirationDates);
+          setIsBatchExpirationModalOpen(true);
+          setHasUnsavedBatchData(false);
+        }
+      } catch (err) {
+        console.error('Error resuming unsaved delivery batch work for delivery:', err);
+        localStorage.removeItem('unsavedDeliveryBatchExpiration');
+        setHasUnsavedBatchData(false);
+      }
+    }
+  };
+
+  // Check if delivery has unsaved batch expiration data
+  const hasUnsavedBatchDataForDelivery = (deliveryId) => {
+    // If hasUnsavedBatchData is false, no delivery has unsaved data
+    if (!hasUnsavedBatchData) return false;
+
+    const unsavedData = localStorage.getItem('unsavedDeliveryBatchExpiration');
+    if (unsavedData) {
+      try {
+        const parsed = JSON.parse(unsavedData);
+        // Keep data indefinitely (no expiry check) and check if it matches the delivery
+        return parsed.deliveryData?.purchaseOrderDocId === deliveryId;
+      } catch (err) {
+        return false;
+      }
+    }
+    return false;
+  };
+
   // Get unique suppliers from deliveries
   const suppliers = useMemo(() => {
     const supplierMap = new Map();
@@ -153,11 +605,14 @@ const Deliveries = () => {
   // Filter deliveries
   const filteredDeliveries = useMemo(() => {
     return deliveries.filter(delivery => {
-      const matchesSearch = 
+      // Search term filter (supplier name, order ID, notes)
+      const matchesSearch = !searchTerm ||
         delivery.orderId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         delivery.supplierName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        delivery.notes?.toLowerCase().includes(searchTerm.toLowerCase());
+        delivery.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        delivery.createdByName?.toLowerCase().includes(searchTerm.toLowerCase());
 
+      // Supplier filter
       const matchesSupplier = selectedSupplierFilter === 'all' || delivery.supplierId === selectedSupplierFilter;
 
       // Date filter - filter by orderDate
@@ -184,16 +639,34 @@ const Deliveries = () => {
         }
       }
 
-      return matchesSearch && matchesSupplier && matchesDate;
+      // Items count filter
+      const itemCount = delivery.items?.length || 0;
+      const matchesMinItems = !minItems || itemCount >= parseInt(minItems);
+      const matchesMaxItems = !maxItems || itemCount <= parseInt(maxItems);
+
+      // Amount filter
+      const totalAmount = delivery.totalAmount || 0;
+      const matchesMinAmount = !minAmount || totalAmount >= parseFloat(minAmount);
+      const matchesMaxAmount = !maxAmount || totalAmount <= parseFloat(maxAmount);
+
+      // Status filter
+      const matchesStatus = !statusFilter || delivery.status === statusFilter;
+
+      // Exclude Pending orders from deliveries view
+      const isNotPending = delivery.status !== 'Pending';
+
+      return matchesSearch && matchesSupplier && matchesDate && matchesMinItems && matchesMaxItems && matchesMinAmount && matchesMaxAmount && matchesStatus && isNotPending;
     });
-  }, [deliveries, searchTerm, selectedSupplierFilter, dateFilterStart, dateFilterEnd]);
+  }, [deliveries, searchTerm, selectedSupplierFilter, dateFilterStart, dateFilterEnd, minItems, maxItems, minAmount, maxAmount, statusFilter]);
 
   // Delivery statistics
   const deliveryStats = useMemo(() => {
+    // Only count Approved orders (these are the ones that can be in transit/received)
+    const approvedDeliveries = deliveries.filter(d => d.status === 'Approved');
     return {
-      totalDeliveries: deliveries.length,
-      totalValue: deliveries.reduce((sum, d) => sum + (d.totalAmount || 0), 0),
-      totalItems: deliveries.reduce((sum, d) => sum + (d.items?.length || 0), 0)
+      totalDeliveries: approvedDeliveries.length,
+      totalValue: approvedDeliveries.reduce((sum, d) => sum + (d.totalAmount || 0), 0),
+      totalItems: approvedDeliveries.reduce((sum, d) => sum + (d.items?.length || 0), 0)
     };
   }, [deliveries]);
 
@@ -397,14 +870,36 @@ const Deliveries = () => {
       setReceivedDeliveryData(deliveryData);
 
       // Calculate totals for receipt
-      const orderedTotal = receivingData.items.reduce((sum, item) => 
-        sum + (item.orderedQuantity * item.unitPrice), 0
-      );
-      const receivedTotal = receivingData.items.reduce((sum, item) => 
-        sum + (item.receivedQuantity * item.unitPrice), 0
-      );
+      let orderedTotal = 0;
+      let receivedTotal = 0;
+      const receiptItems = selectedOrder.items.map((item, index) => {
+        const uniqueKey = getItemKey(item, index);
+        const orderedQuantity = item.quantity || 0;
+        const receivedQuantity = receivedQuantities[uniqueKey] || 0;
+        const isChecked = checkedItems[uniqueKey] === true;
+
+        // Always include in ordered total
+        orderedTotal += orderedQuantity * (item.unitPrice || 0);
+
+        // Only include in received total if checked and has quantity
+        if (isChecked && receivedQuantity > 0) {
+          receivedTotal += receivedQuantity * (item.unitPrice || 0);
+        }
+
+        return {
+          productName: item.productName,
+          sku: item.sku || 'N/A',
+          usageType: item.usageType || 'otc',
+          orderedQuantity: orderedQuantity,
+          receivedQuantity: isChecked ? receivedQuantity : 0,
+          discrepancy: isChecked ? (receivedQuantity - orderedQuantity) : -orderedQuantity,
+          unitPrice: item.unitPrice || 0,
+          totalPrice: (isChecked ? receivedQuantity : 0) * (item.unitPrice || 0)
+        };
+      }); // Don't filter - show all items from purchase order
+
       const discrepancyAmount = receivedTotal - orderedTotal;
-      
+
       setReceiptData({
         receiptNumber: `DR-${selectedOrder.orderId || selectedOrder.id}-${Date.now()}`,
         purchaseOrderId: selectedOrder.orderId || selectedOrder.id,
@@ -413,7 +908,7 @@ const Deliveries = () => {
         orderDate: selectedOrder.orderDate ? format(new Date(selectedOrder.orderDate), 'MMM dd, yyyy') : 'N/A',
         receivedDate: format(new Date(), 'MMM dd, yyyy HH:mm'),
         receivedBy: deliveryData.receivedByName,
-        items: receivingData.items,
+        items: receiptItems,
         orderedTotal: orderedTotal,
         receivedTotal: receivedTotal,
         discrepancyAmount: discrepancyAmount,
@@ -421,6 +916,27 @@ const Deliveries = () => {
         notes: receivingNotes.trim(),
         branchId: userData.branchId
       });
+
+      // Save receipt to Firestore
+      const receiptToSave = {
+        receiptNumber: `DR-${selectedOrder.orderId || selectedOrder.id}-${Date.now()}`,
+        purchaseOrderId: selectedOrder.orderId || selectedOrder.id,
+        purchaseOrderDocId: selectedOrder.id,
+        supplierName: selectedOrder.supplierName,
+        supplierId: selectedOrder.supplierId,
+        receivedBy: deliveryData.receivedBy,
+        receivedByName: deliveryData.receivedByName,
+        items: receiptItems, // Use receiptItems which contains all items with ordered/received quantities
+        receivedAt: new Date(),
+        orderedTotal: orderedTotal,
+        receivedTotal: receivedTotal,
+        discrepancyAmount: discrepancyAmount,
+        totalAmount: receivedTotal,
+        notes: receivingNotes.trim(),
+        branchId: userData.branchId
+      };
+
+      await addDoc(collection(db, 'deliveryReceipts'), receiptToSave);
 
       // Reload deliveries
       await loadDeliveries();
@@ -510,6 +1026,15 @@ const Deliveries = () => {
       });
       
       setBatchExpirationDates(initialExpirationDates);
+      
+      // Save to localStorage in case of page refresh
+      const unsavedData = {
+        deliveryData: deliveryData,
+        expirationDates: initialExpirationDates,
+        timestamp: Date.now()
+      };
+      localStorage.setItem('unsavedDeliveryBatchExpiration', JSON.stringify(unsavedData));
+      
       setError(null); // Clear any previous errors
       setIsBatchExpirationModalOpen(true);
     } catch (err) {
@@ -517,6 +1042,75 @@ const Deliveries = () => {
       setError(err.message || 'Failed to receive delivery. Please try again.');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // Fetch and display existing receipt for a delivery
+  const handleViewReceipt = async (delivery) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Query deliveryReceipts collection for this delivery
+      const receiptsRef = collection(db, 'deliveryReceipts');
+      const q = query(
+        receiptsRef,
+        where('purchaseOrderDocId', '==', delivery.id),
+        where('branchId', '==', userData.branchId)
+      );
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) {
+        toast.error('No receipt found for this delivery');
+        return;
+      }
+
+      // Get the receipt data
+      const receiptDoc = snapshot.docs[0];
+      const receiptData = receiptDoc.data();
+
+      // Format the receipt data for display
+      const items = receiptData.items.map(item => ({
+        productName: item.productName,
+        sku: item.sku || 'N/A',
+        usageType: item.usageType || 'otc',
+        orderedQuantity: item.orderedQuantity || 0,
+        receivedQuantity: item.receivedQuantity || 0,
+        discrepancy: item.discrepancy || (item.receivedQuantity - item.orderedQuantity),
+        unitPrice: item.unitPrice || 0,
+        totalPrice: (item.unitPrice || 0) * (item.receivedQuantity || 0)
+      }));
+
+      // Recalculate totals from items if stored totals are missing or 0
+      const calculatedOrderedTotal = items.reduce((sum, item) => sum + (item.orderedQuantity * item.unitPrice), 0);
+      const calculatedReceivedTotal = items.reduce((sum, item) => sum + (item.receivedQuantity * item.unitPrice), 0);
+      const calculatedDiscrepancyAmount = calculatedReceivedTotal - calculatedOrderedTotal;
+
+      const formattedReceiptData = {
+        receiptNumber: receiptData.receiptNumber || `DR-${delivery.orderId || delivery.id}-${receiptDoc.id.substring(0, 8)}`,
+        purchaseOrderId: delivery.orderId || delivery.id,
+        supplierName: delivery.supplierName || receiptData.supplierName,
+        supplierId: delivery.supplierId || receiptData.supplierId,
+        orderDate: delivery.orderDate ? format(new Date(delivery.orderDate), 'MMM dd, yyyy') : 'N/A',
+        receivedDate: receiptData.receivedAt ? format(receiptData.receivedAt.toDate(), 'MMM dd, yyyy HH:mm') : 'N/A',
+        receivedBy: receiptData.receivedByName || receiptData.receivedBy || 'Unknown',
+        items: items,
+        orderedTotal: receiptData.orderedTotal || calculatedOrderedTotal,
+        receivedTotal: receiptData.receivedTotal || calculatedReceivedTotal,
+        discrepancyAmount: receiptData.discrepancyAmount || calculatedDiscrepancyAmount,
+        totalAmount: receiptData.totalAmount || calculatedReceivedTotal,
+        notes: receiptData.notes || '',
+        branchId: userData.branchId
+      };
+
+      setReceiptData(formattedReceiptData);
+      setIsReceiptModalOpen(true);
+
+    } catch (err) {
+      console.error('Error fetching receipt:', err);
+      toast.error('Failed to load receipt. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -703,152 +1297,155 @@ const Deliveries = () => {
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Deliveries</h1>
-            <p className="text-gray-600">Track purchase orders that are in transit</p>
+            <h1 className="text-lg md:text-xl lg:text-2xl font-bold text-gray-900">Deliveries</h1>
+            <p className="text-xs md:text-sm text-gray-600">Track all purchase orders and delivery history</p>
           </div>
           <Button
             variant="outline"
             onClick={loadDeliveries}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
           >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
+            <RefreshCw className="h-3.5 w-3.5 md:h-4 md:w-4" />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
         </div>
 
         {/* Error Display */}
         {error && (
-          <Card className="p-4 bg-red-50 border-red-200">
+          <Card className="p-3 md:p-4 bg-red-50 border-red-200">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-600" />
-              <p className="text-red-800">{error}</p>
+              <AlertTriangle className="h-4 w-4 md:h-5 md:w-5 text-red-600 flex-shrink-0" />
+              <p className="text-xs md:text-sm text-red-800 flex-1">{error}</p>
               <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto">
-                <X className="h-4 w-4" />
+                <X className="h-3.5 w-3.5 md:h-4 md:w-4" />
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Unsaved Delivery Batch Data Notification */}
+        {hasUnsavedBatchData && (
+          <Card className="p-3 md:p-4 bg-blue-50 border-blue-200">
+            <div className="flex items-center gap-2">
+              <Package className="h-4 w-4 md:h-5 md:w-5 text-blue-600 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs md:text-sm text-blue-800 font-medium">Unsaved Batch Expiration Data</p>
+                <p className="text-xs md:text-sm text-blue-700">You have unsaved batch expiration dates from a previous delivery session.</p>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleResumeUnsavedDeliveryBatchWork}
+                className="border-blue-300 text-blue-700 hover:bg-blue-50 text-xs md:text-sm"
+              >
+                Create Batch Expiration
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => {
+                  localStorage.removeItem('unsavedDeliveryBatchExpiration');
+                  setHasUnsavedBatchData(false);
+                }}
+                className="text-blue-600 hover:bg-blue-50"
+              >
+                <X className="h-3.5 w-3.5 md:h-4 md:w-4" />
               </Button>
             </div>
           </Card>
         )}
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
-          <Card className="p-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 lg:gap-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Truck className="h-8 w-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">In Transit</p>
-                <p className="text-xl font-bold text-gray-900">{deliveryStats.totalDeliveries}</p>
+              <Truck className="h-6 w-6 md:h-8 md:w-8 text-purple-600 flex-shrink-0" />
+              <div className="ml-2 md:ml-3 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-gray-600 truncate">In Transit</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">{deliveryStats.totalDeliveries}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Package className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Items</p>
-                <p className="text-xl font-bold text-gray-900">{deliveryStats.totalItems}</p>
+              <Package className="h-6 w-6 md:h-8 md:w-8 text-blue-600 flex-shrink-0" />
+              <div className="ml-2 md:ml-3 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-gray-600 truncate">Total Items</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">{deliveryStats.totalItems}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4 col-span-2 md:col-span-1">
             <div className="flex items-center">
-              <Banknote className="h-8 w-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Value</p>
-                <p className="text-xl font-bold text-gray-900">₱{deliveryStats.totalValue.toLocaleString()}</p>
+              <Banknote className="h-6 w-6 md:h-8 md:w-8 text-green-600 flex-shrink-0" />
+              <div className="ml-2 md:ml-3 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-gray-600 truncate">Total Value</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">₱{deliveryStats.totalValue.toLocaleString()}</p>
               </div>
             </div>
           </Card>
         </div>
 
-        {/* Search and Filters */}
-        <Card className="p-4 md:p-6">
-          <div className="space-y-4">
-            {/* Search and Supplier Filters */}
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+        {/* Search and Filters - Single Row */}
+        <Card className="p-3 md:p-4 lg:p-6">
+          <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
+            <div className="flex flex-col sm:flex-row gap-4 flex-1 w-full">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                 <Input
                   type="text"
                   placeholder="Search by order ID, supplier, or notes..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10"
+                  className="pl-10"
                 />
               </div>
-              <div className="flex gap-2 md:gap-3 flex-wrap">
-                <select
-                  value={selectedSupplierFilter}
-                  onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                >
-                  <option value="all">All Suppliers</option>
-                  {suppliers.map(supplier => (
-                    <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                  ))}
-                </select>
+              <div className="flex gap-2 items-center">
+                <Button variant="outline" onClick={() => setIsFilterModalOpen(true)}>
+                  <Filter className="h-4 w-4" />
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => {
-                    setSearchTerm('');
-                    setSelectedSupplierFilter('all');
-                    setDateFilterStart('');
-                    setDateFilterEnd('');
+                    // Export deliveries as CSV
+                    if (!filteredDeliveries.length) {
+                      toast.error('No deliveries to export');
+                      return;
+                    }
+                    const csvHeaders = ['Order ID', 'Supplier', 'Order Date', 'Expected Delivery', 'Approved At', 'Amount', 'Items'];
+                    const csvRows = filteredDeliveries.map(delivery => [
+                      delivery.orderId || delivery.id,
+                      delivery.supplierName || 'Unknown',
+                      delivery.orderDate ? format(new Date(delivery.orderDate), 'MMM dd, yyyy') : 'N/A',
+                      delivery.expectedDelivery ? format(new Date(delivery.expectedDelivery), 'MMM dd, yyyy') : 'N/A',
+                      delivery.approvedAt ? format(new Date(delivery.approvedAt), 'MMM dd, yyyy HH:mm') : 'N/A',
+                      (delivery.totalAmount || 0).toFixed(2),
+                      delivery.items?.length || 0
+                    ]);
+                    const csvContent = [csvHeaders, ...csvRows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute('href', url);
+                    link.setAttribute('download', `deliveries_${new Date().toISOString().split('T')[0]}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    toast.success('Deliveries exported to CSV');
                   }}
-                  className="flex items-center gap-2"
                 >
-                  <RefreshCw className="h-4 w-4" />
-                  Reset
+                  <Download className="h-4 w-4" />
                 </Button>
-              </div>
-            </div>
-
-            {/* Date Range Filters */}
-            <div className="flex flex-col sm:flex-row gap-3 items-end border-t pt-4">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-gray-400" />
-                <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Date Range:</span>
-              </div>
-              <div className="flex-1 flex flex-col sm:flex-row gap-3">
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
-                  <Input
-                    type="date"
-                    value={dateFilterStart}
-                    onChange={(e) => setDateFilterStart(e.target.value)}
-                    className="w-full"
-                    max={dateFilterEnd || undefined}
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">To Date</label>
-                  <Input
-                    type="date"
-                    value={dateFilterEnd}
-                    onChange={(e) => setDateFilterEnd(e.target.value)}
-                    className="w-full"
-                    min={dateFilterStart || undefined}
-                  />
-                </div>
-                {(dateFilterStart || dateFilterEnd) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setDateFilterStart('');
-                      setDateFilterEnd('');
-                    }}
-                    className="flex items-center gap-1"
-                  >
-                    <X className="h-3 w-3" />
-                    Clear Dates
-                  </Button>
-                )}
+                <Button variant="outline" onClick={handlePrintReport}>
+                  <Printer className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </div>
@@ -856,32 +1453,35 @@ const Deliveries = () => {
 
         {/* Deliveries Table */}
         <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" ref={deliveriesTableRef}>
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Order ID
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Supplier
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden md:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Order Date
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Expected Delivery
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden md:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Approved At
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Total Amount
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Amount
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden md:table-cell px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Items
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -889,68 +1489,98 @@ const Deliveries = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredDeliveries.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan="9" className="px-2 md:px-4 py-6 md:py-8 text-center text-xs md:text-sm text-gray-500">
                       {deliveries.length === 0 
-                        ? 'No deliveries in transit. Purchase orders will appear here after being approved by the Overall Inventory Controller.'
+                        ? 'No deliveries found. Purchase orders will appear here after being approved by the Branch Manager.'
                         : 'No deliveries match your search criteria.'}
                     </td>
                   </tr>
                 ) : (
                   filteredDeliveries.map((delivery) => (
                     <tr key={delivery.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{delivery.orderId || delivery.id}</div>
-                        <div className="text-xs text-gray-500">by {delivery.createdByName || 'Unknown'}</div>
+                      <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                        <div className="text-xs md:text-sm font-medium text-gray-900">{delivery.orderId || delivery.id}</div>
+                        <div className="text-xs text-gray-500 hidden sm:block">by {delivery.createdByName || 'Unknown'}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{delivery.supplierName || 'Unknown Supplier'}</div>
+                      <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                        <div className="text-xs md:text-sm text-gray-900 truncate max-w-[100px] md:max-w-none">{delivery.supplierName || 'Unknown Supplier'}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
+                      <td className="hidden md:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                        <div className="text-xs md:text-sm text-gray-900">
                           {delivery.orderDate ? format(new Date(delivery.orderDate), 'MMM dd, yyyy') : 'N/A'}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
+                      <td className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                        <div className="text-xs md:text-sm text-gray-900">
                           {delivery.expectedDelivery ? format(new Date(delivery.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
+                      <td className="hidden md:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          delivery.status === 'In Transit'
+                            ? 'bg-blue-100 text-blue-800'
+                            : delivery.status === 'Received'
+                            ? 'bg-green-100 text-green-800'
+                            : delivery.status === 'Cancelled'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {delivery.status || 'Unknown'}
+                        </span>
+                      </td>
+                      <td className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                        <div className="text-xs md:text-sm text-gray-900">
                           {delivery.approvedAt ? format(new Date(delivery.approvedAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
                         </div>
                         {delivery.approvedByName && (
                           <div className="text-xs text-gray-500">by {delivery.approvedByName}</div>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">₱{(delivery.totalAmount || 0).toLocaleString()}</div>
+                      <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                        <div className="text-xs md:text-sm font-medium text-gray-900">₱{(delivery.totalAmount || 0).toLocaleString()}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{delivery.items?.length || 0} items</div>
+                      <td className="hidden md:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                        <div className="text-xs md:text-sm text-gray-900">{delivery.items?.length || 0} items</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
+                      <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap text-xs md:text-sm font-medium">
+                        <div className="flex items-center gap-1 md:gap-2">
+                          <button
                             onClick={() => {
                               setSelectedOrder(delivery);
                               setIsDetailsModalOpen(true);
                             }}
-                            className="flex items-center gap-1"
+                            className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                            title="View details"
                           >
-                            <Eye className="h-3 w-3" />
-                            View
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => handleOpenReceivingModal(delivery)}
-                            className="bg-green-600 text-white hover:bg-green-700 flex items-center gap-1"
-                          >
-                            <PackageCheck className="h-3 w-3" />
-                            Receive
-                          </Button>
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          {delivery.status === 'In Transit' && (
+                            <button
+                              onClick={() => handleOpenReceivingModal(delivery)}
+                              className="p-1.5 text-green-600 hover:text-green-900 hover:bg-green-100 rounded transition-colors"
+                              title="Mark as received"
+                            >
+                              <PackageCheck className="h-4 w-4" />
+                            </button>
+                          )}
+                          {hasUnsavedBatchDataForDelivery(delivery.id) && (
+                            <button
+                              onClick={() => handleResumeUnsavedDeliveryBatchWorkForDelivery(delivery.id)}
+                              className="p-1.5 text-blue-600 hover:text-blue-900 hover:bg-blue-100 rounded transition-colors"
+                              title="Create batch expiration"
+                            >
+                              <Package className="h-4 w-4" />
+                            </button>
+                          )}
+                          {delivery.status === 'Received' && (
+                            <button
+                              onClick={() => handleViewReceipt(delivery)}
+                              className="p-1.5 text-green-600 hover:text-green-900 hover:bg-green-100 rounded transition-colors"
+                              title="View receipt"
+                            >
+                              <FileText className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -962,152 +1592,229 @@ const Deliveries = () => {
         </Card>
       </div>
 
-      {/* Order Details Modal */}
+      {/* Filter Modal */}
+      {isFilterModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md relative">
+            <button
+              className="absolute top-2 right-2 text-gray-400 hover:text-gray-700"
+              onClick={() => setIsFilterModalOpen(false)}
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <h2 className="text-lg font-bold mb-4">Filter Deliveries</h2>
+            <div className="space-y-4">
+              {/* Supplier Name Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Supplier Name</label>
+                <Input
+                  type="text"
+                  placeholder="Enter supplier name..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                />
+              </div>
+              {/* Date Range Filter */}
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Order Date From</label>
+                  <Input
+                    type="date"
+                    value={dateFilterStart}
+                    onChange={e => setDateFilterStart(e.target.value)}
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Order Date To</label>
+                  <Input
+                    type="date"
+                    value={dateFilterEnd}
+                    onChange={e => setDateFilterEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+              {/* Quantity Filter */}
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Min Items</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={minItems}
+                    onChange={e => setMinItems(e.target.value)}
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Max Items</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={maxItems}
+                    onChange={e => setMaxItems(e.target.value)}
+                  />
+                </div>
+              </div>
+              {/* Amount Filter */}
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Min Amount</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={minAmount}
+                    onChange={e => setMinAmount(e.target.value)}
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Max Amount</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={maxAmount}
+                    onChange={e => setMaxAmount(e.target.value)}
+                  />
+                </div>
+              </div>
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                >
+                  <option value="">All Status</option>
+                  <option value="In Transit">In Transit</option>
+                  <option value="Received">Received</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Rejected">Rejected</option>
+                  <option value="Shipped">Shipped</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Cancelled">Cancelled</option>
+                  <option value="Overdue">Overdue</option>
+                </select>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsFilterModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => setIsFilterModalOpen(false)}
+                className="bg-[#160B53] text-white"
+              >
+                Apply
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Details Modal */}
       {isDetailsModalOpen && selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col transform transition-all duration-300 scale-100">
-            {/* Modal Header */}
-            <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="p-2 bg-white/20 rounded-lg">
-                    <Truck className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold">Delivery Details</h2>
-                    <p className="text-white/80 text-sm mt-1">{selectedOrder.orderId || selectedOrder.id}</p>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setIsDetailsModalOpen(false);
-                    setSelectedOrder(null);
-                  }}
-                  className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
-                >
-                  <X className="h-5 w-5" />
-                </Button>
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Order Details</h2>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setIsDetailsModalOpen(false);
+                  setSelectedOrder(null);
+                }}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </Button>
             </div>
-
-            {/* Modal Content */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className="space-y-6">
-                {/* Order Header */}
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-900">{selectedOrder.supplierName || 'Unknown Supplier'}</h3>
-                    <p className="text-gray-600">Order Date: {selectedOrder.orderDate ? format(new Date(selectedOrder.orderDate), 'MMM dd, yyyy') : 'N/A'}</p>
-                  </div>
-                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium border text-purple-600 bg-purple-100 border-purple-200">
-                    <Truck className="h-3 w-3" />
-                    In Transit
-                  </span>
-                </div>
-
-                {/* Order Information */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Expected Delivery</label>
-                      <p className="text-gray-900">
-                        {selectedOrder.expectedDelivery ? format(new Date(selectedOrder.expectedDelivery), 'MMM dd, yyyy') : 'Not set'}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Created By</label>
-                      <p className="text-gray-900">{selectedOrder.createdByName || 'Unknown'}</p>
-                    </div>
-                    {selectedOrder.approvedByName && (
-                      <div>
-                        <label className="text-sm font-medium text-gray-500">Approved By</label>
-                        <p className="text-gray-900 text-green-600 font-semibold">{selectedOrder.approvedByName}</p>
-                        {selectedOrder.approvedAt && (
-                          <p className="text-xs text-gray-500">
-                            {format(new Date(selectedOrder.approvedAt), 'MMM dd, yyyy HH:mm')}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Total Amount</label>
-                      <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
-                    </div>
-                    {selectedOrder.notes && (
-                      <div>
-                        <label className="text-sm font-medium text-gray-500">Notes</label>
-                        <p className="text-gray-900">{selectedOrder.notes}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Order Items */}
+            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium border text-purple-600 bg-purple-100 border-purple-200">
+              <Truck className="h-3 w-3" />
+              In Transit
+            </span>
+            {/* Order Information */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Items</h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {selectedOrder.items && selectedOrder.items.length > 0 ? (
-                          selectedOrder.items.map((item, index) => (
-                            <tr key={index}>
-                              <td className="px-4 py-3">
-                                <div className="font-medium text-gray-900">{item.productName}</div>
-                                {item.sku && (
-                                  <div className="text-xs text-gray-500">SKU: {item.sku}</div>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-gray-900">{item.quantity}</td>
-                              <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
-                              <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="4" className="px-4 py-4 text-center text-gray-500">No items</td>
-                          </tr>
-                        )}
-                      </tbody>
-                      {selectedOrder.items && selectedOrder.items.length > 0 && (
-                        <tfoot className="bg-gray-50">
-                          <tr>
-                            <td colSpan="3" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
-                            <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
-                              ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      )}
-                    </table>
-                  </div>
+                  <label className="text-sm font-medium text-gray-500">Expected Delivery</label>
+                  <p className="text-gray-900">
+                    {selectedOrder.expectedDelivery ? format(new Date(selectedOrder.expectedDelivery), 'MMM dd, yyyy') : 'Not set'}
+                  </p>
                 </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Created By</label>
+                  <p className="text-gray-900">{selectedOrder.createdByName || 'Unknown'}</p>
+                </div>
+                {selectedOrder.approvedByName && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Approved By</label>
+                    <p className="text-gray-900 text-green-600 font-semibold">{selectedOrder.approvedByName}</p>
+                    {selectedOrder.approvedAt && (
+                      <p className="text-xs text-gray-500">
+                        {format(new Date(selectedOrder.approvedAt), 'MMM dd, yyyy HH:mm')}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Total Amount</label>
+                  <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                </div>
+                {selectedOrder.notes && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Notes</label>
+                    <p className="text-gray-900">{selectedOrder.notes}</p>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Modal Footer */}
-            <div className="border-t border-gray-200 p-6 bg-gray-50">
-              <div className="flex justify-end gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsDetailsModalOpen(false);
-                    setSelectedOrder(null);
-                  }}
-                  className="border-gray-300 text-gray-700 hover:bg-gray-100"
-                >
-                  Close
-                </Button>
+            {/* Order Items */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Items</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {selectedOrder.items && selectedOrder.items.length > 0 ? (
+                      selectedOrder.items.map((item, index) => (
+                        <tr key={index}>
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-gray-900">{item.productName}</div>
+                            {item.sku && (
+                              <div className="text-xs text-gray-500">SKU: {item.sku}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">{item.quantity}</td>
+                          <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="4" className="px-4 py-4 text-center text-gray-500">No items</td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {selectedOrder.items && selectedOrder.items.length > 0 && (
+                    <tfoot className="bg-gray-50">
+                      <tr>
+                        <td colSpan="3" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
+                        <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
+                          ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
               </div>
             </div>
           </div>
@@ -1318,11 +2025,8 @@ const Deliveries = () => {
 
                   {/* Amount Summary */}
                   {(() => {
-                    // Calculate totals only for checked items
-                    const orderedTotal = selectedOrder.items?.reduce((sum, item, index) => {
-                      const uniqueKey = getItemKey(item, index);
-                      const isChecked = checkedItems[uniqueKey] === true;
-                      if (!isChecked) return sum; // Skip unchecked items
+                    // Calculate totals - ordered total for ALL items, received total for checked items
+                    const orderedTotal = selectedOrder.items?.reduce((sum, item) => {
                       const orderedQty = item.quantity || 0;
                       const unitPrice = item.unitPrice || 0;
                       return sum + (orderedQty * unitPrice);
@@ -1374,49 +2078,49 @@ const Deliveries = () => {
                   })()}
                 </div>
               </div>
-            </div>
 
-            {/* Modal Footer */}
-            <div className="border-t border-gray-200 p-6 bg-gray-50">
-              <div className="flex justify-between items-center">
-                <Button
-                  variant="outline"
-                  onClick={generateReport}
-                  disabled={!selectedOrder}
-                  className="flex items-center gap-2"
-                >
-                  <Download className="h-4 w-4" />
-                  Generate Report
-                </Button>
-                <div className="flex gap-3">
+              {/* Modal Footer */}
+              <div className="border-t border-gray-200 p-6 bg-gray-50">
+                <div className="flex justify-between items-center">
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      setIsReceivingModalOpen(false);
-                      setReceivedQuantities({});
-                      setCheckedItems({});
-                      setReceivingNotes('');
-                      setError(null);
-                    }}
-                    disabled={isProcessing}
-                    className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                    onClick={generateReport}
+                    disabled={!selectedOrder}
+                    className="flex items-center gap-2"
                   >
-                    Cancel
+                    <Download className="h-4 w-4" />
+                    Generate Report
                   </Button>
-                  <Button
-                    onClick={() => {
-                      if (!atLeastOneItemChecked) {
-                        setError('Please check at least one item before confirming receipt');
-                        return;
-                      }
-                      setIsConfirmReceiptModalOpen(true);
-                    }}
-                    disabled={isProcessing || !atLeastOneItemChecked}
-                    className="bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <CheckCircle className="h-4 w-4" />
-                    Confirm Receipt
-                  </Button>
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsReceivingModalOpen(false);
+                        setReceivedQuantities({});
+                        setCheckedItems({});
+                        setReceivingNotes('');
+                        setError(null);
+                      }}
+                      disabled={isProcessing}
+                      className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        if (!atLeastOneItemChecked) {
+                          setError('Please check at least one item before confirming receipt');
+                          return;
+                        }
+                        setIsConfirmReceiptModalOpen(true);
+                      }}
+                      disabled={isProcessing || !atLeastOneItemChecked}
+                      className="bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <CheckCircle className="h-4 w-4" />
+                      Confirm Receipt
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1500,8 +2204,8 @@ const Deliveries = () => {
                                 <td className="px-4 py-3 text-center">
                                   <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
                                     (item.usageType || 'otc') === 'salon-use' 
-                                      ? 'bg-blue-100 text-blue-800 border border-blue-200' 
-                                      : 'bg-green-100 text-green-800 border border-green-200'
+                                      ? 'bg-blue-100 text-blue-800' 
+                                      : 'bg-green-100 text-green-800'
                                   }`}>
                                     {(item.usageType || 'otc') === 'salon-use' ? 'Salon Use' : 'OTC'}
                                   </span>
@@ -1521,10 +2225,23 @@ const Deliveries = () => {
                                     type="date"
                                     value={batchExpirationDates[uniqueKey] || ''}
                                     onChange={(e) => {
-                                      setBatchExpirationDates(prev => ({
-                                        ...prev,
+                                      const newDates = {
+                                        ...batchExpirationDates,
                                         [uniqueKey]: e.target.value
-                                      }));
+                                      };
+                                      setBatchExpirationDates(newDates);
+                                      
+                                      // Update localStorage
+                                      const unsavedData = localStorage.getItem('unsavedDeliveryBatchExpiration');
+                                      if (unsavedData) {
+                                        try {
+                                          const parsed = JSON.parse(unsavedData);
+                                          parsed.expirationDates = newDates;
+                                          localStorage.setItem('unsavedDeliveryBatchExpiration', JSON.stringify(parsed));
+                                        } catch (err) {
+                                          console.error('Error updating localStorage:', err);
+                                        }
+                                      }
                                     }}
                                     className={`w-full ${!batchExpirationDates[uniqueKey] ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
                                     min={new Date().toISOString().split('T')[0]}
@@ -1613,6 +2330,10 @@ const Deliveries = () => {
                       setBatchExpirationDates({});
                       setReceivedDeliveryData(null);
                       setIsReceiptModalOpen(true);
+                      
+                      // Clear unsaved data from localStorage
+                      localStorage.removeItem('unsavedDeliveryBatchExpiration');
+                      setHasUnsavedBatchData(false);
                     } catch (err) {
                       console.error('Error creating batches:', err);
                       setError(err.message || 'Failed to create batches. Please try again.');
@@ -1715,6 +2436,7 @@ const Deliveries = () => {
                         // Only count checked items
                         return isChecked ? sum + (receivedQty * unitPrice) : sum;
                       }, 0) || 0;
+
                       return (
                         <div className="flex justify-between pt-2 border-t border-gray-300">
                           <span className="font-semibold text-gray-900">Amount to Pay:</span>
@@ -1857,7 +2579,6 @@ const Deliveries = () => {
                       <tr className="bg-gray-100">
                         <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-700">#</th>
                         <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-700">Product Name</th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-700">SKU</th>
                         <th className="border border-gray-300 px-4 py-2 text-center text-sm font-semibold text-gray-700">Usage Type</th>
                         <th className="border border-gray-300 px-4 py-2 text-center text-sm font-semibold text-gray-700">Ordered</th>
                         <th className="border border-gray-300 px-4 py-2 text-center text-sm font-semibold text-gray-700">Received</th>
@@ -1874,7 +2595,6 @@ const Deliveries = () => {
                           <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                             <td className="border border-gray-300 px-4 py-2 text-sm text-gray-900">{index + 1}</td>
                             <td className="border border-gray-300 px-4 py-2 text-sm text-gray-900">{item.productName}</td>
-                            <td className="border border-gray-300 px-4 py-2 text-sm text-gray-600">{item.sku || 'N/A'}</td>
                             <td className="border border-gray-300 px-4 py-2 text-center text-sm">
                               <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
                                 item.usageType === 'salon-use'
@@ -1899,12 +2619,12 @@ const Deliveries = () => {
                     </tbody>
                     <tfoot>
                       <tr className="bg-gray-100">
-                        <td colSpan="8" className="border border-gray-300 px-4 py-2 text-right text-sm font-semibold text-gray-900">Original Order Total:</td>
+                        <td colSpan="7" className="border border-gray-300 px-4 py-2 text-right text-sm font-semibold text-gray-900">Original Order Total:</td>
                         <td className="border border-gray-300 px-4 py-2 text-right text-sm text-gray-700">₱{receiptData.orderedTotal.toLocaleString()}</td>
                       </tr>
                       {receiptData.discrepancyAmount !== 0 && (
                         <tr className={receiptData.discrepancyAmount > 0 ? 'bg-yellow-50' : 'bg-red-50'}>
-                          <td colSpan="8" className={`border border-gray-300 px-4 py-2 text-right text-sm font-semibold ${
+                          <td colSpan="7" className={`border border-gray-300 px-4 py-2 text-right text-sm font-semibold ${
                             receiptData.discrepancyAmount > 0 ? 'text-yellow-800' : 'text-red-800'
                           }`}>
                             {receiptData.discrepancyAmount > 0 ? 'Over-delivery Adjustment:' : 'Short-delivery Adjustment:'}
@@ -1917,7 +2637,7 @@ const Deliveries = () => {
                         </tr>
                       )}
                       <tr className="bg-green-100 font-bold border-t-2 border-gray-400">
-                        <td colSpan="8" className="border border-gray-300 px-4 py-3 text-right text-lg font-bold text-gray-900">Amount to Pay:</td>
+                        <td colSpan="7" className="border border-gray-300 px-4 py-3 text-right text-lg font-bold text-gray-900">Amount to Pay:</td>
                         <td className="border border-gray-300 px-4 py-3 text-right text-xl font-bold text-green-700">₱{receiptData.totalAmount.toLocaleString()}</td>
                       </tr>
                     </tfoot>
@@ -1973,12 +2693,188 @@ const Deliveries = () => {
                 </Button>
                 <Button
                   onClick={() => {
-                    handlePrint();
+                    openReceiptWindow(receiptData);
                   }}
                   className="bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
                 >
                   <Printer className="h-4 w-4" />
-                  Print / Save as PDF
+                  Print Receipt
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filter Modal */}
+      {isFilterModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col transform transition-all duration-300 scale-100">
+            {/* Modal Header */}
+            <div className="border-b border-gray-200 p-6 bg-gradient-to-r from-[#160B53] to-[#2D1B69] text-white flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Filter className="h-6 w-6" />
+                  <h2 className="text-xl font-bold">Filter Deliveries</h2>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsFilterModalOpen(false)}
+                  className="text-white hover:bg-white/20 p-2"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1">
+              <div className="space-y-6">
+                {/* Supplier Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Supplier</label>
+                  <select
+                    value={selectedSupplierFilter}
+                    onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
+                  >
+                    <option value="all">All Suppliers</option>
+                    {suppliers.map(supplier => (
+                      <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Date Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">From</label>
+                      <input
+                        type="date"
+                        value={dateFilterStart}
+                        onChange={(e) => setDateFilterStart(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">To</label>
+                      <input
+                        type="date"
+                        value={dateFilterEnd}
+                        onChange={(e) => setDateFilterEnd(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Item Count Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Item Count</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Min Items</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={minItems}
+                        onChange={(e) => setMinItems(e.target.value)}
+                        placeholder="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Max Items</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={maxItems}
+                        onChange={(e) => setMaxItems(e.target.value)}
+                        placeholder="No limit"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Amount Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Amount Range (₱)</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Min Amount</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={minAmount}
+                        onChange={(e) => setMinAmount(e.target.value)}
+                        placeholder="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Max Amount</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={maxAmount}
+                        onChange={(e) => setMaxAmount(e.target.value)}
+                        placeholder="No limit"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="in_transit">In Transit</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-gray-200 p-6 bg-gray-50 flex-shrink-0">
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedSupplierFilter('all');
+                    setDateFilterStart('');
+                    setDateFilterEnd('');
+                    setMinItems('');
+                    setMaxItems('');
+                    setMinAmount('');
+                    setMaxAmount('');
+                    setStatusFilter('');
+                  }}
+                  className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                >
+                  Clear All
+                </Button>
+                <Button
+                  onClick={() => setIsFilterModalOpen(false)}
+                  className="bg-[#160B53] text-white hover:bg-[#2D1B69] flex items-center gap-2"
+                >
+                  <Filter className="h-4 w-4" />
+                  Apply Filters
                 </Button>
               </div>
             </div>

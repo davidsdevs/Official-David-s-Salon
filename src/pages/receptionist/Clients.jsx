@@ -156,6 +156,29 @@ const ReceptionistClients = () => {
     return filteredClients.slice(visibleStartIndex, visibleEndIndex);
   }, [filteredClients, visibleStartIndex, visibleEndIndex]);
 
+  // Fetch stats for visible clients
+  useEffect(() => {
+    const fetchStatsForVisibleClients = async () => {
+      // Only fetch stats for clients that don't have cached stats yet
+      const clientsNeedingStats = paginatedClients.filter(
+        client => !clientStatsCache[client.id]
+      );
+      
+      if (clientsNeedingStats.length === 0) return;
+      
+      // Fetch stats in parallel for all visible clients (limit to avoid too many requests)
+      const batchSize = 10;
+      for (let i = 0; i < clientsNeedingStats.length; i += batchSize) {
+        const batch = clientsNeedingStats.slice(i, i + batchSize);
+        await Promise.all(batch.map(client => fetchClientStats(client.id)));
+      }
+    };
+    
+    if (paginatedClients.length > 0 && !loading) {
+      fetchStatsForVisibleClients();
+    }
+  }, [paginatedClients, loading, fetchClientStats, clientStatsCache]);
+
   // Calculate pagination info
   const totalPages = useMemo(() => {
     return Math.ceil(filteredClients.length / itemsPerPage);

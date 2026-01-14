@@ -27,11 +27,13 @@ import {
   Minus,
   Trash2,
   X,
-  Loader2
+  Loader2,
+  Edit
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { collection, getDocs, query, where, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, addDoc, serverTimestamp, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { TrendingDown, TrendingUp } from 'lucide-react';
 
 // Debounce hook for search
 const useDebounce = (value, delay) => {
@@ -72,6 +74,14 @@ const PurchaseOrders = () => {
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Approval states
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [rejectionNote, setRejectionNote] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isConfirmApproveModalOpen, setIsConfirmApproveModalOpen] = useState(false);
+  const [isConfirmRejectModalOpen, setIsConfirmRejectModalOpen] = useState(false);
+  const [pendingOrderId, setPendingOrderId] = useState(null);
   
   // Big data optimizations
   const [productSearchTerm, setProductSearchTerm] = useState('');
@@ -214,7 +224,9 @@ const PurchaseOrders = () => {
         rejectedAt: data.rejectedAt?.toDate ? data.rejectedAt.toDate() : (data.rejectedAt ? new Date(data.rejectedAt) : null),
         approvedByName: data.approvedByName || null,
         rejectedByName: data.rejectedByName || null,
-        rejectionNote: data.rejectionNote || null
+        rejectionNote: data.rejectionNote || null,
+        updatedByName: data.updatedByName || null,
+        managerNotes: data.managerNotes || null
       });
     });
 
@@ -638,6 +650,95 @@ const PurchaseOrders = () => {
     };
   }, [purchaseOrders]);
 
+  // Approval functions
+  const handleOpenApproveModal = (orderId) => {
+    setPendingOrderId(orderId);
+    setIsConfirmApproveModalOpen(true);
+  };
+
+  const handleApproveOrder = async () => {
+    if (!pendingOrderId) return;
+    
+    try {
+      setIsProcessing(true);
+      setError(null);
+      const orderRef = doc(db, 'purchaseOrders', pendingOrderId);
+      await updateDoc(orderRef, {
+        status: 'Approved',
+        approvedBy: userData.uid || userData.id,
+        approvedByName: (userData.firstName && userData.lastName 
+          ? `${userData.firstName} ${userData.lastName}`.trim() 
+          : (userData.email || 'Unknown')),
+        approvedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      await loadPurchaseOrders();
+      setIsConfirmApproveModalOpen(false);
+      setIsDetailsModalOpen(false);
+      setSelectedOrder(null);
+      setPendingOrderId(null);
+    } catch (err) {
+      console.error('Error approving order:', err);
+      setError('Failed to approve order. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleOpenRejectModal = (order) => {
+    setSelectedOrder(order);
+    setRejectionNote('');
+    setIsRejectModalOpen(true);
+  };
+
+  const handleRejectOrderConfirm = () => {
+    if (!selectedOrder || !rejectionNote.trim()) {
+      setError('Rejection note is required');
+      return;
+    }
+    setIsConfirmRejectModalOpen(true);
+  };
+
+  const handleRejectOrder = async () => {
+    if (!selectedOrder || !rejectionNote.trim()) return;
+
+    try {
+      setIsProcessing(true);
+      const orderRef = doc(db, 'purchaseOrders', selectedOrder.id);
+      await updateDoc(orderRef, {
+        status: 'Cancelled',
+        rejectedBy: userData.uid || userData.id,
+        rejectedByName: (userData.firstName && userData.lastName 
+          ? `${userData.firstName} ${userData.lastName}`.trim() 
+          : (userData.email || 'Unknown')),
+        rejectedAt: serverTimestamp(),
+        rejectionNote: rejectionNote.trim(),
+        updatedAt: serverTimestamp()
+      });
+      await loadPurchaseOrders();
+      setIsRejectModalOpen(false);
+      setIsConfirmRejectModalOpen(false);
+      setSelectedOrder(null);
+      setRejectionNote('');
+    } catch (err) {
+      console.error('Error rejecting order:', err);
+      setError('Failed to reject order. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Check if order can be approved/rejected
+  const canApproveOrReject = (order) => {
+    return order.status === 'Pending';
+  };
+
+  // Handle open details modal
+  const handleOpenDetailsModal = (order) => {
+    setSelectedOrder(order);
+    setIsDetailsModalOpen(true);
+  };
+
   if (loading) {
     return (
       
@@ -924,18 +1025,39 @@ const PurchaseOrders = () => {
                       <div className="text-sm text-gray-900">{order.items?.length || 0} items</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setIsDetailsModalOpen(true);
-                        }}
-                        className="flex items-center gap-1"
-                      >
-                        <Eye className="h-3 w-3" />
-                        View
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenDetailsModal(order)}
+                          className="flex items-center gap-1"
+                        >
+                          <Eye className="h-3 w-3" />
+                          View
+                        </Button>
+                        {canApproveOrReject(order) && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenApproveModal(order.id)}
+                              className="flex items-center gap-1 text-green-600 border-green-300 hover:bg-green-50"
+                            >
+                              <CheckCircle className="h-3 w-3" />
+                              Approve
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenRejectModal(order)}
+                              className="flex items-center gap-1 text-red-600 border-red-300 hover:bg-red-50"
+                            >
+                              <XCircle className="h-3 w-3" />
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -1471,6 +1593,37 @@ const PurchaseOrders = () => {
                         )}
                       </div>
                     )}
+                    {selectedOrder.updatedByName && selectedOrder.updatedAt && selectedOrder.createdAt && (() => {
+                      // Only show "Edited" if updatedAt is significantly different from createdAt (more than 1 minute)
+                      try {
+                        const updatedAt = selectedOrder.updatedAt.toDate ? selectedOrder.updatedAt.toDate() : new Date(selectedOrder.updatedAt);
+                        const createdAt = selectedOrder.createdAt.toDate ? selectedOrder.createdAt.toDate() : new Date(selectedOrder.createdAt);
+                        return Math.abs(updatedAt - createdAt) > 60000; // More than 1 minute difference
+                      } catch {
+                        return false;
+                      }
+                    })() && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Last Updated By</label>
+                        <p className="text-gray-900 text-blue-600 font-semibold">{selectedOrder.updatedByName}</p>
+                        {selectedOrder.updatedAt && (
+                          <p className="text-xs text-gray-500">
+                            {(() => {
+                              try {
+                                const date = selectedOrder.updatedAt.toDate ? selectedOrder.updatedAt.toDate() : new Date(selectedOrder.updatedAt);
+                                return format(date, 'MMM dd, yyyy HH:mm');
+                              } catch (error) {
+                                return 'Invalid date';
+                              }
+                            })()}
+                          </p>
+                        )}
+                        <div className="mt-1 inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                          <Edit className="h-3 w-3" />
+                          Edited
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-4">
                     <div>
@@ -1481,6 +1634,14 @@ const PurchaseOrders = () => {
                       <div>
                         <label className="text-sm font-medium text-gray-500">Notes</label>
                         <p className="text-gray-900">{selectedOrder.notes}</p>
+                      </div>
+                    )}
+                    {selectedOrder.managerNotes && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Manager Notes</label>
+                        <div className="mt-1 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="text-sm text-amber-800">{selectedOrder.managerNotes}</p>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1494,36 +1655,50 @@ const PurchaseOrders = () => {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
+                          <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Ordered Qty</th>
+                          <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Usage Type</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Unit Price</th>
                           <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
                         {selectedOrder.items && selectedOrder.items.length > 0 ? (
-                          selectedOrder.items.map((item, index) => (
-                            <tr key={index}>
-                              <td className="px-4 py-3">
-                                <div className="font-medium text-gray-900">{item.productName}</div>
-                                {item.sku && (
-                                  <div className="text-xs text-gray-500">SKU: {item.sku}</div>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-gray-900">{item.quantity}</td>
-                              <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
-                              <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
-                            </tr>
-                          ))
+                          selectedOrder.items.map((item, index) => {
+                            return (
+                              <tr key={index}>
+                                <td className="px-4 py-3">
+                                  <div className="font-medium text-gray-900">{item.productName}</div>
+                                  {item.sku && (
+                                    <div className="text-xs text-gray-500">SKU: {item.sku}</div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="font-medium text-gray-900">{item.quantity}</span>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                    item.usageType === 'salon-use' 
+                                      ? 'bg-purple-100 text-purple-800' 
+                                      : 'bg-blue-100 text-blue-800'
+                                  }`}>
+                                    {item.usageType === 'salon-use' ? 'Salon Use' : 'OTC'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
+                              </tr>
+                            );
+                          })
                         ) : (
                           <tr>
-                            <td colSpan="4" className="px-4 py-4 text-center text-gray-500">No items</td>
+                            <td colSpan="7" className="px-4 py-4 text-center text-gray-500">No items</td>
                           </tr>
                         )}
                       </tbody>
                       {selectedOrder.items && selectedOrder.items.length > 0 && (
                         <tfoot className="bg-gray-50">
                           <tr>
-                            <td colSpan="3" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
+                            <td colSpan="6" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
                             <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
                               ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
                             </td>
@@ -1554,10 +1729,168 @@ const PurchaseOrders = () => {
           </div>
         </div>
       )}
+
+      {/* Approve Confirmation Modal */}
+      {isConfirmApproveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-green-100 rounded-full">
+                <CheckCircle className="h-6 w-6 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Approve Purchase Order</h3>
+                <p className="text-sm text-gray-600">Confirm approval of this purchase order</p>
+              </div>
+            </div>
+            <p className="text-gray-700 mb-6">
+              Are you sure you want to approve this purchase order? This will change its status to "Approved".
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setIsConfirmApproveModalOpen(false)}
+                disabled={isProcessing}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleApproveOrder}
+                disabled={isProcessing}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Approving...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Approve Order
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Modal */}
+      {isRejectModalOpen && selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-full">
+                <XCircle className="h-6 w-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Reject Purchase Order</h3>
+                <p className="text-sm text-gray-600">Provide a reason for rejection</p>
+              </div>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Rejection Note <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={rejectionNote}
+                onChange={(e) => setRejectionNote(e.target.value)}
+                placeholder="Please provide a reason for rejecting this purchase order..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                rows={4}
+                required
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsRejectModalOpen(false);
+                  setSelectedOrder(null);
+                  setRejectionNote('');
+                }}
+                disabled={isProcessing}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleRejectOrderConfirm}
+                disabled={isProcessing || !rejectionNote.trim()}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject Order
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Reject Modal */}
+      {isConfirmRejectModalOpen && selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-full">
+                <AlertTriangle className="h-6 w-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Confirm Rejection</h3>
+                <p className="text-sm text-gray-600">This action cannot be undone</p>
+              </div>
+            </div>
+            <div className="mb-4">
+              <p className="text-gray-700 mb-2">Are you sure you want to reject this purchase order?</p>
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="text-sm text-gray-600">
+                  <strong>Order:</strong> {selectedOrder.orderId || selectedOrder.id}<br />
+                  <strong>Supplier:</strong> {selectedOrder.supplierName}<br />
+                  <strong>Reason:</strong> {rejectionNote}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setIsConfirmRejectModalOpen(false)}
+                disabled={isProcessing}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleRejectOrder}
+                disabled={isProcessing}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Rejecting...
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Confirm Rejection
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     
   );
 };
 
 export default PurchaseOrders;
-

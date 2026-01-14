@@ -3,6 +3,7 @@
  * Creates service templates and assigns them to Ayala Harbor Point branch
  */
 
+import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, 
@@ -15,20 +16,21 @@ import {
   serverTimestamp 
 } from 'firebase/firestore';
 
+dotenv.config();
+
 // Firebase config
 const firebaseConfig = {
-  apiKey: "AIzaSyD4ène5yOM8JDw4RIZhk7mCOzP3VEcvXU8",
-  authDomain: "davids-salon.firebaseapp.com",
-  projectId: "davids-salon",
-  storageBucket: "davids-salon.firebasestorage.app",
-  messagingSenderId: "450733830859",
-  appId: "1:450733830859:web:4fe0ec9c7d36f4f5cb1e1c"
+  apiKey: process.env.VITE_FIREBASE_API_KEY,
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.VITE_FIREBASE_APP_ID,
+  measurementId: process.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-
-const BRANCH_ID = 'XFL1DUK3fe3JrhygLYUv'; // Ayala Mall Harbor Point
 
 // Updated categories based on David's Salon menu
 const CATEGORIES = [
@@ -402,82 +404,48 @@ async function seedServices() {
     console.log('🌱 Starting David\'s Salon services seeding...\n');
 
     // Step 1: Clear existing service templates
-    console.log('📋 Clearing existing service templates...');
-    const templatesRef = collection(db, 'service_templates');
-    const templatesSnapshot = await getDocs(templatesRef);
-    
-    if (!templatesSnapshot.empty) {
-      const batch = writeBatch(db);
-      templatesSnapshot.docs.forEach(doc => {
-        batch.delete(doc.ref);
-      });
-      await batch.commit();
-      console.log(`✅ Deleted ${templatesSnapshot.size} existing templates\n`);
-    } else {
-      console.log('✅ No existing templates to delete\n');
-    }
-
-    // Step 2: Clear existing services for the branch
-    console.log('📋 Clearing existing services for branch...');
+    console.log('📋 Clearing existing services...');
     const servicesRef = collection(db, 'services');
-    const branchServicesQuery = query(servicesRef, where('branchId', '==', BRANCH_ID));
-    const branchServicesSnapshot = await getDocs(branchServicesQuery);
+    const servicesSnapshot = await getDocs(servicesRef);
     
-    if (!branchServicesSnapshot.empty) {
+    if (!servicesSnapshot.empty) {
       const batch = writeBatch(db);
-      branchServicesSnapshot.docs.forEach(doc => {
+      servicesSnapshot.docs.forEach(doc => {
         batch.delete(doc.ref);
       });
       await batch.commit();
-      console.log(`✅ Deleted ${branchServicesSnapshot.size} existing branch services\n`);
+      console.log(`✅ Deleted ${servicesSnapshot.size} existing services\n`);
     } else {
-      console.log('✅ No existing branch services to delete\n');
+      console.log('✅ No existing services to delete\n');
     }
 
-    // Step 3: Create service templates
-    console.log('🎨 Creating service templates...');
-    const templateIds = {};
-    
-    for (const service of SERVICES) {
-      const templateData = {
-        ...service,
-        enabled: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-      
-      const docRef = await addDoc(collection(db, 'service_templates'), templateData);
-      templateIds[service.serviceName] = docRef.id;
-      console.log(`  ✅ Created template: ${service.serviceName} (${service.category})`);
-    }
-    console.log(`\n✅ Created ${SERVICES.length} service templates\n`);
-
-    // Step 4: Assign services to branch
-    console.log('🏪 Assigning services to Ayala Harbor Point branch...');
-    let assignedCount = 0;
+    // Step 2: Create global services (no branchId)
+    console.log('🎨 Creating global services...');
+    let createdCount = 0;
     
     for (const service of SERVICES) {
       const serviceData = {
-        ...service,
-        branchId: BRANCH_ID,
-        templateId: templateIds[service.serviceName],
-        enabled: true,
+        name: service.serviceName,
+        description: service.description,
+        category: service.category,
+        duration: service.duration,
+        price: service.price,
+        isChemical: service.isChemical,
+        isActive: true,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
       
       await addDoc(collection(db, 'services'), serviceData);
-      assignedCount++;
+      createdCount++;
+      console.log(`  ✅ Created: ${service.serviceName} (${service.category})`);
     }
-    console.log(`✅ Assigned ${assignedCount} services to branch\n`);
+    console.log(`\n✅ Created ${createdCount} global services\n`);
 
-    // Step 5: Summary
+    // Step 3: Summary
     console.log('📊 SEEDING SUMMARY:');
     console.log('═══════════════════════════════════════');
-    console.log(`Branch ID: ${BRANCH_ID}`);
-    console.log(`Categories: ${CATEGORIES.length}`);
-    console.log(`Service Templates: ${SERVICES.length}`);
-    console.log(`Branch Services: ${assignedCount}`);
+    console.log(`Global Services: ${createdCount}`);
     console.log('\n🎉 David\'s Salon services seeding completed successfully!');
     
     // Category breakdown

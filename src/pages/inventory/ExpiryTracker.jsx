@@ -5,6 +5,7 @@ import InventoryLayout from '../../layouts/InventoryLayout';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { SearchInput } from '../../components/ui/SearchInput';
 import {
   Calendar,
   Search,
@@ -30,12 +31,15 @@ import {
   ClipboardList,
   UserCog,
   Truck,
-  PackageCheck
+  PackageCheck,
+  Download,
+  Printer
 } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { inventoryService } from '../../services/inventoryService';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { toast } from 'react-hot-toast';
 
 const ExpiryTracker = () => {
   const { userData } = useAuth();
@@ -55,6 +59,7 @@ const ExpiryTracker = () => {
   const [selectedDaysAhead, setSelectedDaysAhead] = useState(30);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState(null);
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
   // Load batches on mount
   useEffect(() => {
@@ -274,6 +279,139 @@ const ExpiryTracker = () => {
     }
   };
 
+  // Export batches to CSV
+  const handleExport = () => {
+    try {
+      const headers = ['Product', 'Batch Number', 'Purchase Order', 'Quantity', 'Expiration Date', 'Days Left', 'Status', 'Unit Cost', 'Total Value'];
+      
+      const rows = filteredBatches.map(batch => {
+        const status = getExpiryStatus(batch.expirationDate);
+        const daysLeft = batch.expirationDate 
+          ? differenceInDays(batch.expirationDate, new Date())
+          : null;
+        const batchValue = (batch.remainingQuantity || 0) * (batch.unitCost || 0);
+        
+        return [
+          batch.productName || productsMap[batch.productId] || 'Unknown Product',
+          batch.batchNumber || 'N/A',
+          batch.purchaseOrderId || 'N/A',
+          `${batch.remainingQuantity || 0} / ${batch.quantity || 0}`,
+          batch.expirationDate ? format(new Date(batch.expirationDate), 'MMM dd, yyyy') : 'No Expiry',
+          daysLeft === null ? 'N/A' : daysLeft < 0 ? 'Expired' : `${daysLeft} days`,
+          status,
+          batch.unitCost || 0,
+          batchValue
+        ];
+      });
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `expiry_tracker_${format(new Date(), 'yyyy-MM-dd_HH-mm-ss')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success(`Exported ${filteredBatches.length} batches`);
+    } catch (err) {
+      console.error('Error exporting batches:', err);
+      toast.error('Failed to export batches');
+    }
+  };
+
+  // Print all batches
+  const handlePrintAll = () => {
+    const printWindow = window.open('', '', 'height=600,width=800');
+    
+    let htmlContent = `
+      <html>
+        <head>
+          <title>Batch Expiration Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1 { text-align: center; color: #333; }
+            .batch-section { page-break-inside: avoid; margin-bottom: 20px; border: 1px solid #ddd; padding: 15px; }
+            .batch-header { background-color: #f5f5f5; padding: 10px; margin-bottom: 10px; border-radius: 4px; }
+            .batch-name { font-size: 16px; font-weight: bold; color: #333; }
+            .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px; }
+            .status-good { background-color: #d4edda; color: #155724; }
+            .status-expiring { background-color: #fff3cd; color: #856404; }
+            .status-critical { background-color: #ffe5e5; color: #c33; }
+            .status-expired { background-color: #f8d7da; color: #721c24; }
+            .info-row { margin: 8px 0; }
+            .info-label { font-weight: bold; color: #555; display: inline-block; width: 140px; }
+          </style>
+        </head>
+        <body>
+          <h1>Batch Expiration Report</h1>
+          <p style="text-align: center; color: #666;">Generated on ${format(new Date(), 'MMMM dd, yyyy HH:mm:ss')}</p>
+          <p style="text-align: center; color: #999; font-size: 12px;">Total Batches: ${filteredBatches.length}</p>
+    `;
+
+    filteredBatches.forEach(batch => {
+      const status = getExpiryStatus(batch.expirationDate);
+      const daysLeft = batch.expirationDate 
+        ? differenceInDays(batch.expirationDate, new Date())
+        : null;
+      const batchValue = (batch.remainingQuantity || 0) * (batch.unitCost || 0);
+      const statusClass = `status-${status.toLowerCase().replace(/\s+/g, '-')}`;
+      
+      htmlContent += `
+        <div class="batch-section">
+          <div class="batch-header">
+            <div class="batch-name">
+              ${batch.productName || productsMap[batch.productId] || 'Unknown Product'}
+              <span class="status-badge ${statusClass}">${status}</span>
+            </div>
+          </div>
+          
+          <div class="info-row">
+            <span class="info-label">Batch Number:</span> ${batch.batchNumber || 'N/A'}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Purchase Order:</span> ${batch.purchaseOrderId || 'N/A'}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Quantity:</span> ${batch.remainingQuantity || 0} / ${batch.quantity || 0} units
+          </div>
+          <div class="info-row">
+            <span class="info-label">Expiration Date:</span> ${batch.expirationDate ? format(new Date(batch.expirationDate), 'MMM dd, yyyy') : 'No Expiry'}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Days Left:</span> ${daysLeft === null ? 'N/A' : daysLeft < 0 ? 'Expired' : `${daysLeft} days`}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Unit Cost:</span> ₱${(batch.unitCost || 0).toLocaleString()}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Total Value:</span> ₱${batchValue.toLocaleString()}
+          </div>
+          <div class="info-row">
+            <span class="info-label">Received Date:</span> ${batch.receivedDate ? format(new Date(batch.receivedDate), 'MMM dd, yyyy') : 'N/A'}
+          </div>
+        </div>
+      `;
+    });
+
+    htmlContent += `
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  };
+
   if (loading && batches.length === 0) {
     return (
       <>
@@ -307,17 +445,9 @@ const ExpiryTracker = () => {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Batch Expiration Tracker</h1>
-            <p className="text-sm md:text-base text-gray-600">Monitor product batches and expiration dates</p>
-          </div>
-          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-            <Button variant="outline" onClick={loadBatches} className="flex items-center gap-2 text-xs md:text-sm">
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </Button>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Batch Expiration Tracker</h1>
+          <p className="text-gray-600">Monitor product batches and expiration dates</p>
         </div>
 
         {/* Error Display */}
@@ -334,71 +464,72 @@ const ExpiryTracker = () => {
         )}
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 md:gap-4">
-          <Card className="p-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3 lg:gap-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Package className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Batches</p>
-                <p className="text-xl font-bold text-gray-900">{stats.totalBatches}</p>
+              <Package className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Batches</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{stats.totalBatches}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Good</p>
-                <p className="text-xl font-bold text-gray-900">{stats.goodBatches}</p>
+              <CheckCircle className="h-6 w-6 md:h-8 md:w-8 text-green-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Good</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{stats.goodBatches}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Clock className="h-8 w-8 text-yellow-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Expiring Soon</p>
-                <p className="text-xl font-bold text-gray-900">{stats.expiringSoon}</p>
+              <Clock className="h-6 w-6 md:h-8 md:w-8 text-yellow-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Expiring Soon</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{stats.expiringSoon}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <AlertTriangle className="h-8 w-8 text-orange-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Critical</p>
-                <p className="text-xl font-bold text-gray-900">{stats.criticalBatches}</p>
+              <AlertTriangle className="h-6 w-6 md:h-8 md:w-8 text-orange-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Critical</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{stats.criticalBatches}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <XCircle className="h-8 w-8 text-red-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Expired</p>
-                <p className="text-xl font-bold text-gray-900">{stats.expiredBatches}</p>
+              <XCircle className="h-6 w-6 md:h-8 md:w-8 text-red-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Expired</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{stats.expiredBatches}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <TrendingDown className="h-8 w-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">At Risk Value</p>
-                <p className="text-xl font-bold text-gray-900">₱{stats.atRiskValue.toLocaleString()}</p>
+              <TrendingDown className="h-6 w-6 md:h-8 md:w-8 text-purple-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">At Risk Value</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">₱{stats.atRiskValue.toLocaleString()}</p>
               </div>
             </div>
           </Card>
         </div>
 
-        {/* Search and Filters */}
-        <Card className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
+        {/* Search and Filter Row */}
+        <Card className="p-3 md:p-4 lg:p-6">
+          <div className="flex items-center gap-3 md:gap-4">
+            {/* Search Bar - 70% width */}
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
@@ -406,45 +537,35 @@ const ExpiryTracker = () => {
                 placeholder="Search by product name, batch number, or PO ID..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10"
+                className="w-full pl-10 text-sm"
               />
             </div>
-            <div className="flex gap-3">
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="good">Good (30+ days)</option>
-                <option value="expiring_soon">Expiring Soon (8-30 days)</option>
-                <option value="critical">Critical (0-7 days)</option>
-                <option value="expired">Expired</option>
-                <option value="depleted">Depleted</option>
-              </select>
-              <select
-                value={selectedDaysAhead}
-                onChange={(e) => setSelectedDaysAhead(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-              >
-                <option value="all">All Time</option>
-                <option value="7">Next 7 Days</option>
-                <option value="30">Next 30 Days</option>
-                <option value="60">Next 60 Days</option>
-                <option value="90">Next 90 Days</option>
-              </select>
+            
+            {/* Icon Buttons Only */}
+            <div className="flex items-center gap-2 md:gap-3">
               <Button
                 variant="outline"
-                onClick={() => {
-                  setSearchTerm('');
-                  setSelectedStatus('all');
-                  setSelectedDaysAhead(30);
-                }}
-                className="flex items-center gap-2"
+                onClick={() => setIsFilterModalOpen(true)}
+                className="p-2 md:p-2.5"
+                title="Filter"
               >
-                <RefreshCw className="h-4 w-4" />
-                Reset
+                <Filter className="h-4 w-4 md:h-5 md:w-5" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleExport}
+                className="p-2 md:p-2.5"
+                title="Export"
+              >
+                <Download className="h-4 w-4 md:h-5 md:w-5" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handlePrintAll}
+                className="p-2 md:p-2.5"
+                title="Print"
+              >
+                <Printer className="h-4 w-4 md:h-5 md:w-5" />
               </Button>
             </div>
           </div>
@@ -456,34 +577,34 @@ const ExpiryTracker = () => {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Product
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
                     Batch Number
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                     Purchase Order
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Quantity
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Qty
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Expiration Date
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Expiry
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Days Left
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                     Usage Type
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
                     Value
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -491,7 +612,7 @@ const ExpiryTracker = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredBatches.length === 0 ? (
                   <tr>
-                    <td colSpan="10" className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan="10" className="px-2 md:px-4 py-4 md:py-8 text-center text-xs md:text-sm text-gray-500">
                       {batches.length === 0 
                         ? 'No batches found. Batches will be created when purchase orders are marked as delivered.'
                         : 'No batches match your filters. Try adjusting your search or filters.'
@@ -508,32 +629,32 @@ const ExpiryTracker = () => {
                     
                     return (
                       <tr key={batch.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
+                        <td className="px-2 md:px-4 py-2 md:py-4">
                           <div>
-                            <div className="text-sm font-semibold text-gray-900">{batch.productName || productsMap[batch.productId] || 'Unknown Product'}</div>
-                            <div className="text-xs text-gray-500 mt-1">ID: {batch.productId}</div>
+                            <div className="text-xs md:text-sm font-semibold text-gray-900">{batch.productName || productsMap[batch.productId] || 'Unknown Product'}</div>
+                            <div className="text-xs text-gray-500 mt-1 hidden md:block">ID: {batch.productId}</div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{batch.batchNumber || 'N/A'}</div>
+                        <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap hidden md:table-cell">
+                          <div className="text-xs md:text-sm font-medium text-gray-900">{batch.batchNumber || 'N/A'}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{batch.purchaseOrderId || 'N/A'}</div>
+                        <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap hidden lg:table-cell">
+                          <div className="text-xs md:text-sm text-gray-900">{batch.purchaseOrderId || 'N/A'}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
+                        <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                          <div className="text-xs md:text-sm text-gray-900">
                             {batch.remainingQuantity || 0} / {batch.quantity || 0}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
+                        <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                          <div className="text-xs md:text-sm text-gray-900">
                             {batch.expirationDate 
                               ? format(new Date(batch.expirationDate), 'MMM dd, yyyy')
                               : 'No Expiry'}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className={`text-sm font-medium ${
+                        <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                          <div className={`text-xs md:text-sm font-medium ${
                             daysLeft === null ? 'text-gray-600' :
                             daysLeft < 0 ? 'text-red-600' : 
                             daysLeft <= 7 ? 'text-orange-600' : 
@@ -543,8 +664,8 @@ const ExpiryTracker = () => {
                             {daysLeft === null ? 'N/A' : daysLeft < 0 ? 'Expired' : `${daysLeft} days`}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap hidden lg:table-cell">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                             (batch.usageType || 'otc') === 'salon-use'
                               ? 'bg-blue-100 text-blue-800 border border-blue-200'
                               : 'bg-green-100 text-green-800 border border-green-200'
@@ -552,17 +673,17 @@ const ExpiryTracker = () => {
                             {(batch.usageType || 'otc') === 'salon-use' ? 'Salon Use' : 'OTC'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(status)}`}>
+                        <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1 px-2 md:px-3 py-0.5 md:py-1 rounded-full text-xs md:text-sm font-medium border ${getStatusColor(status)}`}>
                             {getStatusIcon(status)}
-                            {status}
+                            <span className="hidden sm:inline">{status}</span>
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">₱{batchValue.toLocaleString()}</div>
+                        <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap hidden md:table-cell">
+                          <div className="text-xs md:text-sm font-medium text-gray-900">₱{batchValue.toLocaleString()}</div>
                           <div className="text-xs text-gray-500">₱{(batch.unitCost || 0).toLocaleString()}/unit</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap text-xs md:text-sm font-medium">
                           <Button
                             variant="outline"
                             size="sm"
@@ -570,10 +691,10 @@ const ExpiryTracker = () => {
                               setSelectedBatch(batch);
                               setIsDetailsModalOpen(true);
                             }}
-                            className="flex items-center gap-1"
+                            className="flex items-center gap-1 text-xs md:text-sm px-2 md:px-3"
                           >
-                            <Eye className="h-3 w-3" />
-                            View
+                            <Eye className="h-3 w-3 md:h-3.5 md:w-3.5" />
+                            <span className="hidden sm:inline">View</span>
                           </Button>
                         </td>
                       </tr>
@@ -717,6 +838,82 @@ const ExpiryTracker = () => {
                     Close
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Filter Modal */}
+        {isFilterModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all duration-300 scale-100">
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-bold">Filter Batches</h2>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setIsFilterModalOpen(false)}
+                    className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="good">Good (30+ days)</option>
+                    <option value="expiring_soon">Expiring Soon (8-30 days)</option>
+                    <option value="critical">Critical (0-7 days)</option>
+                    <option value="expired">Expired</option>
+                    <option value="depleted">Depleted</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Time Range</label>
+                  <select
+                    value={selectedDaysAhead}
+                    onChange={(e) => setSelectedDaysAhead(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="all">All Time</option>
+                    <option value="7">Next 7 Days</option>
+                    <option value="30">Next 30 Days</option>
+                    <option value="60">Next 60 Days</option>
+                    <option value="90">Next 90 Days</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="border-t border-gray-200 p-6 bg-gray-50 flex gap-3 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedStatus('all');
+                    setSelectedDaysAhead(30);
+                  }}
+                  className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                >
+                  Reset
+                </Button>
+                <Button
+                  onClick={() => setIsFilterModalOpen(false)}
+                  className="bg-[#160B53] text-white hover:bg-[#12094A]"
+                >
+                  Apply
+                </Button>
               </div>
             </div>
           </div>

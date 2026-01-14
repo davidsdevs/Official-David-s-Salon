@@ -22,7 +22,8 @@ import {
   Clock,
   Printer,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Search
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
@@ -64,7 +65,7 @@ const Products = () => {
     supplier: 'all',
     priceRange: { min: '', max: '' },
     commissionRange: { min: '', max: '' },
-    showServiceMapped: true // Default to showing service-mapped products
+    showServiceMapped: false // Default to not showing service-mapped products
   });
 
   // Load suppliers
@@ -279,7 +280,7 @@ const Products = () => {
       supplier: 'all',
       priceRange: { min: '', max: '' },
       commissionRange: { min: '', max: '' },
-      showServiceMapped: true
+      showServiceMapped: false
     });
     setSearchTerm('');
   };
@@ -542,35 +543,41 @@ const Products = () => {
           <table>
             <thead>
               <tr>
-                <th style="width: 40px;">Image</th>
                 <th>Product Name</th>
                 <th>Brand</th>
                 <th>Category</th>
-                <th>Type</th>
                 <th>UPC</th>
-                <th>Price</th>
+                <th>Description</th>
+                <th>OTC Price</th>
                 <th>Unit Cost</th>
+                <th>Commission %</th>
                 <th>Status</th>
+                <th>Type</th>
+                <th>Variants</th>
+                <th>Shelf Life</th>
+                <th>Service Mapped</th>
               </tr>
             </thead>
             <tbody>
               ${filteredProducts.map(product => `
                 <tr>
-                  <td class="image-cell">
-                    ${product.imageUrl ? `<img src="${product.imageUrl}" alt="${product.name}" />` : '📦'}
-                  </td>
                   <td style="font-weight: 600; color: #160B53;">${product.name || 'N/A'}</td>
                   <td>${product.brand || 'N/A'}</td>
                   <td>${product.category || 'N/A'}</td>
-                  <td>
-                    <span class="product-type ${product.isBranchProduct ? 'branch-product' : 'service-mapped'}">
-                      ${product.isBranchProduct ? 'Branch' : 'Service'}
-                    </span>
-                  </td>
                   <td style="font-family: monospace;">${product.upc || 'N/A'}</td>
+                  <td>${product.description || 'N/A'}</td>
                   <td class="price-otc">₱${(product.otcPrice || 0).toLocaleString()}</td>
                   <td>₱${(product.unitCost || 0).toLocaleString()}</td>
+                  <td>${product.commissionPercentage || 0}%</td>
                   <td class="status-${product.status?.toLowerCase() || 'active'}">${product.status || 'Active'}</td>
+                  <td>
+                    <span class="product-type ${product.isBranchProduct ? 'branch-product' : 'service-mapped'}">
+                      ${product.isBranchProduct ? 'Branch Product' : product.type || 'N/A'}
+                    </span>
+                  </td>
+                  <td>${product.variants || 'N/A'}</td>
+                  <td>${product.shelfLife || 'N/A'}</td>
+                  <td>${product.hasServiceMapping ? 'Yes' : 'No'}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -673,20 +680,14 @@ const Products = () => {
         { key: 'productType', label: 'Product Type' },
         { key: 'hasServiceMapping', label: 'Used in Services' },
         { key: 'variants', label: 'Variants' },
-        { key: 'shelfLife', label: 'Shelf Life' },
-        { key: 'suppliers', label: 'Suppliers' }
+        { key: 'shelfLife', label: 'Shelf Life' }
       ];
 
       // Prepare data with formatted suppliers and additional fields
       const exportData = filteredProducts.map(product => {
-        const suppliers = Array.isArray(product.suppliers)
-          ? product.suppliers.join('; ')
-          : (product.supplier || '');
-
         return {
           ...product,
           imageUrl: product.imageUrl || '',
-          suppliers: suppliers,
           otcPrice: product.otcPrice || 0,
           unitCost: product.unitCost || 0,
           commissionPercentage: product.commissionPercentage || 0,
@@ -811,119 +812,168 @@ const Products = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Products</h1>
-          <p className="text-sm md:text-base text-gray-600">Manage your product inventory and details</p>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Products</h1>
+        <p className="text-gray-600">Manage your product inventory and details</p>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Total Products</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{filteredProducts.length}</p>
+              <p className="text-xs text-gray-500 mt-1">of {products.length} total</p>
+            </div>
+            <div className="p-3 bg-blue-100 rounded-lg">
+              <Package className="w-6 h-6 text-blue-600" />
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-          <Button
-            variant="outline"
-            className="flex items-center gap-2 text-xs md:text-sm"
-            onClick={handlePrintReport}
-          >
-            <Printer className="h-4 w-4" />
-            <span className="hidden sm:inline">PDF Report</span>
-          </Button>
-          <Button 
-            variant="outline" 
-            className="flex items-center gap-2 text-xs md:text-sm"
-            onClick={() => setIsImportModalOpen(true)}
-          >
-            <Upload className="h-4 w-4" />
-            <span className="hidden sm:inline">Import</span>
-          </Button>
-          <Button 
-            variant="outline" 
-            className="flex items-center gap-2 text-xs md:text-sm"
-            onClick={exportProducts}
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Active Products</p>
+              <p className="text-2xl font-bold text-green-600 mt-1">
+                {filteredProducts.filter(p => p.status === 'Active').length}
+              </p>
+            </div>
+            <div className="p-3 bg-green-100 rounded-lg">
+              <CheckCircle className="w-6 h-6 text-green-600" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Inactive Products</p>
+              <p className="text-2xl font-bold text-red-600 mt-1">
+                {filteredProducts.filter(p => p.status === 'Inactive' || p.status === 'Discontinued').length}
+              </p>
+            </div>
+            <div className="p-3 bg-red-100 rounded-lg">
+              <XCircle className="w-6 h-6 text-red-600" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Categories</p>
+              <p className="text-2xl font-bold text-purple-600 mt-1">
+                {[...new Set(filteredProducts.map(p => p.category).filter(Boolean))].length}
+              </p>
+            </div>
+            <div className="p-3 bg-purple-100 rounded-lg">
+              <Package className="w-6 h-6 text-purple-600" />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Search and Filters */}
-      <Card className="p-4 md:p-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <SearchInput
-              placeholder="Search products by name, brand, or description..."
+      {/* Filter Row */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search products..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
             />
           </div>
-          <div className="flex gap-2 md:gap-3 flex-wrap">
-            <select
-              value={filters.category}
-              onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="all">All Categories</option>
-              {categories.map(category => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
-            <select
-              value={filters.status}
-              onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="all">All Status</option>
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-              <option value="Discontinued">Discontinued</option>
-            </select>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={filters.showServiceMapped}
-                onChange={(e) => setFilters(prev => ({ ...prev, showServiceMapped: e.target.checked }))}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              Show products with service mapping
-            </label>
-            <Button
-              variant="outline"
-              onClick={() => setIsFilterModalOpen(true)}
-              className="flex items-center gap-2"
-            >
-              <Filter className="h-4 w-4" />
-              More Filters
-            </Button>
-            <Button
-              variant="outline"
-              onClick={resetFilters}
-              className="flex items-center gap-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Reset
-            </Button>
-          </div>
+
+          {/* Filter Button */}
+          <button
+            onClick={() => setIsFilterModalOpen(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+              (filters.category !== 'all' || filters.status !== 'all' || filters.supplier !== 'all' || 
+               filters.priceRange.min || filters.priceRange.max || filters.commissionRange.min || 
+               filters.commissionRange.max || !filters.showServiceMapped)
+                ? 'bg-[#160B53]/10 border-[#160B53]/30 text-[#160B53] hover:bg-[#160B53]/20'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredProducts.length} products`}
+          >
+            <Filter className="w-5 h-5" />
+            <span className="bg-[#160B53] text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+              {filteredProducts.length}
+            </span>
+          </button>
+
+          {/* Export Button */}
+          <button
+            onClick={exportProducts}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Export Products Data"
+          >
+            <Download className="w-5 h-5 text-gray-600" />
+          </button>
+
+          {/* Print Button */}
+          <button
+            onClick={handlePrintReport}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Print Report"
+          >
+            <Printer className="w-5 h-5 text-gray-600" />
+          </button>
         </div>
-      </Card>
+      </div>
 
       {/* Products Table */}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-gray-200" style={{ minWidth: '2000px' }}>
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Product
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Product Name
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Brand & Category
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Brand
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Price & Cost
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Category
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status & Type
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  UPC
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Description
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  OTC Price
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Unit Cost
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Commission %
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Type
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Variants
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Shelf Life
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  Service Mapped
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                   Actions
                 </th>
               </tr>
@@ -931,95 +981,94 @@ const Products = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {paginatedProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-gray-50">
-                  {/* Product Info */}
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-12 w-12 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
-                        {product.imageUrl ? (
-                          <img
-                            src={product.imageUrl}
-                            alt={product.name}
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                              if (e.target.nextSibling) {
-                                e.target.nextSibling.style.display = 'flex';
-                              }
-                            }}
-                          />
-                        ) : null}
-                        <div className="h-full w-full flex items-center justify-center" style={{ display: product.imageUrl ? 'none' : 'flex' }}>
-                          <Package className="h-6 w-6 text-gray-400" />
-                        </div>
-                      </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900 line-clamp-1 max-w-xs">
-                          {product.name}
-                        </div>
-                        <div className="text-sm text-gray-500">{product.upc || 'No UPC'}</div>
-                        {product.hasServiceMapping && (
-                          <div className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 mt-1">
-                            <Scissors className="w-3 h-3 mr-1" />
-                            Used in Services
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                  {/* Product Name */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900">{product.name || 'N/A'}</div>
                   </td>
 
-                  {/* Brand & Category */}
-                  <td className="px-4 py-4 whitespace-nowrap">
+                  {/* Brand */}
+                  <td className="px-4 py-3 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{product.brand || 'N/A'}</div>
-                    <div className="text-sm text-gray-500">{product.category || 'N/A'}</div>
                   </td>
 
-                  {/* Pricing */}
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Price:</span>
-                        <span className="font-medium text-green-600">₱{product.otcPrice?.toLocaleString() || '0'}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Cost:</span>
-                        <span className="text-gray-700">₱{product.unitCost?.toLocaleString() || '0'}</span>
-                      </div>
+                  {/* Category */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{product.category || 'N/A'}</div>
+                  </td>
+
+                  {/* UPC */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{product.upc || 'N/A'}</div>
+                  </td>
+
+                  {/* Description */}
+                  <td className="px-4 py-3">
+                    <div className="text-sm text-gray-900 max-w-xs truncate" title={product.description || 'N/A'}>
+                      {product.description || 'N/A'}
                     </div>
                   </td>
 
-                  {/* Status & Type */}
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <div className="space-y-2">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
-                        {getStatusIcon(product.status)}
-                        {product.status || 'Active'}
-                      </span>
-                      <div className="text-xs text-gray-500 space-y-1">
-                        <div className="flex items-center gap-1">
-                          <Package className="w-3 h-3 text-green-600" />
-                          <span>Branch Product</span>
-                        </div>
-                        {product.hasServiceMapping && (
-                          <div className="flex items-center gap-1 text-purple-600">
-                            <Scissors className="w-3 h-3" />
-                            <span>Service Mapped</span>
-                          </div>
-                        )}
-                      </div>
+                  {/* OTC Price */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm font-medium text-green-600">₱{product.otcPrice?.toLocaleString() || '0'}</div>
+                  </td>
+
+                  {/* Unit Cost */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">₱{product.unitCost?.toLocaleString() || '0'}</div>
+                  </td>
+
+                  {/* Commission Percentage */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{product.commissionPercentage || 0}%</div>
+                  </td>
+
+                  {/* Status */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
+                      {getStatusIcon(product.status)}
+                      {product.status || 'Active'}
+                    </span>
+                  </td>
+
+                  {/* Type */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">
+                      {product.isBranchProduct ? 'Branch Product' : product.type || 'N/A'}
                     </div>
+                  </td>
+
+                  {/* Variants */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{product.variants || 'N/A'}</div>
+                  </td>
+
+                  {/* Shelf Life */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">{product.shelfLife || 'N/A'}</div>
+                  </td>
+
+                  {/* Service Mapped */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {product.hasServiceMapping ? (
+                      <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                        <Scissors className="w-3 h-3" />
+                        <span>Yes</span>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-500">No</span>
+                    )}
                   </td>
 
                   {/* Actions */}
-                  <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
-                    <Button
-                      variant="outline"
-                      size="sm"
+                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                    <button
                       onClick={() => handleViewDetails(product)}
-                      className="flex items-center gap-2"
+                      className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                      title="View product details"
                     >
                       <Eye className="h-4 w-4" />
-                      View
-                    </Button>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -1029,11 +1078,11 @@ const Products = () => {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
-            <div className="text-sm text-gray-600">
+          <div className="mt-4 md:mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 pt-3 md:pt-4 px-2 md:px-4">
+            <div className="text-xs md:text-sm text-gray-600 text-center sm:text-left">
               Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
               <span className="font-medium">{Math.min(endIndex, filteredProducts.length)}</span> of{' '}
-              <span className="font-medium">{filteredProducts.length}</span> products
+              <span className="font-medium">{filteredProducts.length}</span>
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -1041,23 +1090,23 @@ const Products = () => {
                 size="sm"
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                 disabled={currentPage === 1}
-                className="flex items-center gap-1"
+                className="flex items-center gap-1 text-xs md:text-sm px-2 md:px-3"
               >
-                <ChevronLeft className="h-4 w-4" />
-                Previous
+                <ChevronLeft className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <span className="hidden sm:inline">Previous</span>
               </Button>
-              <div className="text-sm text-gray-600">
-                Page <span className="font-medium">{currentPage}</span> of <span className="font-medium">{totalPages}</span>
+              <div className="text-xs md:text-sm text-gray-600">
+                <span className="font-medium">{currentPage}</span>/<span className="font-medium">{totalPages}</span>
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                 disabled={currentPage === totalPages}
-                className="flex items-center gap-1"
+                className="flex items-center gap-1 text-xs md:text-sm px-2 md:px-3"
               >
-                Next
-                <ChevronRight className="h-4 w-4" />
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="h-3.5 w-3.5 md:h-4 md:w-4" />
               </Button>
             </div>
           </div>
@@ -1130,15 +1179,6 @@ const Products = () => {
                 </div>
                 
                 <div>
-                  <label className="text-sm font-medium text-gray-500">Supplier</label>
-                  <p className="text-gray-900 mt-1">
-                    {Array.isArray(selectedProduct.suppliers) 
-                      ? selectedProduct.suppliers.join(', ')
-                      : (selectedProduct.supplier || 'N/A')}
-                  </p>
-                </div>
-                
-                <div>
                   <label className="text-sm font-medium text-gray-500">Variants</label>
                   <p className="text-gray-900 mt-1">{selectedProduct.variants || 'N/A'}</p>
                 </div>
@@ -1207,11 +1247,6 @@ const Products = () => {
                 <label className="text-sm font-medium text-gray-500">Shelf Life</label>
                 <p className="text-gray-900 mt-1">{selectedProduct.shelfLife || 'N/A'}</p>
               </div>
-              
-              <div>
-                <label className="text-sm font-medium text-gray-500">Branches</label>
-                <p className="text-gray-900 mt-1">{selectedProduct.branches?.length || 0} branch(es)</p>
-              </div>
             </div>
 
             {/* Service Mapping Details */}
@@ -1276,30 +1311,67 @@ const Products = () => {
         </Modal>
       )}
 
-      {/* Advanced Filters Modal */}
+      {/* Filter Modal */}
       {isFilterModalOpen && (
         <Modal
           isOpen={isFilterModalOpen}
           onClose={() => setIsFilterModalOpen(false)}
-          title="Advanced Filters"
+          title="Filter Products"
           size="md"
         >
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Supplier</label>
-              <select
-                value={filters.supplier}
-                onChange={(e) => setFilters(prev => ({ ...prev, supplier: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Suppliers</option>
-                {suppliers.filter(s => uniqueSupplierIds.includes(s.id)).map(supplier => (
-                  <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                ))}
-              </select>
-            </div>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-6">
+              {/* Category Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Category
+                </label>
+                <select
+                  value={filters.category}
+                  onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Categories</option>
+                  {categories.map(category => (
+                    <option key={category} value={category}>{category}</option>
+                  ))}
+                </select>
+              </div>
 
-            <div>
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Status
+                </label>
+                <select
+                  value={filters.status}
+                  onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Status</option>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                  <option value="Discontinued">Discontinued</option>
+                </select>
+              </div>
+
+              {/* Supplier Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Supplier</label>
+                <select
+                  value={filters.supplier}
+                  onChange={(e) => setFilters(prev => ({ ...prev, supplier: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Suppliers</option>
+                  {suppliers.filter(s => uniqueSupplierIds.includes(s.id)).map(supplier => (
+                    <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Price Range */}
+              <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Price Range</label>
               <div className="grid grid-cols-2 gap-3">
                 <Input
@@ -1323,8 +1395,9 @@ const Products = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Commission Range</label>
+              {/* Commission Range */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Commission Range</label>
               <div className="grid grid-cols-2 gap-3">
                 <Input
                   type="number"
@@ -1347,24 +1420,42 @@ const Products = () => {
               </div>
             </div>
 
-            <div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={filters.showServiceMapped}
-                  onChange={(e) => setFilters(prev => ({ ...prev, showServiceMapped: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="font-medium text-gray-700">Show products with service mapping</span>
-              </label>
-              <p className="text-xs text-gray-500 mt-1">Include products that are used in services even if not directly offered by this branch</p>
+              {/* Service Mapped Checkbox */}
+              <div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={filters.showServiceMapped}
+                    onChange={(e) => setFilters(prev => ({ ...prev, showServiceMapped: e.target.checked }))}
+                    className="rounded border-gray-300 text-[#160B53] focus:ring-[#160B53]"
+                  />
+                  <span className="font-medium text-gray-700">Show products with service mapping</span>
+                </label>
+                <p className="text-xs text-gray-500 mt-1">Include products that are used in services even if not directly offered by this branch</p>
+              </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-4">
-              <Button variant="outline" onClick={resetFilters}>
-                Reset
+            {/* Results Summary */}
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Filtered Results:</span>
+                <span className="font-semibold text-[#160B53]">{filteredProducts.length} of {products.length} products</span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex gap-3 pt-4 border-t border-gray-200">
+              <Button
+                variant="outline"
+                onClick={resetFilters}
+                className="flex-1"
+              >
+                Clear Filters
               </Button>
-              <Button onClick={() => setIsFilterModalOpen(false)} className="bg-[#160B53] hover:bg-[#12094A] text-white">
+              <Button
+                onClick={() => setIsFilterModalOpen(false)}
+                className="flex-1 bg-[#160B53] hover:bg-[#12094A] text-white"
+              >
                 Apply Filters
               </Button>
             </div>

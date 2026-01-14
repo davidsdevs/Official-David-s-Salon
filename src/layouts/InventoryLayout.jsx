@@ -4,7 +4,6 @@ import {
   LayoutDashboard, 
   Package, 
   TrendingUp, 
-  ArrowRightLeft, 
   QrCode, 
   ShoppingCart, 
   PackageCheck, 
@@ -27,7 +26,6 @@ const InventoryLayout = () => {
     { section: 'Inventory Management' },
     { path: ROUTES.INVENTORY_PRODUCTS, label: 'Products', icon: Package },
     { path: ROUTES.INVENTORY_STOCKS, label: 'Stocks', icon: TrendingUp },
-    { path: ROUTES.INVENTORY_STOCK_TRANSFER, label: 'Stock Transfer', icon: ArrowRightLeft },
     { path: ROUTES.INVENTORY_UPC_GENERATOR, label: 'UPC Generator', icon: QrCode },
     { section: 'Purchasing' },
     { path: ROUTES.INVENTORY_PURCHASE_ORDERS, label: 'Purchase Orders', icon: ShoppingCart },
@@ -43,14 +41,14 @@ const InventoryLayout = () => {
   ];
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-screen flex bg-gray-50 overflow-hidden">
       <Sidebar isOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(false)} menuItems={menuItems} />
       
-      <div className="flex-1 flex flex-col md:ml-64">
+      <div className="flex-1 flex flex-col lg:ml-64 min-w-0 overflow-hidden">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
         
-        <div className="flex-1 flex flex-col overflow-y-auto">
-          <main className="flex-1 p-4 md:p-6">
+        <div className="flex-1 flex flex-col overflow-y-auto min-h-0">
+          <main className="flex-1 p-3 sm:p-4 lg:p-6 min-w-0 max-w-full">
             <Outlet />
           </main>
         </div>

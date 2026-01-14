@@ -4,7 +4,8 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { ArrowRight, ArrowLeft, CheckCircle, XCircle, Clock, Building2, User, Calendar, Plus, Search, Filter, ChevronLeft, ChevronRight, Printer } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle, XCircle, Clock, Building2, User, Calendar, Plus, Search, Filter, ChevronLeft, ChevronRight, Printer, Download } from 'lucide-react';
+import PDFPreviewModal from '../../components/ui/PDFPreviewModal';
 import { getLendingRequests, approveLendingRequest, rejectLendingRequest, cancelLendingRequest, getActiveLendingFromBranch, getActiveLendingForBranch } from '../../services/stylistLendingService';
 import { getBranchById } from '../../services/branchService';
 import { getUserById } from '../../services/userService';
@@ -32,17 +33,23 @@ const StaffLending = () => {
   const [branchInfo, setBranchInfo] = useState(null);
   const [lentOutStylists, setLentOutStylists] = useState([]); // Stylists lent OUT from this branch
   const [lentInStylists, setLentInStylists] = useState([]); // Stylists lent TO this branch
+  const [showFilterModal, setShowFilterModal] = useState(false);
   
   // Print ref
   const printRef = useRef();
+  const [showPDFPreview, setShowPDFPreview] = useState(false);
   
   // Big Data Optimizations
   const [searchTerm, setSearchTerm] = useState('');
+  const [showFilterModalLocal, setShowFilterModalLocal] = useState(false);
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'pending', 'approved', 'rejected', 'active', 'completed', 'cancelled'
   const [typeFilter, setTypeFilter] = useState('all'); // 'all', 'incoming', 'outgoing'
+  const [branchFilter, setBranchFilter] = useState('all'); // 'all' or specific branchId
+  const [dateFilter, setDateFilter] = useState({ startDate: '', endDate: '' }); // Date range filter
   const [sortBy, setSortBy] = useState('requestedAt'); // 'requestedAt', 'startDate', 'status'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
+  const [showBranchStats, setShowBranchStats] = useState(false); // Toggle branch history view
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   const [visibleStartIndex, setVisibleStartIndex] = useState(0);
@@ -55,6 +62,9 @@ const StaffLending = () => {
       fetchLendingDataForPrint();
     }
   }, [userBranch]);
+
+  // PDF Preview modal
+  {/** Rendered at bottom of component JSX via showPDFPreview state */}
 
   const fetchBranchInfo = async () => {
     try {
@@ -291,6 +301,31 @@ const StaffLending = () => {
       filtered = filtered.filter(req => req.type === typeFilter);
     }
 
+    // Branch filter
+    if (branchFilter !== 'all') {
+      filtered = filtered.filter(req => 
+        req.fromBranchId === branchFilter || req.toBranchId === branchFilter
+      );
+    }
+
+    // Date range filter
+    if (dateFilter.startDate || dateFilter.endDate) {
+      filtered = filtered.filter(req => {
+        const requestDate = req.requestedAt?.toDate ? req.requestedAt.toDate() : new Date(req.requestedAt || 0);
+        const startDate = dateFilter.startDate ? new Date(dateFilter.startDate) : null;
+        const endDate = dateFilter.endDate ? new Date(dateFilter.endDate) : null;
+        
+        if (startDate && endDate) {
+          return requestDate >= startDate && requestDate <= endDate;
+        } else if (startDate) {
+          return requestDate >= startDate;
+        } else if (endDate) {
+          return requestDate <= endDate;
+        }
+        return true;
+      });
+    }
+
     // Sort
     filtered.sort((a, b) => {
       let aValue, bValue;
@@ -314,12 +349,162 @@ const StaffLending = () => {
     });
 
     return filtered;
-  }, [requests, debouncedSearchTerm, statusFilter, typeFilter, sortBy, sortOrder, branchCache, stylistCache]);
+  }, [requests, debouncedSearchTerm, statusFilter, typeFilter, branchFilter, dateFilter, sortBy, sortOrder, branchCache, stylistCache]);
+
+  // CSV Export for lending requests
+  const exportToCSV = () => {
+    if (!filteredRequests || filteredRequests.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    const exportData = filteredRequests.map(req => {
+      const stylist = stylistCache[req.stylistId];
+      const fromBranch = branchCache[req.fromBranchId];
+      const toBranch = branchCache[req.toBranchId];
+      return {
+        'Request ID': req.id || req.requestId || '',
+        'Stylist': stylist ? getFullName(stylist) : (req.stylistName || ''),
+        'Type': req.type || '',
+        'From Branch': fromBranch?.branchName || fromBranch?.name || '',
+        'To Branch': toBranch?.branchName || toBranch?.name || '',
+        'Start Date': req.startDate ? (req.startDate.toDate ? req.startDate.toDate().toISOString() : new Date(req.startDate).toISOString()) : '',
+        'End Date': req.endDate ? (req.endDate.toDate ? req.endDate.toDate().toISOString() : new Date(req.endDate).toISOString()) : '',
+        'Status': req.status || '',
+        'Requested At': req.requestedAt ? (req.requestedAt.toDate ? req.requestedAt.toDate().toISOString() : new Date(req.requestedAt).toISOString()) : '',
+        'Reason': req.reason || ''
+      };
+    });
+
+    const csvHeaders = Object.keys(exportData[0] || {});
+    const csvRows = [
+      csvHeaders.join(','),
+      ...exportData.map(row => csvHeaders.map(h => `"${String(row[h] || '').replace(/"/g, '""')}"`).join(','))
+    ];
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-');
+    link.download = `Lending_Requests_${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  // Get unique branches for filter dropdown
+  const uniqueBranches = useMemo(() => {
+    const branches = new Map();
+    requests.forEach(req => {
+      if (req.fromBranchId && branchCache[req.fromBranchId]) {
+        branches.set(req.fromBranchId, branchCache[req.fromBranchId].branchName || branchCache[req.fromBranchId].name || 'Unknown');
+      }
+      if (req.toBranchId && branchCache[req.toBranchId]) {
+        branches.set(req.toBranchId, branchCache[req.toBranchId].branchName || branchCache[req.toBranchId].name || 'Unknown');
+      }
+    });
+    return Array.from(branches.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [requests, branchCache]);
+
+  // Branch statistics - count lending by branch
+  const branchStatistics = useMemo(() => {
+    const stats = {};
+    
+    requests.forEach(req => {
+      // Count staff lent OUT (to other branches)
+      if (req.type === 'outgoing' && req.toBranchId) {
+        const branchName = branchCache[req.toBranchId]?.branchName || branchCache[req.toBranchId]?.name || 'Unknown';
+        if (!stats[req.toBranchId]) {
+          stats[req.toBranchId] = { 
+            name: branchName, 
+            lentTo: 0, 
+            borrowedFrom: 0,
+            pending: 0,
+            approved: 0,
+            active: 0,
+            completed: 0
+          };
+        }
+        stats[req.toBranchId].lentTo++;
+        if (req.status === 'pending') stats[req.toBranchId].pending++;
+        if (req.status === 'approved') stats[req.toBranchId].approved++;
+        if (req.status === 'active') stats[req.toBranchId].active++;
+        if (req.status === 'completed') stats[req.toBranchId].completed++;
+      }
+      
+      // Count staff borrowed FROM (from other branches)
+      if (req.type === 'incoming' && req.fromBranchId) {
+        const branchName = branchCache[req.fromBranchId]?.branchName || branchCache[req.fromBranchId]?.name || 'Unknown';
+        if (!stats[req.fromBranchId]) {
+          stats[req.fromBranchId] = { 
+            name: branchName, 
+            lentTo: 0, 
+            borrowedFrom: 0,
+            pending: 0,
+            approved: 0,
+            active: 0,
+            completed: 0
+          };
+        }
+        stats[req.fromBranchId].borrowedFrom++;
+        if (req.status === 'pending') stats[req.fromBranchId].pending++;
+        if (req.status === 'approved') stats[req.fromBranchId].approved++;
+        if (req.status === 'active') stats[req.fromBranchId].active++;
+        if (req.status === 'completed') stats[req.fromBranchId].completed++;
+      }
+    });
+    
+    return Object.entries(stats).sort((a, b) => {
+      const totalA = a[1].lentTo + a[1].borrowedFrom;
+      const totalB = b[1].lentTo + b[1].borrowedFrom;
+      return totalB - totalA;
+    });
+  }, [requests, branchCache]);
 
   // Paginated requests
   const paginatedRequests = useMemo(() => {
     return filteredRequests.slice(visibleStartIndex, visibleEndIndex);
   }, [filteredRequests, visibleStartIndex, visibleEndIndex]);
+
+  // PDF Preview modal for printing
+  const printContent = (
+    <div ref={printRef} className="p-6 bg-white">
+      <h2 className="text-xl font-bold mb-4">Lending Requests</h2>
+      <table className="w-full text-sm">
+        <thead>
+          <tr>
+            <th className="text-left font-medium">Stylist</th>
+            <th className="text-left font-medium">Type</th>
+            <th className="text-left font-medium">From</th>
+            <th className="text-left font-medium">To</th>
+            <th className="text-left font-medium">Start</th>
+            <th className="text-left font-medium">End</th>
+            <th className="text-left font-medium">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredRequests.map((r, i) => {
+            const stylist = stylistCache[r.stylistId];
+            const fromBranch = branchCache[r.fromBranchId];
+            const toBranch = branchCache[r.toBranchId];
+            return (
+              <tr key={i} className="border-t">
+                <td className="py-2">{stylist ? getFullName(stylist) : (r.stylistName || '')}</td>
+                <td className="py-2">{r.type}</td>
+                <td className="py-2">{fromBranch?.branchName || fromBranch?.name || ''}</td>
+                <td className="py-2">{toBranch?.branchName || toBranch?.name || ''}</td>
+                <td className="py-2">{r.startDate ? (r.startDate.toDate ? r.startDate.toDate().toLocaleString() : new Date(r.startDate).toLocaleString()) : ''}</td>
+                <td className="py-2">{r.endDate ? (r.endDate.toDate ? r.endDate.toDate().toLocaleString() : new Date(r.endDate).toLocaleString()) : ''}</td>
+                <td className="py-2">{r.status}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 
   // Calculate pagination info
   const totalPages = useMemo(() => {
@@ -350,6 +535,8 @@ const StaffLending = () => {
     setSearchTerm('');
     setStatusFilter('all');
     setTypeFilter('all');
+    setBranchFilter('all');
+    setDateFilter({ startDate: '', endDate: '' });
     setSortBy('requestedAt');
     setSortOrder('desc');
     setCurrentPage(1);
@@ -482,134 +669,159 @@ const StaffLending = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Staff Lending Requests</h1>
-          <p className="text-gray-600 mt-1">
-            Request help from other branches. Approve incoming requests from branches that need your stylists.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
-          >
-            <Printer className="w-4 h-4" />
-            Print Lending Report
-          </button>
-          <button
-            onClick={() => setShowRequestModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            Request Help From Another Branch
-          </button>
-        </div>
-      </div>
+      {/* Type Tabs and Search */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="border-b border-gray-200">
+          <div className="flex items-center justify-between px-4 py-3">
+            {/* Tabs */}
+            <div className="flex gap-4">
+              <button
+                onClick={() => {
+                  setTypeFilter('all');
+                  setCurrentPage(1);
+                }}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  typeFilter === 'all'
+                    ? 'border-primary-600 text-primary-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                All Requests
+              </button>
+              <button
+                onClick={() => {
+                  setTypeFilter('incoming');
+                  setCurrentPage(1);
+                }}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  typeFilter === 'incoming'
+                    ? 'border-primary-600 text-primary-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Incoming
+              </button>
+              <button
+                onClick={() => {
+                  setTypeFilter('outgoing');
+                  setCurrentPage(1);
+                }}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  typeFilter === 'outgoing'
+                    ? 'border-primary-600 text-primary-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Outgoing
+              </button>
+            </div>
 
-      {/* Search and Filters */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Search */}
-          <div className="flex-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by stylist, branch, reason, or status..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
+            {/* Search, Filter, Print & Export - single row layout */}
+            <div className="flex items-center gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search lending requests..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                />
+              </div>
+
+              <button
+                onClick={() => setShowFilterModal(true)}
+                className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors text-sm ${
+                  (statusFilter !== 'all' || typeFilter !== 'all' || branchFilter !== 'all' || dateFilter.startDate || dateFilter.endDate) ? 'bg-primary-50 border-primary-300 text-primary-700' : 'border-gray-300 hover:bg-gray-50'
+                }`}
+                title={`Filter - ${filteredRequests.length} requests`}
+              >
+                <Filter className="w-5 h-5" />
+                <span className="px-1.5 py-0.5 bg-primary-600 text-white text-xs rounded-full">
+                  {filteredRequests.length}
+                </span>
+              </button>
+
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+              >
+                <Printer className="w-5 h-5 text-gray-600" />
+              </button>
+
+              <button
+                onClick={() => exportToCSV()}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+              >
+                <Download className="w-5 h-5 text-gray-600" />
+              </button>
             </div>
           </div>
 
-          {/* Status Filter */}
-          <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-400" />
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setCurrentPage(1);
-                setVisibleStartIndex(0);
-                setVisibleEndIndex(itemsPerPage);
-              }}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            >
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="active">Active</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </div>
-
-          {/* Type Filter */}
-          <div>
-            <select
-              value={typeFilter}
-              onChange={(e) => {
-                setTypeFilter(e.target.value);
-                setCurrentPage(1);
-                setVisibleStartIndex(0);
-                setVisibleEndIndex(itemsPerPage);
-              }}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            >
-              <option value="all">All Types</option>
-              <option value="incoming">Incoming</option>
-              <option value="outgoing">Outgoing</option>
-            </select>
-          </div>
-
-          {/* Sort */}
-          <div className="flex items-center gap-2">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            >
-              <option value="requestedAt">Sort by Date</option>
-              <option value="startDate">Sort by Start Date</option>
-              <option value="status">Sort by Status</option>
-            </select>
-            <button
-              onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-              className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
-            >
-              {sortOrder === 'asc' ? 'Γåæ' : 'Γåô'}
-            </button>
-          </div>
-
-          {/* Reset */}
-          {(searchTerm || statusFilter !== 'all' || typeFilter !== 'all') && (
-            <button
-              onClick={resetFilters}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              Reset
-            </button>
+          {/* Branch Statistics/History Section */}
+          {showBranchStats && branchStatistics.length > 0 && (
+            <div className="p-4 border-t border-gray-200 bg-gray-50">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Lending History by Branch</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {branchStatistics.map(([branchId, stats]) => (
+                  <button
+                    key={branchId}
+                    onClick={() => {
+                      setBranchFilter(branchFilter === branchId ? 'all' : branchId);
+                      setCurrentPage(1);
+                    }}
+                    className={`p-3 rounded-lg border text-left transition-all ${
+                      branchFilter === branchId
+                        ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-500'
+                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-gray-900 text-sm">{stats.name}</span>
+                      {branchFilter === branchId && (
+                        <span className="text-xs text-primary-600 font-medium">Active</span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-500">Lent to:</span>
+                        <span className="font-semibold text-blue-600">{stats.lentTo}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-500">Borrowed:</span>
+                        <span className="font-semibold text-green-600">{stats.borrowedFrom}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                      {stats.active > 0 && (
+                        <span className="text-blue-600">{stats.active} active</span>
+                      )}
+                      {stats.pending > 0 && (
+                        <span className="text-yellow-600">{stats.pending} pending</span>
+                      )}
+                      {stats.completed > 0 && (
+                        <span className="text-gray-600">{stats.completed} completed</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              {branchFilter !== 'all' && (
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-sm text-gray-600">
+                    Showing requests for: <strong>{branchCache[branchFilter]?.name || branchFilter}</strong>
+                  </span>
+                  <button
+                    onClick={() => setBranchFilter('all')}
+                    className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                  >
+                    Clear filter
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
-
-        {/* Results Count */}
-        <div className="mt-3 text-sm text-gray-600">
-          Showing <span className="font-medium">{visibleStartIndex + 1}</span> to{' '}
-          <span className="font-medium">{Math.min(visibleEndIndex, filteredRequests.length)}</span> of{' '}
-          <span className="font-medium">{filteredRequests.length}</span> requests
-          {filteredRequests.length !== requests.length && (
-            <span className="text-gray-400"> (filtered from {requests.length} total)</span>
-          )}
-        </div>
-      </div>
-
-      {/* Table view (big-data friendly) */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -648,8 +860,17 @@ const StaffLending = () => {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-900">
                         <div className="flex flex-col">
-                          <span className="font-medium">{stylist ? getFullName(stylist) : 'Unknown Stylist'}</span>
-                          <span className="text-xs text-gray-500">{stylist?.email || 'N/A'}</span>
+                          {stylist ? (
+                            <>
+                              <span className="font-medium">{getFullName(stylist)}</span>
+                              <span className="text-xs text-gray-500">{stylist?.email || 'N/A'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-medium text-amber-600">To Be Assigned</span>
+                              <span className="text-xs text-gray-500">Awaiting approval</span>
+                            </>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700">
@@ -711,748 +932,183 @@ const StaffLending = () => {
             </tbody>
           </table>
         </div>
-      </div>
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Incoming Requests</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{incomingRequests.length}</p>
-            </div>
-            <ArrowRight className="w-8 h-8 text-blue-600" />
-          </div>
-        </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Outgoing Requests</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{outgoingRequests.length}</p>
-            </div>
-            <ArrowLeft className="w-8 h-8 text-purple-600" />
-          </div>
-        </div>
-        <div className={`rounded-lg p-4 border-2 ${myPendingRequests.length > 0 ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">My Pending Requests</p>
-              <p className={`text-2xl font-bold mt-1 ${myPendingRequests.length > 0 ? 'text-yellow-600' : 'text-gray-900'}`}>
-                {myPendingRequests.length}
-              </p>
-            </div>
-            <Clock className={`w-8 h-8 ${myPendingRequests.length > 0 ? 'text-yellow-600' : 'text-gray-400'}`} />
-          </div>
-        </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Active</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">
-                {requests.filter(r => r.status === 'approved' || r.status === 'active').length}
-              </p>
-            </div>
-            <CheckCircle className="w-8 h-8 text-green-600" />
-          </div>
-        </div>
-      </div>
 
-      {/* Two Column Layout: Pending Request | Incoming Request */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column: Pending Request */}
-        <div className="bg-white rounded-lg border-2 border-yellow-300 shadow-sm">
-          <div className="bg-yellow-50 border-b-2 border-yellow-300 p-4">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-yellow-600" />
-              Pending Request
-              <span className="ml-auto px-2 py-1 bg-yellow-200 text-yellow-800 rounded-full text-xs font-medium">
-                {myPendingRequests.length}
-              </span>
-            </h2>
-            <p className="text-sm text-gray-600 mt-1">Your requests waiting for approval</p>
-          </div>
-          <div className="p-4 max-h-[800px] overflow-y-auto">
-            {myPendingRequests.length === 0 ? (
-              <div className="text-center py-12">
-                <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500">You have no pending requests</p>
-                <p className="text-sm text-gray-400 mt-1">All your requests have been processed</p>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="p-4 border-t border-gray-200">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Showing {visibleStartIndex + 1} to {Math.min(visibleEndIndex, filteredRequests.length)} of {filteredRequests.length}
               </div>
-            ) : (
-              <div className="space-y-4">
-                {myPendingRequests.map((request) => {
-                  const providingBranch = branchCache[request.fromBranchId]; // Branch that will provide help
-                  const stylist = stylistCache[request.stylistId];
-                  
-                  return (
-                    <div key={request.id} className="bg-yellow-50 rounded-lg border border-yellow-200 p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-3">
-                            <span className="px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 bg-yellow-100 text-yellow-800">
-                              <Clock className="w-3 h-3" />
-                              Pending
-                            </span>
-                            {stylist && (
-                              <div className="flex items-center gap-2 min-w-0">
-                                <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium text-gray-900 truncate">
-                                    {getFullName(stylist)}
-                                  </p>
-                                  <p className="text-xs text-gray-500 truncate">{stylist?.email}</p>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          
-                          <div className="space-y-2 mb-3">
-                            <div>
-                              <p className="text-xs text-gray-500 mb-1">Requesting From Branch</p>
-                              <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
-                                <Building2 className="w-3 h-3 flex-shrink-0" />
-                                <span className="truncate">{providingBranch?.branchName || providingBranch?.name || 'Unknown Branch'}</span>
-                              </p>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                <p className="text-xs text-gray-500 mb-1">Start Date</p>
-                                <p className="text-sm font-medium text-gray-900 flex items-center gap-1">
-                                  <Calendar className="w-3 h-3 flex-shrink-0" />
-                                  <span className="text-xs">{request.startDate ? formatDate(request.startDate, 'MMM dd, yyyy') : 'N/A'}</span>
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-gray-500 mb-1">End Date</p>
-                                <p className="text-sm font-medium text-gray-900 flex items-center gap-1">
-                                  <Calendar className="w-3 h-3 flex-shrink-0" />
-                                  <span className="text-xs">{request.endDate ? formatDate(request.endDate, 'MMM dd, yyyy') : 'N/A'}</span>
-                                </p>
-                              </div>
-                            </div>
-                            {request.reason && (
-                              <div>
-                                <p className="text-xs text-gray-500 mb-1">Reason</p>
-                                <p className="text-sm text-gray-700 line-clamp-2">{request.reason}</p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="flex-shrink-0">
-                          <button
-                            onClick={() => handleCancel(request)}
-                            disabled={processing === request.id}
-                            className="flex items-center gap-1 px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                            title="Cancel Request"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            <span className="hidden sm:inline">Cancel</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Column: Incoming Request */}
-        <div className="bg-white rounded-lg border-2 border-blue-300 shadow-sm">
-          <div className="bg-blue-50 border-b-2 border-blue-300 p-4">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <ArrowRight className="w-5 h-5 text-blue-600" />
-              Incoming Request
-              <span className="ml-auto px-2 py-1 bg-blue-200 text-blue-800 rounded-full text-xs font-medium">
-                {incomingRequests.filter(r => r.status === 'pending').length}
-              </span>
-            </h2>
-            <p className="text-sm text-gray-600 mt-1">Requests from branches needing your stylists</p>
-          </div>
-          <div className="p-4 max-h-[800px] overflow-y-auto">
-            {(() => {
-              const pendingIncoming = incomingRequests.filter(r => r.status === 'pending');
-              return pendingIncoming.length === 0 ? (
-                <div className="text-center py-12">
-                  <ArrowRight className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500">No incoming requests</p>
-                  <p className="text-sm text-gray-400 mt-1">No branches are requesting help at the moment</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pendingIncoming.map((request) => {
-                    const requestingBranch = branchCache[request.toBranchId]; // Branch requesting help
-                    const stylist = stylistCache[request.stylistId];
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => goToPage(currentPageNumber - 1)}
+                  disabled={currentPageNumber === 1}
+                  className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 text-sm"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Prev
+                </button>
+                
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPageNumber <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPageNumber >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPageNumber - 2 + i;
+                    }
                     
                     return (
-                      <div key={request.id} className="bg-blue-50 rounded-lg border border-blue-200 p-4">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-3">
-                              {stylist && (
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                                  <div className="min-w-0">
-                                    <p className="text-sm font-medium text-gray-900 truncate">
-                                      {getFullName(stylist)}
-                                    </p>
-                                    <p className="text-xs text-gray-500 truncate">{stylist?.email}</p>
-                                  </div>
-                                </div>
-                              )}
-                              <span className={`ml-auto px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusBadge(request.status)}`}>
-                                {getStatusIcon(request.status)}
-                                {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                              </span>
-                            </div>
-                            
-                            <div className="space-y-2 mb-3">
-                              <div>
-                                <p className="text-xs text-gray-500 mb-1">Requesting Branch</p>
-                                <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
-                                  <Building2 className="w-3 h-3 flex-shrink-0" />
-                                  <span className="truncate">{requestingBranch?.branchName || requestingBranch?.name || 'Unknown Branch'}</span>
-                                </p>
-                              </div>
-                              {request.requestedByName && (
-                                <div>
-                                  <p className="text-xs text-gray-500 mb-1">Requested By</p>
-                                  <p className="text-sm font-medium text-gray-900">{request.requestedByName}</p>
-                                </div>
-                              )}
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <p className="text-xs text-gray-500 mb-1">Start Date</p>
-                                  <p className="text-sm font-medium text-gray-900 flex items-center gap-1">
-                                    <Calendar className="w-3 h-3 flex-shrink-0" />
-                                    <span className="text-xs">{request.startDate ? formatDate(request.startDate, 'MMM dd, yyyy') : 'N/A'}</span>
-                                  </p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500 mb-1">End Date</p>
-                                  <p className="text-sm font-medium text-gray-900 flex items-center gap-1">
-                                    <Calendar className="w-3 h-3 flex-shrink-0" />
-                                    <span className="text-xs">{request.endDate ? formatDate(request.endDate, 'MMM dd, yyyy') : 'N/A'}</span>
-                                  </p>
-                                </div>
-                              </div>
-                              {request.reason && (
-                                <div>
-                                  <p className="text-xs text-gray-500 mb-1">Reason</p>
-                                  <p className="text-sm text-gray-700 line-clamp-2">{request.reason}</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          
-                          {request.status === 'pending' && (
-                            <div className="flex flex-col gap-2 flex-shrink-0">
-                              <button
-                                onClick={() => handleApprove(request)}
-                                disabled={processing === request.id}
-                                className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                                title="Review & Approve"
-                              >
-                                <CheckCircle className="w-4 h-4" />
-                                <span className="hidden sm:inline">Approve</span>
-                              </button>
-                              <button
-                                onClick={() => handleReject(request)}
-                                disabled={processing === request.id}
-                                className="flex items-center gap-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                                title="Reject"
-                              >
-                                <XCircle className="w-4 h-4" />
-                                <span className="hidden sm:inline">Reject</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      <button
+                        key={pageNum}
+                        onClick={() => goToPage(pageNum)}
+                        className={`px-3 py-2 border rounded-lg transition-colors text-sm ${
+                          currentPageNumber === pageNum
+                            ? 'bg-primary-600 text-white border-primary-600'
+                            : 'border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
                     );
                   })}
                 </div>
-              );
-            })()}
+
+                <button
+                  onClick={() => goToPage(currentPageNumber + 1)}
+                  disabled={currentPageNumber === totalPages}
+                  className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 text-sm"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Outgoing Requests - Show all statuses except active/completed */}
-      {(() => {
-        // Filter outgoing requests, excluding active and completed (they're in a different section)
-        const filteredOutgoing = filteredRequests.filter(r => 
-          r.type === 'outgoing' && r.status !== 'active' && r.status !== 'completed'
-        );
-        return filteredOutgoing.length > 0 && (
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <ArrowLeft className="w-5 h-5 text-purple-600" />
-              Outgoing Requests (Your requests for help)
-              <span className="ml-2 px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                {filteredOutgoing.length}
-              </span>
-            </h2>
-            <div className="space-y-4">
-              {filteredOutgoing.slice(0, 50).map((request) => {
-              const providingBranch = branchCache[request.fromBranchId]; // Branch that will provide help
-              const stylist = stylistCache[request.stylistId];
-              
-              return (
-                <div key={request.id} className="bg-white rounded-lg border border-gray-200 p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-3">
-                        <User className="w-5 h-5 text-gray-400" />
-                        <div>
-                          <p className="font-semibold text-gray-900">
-                            {stylist ? getFullName(stylist) : 'Unknown Stylist'}
-                          </p>
-                          <p className="text-sm text-gray-600">{stylist?.email}</p>
-                        </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusBadge(request.status)}`}>
-                          {getStatusIcon(request.status)}
-                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                        </span>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <p className="text-sm text-gray-500 mb-1">Providing Branch (Will Send Stylist)</p>
-                          <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
-                            <Building2 className="w-4 h-4" />
-                            {providingBranch?.branchName || providingBranch?.name || 'Unknown Branch'}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500 mb-1">Requested At</p>
-                          <p className="text-sm font-medium text-gray-900">
-                            {request.requestedAt ? formatDate(request.requestedAt, 'MMM dd, yyyy HH:mm') : 'N/A'}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500 mb-1">Start Date</p>
-                          <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
-                            <Calendar className="w-4 h-4" />
-                            {request.startDate ? formatDate(request.startDate, 'MMM dd, yyyy') : 'N/A'}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500 mb-1">End Date</p>
-                          <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
-                            <Calendar className="w-4 h-4" />
-                            {request.endDate ? formatDate(request.endDate, 'MMM dd, yyyy') : 'N/A'}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      {request.reason && (
-                        <div className="mb-4">
-                          <p className="text-sm text-gray-500 mb-1">Reason</p>
-                          <p className="text-sm text-gray-700">{request.reason}</p>
-                        </div>
-                      )}
-                      
-                      {request.status === 'approved' && request.approvedByName && (
-                        <div className="mb-4">
-                          <p className="text-sm text-gray-500 mb-1">Approved By</p>
-                          <p className="text-sm text-gray-700">{request.approvedByName}</p>
-                        </div>
-                      )}
-                      
-                      {request.status === 'rejected' && request.rejectionReason && (
-                        <div className="mb-4">
-                          <p className="text-sm text-gray-500 mb-1">Rejection Reason</p>
-                          <p className="text-sm text-red-700">{request.rejectionReason}</p>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {request.status === 'pending' && (
-                      <div className="flex flex-col gap-2 ml-4">
-                        <button
-                          onClick={() => handleCancel(request)}
-                          disabled={processing === request.id}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <XCircle className="w-4 h-4" />
-                          Cancel
-                        </button>
-                      </div>
-                    )}
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">Filter Requests</h2>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Branch</label>
+                <select
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Branches</option>
+                  {uniqueBranches.map(([branchId, branchName]) => (
+                    <option key={branchId} value={branchId}>
+                      {branchName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">From</label>
+                    <input
+                      type="date"
+                      value={dateFilter.startDate}
+                      onChange={(e) => setDateFilter(prev => ({ ...prev, startDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">To</label>
+                    <input
+                      type="date"
+                      value={dateFilter.endDate}
+                      onChange={(e) => setDateFilter(prev => ({ ...prev, endDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                    />
                   </div>
                 </div>
-              );
-              })}
-            </div>
-            {filteredOutgoing.length > 50 && (
-              <div className="mt-4 text-center text-sm text-gray-500">
-                Showing first 50 of {filteredOutgoing.length} outgoing requests. Use filters to narrow down results.
               </div>
-            )}
-          </div>
-        );
-      })()}
 
-      {/* Accepted/Approved Requests Section */}
-      {(() => {
-        const approvedRequests = filteredRequests.filter(r => 
-          r.status === 'approved' || r.status === 'active'
-        );
-        return approvedRequests.length > 0 && (
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-green-600" />
-              Accepted/Approved Requests
-              <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                {approvedRequests.length}
-              </span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Accepted Incoming Requests */}
-              {(() => {
-                const approvedIncoming = approvedRequests.filter(r => r.type === 'incoming');
-                return approvedIncoming.length > 0 && (
-                  <div>
-                    <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                      <ArrowRight className="w-4 h-4 text-blue-600" />
-                      Incoming Accepted ({approvedIncoming.length})
-                    </h3>
-                    <div className="space-y-3">
-                      {approvedIncoming.slice(0, 10).map((request) => {
-                        const requestingBranch = branchCache[request.toBranchId];
-                        const stylist = stylistCache[request.stylistId];
-                        
-                        return (
-                          <div key={request.id} className="bg-green-50 rounded-lg border border-green-200 p-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-2">
-                                  {stylist && (
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                                      <div className="min-w-0">
-                                        <p className="text-sm font-medium text-gray-900 truncate">
-                                          {getFullName(stylist)}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  )}
-                                  <span className={`ml-auto px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusBadge(request.status)}`}>
-                                    {getStatusIcon(request.status)}
-                                    {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                                  </span>
-                                </div>
-                                <div className="space-y-1">
-                                  <p className="text-xs text-gray-600">
-                                    <Building2 className="w-3 h-3 inline mr-1" />
-                                    {requestingBranch?.branchName || requestingBranch?.name || 'Unknown Branch'}
-                                  </p>
-                                  {request.approvedByName && (
-                                    <p className="text-xs text-gray-600">
-                                      Approved by: {request.approvedByName}
-                                    </p>
-                                  )}
-                                  {request.approvedAt && (
-                                    <p className="text-xs text-gray-500">
-                                      {formatDate(request.approvedAt, 'MMM dd, yyyy HH:mm')}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Sort By</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="requestedAt">Request Date</option>
+                  <option value="startDate">Start Date</option>
+                  <option value="status">Status</option>
+                </select>
+              </div>
 
-              {/* Accepted Outgoing Requests */}
-              {(() => {
-                const approvedOutgoing = approvedRequests.filter(r => r.type === 'outgoing');
-                return approvedOutgoing.length > 0 && (
-                  <div>
-                    <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                      <ArrowLeft className="w-4 h-4 text-purple-600" />
-                      Outgoing Accepted ({approvedOutgoing.length})
-                    </h3>
-                    <div className="space-y-3">
-                      {approvedOutgoing.slice(0, 10).map((request) => {
-                        const providingBranch = branchCache[request.fromBranchId];
-                        const stylist = stylistCache[request.stylistId];
-                        
-                        return (
-                          <div key={request.id} className="bg-green-50 rounded-lg border border-green-200 p-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-2">
-                                  {stylist && (
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                                      <div className="min-w-0">
-                                        <p className="text-sm font-medium text-gray-900 truncate">
-                                          {getFullName(stylist)}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  )}
-                                  <span className={`ml-auto px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusBadge(request.status)}`}>
-                                    {getStatusIcon(request.status)}
-                                    {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                                  </span>
-                                </div>
-                                <div className="space-y-1">
-                                  <p className="text-xs text-gray-600">
-                                    <Building2 className="w-3 h-3 inline mr-1" />
-                                    {providingBranch?.branchName || providingBranch?.name || 'Unknown Branch'}
-                                  </p>
-                                  {request.approvedByName && (
-                                    <p className="text-xs text-gray-600">
-                                      Approved by: {request.approvedByName}
-                                    </p>
-                                  )}
-                                  {request.approvedAt && (
-                                    <p className="text-xs text-gray-500">
-                                      {formatDate(request.approvedAt, 'MMM dd, yyyy HH:mm')}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Order</label>
+                <select
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="desc">Newest First</option>
+                  <option value="asc">Oldest First</option>
+                </select>
+              </div>
             </div>
-            {approvedRequests.length > 10 && (
-              <p className="text-sm text-gray-500 text-center mt-2">
-                Showing first 10 of {approvedRequests.length} accepted requests. Use filters to see more.
-              </p>
-            )}
-          </div>
-        );
-      })()}
 
-      {/* Rejected Requests Section */}
-      {(() => {
-        const rejectedRequests = filteredRequests.filter(r => r.status === 'rejected');
-        return rejectedRequests.length > 0 && (
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <XCircle className="w-5 h-5 text-red-600" />
-              Rejected Requests
-              <span className="ml-2 px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">
-                {rejectedRequests.length}
-              </span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Rejected Incoming Requests */}
-              {(() => {
-                const rejectedIncoming = rejectedRequests.filter(r => r.type === 'incoming');
-                return rejectedIncoming.length > 0 && (
-                  <div>
-                    <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                      <ArrowRight className="w-4 h-4 text-blue-600" />
-                      Incoming Rejected ({rejectedIncoming.length})
-                    </h3>
-                    <div className="space-y-3">
-                      {rejectedIncoming.slice(0, 10).map((request) => {
-                        const requestingBranch = branchCache[request.toBranchId];
-                        const stylist = stylistCache[request.stylistId];
-                        
-                        return (
-                          <div key={request.id} className="bg-red-50 rounded-lg border border-red-200 p-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-2">
-                                  {stylist && (
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                                      <div className="min-w-0">
-                                        <p className="text-sm font-medium text-gray-900 truncate">
-                                          {getFullName(stylist)}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  )}
-                                  <span className={`ml-auto px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusBadge(request.status)}`}>
-                                    {getStatusIcon(request.status)}
-                                    Rejected
-                                  </span>
-                                </div>
-                                <div className="space-y-1">
-                                  <p className="text-xs text-gray-600">
-                                    <Building2 className="w-3 h-3 inline mr-1" />
-                                    {requestingBranch?.branchName || requestingBranch?.name || 'Unknown Branch'}
-                                  </p>
-                                  {request.rejectionReason && (
-                                    <p className="text-xs text-red-700 mt-1">
-                                      Reason: {request.rejectionReason}
-                                    </p>
-                                  )}
-                                  {request.rejectedAt && (
-                                    <p className="text-xs text-gray-500">
-                                      {formatDate(request.rejectedAt, 'MMM dd, yyyy HH:mm')}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Rejected Outgoing Requests */}
-              {(() => {
-                const rejectedOutgoing = rejectedRequests.filter(r => r.type === 'outgoing');
-                return rejectedOutgoing.length > 0 && (
-                  <div>
-                    <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                      <ArrowLeft className="w-4 h-4 text-purple-600" />
-                      Outgoing Rejected ({rejectedOutgoing.length})
-                    </h3>
-                    <div className="space-y-3">
-                      {rejectedOutgoing.slice(0, 10).map((request) => {
-                        const providingBranch = branchCache[request.fromBranchId];
-                        const stylist = stylistCache[request.stylistId];
-                        
-                        return (
-                          <div key={request.id} className="bg-red-50 rounded-lg border border-red-200 p-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-2">
-                                  {stylist && (
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                                      <div className="min-w-0">
-                                        <p className="text-sm font-medium text-gray-900 truncate">
-                                          {getFullName(stylist)}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  )}
-                                  <span className={`ml-auto px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusBadge(request.status)}`}>
-                                    {getStatusIcon(request.status)}
-                                    Rejected
-                                  </span>
-                                </div>
-                                <div className="space-y-1">
-                                  <p className="text-xs text-gray-600">
-                                    <Building2 className="w-3 h-3 inline mr-1" />
-                                    {providingBranch?.branchName || providingBranch?.name || 'Unknown Branch'}
-                                  </p>
-                                  {request.rejectionReason && (
-                                    <p className="text-xs text-red-700 mt-1">
-                                      Reason: {request.rejectionReason}
-                                    </p>
-                                  )}
-                                  {request.rejectedAt && (
-                                    <p className="text-xs text-gray-500">
-                                      {formatDate(request.rejectedAt, 'MMM dd, yyyy HH:mm')}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-            {rejectedRequests.length > 10 && (
-              <p className="text-sm text-gray-500 text-center mt-2">
-                Showing first 10 of {rejectedRequests.length} rejected requests. Use filters to see more.
-              </p>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="text-sm text-gray-600">
-              Page {currentPageNumber} of {totalPages}
-            </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between p-6 border-t border-gray-200">
               <button
-                onClick={() => goToPage(currentPageNumber - 1)}
-                disabled={currentPageNumber === 1}
-                className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                onClick={resetFilters}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
               >
-                <ChevronLeft className="w-4 h-4" />
-                Previous
+                Clear Filters
               </button>
-              
-              {/* Page Numbers */}
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPageNumber <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPageNumber >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPageNumber - 2 + i;
-                  }
-                  
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => goToPage(pageNum)}
-                      className={`px-3 py-2 border rounded-lg transition-colors ${
-                        currentPageNumber === pageNum
-                          ? 'bg-primary-600 text-white border-primary-600'
-                          : 'border-gray-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-              </div>
-
               <button
-                onClick={() => goToPage(currentPageNumber + 1)}
-                disabled={currentPageNumber === totalPages}
-                className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                onClick={() => {
+                  setShowFilterModal(false);
+                  setCurrentPage(1);
+                }}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
               >
-                Next
-                <ChevronRight className="w-4 h-4" />
+                Apply Filters
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {filteredRequests.length === 0 && requests.length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
-          <Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No Requests Found</h3>
-          <p className="text-gray-500">Try adjusting your search or filters</p>
-          <button
-            onClick={resetFilters}
-            className="mt-4 px-4 py-2 text-primary-600 hover:text-primary-700 font-medium"
-          >
-            Reset Filters
-          </button>
         </div>
       )}
 
@@ -1512,172 +1168,29 @@ const StaffLending = () => {
           setShowApproveModal(false);
           setRequestToApprove(null);
         }}
-        onSave={handleApproveComplete}
+        onApprove={() => {
+          fetchRequests();
+          setShowApproveModal(false);
+          setRequestToApprove(null);
+        }}
       />
+      {/* PDF Preview Modal for printing lending requests */}
+      {showPDFPreview && (
+        <PDFPreviewModal
+          isOpen={showPDFPreview}
+          onClose={() => setShowPDFPreview(false)}
+          contentRef={printRef}
+          title="Lending Requests"
+          fileName={`Lending_Requests_${new Date().toISOString().replace(/[:.]/g,'-')}`}
+        />
+      )}
 
-      {/* Hidden Print Component */}
-      <div ref={printRef} style={{ position: 'fixed', left: '-200%', top: 0, width: '8.5in', zIndex: -1 }}>
-        <style>{`
-          @media print {
-            @page {
-              size: letter;
-              margin: 0.75in;
-            }
-            * {
-              color: #000 !important;
-              background: transparent !important;
-            }
-          }
-        `}</style>
-        <div className="print-content" style={{ 
-          fontFamily: "'Poppins', sans-serif",
-          color: '#000',
-          background: '#fff',
-          padding: '20px'
-        }}>
-          {/* Header */}
-          <div style={{ 
-            textAlign: 'center',
-            marginBottom: '30px',
-            borderBottom: '2px solid #000',
-            paddingBottom: '15px'
-          }}>
-            <h1 style={{ 
-              fontSize: '24px',
-              fontWeight: 'bold',
-              marginBottom: '10px',
-              letterSpacing: '1px'
-            }}>
-              STAFF LENDING REPORT
-            </h1>
-            <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
-              {branchInfo?.branchName || branchInfo?.name || 'Branch'}
-            </div>
-            <div style={{ 
-              fontSize: '11px',
-              marginTop: '12px',
-              display: 'flex',
-              justifyContent: 'space-between'
-            }}>
-              <div style={{ textAlign: 'left' }}>
-                <div>Printed by: {currentUser ? getFullName(currentUser) : 'Manager'}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div>Printed: {new Date().toLocaleString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric', 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
-                })}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Stylists Lent Out FROM This Branch */}
-          {lentOutStylists.length > 0 && (
-            <div style={{ marginBottom: '30px' }}>
-              <h2 style={{ 
-                fontSize: '18px',
-                fontWeight: 'bold',
-                marginBottom: '15px',
-                borderBottom: '1px solid #000',
-                paddingBottom: '8px'
-              }}>
-                Stylists Lent Out (From This Branch)
-              </h2>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                border: '1px solid #000',
-                fontSize: '11px'
-              }}>
-                <thead>
-                  <tr>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Stylist Name</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Email</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Lent To Branch</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Start Date</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>End Date</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lentOutStylists.map((lending, idx) => (
-                    <tr key={lending.id || idx} style={{ pageBreakInside: 'avoid' }}>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px' }}>{lending.stylistName || 'Unknown'}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px' }}>{lending.stylistEmail || 'N/A'}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{lending.toBranchName}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{lending.startDate ? formatDate(lending.startDate, 'MMM dd, yyyy') : 'N/A'}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{lending.endDate ? formatDate(lending.endDate, 'MMM dd, yyyy') : 'N/A'}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{lending.status ? lending.status.charAt(0).toUpperCase() + lending.status.slice(1) : 'N/A'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Stylists Lent TO This Branch */}
-          {lentInStylists.length > 0 && (
-            <div style={{ marginBottom: '30px' }}>
-              <h2 style={{ 
-                fontSize: '18px',
-                fontWeight: 'bold',
-                marginBottom: '15px',
-                borderBottom: '1px solid #000',
-                paddingBottom: '8px'
-              }}>
-                Stylists Lent In (To This Branch)
-              </h2>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                border: '1px solid #000',
-                fontSize: '11px'
-              }}>
-                <thead>
-                  <tr>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Stylist Name</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Email</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Lent From Branch</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Start Date</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>End Date</th>
-                    <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lentInStylists.map((lending, idx) => (
-                    <tr key={lending.id || idx} style={{ pageBreakInside: 'avoid' }}>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px' }}>{lending.stylistName || 'Unknown'}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px' }}>{lending.stylistEmail || 'N/A'}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{lending.fromBranchName}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{lending.startDate ? formatDate(lending.startDate, 'MMM dd, yyyy') : 'N/A'}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{lending.endDate ? formatDate(lending.endDate, 'MMM dd, yyyy') : 'N/A'}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{lending.status ? lending.status.charAt(0).toUpperCase() + lending.status.slice(1) : 'N/A'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Empty State */}
-          {lentOutStylists.length === 0 && lentInStylists.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <p style={{ fontSize: '14px', color: '#666' }}>No active lending records to display</p>
-            </div>
-          )}
-
-          {/* Footer */}
-          <div className="mt-4 pt-2 border-t border-black text-center" style={{ fontSize: '11px', marginTop: '16px', paddingTop: '8px', borderTop: '1px solid #000' }}>
-            <p>Total Lent Out: {lentOutStylists.length} | Total Lent In: {lentInStylists.length}</p>
-          </div>
-        </div>
+      {/* Hidden print content */}
+      <div className="hidden">
+        {printContent}
       </div>
     </div>
   );
 };
 
 export default StaffLending;
-

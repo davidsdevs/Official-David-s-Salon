@@ -32,6 +32,7 @@ import {
   Home,
   Settings,
   BarChart3,
+  FileText,
   UserCog,
   Receipt,
   Package,
@@ -59,6 +60,7 @@ const Promotions = () => {
   // UI states
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'upcoming', 'expired'
+  const [activeTab, setActiveTab] = useState('promotions'); // 'promotions' or 'reports'
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
@@ -68,6 +70,10 @@ const Promotions = () => {
   const [selectedPromotion, setSelectedPromotion] = useState(null);
   const [selectedClients, setSelectedClients] = useState(new Set());
   const [isSending, setIsSending] = useState(false);
+  
+  // Report states
+  const [promotionReports, setPromotionReports] = useState([]);
+  const [loadingReports, setLoadingReports] = useState(false);
   
   // AI Insights for Promotions
   const [promotionRecommendations, setPromotionRecommendations] = useState(null);
@@ -84,7 +90,7 @@ const Promotions = () => {
     applicableTo: 'all', // 'all', 'services', 'products', 'specific'
     specificServices: [], // Array of service IDs
     specificProducts: [], // Array of product IDs
-    usageType: 'repeating', // 'one-time' or 'repeating'
+    usageType: 'one-time', // 'one-time' or 'repeating'
     maxUses: '', // For repeating promotions
     startDate: '',
     endDate: '',
@@ -124,7 +130,7 @@ const Promotions = () => {
           endDate: data.endDate?.toDate ? data.endDate.toDate() : (data.endDate ? new Date(data.endDate) : new Date()),
           isActive: data.isActive !== false,
           promotionCode: data.promotionCode || '',
-          usageType: data.usageType || 'repeating',
+          usageType: data.usageType || 'one-time',
           maxUses: data.maxUses || null,
           usedBy: data.usedBy || [], // Array of client IDs who used it (for one-time use)
           usageCount: data.usageCount || 0, // Total usage count (for repeating)
@@ -143,6 +149,80 @@ const Promotions = () => {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Load promotion reports
+  const loadPromotionReports = async () => {
+    if (!userData?.branchId) return;
+
+    try {
+      setLoadingReports(true);
+      
+      // Query all transactions for the branch (Firestore doesn't support != null)
+      const transactionsRef = collection(db, 'transactions');
+      const q = query(
+        transactionsRef,
+        where('branchId', '==', userData.branchId)
+      );
+      const transactionsSnapshot = await getDocs(q);
+      
+      // Group transactions by promotionId (filter out null promotionIds)
+      const promotionUsageMap = new Map();
+      
+      transactionsSnapshot.forEach((doc) => {
+        const transaction = doc.data();
+        const promotionId = transaction.promotionId;
+        
+        // Filter out transactions without promotions
+        if (!promotionId) return;
+        
+        if (!promotionUsageMap.has(promotionId)) {
+          promotionUsageMap.set(promotionId, {
+            promotionId: promotionId,
+            promotionCode: transaction.promotionCode || 'N/A',
+            transactions: [],
+            totalDiscount: 0,
+            uniqueClients: new Set(),
+            transactionCount: 0
+          });
+        }
+        
+        const report = promotionUsageMap.get(promotionId);
+        report.transactions.push(transaction);
+        report.totalDiscount += transaction.promotionDiscount || 0;
+        report.transactionCount += 1;
+        
+        if (transaction.clientId) {
+          report.uniqueClients.add(transaction.clientId);
+        }
+      });
+      
+      // Enrich with promotion details
+      const reports = [];
+      for (const [promotionId, usageData] of promotionUsageMap.entries()) {
+        const promotion = promotions.find(p => p.id === promotionId);
+        
+        if (promotion) {
+          reports.push({
+            ...promotion,
+            totalDiscount: usageData.totalDiscount,
+            uniqueClientsCount: usageData.uniqueClients.size,
+            transactionCount: usageData.transactionCount,
+            transactions: usageData.transactions
+          });
+        }
+      }
+      
+      // Sort by total discount descending
+      reports.sort((a, b) => b.totalDiscount - a.totalDiscount);
+      
+      setPromotionReports(reports);
+    } catch (err) {
+      console.error('Error loading promotion reports:', err);
+      setError(err.message);
+    } finally {
+      setLoadingReports(false);
     }
   };
 
@@ -266,6 +346,13 @@ const Promotions = () => {
       setFormData(prev => ({ ...prev, promotionCode: generatePromotionCode() }));
     }
   }, [isCreateModalOpen, formData.autoGenerateCode, userData?.branchId]);
+
+  // Load reports when reports tab is active
+  useEffect(() => {
+    if (activeTab === 'reports' && promotions.length > 0 && userData?.branchId) {
+      loadPromotionReports();
+    }
+  }, [activeTab, promotions.length, userData?.branchId]);
 
   // Get promotion status
   const getPromotionStatus = (promotion) => {
@@ -702,24 +789,64 @@ const Promotions = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Promotions</h1>
-          <p className="text-gray-600">Create and manage promotional offers for your clients</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {activeTab === 'reports' ? 'Promotion Reports' : 'Promotions'}
+          </h1>
+          <p className="text-gray-600">
+            {activeTab === 'reports' 
+              ? 'Analytics and insights on promotion performance' 
+              : 'Create and manage promotional offers for your clients'}
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button
-            onClick={() => {
-              setIsCreateModalOpen(true);
-              // Generate code when opening modal
-              setFormData(prev => ({
-                ...prev,
-                promotionCode: generatePromotionCode()
-              }));
-            }}
-            className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A]"
+        {activeTab === 'promotions' && (
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={() => {
+                setIsCreateModalOpen(true);
+                // Generate code when opening modal
+                setFormData(prev => ({
+                  ...prev,
+                  promotionCode: generatePromotionCode()
+                }));
+              }}
+              className="flex items-center gap-2 bg-[#160B53] text-white hover:bg-[#12094A]"
+            >
+              <Plus className="h-4 w-4" />
+              Create Promotion
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="border-b border-gray-200">
+        <div className="flex space-x-8">
+          <button
+            onClick={() => setActiveTab('promotions')}
+            className={`py-4 px-1 font-medium text-sm border-b-2 transition-colors ${
+              activeTab === 'promotions'
+                ? 'border-[#160B53] text-[#160B53]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
           >
-            <Plus className="h-4 w-4" />
-            Create Promotion
-          </Button>
+            <div className="flex items-center gap-2">
+              <Megaphone className="h-5 w-5" />
+              <span>Promotions</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab('reports')}
+            className={`py-4 px-1 font-medium text-sm border-b-2 transition-colors ${
+              activeTab === 'reports'
+                ? 'border-[#160B53] text-[#160B53]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              <span>Reports</span>
+            </div>
+          </button>
         </div>
       </div>
 
@@ -733,6 +860,9 @@ const Promotions = () => {
         </Card>
       )}
 
+      {/* PROMOTIONS TAB */}
+      {activeTab === 'promotions' && (
+        <>
       {/* AI Promotion Recommendations */}
       {openaiService.isConfigured() && (
         <Card className="p-6 bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200">
@@ -1013,6 +1143,181 @@ const Promotions = () => {
           </Button>
         </Card>
       )}
+        </>
+      )}
+
+      {/* REPORTS TAB */}
+      {activeTab === 'reports' && (
+        <>
+          {/* Summary Cards */}
+          {!loadingReports && promotionReports.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Card className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">Total Promotions</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">{promotionReports.length}</p>
+                  </div>
+                  <div className="p-3 bg-blue-100 rounded-lg">
+                    <Megaphone className="h-6 w-6 text-blue-600" />
+                  </div>
+                </div>
+              </Card>
+              <Card className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">Total Discount Given</p>
+                    <p className="text-2xl font-bold text-red-600 mt-1">
+                      ₱{promotionReports.reduce((sum, r) => sum + (r.totalDiscount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-red-100 rounded-lg">
+                    <Banknote className="h-6 w-6 text-red-600" />
+                  </div>
+                </div>
+              </Card>
+              <Card className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">Total Clients</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                      {(() => {
+                        const allClientIds = new Set();
+                        promotionReports.forEach(r => {
+                          r.transactions?.forEach(t => {
+                            if (t.clientId) allClientIds.add(t.clientId);
+                          });
+                        });
+                        return allClientIds.size;
+                      })()}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-green-100 rounded-lg">
+                    <Users className="h-6 w-6 text-green-600" />
+                  </div>
+                </div>
+              </Card>
+              <Card className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">Total Transactions</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                      {promotionReports.reduce((sum, r) => sum + (r.transactionCount || 0), 0)}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-purple-100 rounded-lg">
+                    <Receipt className="h-6 w-6 text-purple-600" />
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {loadingReports ? (
+            <Card className="p-12">
+              <div className="flex items-center justify-center">
+                <RefreshCw className="h-8 w-8 animate-spin text-[#160B53]" />
+                <span className="ml-2 text-gray-600">Loading reports...</span>
+              </div>
+            </Card>
+          ) : promotionReports.length === 0 ? (
+            <Card className="p-12 text-center">
+              <BarChart3 className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Promotion Reports</h3>
+              <p className="text-gray-600">
+                No promotions have been used yet. Reports will appear here once clients start using your promotions.
+              </p>
+            </Card>
+          ) : (
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Promotion</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Discount</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Applicable To</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Clients Used</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transactions</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Discount</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {promotionReports.map((report) => {
+                      const discountDisplay = report.discountType === 'percentage' 
+                        ? `${report.discountValue}%` 
+                        : `₱${report.discountValue}`;
+                      
+                      const applicableToDisplay = report.applicableTo === 'all' 
+                        ? 'All Services & Products'
+                        : report.applicableTo === 'services'
+                        ? 'All Services'
+                        : report.applicableTo === 'products'
+                        ? 'All Products'
+                        : 'Specific Items';
+                      
+                      return (
+                        <tr key={report.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4">
+                            <div>
+                              <div className="font-medium text-gray-900">{report.title}</div>
+                              <div className="text-sm text-gray-500 font-mono">{report.promotionCode}</div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-sm text-gray-900">
+                              <div>{discountDisplay} off</div>
+                              <div className="text-xs text-gray-500 mt-1">
+                                {report.usageType === 'one-time' ? 'One-time use' : 'Repeating'}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm font-medium text-gray-900">{discountDisplay}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm text-gray-900">{applicableToDisplay}</span>
+                            {report.applicableTo === 'specific' && (
+                              <div className="text-xs text-gray-500 mt-1">
+                                {report.specificServices?.length || 0} services, {report.specificProducts?.length || 0} products
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-gray-400" />
+                              <span className="text-sm font-medium text-gray-900">{report.uniqueClientsCount || 0}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm text-gray-900">{report.transactionCount || 0}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm font-semibold text-red-600">
+                              ₱{(report.totalDiscount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                              report.isActive 
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {report.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </>
+      )}
 
       {/* Create Promotion Modal */}
       {isCreateModalOpen && (
@@ -1030,7 +1335,7 @@ const Promotions = () => {
               applicableTo: 'all',
               specificServices: [],
               specificProducts: [],
-              usageType: 'repeating',
+              usageType: 'one-time',
               maxUses: '',
               startDate: '',
               endDate: '',
@@ -1039,22 +1344,55 @@ const Promotions = () => {
             });
           }}
           title="Create Promotion"
-          size="lg"
+          size="2xl"
         >
-          <form onSubmit={handleCreatePromotion} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Promotion Title <span className="text-red-500">*</span>
-              </label>
-              <Input
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                placeholder="e.g., 10% Off Haircut Special"
-                required
-              />
+          <form onSubmit={handleCreatePromotion} className="space-y-6">
+            {/* First Row: Title and Code */}
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Promotion Title <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="text"
+                  value={formData.title}
+                  onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="e.g., 10% Off Haircut Special"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Promotion Code <span className="text-red-500">*</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="text"
+                    value={formData.promotionCode}
+                    placeholder="DS-XXX-XXXXX"
+                    className="flex-1 font-mono"
+                    required
+                    readOnly
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({ ...prev, promotionCode: generatePromotionCode() }));
+                    }}
+                    className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center"
+                    title="Generate new code"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Format: DS-{userData?.branchId ? userData.branchId.substring(0, 3).toUpperCase() : 'XXX'}-XXXXX
+                </p>
+              </div>
             </div>
 
+            {/* Description - Full Width */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Description <span className="text-red-500">*</span>
@@ -1063,42 +1401,14 @@ const Promotions = () => {
                 value={formData.description}
                 onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                 placeholder="Describe your promotion..."
-                rows={4}
+                rows={3}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
                 required
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Promotion Code <span className="text-red-500">*</span>
-              </label>
-              <div className="flex items-center gap-3">
-                <Input
-                  type="text"
-                  value={formData.promotionCode}
-                  placeholder="DS-XXX-XXXXX"
-                  className="flex-1 font-mono"
-                  required
-                  readOnly
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData(prev => ({ ...prev, promotionCode: generatePromotionCode() }));
-                  }}
-                  className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                  title="Generate new code"
-                >
-                  🔄
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Format: DS-{userData?.branchId ? userData.branchId.substring(0, 3).toUpperCase() : 'XXX'}-XXXXX (auto-generated)
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+            {/* Discount Type and Value */}
+            <div className="grid grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Discount Type <span className="text-red-500">*</span>
@@ -1130,35 +1440,79 @@ const Promotions = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Applicable To <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={formData.applicableTo}
-                onChange={(e) => setFormData(prev => ({ 
-                  ...prev, 
-                  applicableTo: e.target.value,
-                  specificServices: e.target.value !== 'specific' ? [] : prev.specificServices,
-                  specificProducts: e.target.value !== 'specific' ? [] : prev.specificProducts
-                }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                required
-              >
-                <option value="all">All Services & Products</option>
-                <option value="services">All Services</option>
-                <option value="products">All Products</option>
-                <option value="specific">Specific Services/Products</option>
-              </select>
+            {/* Applicable To and Usage Type */}
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Applicable To <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={formData.applicableTo}
+                  onChange={(e) => setFormData(prev => ({ 
+                    ...prev, 
+                    applicableTo: e.target.value,
+                    specificServices: e.target.value !== 'specific' ? [] : prev.specificServices,
+                    specificProducts: e.target.value !== 'specific' ? [] : prev.specificProducts
+                  }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                  required
+                >
+                  <option value="all">All Services & Products</option>
+                  <option value="services">All Services</option>
+                  <option value="products">All Products</option>
+                  <option value="specific">Specific Services/Products</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Usage Type <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={formData.usageType}
+                  onChange={(e) => setFormData(prev => ({ ...prev, usageType: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                  required
+                >
+                  <option value="repeating">Repeating (can be used multiple times)</option>
+                  <option value="one-time">One-time use (per client)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {formData.usageType === 'one-time' 
+                    ? 'Each client can only use this promotion once.'
+                    : 'This promotion can be used multiple times by any client.'}
+                </p>
+              </div>
             </div>
 
+            {/* Max Uses - Full Width if repeating */}
+            {formData.usageType === 'repeating' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Max Uses (Optional)
+                </label>
+                <Input
+                  type="number"
+                  value={formData.maxUses}
+                  onChange={(e) => setFormData(prev => ({ ...prev, maxUses: e.target.value }))}
+                  placeholder="Leave empty for unlimited"
+                  min="1"
+                  className="max-w-xs"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Maximum number of times this promotion can be used. Leave empty for unlimited.
+                </p>
+              </div>
+            )}
+
+            {/* Specific Services/Products Selection - Side by Side */}
             {formData.applicableTo === 'specific' && (
-              <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Select Services
                   </label>
-                  <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2">
+                  <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3">
                     {availableServices.length === 0 ? (
                       <p className="text-sm text-gray-500 text-center py-4">No services available</p>
                     ) : (
@@ -1184,8 +1538,8 @@ const Promotions = () => {
                               }}
                               className="w-4 h-4 text-[#160B53] border-gray-300 rounded focus:ring-[#160B53]"
                             />
-                            <span className="text-sm text-gray-900">{service.name || service.serviceName}</span>
-                            <span className="text-xs text-gray-500 ml-auto">
+                            <span className="text-sm text-gray-900 flex-1">{service.name || service.serviceName}</span>
+                            <span className="text-xs text-gray-500">
                               ₱{service.price || (service.branchPricing?.[userData?.branchId]) || 0}
                             </span>
                           </label>
@@ -1204,7 +1558,7 @@ const Promotions = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Select Products
                   </label>
-                  <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2">
+                  <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3">
                     {availableProducts.length === 0 ? (
                       <p className="text-sm text-gray-500 text-center py-4">No products available</p>
                     ) : (
@@ -1230,8 +1584,8 @@ const Promotions = () => {
                               }}
                               className="w-4 h-4 text-[#160B53] border-gray-300 rounded focus:ring-[#160B53]"
                             />
-                            <span className="text-sm text-gray-900">{product.name}</span>
-                            <span className="text-xs text-gray-500 ml-auto">
+                            <span className="text-sm text-gray-900 flex-1">{product.name}</span>
+                            <span className="text-xs text-gray-500">
                               ₱{product.otcPrice || product.unitCost || 0}
                             </span>
                           </label>
@@ -1245,54 +1599,17 @@ const Promotions = () => {
                     </p>
                   )}
                 </div>
-
-                {(formData.specificServices.length === 0 && formData.specificProducts.length === 0) && (
-                  <p className="text-xs text-red-500">
-                    Please select at least one service or product
-                  </p>
-                )}
               </div>
             )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Usage Type <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={formData.usageType}
-                onChange={(e) => setFormData(prev => ({ ...prev, usageType: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                required
-              >
-                <option value="repeating">Repeating (can be used multiple times)</option>
-                <option value="one-time">One-time use (per client)</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                {formData.usageType === 'one-time' 
-                  ? 'Each client can only use this promotion once.'
-                  : 'This promotion can be used multiple times by any client.'}
+            {formData.applicableTo === 'specific' && (formData.specificServices.length === 0 && formData.specificProducts.length === 0) && (
+              <p className="text-xs text-red-500">
+                Please select at least one service or product
               </p>
-            </div>
-
-            {formData.usageType === 'repeating' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Max Uses (Optional)
-                </label>
-                <Input
-                  type="number"
-                  value={formData.maxUses}
-                  onChange={(e) => setFormData(prev => ({ ...prev, maxUses: e.target.value }))}
-                  placeholder="Leave empty for unlimited"
-                  min="1"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Maximum number of times this promotion can be used. Leave empty for unlimited.
-                </p>
-              </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* Date Range */}
+            <div className="grid grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Start Date <span className="text-red-500">*</span>
@@ -1318,7 +1635,8 @@ const Promotions = () => {
               </div>
             </div>
 
-            <div className="space-y-3">
+            {/* Checkboxes - Side by Side */}
+            <div className="grid grid-cols-2 gap-6">
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -1344,14 +1662,14 @@ const Promotions = () => {
                   📧 Email this promotion to all clients
                 </label>
               </div>
-              {formData.emailToClients && (
-                <p className="text-xs text-gray-600 ml-6 -mt-2">
-                  All clients with email addresses will receive this promotion via email when you create it.
-                </p>
-              )}
             </div>
+            {formData.emailToClients && (
+              <p className="text-xs text-gray-600">
+                All clients with email addresses will receive this promotion via email when you create it.
+              </p>
+            )}
 
-            <div className="flex justify-end gap-3 pt-4">
+            <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
               <Button
                 type="button"
                 variant="outline"
@@ -1367,7 +1685,7 @@ const Promotions = () => {
                     applicableTo: 'all',
                     specificServices: [],
                     specificProducts: [],
-                    usageType: 'repeating',
+                    usageType: 'one-time',
                     maxUses: '',
                     startDate: '',
                     endDate: '',

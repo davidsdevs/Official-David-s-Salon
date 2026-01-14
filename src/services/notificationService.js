@@ -37,7 +37,8 @@
     APPOINTMENT_UPDATED: 'appointment_updated',
     APPOINTMENT_STARTING: 'appointment_starting',
     APPOINTMENT_IN_SERVICE: 'appointment_in_service',
-    APPOINTMENT_TRANSFERRED: 'appointment_transferred'
+    APPOINTMENT_TRANSFERRED: 'appointment_transferred',
+    CHECK_IN_ARRIVED: 'check_in_arrived'
     };
 
     // Notification channels for mobile app
@@ -539,6 +540,82 @@
         return notifications;
     } catch (error) {
         console.error('Error storing transfer notifications:', error);
+        throw error;
+    }
+    };
+
+    /**
+     * Store check-in arrived notification
+     * Sends notification to stylist when client arrives
+     * @param {Object} arrivalData - Arrival data with client and stylist info
+     * @returns {Promise<string>} - Notification ID
+     */
+    export const storeCheckInArrived = async (arrivalData) => {
+    try {
+        // Format arrival time
+        const arrivedAt = arrivalData.arrivedAt instanceof Date 
+        ? arrivalData.arrivedAt 
+        : arrivalData.arrivedAt?.toDate?.() || new Date(arrivalData.arrivedAt);
+        
+        const formattedArrivedAt = arrivedAt.toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+        }) + ' at ' + arrivedAt.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true 
+        });
+
+        const serviceName = arrivalData.serviceName || 'Service';
+        const clientName = arrivalData.clientName || 'Client';
+        const branchName = arrivalData.branchName || 'David\'s Salon';
+        const checkInId = arrivalData.id || arrivalData.checkInId || '';
+
+        // Create notification for stylist
+        const notificationData = {
+        type: NOTIFICATION_TYPES.CHECK_IN_ARRIVED,
+        title: 'Client Arrived',
+        message: `${clientName} has arrived for ${serviceName} at ${arrivedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}.`,
+        recipientId: arrivalData.stylistId,
+        recipientRole: 'stylist',
+        checkInId: checkInId,
+        clientName: clientName,
+        serviceName: serviceName,
+        branchName: branchName,
+        arrivedAt: formattedArrivedAt,
+        channels: ['push', 'in_app'],
+        priority: 'normal',
+        requireReadReceipt: false,
+        data: {
+            arrivedAt: formattedArrivedAt,
+            branchName: branchName,
+            checkInId: checkInId,
+            clientName: clientName,
+            serviceName: serviceName
+        }
+        };
+
+        const docRef = await addDoc(collection(db, NOTIFICATIONS_COLLECTION), {
+        ...notificationData,
+        isRead: false,
+        readAt: null,
+        readReceiptSent: false,
+        createdAt: serverTimestamp()
+        });
+
+        console.log('📱 Check-in arrived notification created:', {
+        id: docRef.id,
+        type: notificationData.type,
+        recipientId: notificationData.recipientId,
+        clientName: clientName,
+        serviceName: serviceName
+        });
+
+        return docRef.id;
+    } catch (error) {
+        console.error('Error storing check-in arrived notification:', error);
         throw error;
     }
     };

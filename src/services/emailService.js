@@ -22,13 +22,20 @@ export const sendEmail = async ({ to, subject, text, html }) => {
   const fromEmail = import.meta.env.VITE_BREVO_FROM_EMAIL || import.meta.env.VITE_SENDER_EMAIL || 'noreply@davidsalon.com';
   const fromName = import.meta.env.VITE_BREVO_FROM_NAME || import.meta.env.VITE_SENDER_NAME || 'David\'s Salon';
   
+  console.log('📧 [Brevo Email] Attempting to send email...');
+  console.log('📧 [Brevo Email] To:', to);
+  console.log('📧 [Brevo Email] Subject:', subject);
+  console.log('📧 [Brevo Email] From:', fromName, `<${fromEmail}>`);
+  
   if (!apiKey) {
-    console.warn('Brevo API key not configured. Email not sent.');
+    console.error('❌ [Brevo Email] API key not configured. Email not sent.');
     return {
       success: false,
       error: 'Brevo API key not configured'
     };
   }
+  
+  console.log('📧 [Brevo Email] API Key configured:', apiKey.substring(0, 10) + '...');
 
   try {
     const requestBody = {
@@ -46,6 +53,8 @@ export const sendEmail = async ({ to, subject, text, html }) => {
       ...(html ? { htmlContent: html } : {})
     };
 
+    console.log('📧 [Brevo Email] Sending request to Brevo API...');
+    
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
@@ -54,6 +63,8 @@ export const sendEmail = async ({ to, subject, text, html }) => {
       },
       body: JSON.stringify(requestBody)
     });
+    
+    console.log('📧 [Brevo Email] Response status:', response.status);
     
     if (!response.ok) {
       const errorData = await response.text();
@@ -64,15 +75,21 @@ export const sendEmail = async ({ to, subject, text, html }) => {
       } catch (e) {
         errorMessage += ` - ${errorData}`;
       }
+      console.error('❌ [Brevo Email] Failed:', errorMessage);
       throw new Error(errorMessage);
     }
     
+    const responseData = await response.json();
+    console.log('✅ [Brevo Email] SUCCESS! Email sent to:', to);
+    console.log('✅ [Brevo Email] Message ID:', responseData.messageId);
+    
     return {
       success: true,
-      message: 'Email sent successfully'
+      message: 'Email sent successfully',
+      messageId: responseData.messageId
     };
   } catch (error) {
-    console.error('Error sending email:', error);
+    console.error('❌ [Brevo Email] Error sending email:', error);
     return {
       success: false,
       error: error.message || 'Failed to send email'
@@ -507,7 +524,7 @@ export const sendAccountDeactivatedEmail = async ({ email, displayName, reason }
  * @param {string} userData.temporaryPassword - Temporary password (optional)
  * @returns {Promise<Object>} Send result
  */
-export const sendUserCreatedEmail = async ({ email, displayName, role, temporaryPassword }) => {
+export const sendUserCreatedEmail = async ({ email, displayName, role, temporaryPassword, branchName }) => {
   if (!email) {
     return {
       success: false,
@@ -515,49 +532,81 @@ export const sendUserCreatedEmail = async ({ email, displayName, role, temporary
     };
   }
 
+  const appUrl = import.meta.env.VITE_APP_URL || 'http://localhost:3000';
+  const loginUrl = `${appUrl}/login`;
+
   const htmlContent = `
     <!DOCTYPE html>
     <html>
     <head>
       <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #2563eb; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { padding: 30px; background-color: #f9fafb; border-radius: 0 0 8px 8px; }
-        .credentials { background-color: #eff6ff; border-left: 4px solid #2563eb; padding: 15px; margin: 20px 0; }
-        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+        .header { background: linear-gradient(135deg, #160B53, #2563eb); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+        .header h1 { margin: 0; font-size: 28px; }
+        .header p { margin: 10px 0 0 0; opacity: 0.9; }
+        .content { padding: 30px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-top: none; }
+        .credentials { background-color: #eff6ff; border-left: 4px solid #2563eb; padding: 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+        .credentials p { margin: 8px 0; }
+        .password-box { background-color: #fef3c7; border: 1px solid #f59e0b; padding: 15px; margin: 15px 0; border-radius: 8px; }
+        .password-box pre { margin: 10px 0 0 0; font-family: monospace; font-size: 14px; white-space: pre-wrap; }
+        .button { display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #160B53, #2563eb); color: white; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: bold; }
+        .button:hover { opacity: 0.9; }
+        .warning { background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.85em; background-color: #f3f4f6; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none; }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <h1>Account Created</h1>
+          <h1>🎉 Welcome to the Team!</h1>
+          <p>David's Salon Management System</p>
         </div>
         <div class="content">
-          <p>Dear ${displayName || 'User'},</p>
+          <p>Dear <strong>${displayName || 'Team Member'}</strong>,</p>
           
-          <p>An account has been created for you in the <strong>David's Salon Management System</strong>.</p>
+          <p>Congratulations! An account has been created for you in the <strong>David's Salon Management System</strong>.</p>
           
           <div class="credentials">
-            <p><strong>Account Details:</strong></p>
+            <p style="font-size: 16px; font-weight: bold; color: #160B53; margin-bottom: 15px;">📋 Your Account Details</p>
             <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Role:</strong> ${role || 'Not specified'}</p>
-            ${temporaryPassword ? `<p><strong>Temporary Password:</strong> ${temporaryPassword}</p>` : ''}
+            <p><strong>Role:</strong> ${role || 'Staff Member'}</p>
+            ${branchName ? `<p><strong>Branch:</strong> ${branchName}</p>` : ''}
           </div>
           
-          ${temporaryPassword ? '<p><strong>Please change your password after your first login.</strong></p>' : ''}
+          ${temporaryPassword ? `
+          <div class="password-box">
+            <p style="font-weight: bold; color: #92400e; margin: 0;">🔐 Your Login Credentials</p>
+            <pre>${temporaryPassword.replace(/\n/g, '<br>')}</pre>
+          </div>
           
-          <p>You can now log in using your email address and password.</p>
+          <div class="warning">
+            <p style="margin: 0;"><strong>⚠️ Important:</strong> Please change your password after your first login for security purposes.</p>
+          </div>
+          ` : ''}
           
-          <p>If you have any questions or need assistance, please contact our support team.</p>
+          <p style="text-align: center;">
+            <a href="${loginUrl}" class="button">Login to Your Account</a>
+          </p>
           
-          <p>Welcome to the team!</p>
+          <p><strong>How to Login:</strong></p>
+          <ol>
+            <li>Go to <a href="${loginUrl}">${loginUrl}</a></li>
+            <li>Enter your email address</li>
+            <li>Select your role from the dropdown</li>
+            <li>Enter your temporary password</li>
+          </ol>
+          
+          <p>If you have any questions or need assistance, please contact your branch manager or the system administrator.</p>
+          
+          <p>We're excited to have you on the team!</p>
           
           <p>Best regards,<br>
           <strong>The David's Salon Team</strong></p>
         </div>
         <div class="footer">
-          <p>This is an automated email. Please do not reply directly to this message.</p>
+          <p>This is an automated email from David's Salon Management System.</p>
+          <p>Please do not reply directly to this message.</p>
           <p>&copy; ${new Date().getFullYear()} David's Salon. All rights reserved.</p>
         </div>
       </div>
@@ -566,36 +615,50 @@ export const sendUserCreatedEmail = async ({ email, displayName, role, temporary
   `;
 
   const textContent = `
-    Account Created - David's Salon Management System
+    🎉 Welcome to the Team!
+    David's Salon Management System
     
-    Dear ${displayName || 'User'},
+    Dear ${displayName || 'Team Member'},
     
-    An account has been created for you in the David's Salon Management System.
+    Congratulations! An account has been created for you in the David's Salon Management System.
     
-    Account Details:
+    📋 YOUR ACCOUNT DETAILS
+    ========================
     Email: ${email}
-    Role: ${role || 'Not specified'}
-    ${temporaryPassword ? `Temporary Password: ${temporaryPassword}` : ''}
+    Role: ${role || 'Staff Member'}
+    ${branchName ? `Branch: ${branchName}` : ''}
     
-    ${temporaryPassword ? 'Please change your password after your first login.\n' : ''}
+    ${temporaryPassword ? `
+    🔐 YOUR LOGIN CREDENTIALS
+    ========================
+    ${temporaryPassword}
     
-    You can now log in using your email address and password.
+    ⚠️ IMPORTANT: Please change your password after your first login for security purposes.
+    ` : ''}
     
-    If you have any questions or need assistance, please contact our support team.
+    HOW TO LOGIN
+    ============
+    1. Go to ${loginUrl}
+    2. Enter your email address
+    3. Select your role from the dropdown
+    4. Enter your temporary password
     
-    Welcome to the team!
+    If you have any questions or need assistance, please contact your branch manager or the system administrator.
+    
+    We're excited to have you on the team!
     
     Best regards,
     The David's Salon Team
     
     ---
-    This is an automated email. Please do not reply directly to this message.
+    This is an automated email from David's Salon Management System.
+    Please do not reply directly to this message.
     © ${new Date().getFullYear()} David's Salon. All rights reserved.
   `;
 
   return await sendEmail({
     to: email,
-    subject: 'Account Created - David\'s Salon Management System',
+    subject: '🎉 Welcome to David\'s Salon - Your Account is Ready!',
     text: textContent,
     html: htmlContent
   });

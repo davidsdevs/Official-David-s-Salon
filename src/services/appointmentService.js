@@ -18,7 +18,8 @@ import {
   startAfter,
   getCountFromServer,
   Timestamp,
-  serverTimestamp
+  serverTimestamp,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { getBranchById } from './branchService';
@@ -37,6 +38,31 @@ import {
 import toast from 'react-hot-toast';
 
 const APPOINTMENTS_COLLECTION = 'appointments';
+
+/**
+ * Helper function to safely convert Firestore timestamps or date strings to Date objects
+ */
+const safeToDate = (value) => {
+  if (!value) return null;
+  // If it's a Firestore Timestamp with toDate method
+  if (value?.toDate && typeof value.toDate === 'function') {
+    return value.toDate();
+  }
+  // If it's already a Date object
+  if (value instanceof Date) {
+    return value;
+  }
+  // If it's a string or number, try to parse it
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  // If it has seconds and nanoseconds (Firestore Timestamp-like object)
+  if (value?.seconds !== undefined) {
+    return new Date(value.seconds * 1000);
+  }
+  return null;
+};
 
 /**
  * Appointment Status Constants
@@ -62,9 +88,9 @@ export const getAllAppointments = async () => {
     return snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      appointmentDate: doc.data().appointmentDate?.toDate(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate()
+      appointmentDate: safeToDate(doc.data().appointmentDate),
+      createdAt: safeToDate(doc.data().createdAt),
+      updatedAt: safeToDate(doc.data().updatedAt)
     }));
   } catch (error) {
     console.error('Error fetching appointments:', error);
@@ -95,15 +121,68 @@ export const getAppointmentsByBranch = async (branchId) => {
     return snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      appointmentDate: doc.data().appointmentDate?.toDate(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate()
+      appointmentDate: safeToDate(doc.data().appointmentDate),
+      createdAt: safeToDate(doc.data().createdAt),
+      updatedAt: safeToDate(doc.data().updatedAt)
     }));
   } catch (error) {
     console.error('Error fetching branch appointments for branchId:', branchId, error);
     toast.error('Failed to load branch appointments');
     throw error;
   }
+};
+
+/**
+ * Subscribe to real-time appointments updates for a branch
+ * Uses onSnapshot for real-time updates but with a limited query to reduce reads
+ * @param {string} branchId - The branch ID to subscribe to
+ * @param {function} onUpdate - Callback function when appointments change
+ * @param {function} onError - Callback function for errors
+ * @returns {function} Unsubscribe function
+ */
+export const subscribeToAppointmentsByBranch = (branchId, onUpdate, onError) => {
+  if (!branchId) {
+    console.warn('subscribeToAppointmentsByBranch called with invalid branchId:', branchId);
+    return () => {};
+  }
+
+  const appointmentsRef = collection(db, APPOINTMENTS_COLLECTION);
+  
+  // Only listen to recent appointments (last 30 days + future) to reduce reads
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  thirtyDaysAgo.setHours(0, 0, 0, 0);
+  
+  const q = query(
+    appointmentsRef,
+    where('branchId', '==', branchId),
+    where('appointmentDate', '>=', Timestamp.fromDate(thirtyDaysAgo)),
+    orderBy('appointmentDate', 'desc')
+  );
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+      const appointments = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        appointmentDate: safeToDate(doc.data().appointmentDate),
+        createdAt: safeToDate(doc.data().createdAt),
+        updatedAt: safeToDate(doc.data().updatedAt)
+      }));
+      
+      console.log(`📡 Real-time update: ${appointments.length} appointments for branch ${branchId}`);
+      onUpdate(appointments);
+    },
+    (error) => {
+      console.error('Error in appointments subscription:', error);
+      if (onError) {
+        onError(error);
+      }
+    }
+  );
+
+  return unsubscribe;
 };
 
 /**
@@ -120,7 +199,7 @@ export const getAppointmentsByClient = async (clientId, options = {}) => {
     const {
       status,
       limit = 20,
-      startAfter,
+      startAfter: startAfterDoc,
       searchTerm,
       dateFrom,
       dateTo
@@ -146,8 +225,8 @@ export const getAppointmentsByClient = async (clientId, options = {}) => {
     // constraints.push(orderBy('appointmentDate', 'desc'));
 
     // Add pagination
-    if (startAfter) {
-      constraints.push(startAfter(startAfter));
+    if (startAfterDoc) {
+      constraints.push(startAfter(startAfterDoc));
     }
 
     // Add limit
@@ -159,9 +238,9 @@ export const getAppointmentsByClient = async (clientId, options = {}) => {
     let appointments = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      appointmentDate: doc.data().appointmentDate?.toDate(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate()
+      appointmentDate: safeToDate(doc.data().appointmentDate),
+      createdAt: safeToDate(doc.data().createdAt),
+      updatedAt: safeToDate(doc.data().updatedAt)
     }));
 
     // Sort by appointment date descending (client-side)
@@ -238,9 +317,9 @@ export const getAppointmentsByStylist = async (stylistId) => {
     const singleServiceAppointments = singleServiceSnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      appointmentDate: doc.data().appointmentDate?.toDate(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate()
+      appointmentDate: safeToDate(doc.data().appointmentDate),
+      createdAt: safeToDate(doc.data().createdAt),
+      updatedAt: safeToDate(doc.data().updatedAt)
     }));
     
     // Query 2: Multi-service appointments where stylist is in services array
@@ -254,9 +333,9 @@ export const getAppointmentsByStylist = async (stylistId) => {
       .map(doc => ({
         id: doc.id,
         ...doc.data(),
-        appointmentDate: doc.data().appointmentDate?.toDate(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate()
+        appointmentDate: safeToDate(doc.data().appointmentDate),
+        createdAt: safeToDate(doc.data().createdAt),
+        updatedAt: safeToDate(doc.data().updatedAt)
       }))
       .filter(apt => 
         apt.services && 
@@ -340,9 +419,9 @@ export const getAppointments = async (filters = {}, currentUserRole = 'branch_ma
     const appointments = (hasMore ? docs.slice(0, pageSize) : docs).map(doc => ({
       id: doc.id,
       ...doc.data(),
-      appointmentDate: doc.data().appointmentDate?.toDate(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate()
+      appointmentDate: safeToDate(doc.data().appointmentDate),
+      createdAt: safeToDate(doc.data().createdAt),
+      updatedAt: safeToDate(doc.data().updatedAt)
     }));
 
     // Filter multi-service appointments by stylistId if needed (client-side)
@@ -399,9 +478,9 @@ export const getAppointmentsByDateRange = async (branchId, startDate, endDate) =
     return snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      appointmentDate: doc.data().appointmentDate?.toDate(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate()
+      appointmentDate: safeToDate(doc.data().appointmentDate),
+      createdAt: safeToDate(doc.data().createdAt),
+      updatedAt: safeToDate(doc.data().updatedAt)
     }));
   } catch (error) {
     console.error('Error fetching appointments by date range:', error);
@@ -425,9 +504,9 @@ export const getAppointmentById = async (appointmentId) => {
     return {
       id: appointmentSnap.id,
       ...appointmentSnap.data(),
-      appointmentDate: appointmentSnap.data().appointmentDate?.toDate(),
-      createdAt: appointmentSnap.data().createdAt?.toDate(),
-      updatedAt: appointmentSnap.data().updatedAt?.toDate()
+      appointmentDate: safeToDate(appointmentSnap.data().appointmentDate),
+      createdAt: safeToDate(appointmentSnap.data().createdAt),
+      updatedAt: safeToDate(appointmentSnap.data().updatedAt)
     };
   } catch (error) {
     console.error('Error fetching appointment:', error);
@@ -494,7 +573,7 @@ export const createAppointment = async (appointmentData, currentUser) => {
           continue;
         }
         
-        const existingDate = existing.appointmentDate?.toDate();
+        const existingDate = safeToDate(existing.appointmentDate);
         
         if (existingDate) {
           const existingStart = new Date(existingDate);
@@ -578,11 +657,17 @@ export const createAppointment = async (appointmentData, currentUser) => {
       appointmentDate: appointmentData.appointmentDate
     };
 
-    // Send notification to client and stylist(s)
+    // Send notification based on appointment status
     try {
-      await storeAppointmentConfirmed(appointmentForNotification);
+      if (defaultStatus === APPOINTMENT_STATUS.CONFIRMED) {
+        // Send confirmed notification
+        await storeAppointmentConfirmed(appointmentForNotification);
+      } else if (defaultStatus === APPOINTMENT_STATUS.PENDING) {
+        // Send created notification for pending appointments
+        await storeAppointmentCreated(appointmentForNotification);
+      }
     } catch (error) {
-      console.error('Error sending appointment confirmed notification:', error);
+      console.error('Error sending appointment notification:', error);
       // Don't fail appointment creation if notification fails
     }
 
@@ -850,7 +935,7 @@ export const autoCancelAppointments = async (branchId) => {
       where('branchId', '==', branchId),
       where('status', '==', APPOINTMENT_STATUS.PENDING),
       where('appointmentDate', '<=', Timestamp.fromDate(yesterday)),
-      limit(10) // Limit to avoid too many reads
+      firestoreLimit(10) // Limit to avoid too many reads
     );
 
     const pastDueSnapshot = await getDocs(pastDueQuery);
@@ -862,7 +947,7 @@ export const autoCancelAppointments = async (branchId) => {
       where('branchId', '==', branchId),
       where('status', '==', APPOINTMENT_STATUS.PENDING),
       where('createdAt', '<=', Timestamp.fromDate(weekAgo)),
-      limit(10) // Limit to avoid too many reads
+      firestoreLimit(10) // Limit to avoid too many reads
     );
 
     const oldPendingSnapshot = await getDocs(oldPendingQuery);
@@ -1269,6 +1354,21 @@ export const createWalkInAppointment = async (walkInData, currentUser) => {
 
     const docRef = await addDoc(appointmentsRef, newAppointment);
 
+    // Prepare appointment data for notification
+    const appointmentForNotification = {
+      id: docRef.id,
+      ...newAppointment,
+      appointmentDate: now
+    };
+
+    // Send notification for walk-in appointment
+    try {
+      await storeAppointmentCreated(appointmentForNotification);
+    } catch (error) {
+      console.error('Error sending walk-in appointment notification:', error);
+      // Don't fail walk-in creation if notification fails
+    }
+
     // Log activity
     await logActivity({
       performedBy: currentUser.uid,
@@ -1442,7 +1542,8 @@ export const checkStylistAvailability = async (stylistId, appointmentDate, durat
       }
       
       // Stylist is assigned, now check for time overlap
-      const existingStart = existingAppointment.appointmentDate.toDate();
+      const existingStart = safeToDate(existingAppointment.appointmentDate);
+      if (!existingStart) continue;
       const existingEnd = new Date(existingStart.getTime() + (existingAppointment.duration || 60) * 60000);
 
       // Check for overlap
@@ -1476,8 +1577,19 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
       return { slots: [], message: 'Branch not found' };
     }
 
-    // Get day of week
-    const selectedDate = new Date(date);
+    // Parse date properly - handle both string (YYYY-MM-DD) and Date objects
+    let selectedDate;
+    if (typeof date === 'string') {
+      // Parse YYYY-MM-DD format in local timezone
+      const [year, month, day] = date.split('-').map(Number);
+      selectedDate = new Date(year, month - 1, day);
+    } else {
+      selectedDate = new Date(date);
+    }
+    
+    // Ensure we're working with midnight local time
+    selectedDate.setHours(0, 0, 0, 0);
+    
     const dayOfWeekName = selectedDate.toLocaleDateString('en-US', { weekday: 'long' });
     const dayOfWeek = dayOfWeekName.toLowerCase();
     const dayName = dayOfWeekName;
@@ -1489,7 +1601,7 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
     try {
       const scheduleConfigs = await getScheduleConfigurationsByBranch(branchId);
       // Find the schedule configuration that applies to this date
-      const targetDate = new Date(date);
+      const targetDate = new Date(selectedDate); // Use the already-parsed selectedDate
       targetDate.setHours(0, 0, 0, 0);
       
       // Find the most recent schedule configuration with startDate <= targetDate
@@ -1578,9 +1690,9 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
     const isToday = selectedDate.toDateString() === now.toDateString();
 
     // OPTIMIZATION: Fetch ALL appointments for the day at once
-    const dayStart = new Date(date);
+    const dayStart = new Date(selectedDate);
     dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
+    const dayEnd = new Date(selectedDate);
     dayEnd.setHours(23, 59, 59, 999);
     
     const appointmentsRef = collection(db, APPOINTMENTS_COLLECTION);
@@ -1595,20 +1707,20 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
     const dayAppointments = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      appointmentDate: doc.data().appointmentDate?.toDate()
+      appointmentDate: safeToDate(doc.data().appointmentDate)
     }));
 
     const slots = [];
-    const slotDate = new Date(date);
+    const slotDate = new Date(selectedDate);
     slotDate.setHours(startHour, startMinute, 0, 0);
 
-    const endTime = new Date(date);
+    const endTime = new Date(selectedDate);
     endTime.setHours(endHour, endMinute, 0, 0);
 
     // Calculate minimum booking time (current time + 2 hours for advance booking requirement)
     const minBookingTime = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2 hours from now
 
-    console.log('� TIME SLOT GENERATION DEBUG:', {
+    console.log('📅 TIME SLOT GENERATION DEBUG:', {
       isToday,
       selectedDate: selectedDate.toLocaleString(),
       currentTime: now.toLocaleString(),

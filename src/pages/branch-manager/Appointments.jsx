@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar, TrendingUp, Users, Clock, CheckCircle, XCircle, AlertCircle, BarChart3, Printer, Search, Filter, ChevronUp, ChevronDown, X, ArrowUpDown, Download, Eye } from 'lucide-react';
+import { Calendar, TrendingUp, Users, Clock, CheckCircle, XCircle, AlertCircle, BarChart3, Printer, Search, Filter, ChevronUp, ChevronDown, X, ArrowUpDown, Download, Eye, Upload } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getAppointmentsByBranch,
@@ -41,12 +41,14 @@ const BranchManagerAppointments = () => {
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [stylistFilter, setStylistFilter] = useState('all');
-  const [serviceFilter, setServiceFilter] = useState('all');
+  const [stylistFilter, setStylistFilter] = useState([]); // Changed to array for multiple selection
+  const [serviceFilter, setServiceFilter] = useState([]); // Changed to array for multiple selection
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
   const [showFilters, setShowFilters] = useState(true);
   const [dateFilterType, setDateFilterType] = useState('all'); // 'all', 'today', 'thisWeek', 'thisMonth', 'custom'
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   
   // Sorting
   const [sortColumn, setSortColumn] = useState('appointmentDate');
@@ -177,8 +179,13 @@ const BranchManagerAppointments = () => {
   };
 
 
-  // Get unique values for filter dropdowns
+  // Get unique values for filter dropdowns - use fetched data instead of appointments
   const uniqueServices = useMemo(() => {
+    // Use services from branch data
+    if (services && services.length > 0) {
+      return services.map(s => s.name).filter(Boolean).sort();
+    }
+    // Fallback to extracting from appointments
     const serviceSet = new Set();
     allAppointments.forEach(apt => {
       if (apt.services && apt.services.length > 0) {
@@ -190,9 +197,14 @@ const BranchManagerAppointments = () => {
       }
     });
     return Array.from(serviceSet).sort();
-  }, [allAppointments]);
+  }, [services, allAppointments]);
 
   const uniqueStylists = useMemo(() => {
+    // Use stylists from branch data
+    if (stylists && stylists.length > 0) {
+      return stylists.map(s => `${s.firstName} ${s.lastName}`.trim()).filter(Boolean).sort();
+    }
+    // Fallback to extracting from appointments
     const stylistSet = new Set();
     allAppointments.forEach(apt => {
       if (apt.services && apt.services.length > 0) {
@@ -204,7 +216,7 @@ const BranchManagerAppointments = () => {
       }
     });
     return Array.from(stylistSet).sort();
-  }, [allAppointments]);
+  }, [stylists, allAppointments]);
 
   // Filter and search appointments
   const filteredAppointments = useMemo(() => {
@@ -232,19 +244,19 @@ const BranchManagerAppointments = () => {
         return false;
       }
 
-      // Stylist filter
-      if (stylistFilter !== 'all') {
+      // Stylist filter - now supports multiple stylists
+      if (stylistFilter.length > 0) {
         const matchesStylist = (apt.services && apt.services.length > 0)
-          ? apt.services.some(svc => svc.stylistName === stylistFilter)
-          : apt.stylistName === stylistFilter;
+          ? apt.services.some(svc => stylistFilter.includes(svc.stylistName))
+          : stylistFilter.includes(apt.stylistName);
         if (!matchesStylist) return false;
       }
 
-      // Service filter
-      if (serviceFilter !== 'all') {
+      // Service filter - now supports multiple services
+      if (serviceFilter.length > 0) {
         const matchesService = (apt.services && apt.services.length > 0)
-          ? apt.services.some(svc => svc.serviceName === serviceFilter)
-          : apt.serviceName === serviceFilter;
+          ? apt.services.some(svc => serviceFilter.includes(svc.serviceName))
+          : serviceFilter.includes(apt.serviceName);
         if (!matchesService) return false;
       }
 
@@ -375,15 +387,15 @@ const BranchManagerAppointments = () => {
   const clearFilters = () => {
     setSearchTerm('');
     setStatusFilter('all');
-    setStylistFilter('all');
-    setServiceFilter('all');
+    setStylistFilter([]); // Reset to empty array
+    setServiceFilter([]); // Reset to empty array
     setStartDateFilter('');
     setEndDateFilter('');
     setDateFilterType('all');
   };
 
-  const hasActiveFilters = searchTerm || statusFilter !== 'all' || stylistFilter !== 'all' || 
-    serviceFilter !== 'all' || startDateFilter || endDateFilter;
+  const hasActiveFilters = searchTerm || statusFilter !== 'all' || stylistFilter.length > 0 || 
+    serviceFilter.length > 0 || startDateFilter || endDateFilter;
 
   // Calculate analytics
   const calculateAnalytics = () => {
@@ -953,6 +965,131 @@ const BranchManagerAppointments = () => {
     }
   };
 
+  const handleExportData = async () => {
+    try {
+      if (!filteredAppointments || filteredAppointments.length === 0) {
+        toast.error('No appointment data to export');
+        return;
+      }
+
+      // Create CSV content
+      const headers = [
+        'Date',
+        'Time',
+        'Client Name',
+        'Client Phone',
+        'Client Email',
+        'Services',
+        'Stylist',
+        'Status',
+        'Total Amount',
+        'Notes'
+      ];
+
+      const csvRows = [headers.join(',')];
+
+      filteredAppointments.forEach(apt => {
+        const aptDate = apt.appointmentDate?.toDate ? apt.appointmentDate.toDate() : new Date(apt.appointmentDate);
+        const dateStr = aptDate.toLocaleDateString('en-US');
+        const timeStr = aptDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+        const servicesList = (apt.services && apt.services.length > 0)
+          ? apt.services.map(svc => svc.serviceName || 'Unknown Service').join('; ')
+          : apt.serviceName || 'N/A';
+
+        const stylistsList = (apt.services && apt.services.length > 0)
+          ? [...new Set(apt.services.map(svc => svc.stylistName || 'Unassigned'))].join('; ')
+          : apt.stylistName || 'Unassigned';
+
+        const row = [
+          `"${dateStr}"`,
+          `"${timeStr}"`,
+          `"${apt.clientName || 'N/A'}"`,
+          `"${apt.clientPhone || 'N/A'}"`,
+          `"${apt.clientEmail || 'N/A'}"`,
+          `"${servicesList}"`,
+          `"${stylistsList}"`,
+          `"${apt.status || 'pending'}"`,
+          `"${apt.totalAmount || 0}"`,
+          `"${apt.notes || ''}"`
+        ];
+
+        csvRows.push(row.join(','));
+      });
+
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+
+      if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `appointments_export_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('Appointments data exported successfully');
+      }
+    } catch (error) {
+      console.error('Error exporting appointments:', error);
+      toast.error('Failed to export appointments data');
+    }
+  };
+
+  const handleImportData = () => {
+    setShowImportModal(true);
+  };
+
+  const downloadImportTemplate = async () => {
+    try {
+      const templateHeaders = [
+        'appointmentDate',
+        'clientName',
+        'clientEmail',
+        'clientPhone',
+        'services',
+        'stylistName',
+        'duration',
+        'totalAmount',
+        'status',
+        'notes'
+      ];
+
+      // Sample data matching the appointment structure
+      const sampleData = [
+        '2026-01-16T13:30:00.000Z', // appointmentDate as ISO timestamp
+        'John Doe',
+        'john.doe@email.com',
+        '+1234567890',
+        'Balayage; Haircut', // services as semicolon-separated string
+        'Sarah Johnson',
+        '240', // duration in minutes
+        '6000', // totalAmount
+        'confirmed', // status
+        'Regular client appointment' // notes
+      ];
+
+      const csvContent = [templateHeaders.join(','), sampleData.map(field => `"${field}"`).join(',')].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+
+      if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'appointments_import_template.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('Template downloaded successfully');
+      }
+    } catch (error) {
+      console.error('Error downloading template:', error);
+      toast.error('Failed to download template');
+    }
+  };
+
   if (loading || !stats) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -970,20 +1107,6 @@ const BranchManagerAppointments = () => {
           <p className="text-gray-600">Monitor and analyze branch appointments</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            Export CSV
-          </button>
-          <button
-            onClick={handlePrintReport}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <Printer className="w-4 h-4" />
-            Print Report
-          </button>
         </div>
       </div>
 
@@ -1047,78 +1170,65 @@ const BranchManagerAppointments = () => {
         </div>
       )}
 
-      {/* Filters Section - simplified single row */}
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 min-w-[240px] flex-1">
-            <Search className="w-5 h-5 text-gray-400" />
+      {/* Filters and Actions */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search client/service/stylist..."
+              placeholder="Search appointments..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+          {/* Filter Button */}
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+              (statusFilter !== 'all' || stylistFilter.length > 0 || serviceFilter.length > 0 || dateFilterType !== 'all' || startDateFilter || endDateFilter)
+                ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredAppointments.length} appointments`}
           >
-            <option value="all">All Status</option>
-            {Object.values(APPOINTMENT_STATUS).map(status => (
-              <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}</option>
-            ))}
-          </select>
-
-          <select
-            value={stylistFilter}
-            onChange={(e) => setStylistFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
-          >
-            <option value="all">All Stylists</option>
-            {uniqueStylists.map(stylist => (
-              <option key={stylist} value={stylist}>{stylist}</option>
-            ))}
-          </select>
-
-          <select
-            value={serviceFilter}
-            onChange={(e) => setServiceFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
-          >
-            <option value="all">All Services</option>
-            {uniqueServices.map(service => (
-              <option key={service} value={service}>{service}</option>
-            ))}
-          </select>
-
-          <select
-            value={dateFilterType}
-            onChange={(e) => handleDateFilterTypeChange(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
-          >
-            <option value="all">All Dates</option>
-            <option value="today">Today</option>
-            <option value="thisWeek">This Week</option>
-            <option value="thisMonth">This Month</option>
-          </select>
-
-          <div className="flex items-center gap-2">
-            {hasActiveFilters && (
-              <span className="px-2 py-1 text-xs bg-primary-100 text-primary-700 rounded-full">
-                Filters Active
+            <Filter className="w-5 h-5" />
+            {filteredAppointments.length > 0 && (
+              <span className="bg-primary-600 text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                {filteredAppointments.length}
               </span>
             )}
-            <button
-              onClick={clearFilters}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <X className="w-4 h-4" />
-              Clear
-            </button>
-          </div>
+          </button>
+
+          {/* Export Button */}
+          <button
+            onClick={handleExportData}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Export Appointments Data"
+          >
+            <Download className="w-5 h-5 text-gray-600" />
+          </button>
+
+          {/* Print Button */}
+          <button
+            onClick={handlePrintReport}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Print Report"
+          >
+            <Printer className="w-5 h-5 text-gray-600" />
+          </button>
+
+          {/* Import Button */}
+          <button
+            onClick={handleImportData}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Import Appointments Data"
+          >
+            <Upload className="w-5 h-5 text-gray-600" />
+          </button>
         </div>
       </div>
 
@@ -1433,6 +1543,272 @@ const BranchManagerAppointments = () => {
             setSelectedAppointment(null);
           }}
         />
+      )}
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">Filter Appointments</h2>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="all">All Status</option>
+                      {Object.values(APPOINTMENT_STATUS).map(status => (
+                        <option key={status} value={status}>
+                          {status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Stylists</label>
+                    <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id="select-all-stylists"
+                          checked={uniqueStylists.length > 0 && stylistFilter.length === uniqueStylists.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setStylistFilter([...uniqueStylists]);
+                            } else {
+                              setStylistFilter([]);
+                            }
+                          }}
+                          className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                        />
+                        <label htmlFor="select-all-stylists" className="ml-2 text-sm text-gray-700 font-medium">
+                          Select All Stylists
+                        </label>
+                      </div>
+                      <hr className="border-gray-200" />
+                      {uniqueStylists.map((stylist, index) => (
+                        <div key={`stylist-${index}`} className="flex items-center">
+                          <input
+                            type="checkbox"
+                            id={`stylist-filter-${index}`}
+                            checked={stylistFilter.includes(stylist)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setStylistFilter(prev => [...prev, stylist]);
+                              } else {
+                                setStylistFilter(prev => prev.filter(s => s !== stylist));
+                              }
+                            }}
+                            className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                          />
+                          <label htmlFor={`stylist-filter-${index}`} className="ml-2 text-sm text-gray-700">
+                            {stylist}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                    {stylistFilter.length > 0 && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {stylistFilter.length} stylist{stylistFilter.length !== 1 ? 's' : ''} selected
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Items Per Page</label>
+                    <select
+                      value={itemsPerPage}
+                      onChange={(e) => {
+                        setItemsPerPage(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      {ITEMS_PER_PAGE_OPTIONS.map(option => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Services</label>
+                    <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id="select-all-services"
+                          checked={uniqueServices.length > 0 && serviceFilter.length === uniqueServices.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setServiceFilter([...uniqueServices]);
+                            } else {
+                              setServiceFilter([]);
+                            }
+                          }}
+                          className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                        />
+                        <label htmlFor="select-all-services" className="ml-2 text-sm text-gray-700 font-medium">
+                          Select All Services
+                        </label>
+                      </div>
+                      <hr className="border-gray-200" />
+                      {uniqueServices.map((service, index) => (
+                        <div key={`service-${index}`} className="flex items-center">
+                          <input
+                            type="checkbox"
+                            id={`service-filter-${index}`}
+                            checked={serviceFilter.includes(service)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setServiceFilter(prev => [...prev, service]);
+                              } else {
+                                setServiceFilter(prev => prev.filter(s => s !== service));
+                              }
+                            }}
+                            className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                          />
+                          <label htmlFor={`service-filter-${index}`} className="ml-2 text-sm text-gray-700">
+                            {service}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                    {serviceFilter.length > 0 && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {serviceFilter.length} service{serviceFilter.length !== 1 ? 's' : ''} selected
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
+                    <select
+                      value={dateFilterType}
+                      onChange={(e) => handleDateFilterTypeChange(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent mb-3"
+                    >
+                      <option value="all">All Dates</option>
+                      <option value="today">Today</option>
+                      <option value="thisWeek">This Week</option>
+                      <option value="thisMonth">This Month</option>
+                      <option value="custom">Custom Range</option>
+                    </select>
+
+                    {dateFilterType === 'custom' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">From</label>
+                          <input
+                            type="date"
+                            value={startDateFilter}
+                            onChange={(e) => setStartDateFilter(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">To</label>
+                          <input
+                            type="date"
+                            value={endDateFilter}
+                            onChange={(e) => setEndDateFilter(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-6 border-t border-gray-200">
+              <button
+                onClick={clearFilters}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                Clear Filters
+              </button>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm"
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Confirmation Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Import Appointments</h3>
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-blue-900 mb-2">Instructions:</h4>
+                  <ul className="text-sm text-blue-800 space-y-1">
+                    <li>• Download the CSV template first</li>
+                    <li>• Fill in your appointment data following the exact format</li>
+                    <li>• Use semicolon (;) to separate multiple services</li>
+                    <li>• appointmentDate must be in ISO format (e.g., 2026-01-16T13:30:00.000Z)</li>
+                    <li>• Save as CSV and upload below</li>
+                  </ul>
+                </div>
+
+                <div className="flex flex-col space-y-3">
+                  <button
+                    onClick={downloadImportTemplate}
+                    className="w-full flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Template
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      // TODO: Implement file picker for import
+                      setShowImportModal(false);
+                      toast.info('File picker will be implemented next');
+                    }}
+                    className="w-full flex items-center justify-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Select CSV File
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import Modal from '../../components/ui/Modal';
 
 import { transactionApiService } from '../../services/transactionApiService';
 import { appointmentApiService } from '../../services/appointmentApiService';
@@ -64,10 +65,22 @@ const Reports = () => {
     start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
     end: format(endOfMonth(new Date()), 'yyyy-MM-dd')
   });
-  const [reportType, setReportType] = useState('overview'); // overview, revenue, transactions, appointments, inventory, staff
+  const [reportType, setReportType] = useState(null); // null shows cards, otherwise shows specific report
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [yearlyView, setYearlyView] = useState(false);
+  
+  // Print modal states
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printLoading, setPrintLoading] = useState(false);
+  const [printTransactions, setPrintTransactions] = useState([]);
+  const [printFilters, setPrintFilters] = useState({
+    dateFrom: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
+    dateTo: format(endOfMonth(new Date()), 'yyyy-MM-dd'),
+    transactionType: 'all', // 'all', 'service', 'product'
+    status: 'paid', // 'all', 'paid', 'completed'
+    viewType: 'period' // 'period', 'yearly'
+  });
 
   // Data states
   const [transactions, setTransactions] = useState([]);
@@ -77,20 +90,10 @@ const Reports = () => {
   const [clientsData, setClientsData] = useState([]);
   const [branchInfo, setBranchInfo] = useState(null);
 
-  // Load all data
+  // Load branch info once
   useEffect(() => {
-    if (userData?.branchId) {
-      loadAllData();
-    }
-  }, [userData?.branchId, dateRange]);
-
-  const loadAllData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Load branch info
-      if (userData?.branchId) {
+    if (userData?.branchId && !branchInfo) {
+      const loadBranchInfo = async () => {
         try {
           const branch = await getBranchById(
             userData.branchId,
@@ -100,38 +103,269 @@ const Reports = () => {
           setBranchInfo(branch);
         } catch (err) {
           console.error('Error loading branch info:', err);
-          // Continue without branch info - not critical
         }
+      };
+      loadBranchInfo();
+    }
+  }, [userData?.branchId]);
+
+  // Load data only for the active report type
+  useEffect(() => {
+    if (userData?.branchId && reportType) {
+      loadReportData();
+    }
+  }, [userData?.branchId, dateRange, reportType]);
+
+  const loadReportData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Revenue report doesn't load data automatically
+      if (reportType === 'revenue') {
+        setLoading(false);
+        return;
       }
 
-      // Load transactions - get ALL transactions, then filter by date client-side
       const startDate = new Date(dateRange.start);
       startDate.setHours(0, 0, 0, 0);
       const endDate = new Date(dateRange.end);
       endDate.setHours(23, 59, 59, 999);
 
-      // Fetch all transactions without date filter (the API doesn't support date filtering well)
+      // Only load data for the active report type
+      switch (reportType) {
+        case 'transactions':
+          await loadTransactionsData(startDate, endDate);
+          break;
+        case 'appointments':
+        case 'calendar':
+          await loadAppointmentsData(startDate, endDate);
+          break;
+        case 'inventory':
+          await loadInventoryData();
+          break;
+        case 'staff':
+        case 'leave':
+          await loadStaffData();
+          break;
+        default:
+          break;
+      }
+    } catch (err) {
+      console.error('Error loading report data:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadTransactionsData = async (startDate, endDate) => {
+    // Load transactions with pagination, respecting the 10000 limit
+    let allTransactions = [];
+    let page = 1;
+    let hasMore = true;
+    const maxPages = 100; // Limit to 100 pages (100 * 100 = 10,000 max)
+    
+    while (hasMore && page <= maxPages) {
+      const transactionsResult = await transactionApiService.getBranchTransactions(
+        userData.branchId,
+        userData.roles?.[0] || 'branchManager',
+        {
+          page,
+          limit: 100,
+          statusFilter: 'All'
+        }
+      );
+      
+      if (transactionsResult.success && transactionsResult.transactions) {
+        // Filter by date range client-side
+        const filtered = transactionsResult.transactions.filter(t => {
+          if (!t.createdAt) return false;
+          const transactionDate = t.createdAt?.toDate 
+            ? t.createdAt.toDate() 
+            : new Date(t.createdAt);
+          return transactionDate >= startDate && transactionDate <= endDate;
+        });
+        
+        allTransactions.push(...filtered);
+        hasMore = transactionsResult.hasMore && transactionsResult.transactions.length > 0;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    setTransactions(allTransactions);
+  };
+
+  const loadAppointmentsData = async (startDate, endDate) => {
+    const appointmentsResult = await appointmentApiService.getAppointments(
+      {
+        branchId: userData.branchId,
+        dateFrom: startDate,
+        dateTo: endDate
+      },
+      'branchManager',
+      userData.uid,
+      1000 // Reduced from 10000 to 1000
+    );
+    setAppointments(appointmentsResult.appointments || []);
+  };
+
+  const loadInventoryData = async () => {
+    const inventoryResult = await inventoryService.getInventoryStats(userData.branchId);
+    if (inventoryResult.success) {
+      const salesResult = await inventoryService.getInventorySales(
+        userData.branchId,
+        dateRange.start,
+        dateRange.end
+      );
+      if (salesResult.success) {
+        setInventoryData(salesResult.salesData || []);
+      }
+    }
+  };
+
+  const loadStaffData = async () => {
+    try {
+      const staff = await getUsersByBranch(userData.branchId);
+      setStaffData(staff || []);
+    } catch (err) {
+      console.error('Error loading staff:', err);
+    }
+  };
+
+  // Calculate filtered revenue stats for printing
+  const calculateFilteredRevenueStats = (filters, transactionsToUse = null) => {
+    // Use printTransactions if provided, otherwise use regular transactions
+    const transactionsData = transactionsToUse || transactions;
+    
+    const startDate = new Date(filters.dateFrom);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(filters.dateTo);
+    endDate.setHours(23, 59, 59, 999);
+
+    // Filter transactions by date
+    let filtered = transactionsData.filter(t => {
+      if (!t.createdAt) return false;
+      const transactionDate = t.createdAt?.toDate 
+        ? t.createdAt.toDate() 
+        : new Date(t.createdAt);
+      return transactionDate >= startDate && transactionDate <= endDate;
+    });
+
+    // Filter by status
+    if (filters.status !== 'all') {
+      filtered = filtered.filter(t => {
+        const status = (t.status || '').toLowerCase();
+        return status === filters.status.toLowerCase();
+      });
+    }
+
+    // Filter by transaction type
+    if (filters.transactionType !== 'all') {
+      filtered = filtered.filter(t => {
+        const type = (t.transactionType || t.type || '').toLowerCase();
+        return type === filters.transactionType.toLowerCase();
+      });
+    }
+
+    const totalRevenue = filtered.reduce((sum, t) => 
+      sum + (t.total || t.totalAmount || 0), 0
+    );
+    
+    const serviceRevenue = filtered
+      .filter(t => (t.transactionType || t.type || '').toLowerCase() === 'service')
+      .reduce((sum, t) => sum + (t.total || t.totalAmount || 0), 0);
+    
+    const productRevenue = filtered
+      .filter(t => (t.transactionType || t.type || '').toLowerCase() === 'product')
+      .reduce((sum, t) => sum + (t.total || t.totalAmount || 0), 0);
+
+    // Calculate yearly breakdown if yearly view
+    const yearlyRevenue = {};
+    if (filters.viewType === 'yearly') {
+      filtered.forEach(t => {
+        if (!t.createdAt) return;
+        const transactionDate = t.createdAt?.toDate 
+          ? t.createdAt.toDate() 
+          : new Date(t.createdAt);
+        const monthKey = format(transactionDate, 'yyyy-MM');
+        const year = format(transactionDate, 'yyyy');
+        
+        if (!yearlyRevenue[year]) {
+          yearlyRevenue[year] = {
+            total: 0,
+            service: 0,
+            product: 0,
+            months: {}
+          };
+        }
+        
+        const revenue = t.total || t.totalAmount || 0;
+        yearlyRevenue[year].total += revenue;
+        
+        const isService = ((t.transactionType || t.type || '').toLowerCase() === 'service');
+        if (isService) {
+          yearlyRevenue[year].service += revenue;
+        } else {
+          yearlyRevenue[year].product += revenue;
+        }
+        
+        if (!yearlyRevenue[year].months[monthKey]) {
+          yearlyRevenue[year].months[monthKey] = {
+            total: 0,
+            service: 0,
+            product: 0,
+            monthName: format(transactionDate, 'MMMM yyyy')
+          };
+        }
+        
+        yearlyRevenue[year].months[monthKey].total += revenue;
+        if (isService) {
+          yearlyRevenue[year].months[monthKey].service += revenue;
+        } else {
+          yearlyRevenue[year].months[monthKey].product += revenue;
+        }
+      });
+    }
+
+    return {
+      totalRevenue,
+      serviceRevenue,
+      productRevenue,
+      totalTransactions: filtered.length,
+      yearlyRevenue
+    };
+  };
+
+  // Load transactions for printing based on filters
+  const loadTransactionsForPrint = async (filters) => {
+    try {
+      setPrintLoading(true);
+      const startDate = new Date(filters.dateFrom);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(filters.dateTo);
+      endDate.setHours(23, 59, 59, 999);
+
+      // Load transactions with pagination
       let allTransactions = [];
       let page = 1;
       let hasMore = true;
-      let totalFetched = 0;
+      const maxPages = 100; // Limit to 100 pages (100 * 100 = 10,000 max)
       
-      console.log('📊 Loading transactions for date range:', dateRange.start, 'to', dateRange.end);
-      
-      while (hasMore && page <= 50) { // Limit to 50 pages to avoid infinite loops
+      while (hasMore && page <= maxPages) {
         const transactionsResult = await transactionApiService.getBranchTransactions(
           userData.branchId,
           userData.roles?.[0] || 'branchManager',
           {
             page,
             limit: 100,
-            statusFilter: 'All' // Get all statuses, filter client-side
+            statusFilter: 'All'
           }
         );
         
         if (transactionsResult.success && transactionsResult.transactions) {
-          totalFetched += transactionsResult.transactions.length;
-          
           // Filter by date range client-side
           const filtered = transactionsResult.transactions.filter(t => {
             if (!t.createdAt) return false;
@@ -149,71 +383,29 @@ const Reports = () => {
         }
       }
       
-      console.log(`✅ Loaded ${allTransactions.length} transactions (from ${totalFetched} total fetched)`);
-      console.log('📊 Transaction status breakdown:', {
-        paid: allTransactions.filter(t => (t.status || '').toLowerCase() === 'paid').length,
-        completed: allTransactions.filter(t => (t.status || '').toLowerCase() === 'completed').length,
-        in_service: allTransactions.filter(t => (t.status || '').toLowerCase() === 'in_service').length,
-        voided: allTransactions.filter(t => (t.status || '').toLowerCase() === 'voided').length,
-        all: allTransactions.length
-      });
-      
-      setTransactions(allTransactions);
-
-      // Load appointments
-      const appointmentsResult = await appointmentApiService.getAppointments(
-        {
-          branchId: userData.branchId,
-          dateFrom: startDate,
-          dateTo: endDate
-        },
-        'branchManager',
-        userData.uid,
-        10000
-      );
-      setAppointments(appointmentsResult.appointments || []);
-
-      // Load inventory stats
-      const inventoryResult = await inventoryService.getInventoryStats(userData.branchId);
-      if (inventoryResult.success) {
-        const salesResult = await inventoryService.getInventorySales(
-          userData.branchId,
-          dateRange.start,
-          dateRange.end
-        );
-        if (salesResult.success) {
-          setInventoryData(salesResult.salesData || []);
-        }
-      }
-
-      // Load staff
-      try {
-        const staff = await getUsersByBranch(
-          userData.branchId
-        );
-        setStaffData(staff || []);
-      } catch (err) {
-        console.error('Error loading staff:', err);
-        // Continue without staff data - not critical
-      }
-
-      // Load clients (recent)
-      try {
-        const clients = await getClientsByBranch(
-          userData.branchId
-        );
-        setClientsData(clients || []);
-      } catch (err) {
-        console.error('Error loading clients:', err);
-        // Continue without clients data - not critical
-      }
-
+      setPrintTransactions(allTransactions);
+      return allTransactions;
     } catch (err) {
-      console.error('Error loading reports data:', err);
+      console.error('Error loading transactions for print:', err);
       setError(err.message);
+      return [];
     } finally {
-      setLoading(false);
+      setPrintLoading(false);
     }
+  };
+
+  // Handle print with filters
+  const handlePrintWithFilters = async () => {
+    // Load data first based on filters
+    await loadTransactionsForPrint(printFilters);
+    
+    // Close modal and print after data is loaded
+    setShowPrintModal(false);
+    
+    // Small delay to ensure modal closes and data is set before printing
+    setTimeout(() => {
+      handlePrint();
+    }, 200);
   };
 
   // Calculate summary statistics
@@ -458,365 +650,272 @@ const Reports = () => {
     setDateRange({ start, end });
   };
 
-  if (loading && !transactions.length) {
+  // Show loading only for reports that actually load data
+  const shouldShowLoading = loading && reportType && reportType !== 'revenue';
+  if (shouldShowLoading) {
     return (
-      
       <div className="flex items-center justify-center h-64">
         <RefreshCw className="h-8 w-8 animate-spin text-[#160B53]" />
         <span className="ml-2 text-gray-600">Loading reports...</span>
       </div>
-      
     );
   }
 
   return (
-    
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
-          <p className="text-gray-600">Comprehensive salon operations reports and analytics</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={loadAllData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-          <Button variant="outline" onClick={handlePrint}>
-            <Printer className="h-4 w-4 mr-2" />
-            Print Report
-          </Button>
-          <Button variant="outline" onClick={() => {
-            if (reportType === 'transactions') exportTransactions();
-            else if (reportType === 'appointments') exportAppointments();
-            else if (reportType === 'inventory') exportInventory();
-            else {
-                // Export overview
-              exportTransactions();
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
+        <p className="text-gray-600">Generate comprehensive reports for your branch operations</p>
+      </div>
+
+
+      {/* Report Cards Grid */}
+      {!reportType || reportType === 'overview' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[
+            { 
+              id: 'revenue', 
+              label: 'Revenue Report', 
+              description: 'View revenue breakdown by service and product',
+              icon: Banknote,
+              bgColor: 'bg-green-100',
+              iconColor: 'text-green-600'
+            },
+            { 
+              id: 'transactions', 
+              label: 'Transaction Report', 
+              description: 'Detailed transaction history and records',
+              icon: Receipt,
+              bgColor: 'bg-blue-100',
+              iconColor: 'text-blue-600'
+            },
+            { 
+              id: 'appointments', 
+              label: 'Appointment Report', 
+              description: 'Appointment schedules and status',
+              icon: Calendar,
+              bgColor: 'bg-purple-100',
+              iconColor: 'text-purple-600'
+            },
+            { 
+              id: 'inventory', 
+              label: 'Inventory Sales Report', 
+              description: 'Product sales, revenue, and profit analysis',
+              icon: Package,
+              bgColor: 'bg-orange-100',
+              iconColor: 'text-orange-600'
+            },
+            { 
+              id: 'staff', 
+              label: 'Staff List Report', 
+              description: 'Staff information and performance',
+              icon: Users,
+              bgColor: 'bg-teal-100',
+              iconColor: 'text-teal-600'
+            },
+            { 
+              id: 'calendar', 
+              label: 'Calendar Report', 
+              description: 'Schedule and calendar overview',
+              icon: Calendar,
+              bgColor: 'bg-indigo-100',
+              iconColor: 'text-indigo-600'
+            },
+            { 
+              id: 'leave', 
+              label: 'Leave Management Report', 
+              description: 'Staff leave requests and approvals',
+              icon: Clock,
+              bgColor: 'bg-pink-100',
+              iconColor: 'text-pink-600'
             }
-          }}>
-            <Download className="h-4 w-4 mr-2" />
-            Export CSV
-          </Button>
+          ].map(report => (
+            <Card 
+              key={report.id}
+              className="cursor-pointer hover:shadow-lg transition-shadow"
+              onClick={() => setReportType(report.id)}
+            >
+              <div className="p-6">
+                <div className="flex items-start gap-4">
+                  <div className={`p-3 ${report.bgColor} rounded-lg`}>
+                    <report.icon className={`h-6 w-6 ${report.iconColor}`} />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                      {report.label}
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      {report.description}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          ))}
         </div>
-      </div>
-
-      {/* Date Range Selector */}
-      <Card className="p-6">
-        <div className="flex items-center gap-4 flex-wrap">
-          <label className="text-sm font-medium text-gray-700">Date Range:</label>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDateRangePreset('today')}
-            >
-              Today
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDateRangePreset('week')}
-            >
-              This Week
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDateRangePreset('month')}
-            >
-              This Month
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDateRangePreset('last7days')}
-            >
-              Last 7 Days
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDateRangePreset('last30days')}
-            >
-              Last 30 Days
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDateRangePreset('year')}
-            >
-              This Year
-            </Button>
-          </div>
-          <Input
-            type="date"
-            value={dateRange.start}
-            onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-            className="w-40"
-          />
-          <span className="text-gray-500">to</span>
-          <Input
-            type="date"
-            value={dateRange.end}
-            onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-            className="w-40"
-          />
-          <Button onClick={loadAllData} variant="outline">
-            Apply
-          </Button>
-        </div>
-      </Card>
-
-      {/* Report Type Tabs */}
-      <div className="flex gap-2 border-b border-gray-200">
-        {[
-          { id: 'overview', label: 'Overview', icon: BarChart3 },
-          { id: 'revenue', label: 'Revenue', icon: Banknote },
-          { id: 'transactions', label: 'Transactions', icon: Receipt },
-          { id: 'appointments', label: 'Appointments', icon: Calendar },
-          { id: 'inventory', label: 'Inventory', icon: Package },
-          { id: 'staff', label: 'Staff', icon: Users }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setReportType(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-colors ${
-              reportType === tab.id
-                ? 'border-[#160B53] text-[#160B53] font-semibold'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
+      ) : (
+        <div className="space-y-4">
+          {/* Back Button */}
+          <Button
+            variant="outline"
+            onClick={() => setReportType(null)}
+            className="mb-4"
           >
-            <tab.icon className="h-4 w-4" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+            ← Back to Reports
+          </Button>
+        </div>
+      )}
 
       {/* Print Content */}
-      <div ref={printRef} className="hidden">
-        <div className="p-8">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">
-              {branchInfo?.name || 'Salon'} - Operations Report
-            </h1>
-            <p className="text-gray-600 mt-2">
-              {format(parseISO(dateRange.start), 'MMMM dd, yyyy')} - {format(parseISO(dateRange.end), 'MMMM dd, yyyy')}
-            </p>
-            <p className="text-sm text-gray-500 mt-1">
-              Generated on {format(new Date(), 'MMMM dd, yyyy HH:mm')}
-            </p>
-          </div>
-
-          {/* Summary Stats */}
-          <div className="grid grid-cols-4 gap-4 mb-8">
-            <div className="border p-4">
-              <p className="text-sm text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-bold">₱{summaryStats.totalRevenue.toLocaleString()}</p>
+      {reportType === 'revenue' && (
+        <div ref={printRef} className="hidden">
+          <div className="p-8">
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-bold text-gray-900">
+                {branchInfo?.name || 'Salon'} - Revenue Report
+              </h1>
+              <p className="text-gray-600 mt-2">
+                {format(parseISO(printFilters.dateFrom), 'MMMM dd, yyyy')} - {format(parseISO(printFilters.dateTo), 'MMMM dd, yyyy')}
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                Generated on {format(new Date(), 'MMMM dd, yyyy HH:mm')}
+              </p>
             </div>
-            <div className="border p-4">
-              <p className="text-sm text-gray-600">Transactions</p>
-              <p className="text-2xl font-bold">{summaryStats.totalTransactions}</p>
+
+            {/* Filter Information */}
+            <div className="mb-6 p-4 bg-gray-50 border border-gray-300 rounded">
+              <h3 className="font-semibold text-gray-900 mb-2">Applied Filters:</h3>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="font-medium">Date Range: </span>
+                  <span>{format(parseISO(printFilters.dateFrom), 'MMM dd, yyyy')} - {format(parseISO(printFilters.dateTo), 'MMM dd, yyyy')}</span>
+                </div>
+                <div>
+                  <span className="font-medium">Transaction Type: </span>
+                  <span className="capitalize">{printFilters.transactionType === 'all' ? 'All Types' : printFilters.transactionType}</span>
+                </div>
+                <div>
+                  <span className="font-medium">Status: </span>
+                  <span className="capitalize">{printFilters.status === 'all' ? 'All Statuses' : printFilters.status}</span>
+                </div>
+                <div>
+                  <span className="font-medium">View Type: </span>
+                  <span className="capitalize">{printFilters.viewType === 'yearly' ? 'Yearly Breakdown' : 'Period Summary'}</span>
+                </div>
+              </div>
             </div>
-            <div className="border p-4">
-              <p className="text-sm text-gray-600">Appointments</p>
-              <p className="text-2xl font-bold">{summaryStats.totalAppointments}</p>
-            </div>
-            <div className="border p-4">
-              <p className="text-sm text-gray-600">Products Sold</p>
-              <p className="text-2xl font-bold">{summaryStats.totalProductsSold}</p>
-            </div>
-          </div>
 
-          {/* Detailed sections would go here */}
-          <div className="mt-8">
-            <h2 className="text-xl font-bold mb-4">Transaction Summary</h2>
-            <table className="w-full border-collapse border border-gray-300">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="border border-gray-300 p-2 text-left">Date</th>
-                  <th className="border border-gray-300 p-2 text-left">Client</th>
-                  <th className="border border-gray-300 p-2 text-left">Type</th>
-                  <th className="border border-gray-300 p-2 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions
-                  .filter(t => t.status === 'paid' || t.status === 'completed')
-                  .slice(0, 50)
-                  .map(t => (
-                    <tr key={t.id}>
-                      <td className="border border-gray-300 p-2">
-                        {t.createdAt ? format(t.createdAt.toDate ? t.createdAt.toDate() : new Date(t.createdAt), 'MMM dd, yyyy') : 'N/A'}
-                      </td>
-                      <td className="border border-gray-300 p-2">
-                        {t.clientInfo?.name || t.clientName || 'N/A'}
-                      </td>
-                      <td className="border border-gray-300 p-2">
-                        {t.transactionType || t.type || 'N/A'}
-                      </td>
-                      <td className="border border-gray-300 p-2 text-right">
-                        ₱{(t.total || t.totalAmount || 0).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* Overview Report */}
-      {reportType === 'overview' && (
-        <div className="space-y-6">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">
-                    ₱{summaryStats.totalRevenue.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {summaryStats.avgTransactionValue > 0 && `Avg: ₱${summaryStats.avgTransactionValue.toFixed(2)}`}
-                  </p>
-                </div>
-                <Banknote className="h-12 w-12 text-green-600" />
-              </div>
-            </Card>
-
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Service Revenue</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">
-                    ₱{summaryStats.serviceRevenue.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {summaryStats.totalRevenue > 0 && 
-                      `${((summaryStats.serviceRevenue / summaryStats.totalRevenue) * 100).toFixed(1)}% of total`
-                    }
-                  </p>
-                </div>
-                <Scissors className="h-12 w-12 text-blue-600" />
-              </div>
-            </Card>
-
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Product Revenue</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">
-                    ₱{summaryStats.productRevenue.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {summaryStats.totalRevenue > 0 && 
-                      `${((summaryStats.productRevenue / summaryStats.totalRevenue) * 100).toFixed(1)}% of total`
-                    }
-                  </p>
-                </div>
-                <Package className="h-12 w-12 text-purple-600" />
-              </div>
-            </Card>
-
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Transactions</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">
-                    {summaryStats.totalTransactions}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Completed transactions
-                  </p>
-                </div>
-                <FileText className="h-12 w-12 text-orange-600" />
-              </div>
-            </Card>
-          </div>
-
-          {/* Additional Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Appointments</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-2">
-                    {summaryStats.totalAppointments}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {summaryStats.completedAppointments} completed, {summaryStats.cancelledAppointments} cancelled
-                  </p>
-                </div>
-                <Calendar className="h-10 w-10 text-indigo-600" />
-              </div>
-            </Card>
-
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Products Sold</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-2">
-                    {summaryStats.totalProductsSold}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Units sold
-                  </p>
-                </div>
-                <ShoppingCart className="h-10 w-10 text-pink-600" />
-              </div>
-            </Card>
-
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Active Staff</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-2">
-                    {summaryStats.activeStaff}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Total staff members
-                  </p>
-                </div>
-                <Users className="h-10 w-10 text-teal-600" />
-              </div>
-            </Card>
-
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Clients</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-2">
-                    {summaryStats.totalClients}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Registered clients
-                  </p>
-                </div>
-                <Users className="h-10 w-10 text-cyan-600" />
-              </div>
-            </Card>
+            {/* Revenue Stats */}
+            {(() => {
+              const filteredStats = calculateFilteredRevenueStats(printFilters, printTransactions);
+              return (
+                <>
+                  {printFilters.viewType === 'period' ? (
+                    <div className="grid grid-cols-3 gap-4 mb-8">
+                      <div className="border border-gray-300 p-4 text-center">
+                        <p className="text-sm text-gray-600 mb-1">Total Revenue</p>
+                        <p className="text-2xl font-bold text-gray-900">₱{filteredStats.totalRevenue.toLocaleString()}</p>
+                      </div>
+                      <div className="border border-gray-300 p-4 text-center">
+                        <p className="text-sm text-gray-600 mb-1">Service Revenue</p>
+                        <p className="text-2xl font-bold text-blue-600">₱{filteredStats.serviceRevenue.toLocaleString()}</p>
+                      </div>
+                      <div className="border border-gray-300 p-4 text-center">
+                        <p className="text-sm text-gray-600 mb-1">Product Revenue</p>
+                        <p className="text-2xl font-bold text-purple-600">₱{filteredStats.productRevenue.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6 mb-8">
+                      {Object.keys(filteredStats.yearlyRevenue || {}).sort().reverse().map(year => {
+                        const yearData = filteredStats.yearlyRevenue[year];
+                        const months = Object.keys(yearData.months).sort();
+                        return (
+                          <div key={year} className="border border-gray-300 p-4">
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-lg font-bold text-gray-900">{year}</h3>
+                              <div className="flex gap-4">
+                                <div className="text-right">
+                                  <p className="text-xs text-gray-500">Total</p>
+                                  <p className="text-xl font-bold text-gray-900">₱{yearData.total.toLocaleString()}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-xs text-gray-500">Service</p>
+                                  <p className="text-lg font-semibold text-blue-600">₱{yearData.service.toLocaleString()}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-xs text-gray-500">Product</p>
+                                  <p className="text-lg font-semibold text-purple-600">₱{yearData.product.toLocaleString()}</p>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3 mt-4">
+                              {months.map(monthKey => {
+                                const monthData = yearData.months[monthKey];
+                                return (
+                                  <div key={monthKey} className="border border-gray-200 p-3">
+                                    <p className="font-semibold text-gray-900 mb-2">{monthData.monthName}</p>
+                                    <div className="space-y-1 text-sm">
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Total:</span>
+                                        <span className="font-semibold">₱{monthData.total.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Service:</span>
+                                        <span className="font-semibold text-blue-600">₱{monthData.service.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Product:</span>
+                                        <span className="font-semibold text-purple-600">₱{monthData.product.toLocaleString()}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="mt-4 text-sm text-gray-600">
+                    Total Transactions: {filteredStats.totalTransactions}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
 
+
       {/* Revenue Report */}
       {reportType === 'revenue' && (
-        <div className="space-y-6">
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Revenue Breakdown</h2>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setYearlyView(!yearlyView)}
-                className="flex items-center gap-2"
-              >
-                {yearlyView ? 'Show Period View' : 'Show Yearly View'}
-              </Button>
+        <Card>
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Revenue Report</h2>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setYearlyView(!yearlyView)}
+                >
+                  {yearlyView ? 'Period View' : 'Yearly View'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setShowPrintModal(true)}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button variant="outline" size="sm" onClick={exportTransactions}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
             </div>
+          </div>
+          <div className="p-6">
               
             {!yearlyView ? (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -912,15 +1011,27 @@ const Reports = () => {
                 )}
               </div>
             )}
-          </Card>
-        </div>
+          </div>
+        </Card>
       )}
 
       {/* Transactions Report */}
       {reportType === 'transactions' && (
         <Card className="overflow-hidden">
           <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-bold">Transaction Details</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Transaction Report</h2>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button variant="outline" size="sm" onClick={exportTransactions}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -991,7 +1102,19 @@ const Reports = () => {
       {reportType === 'appointments' && (
         <Card className="overflow-hidden">
           <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-bold">Appointment Details</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Appointment Report</h2>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button variant="outline" size="sm" onClick={exportAppointments}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1055,7 +1178,19 @@ const Reports = () => {
       {reportType === 'inventory' && (
         <Card className="overflow-hidden">
           <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-bold">Inventory Sales Report</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Inventory Sales Report</h2>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button variant="outline" size="sm" onClick={exportInventory}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1118,7 +1253,32 @@ const Reports = () => {
       {reportType === 'staff' && (
         <Card className="overflow-hidden">
           <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-bold">Staff Performance</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Staff List Report</h2>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => exportToCSV(
+                    staffData.map(s => ({
+                      'Name': `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'N/A',
+                      'Role': s.roles?.[0] || s.role || 'N/A',
+                      'Email': s.email || 'N/A',
+                      'Phone': s.phone || 'N/A',
+                      'Status': s.isActive !== false ? 'Active' : 'Inactive'
+                    })),
+                    'Staff_Report'
+                  )}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1171,6 +1331,313 @@ const Reports = () => {
             </table>
           </div>
         </Card>
+      )}
+
+      {/* Calendar Report */}
+      {reportType === 'calendar' && (
+        <Card className="overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Calendar Report</h2>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button variant="outline" size="sm" onClick={exportAppointments}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Time
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Client ID
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Services
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {appointments.slice(0, 100).map(appointment => (
+                  <tr key={appointment.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {appointment.appointmentDate 
+                        ? format(appointment.appointmentDate.toDate ? appointment.appointmentDate.toDate() : new Date(appointment.appointmentDate), 'MMM dd, yyyy')
+                        : 'N/A'
+                      }
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {appointment.appointmentTime || 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {appointment.clientId || 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {(appointment.serviceIds || []).join(', ') || 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        appointment.status === 'completed' || appointment.status === 'confirmed'
+                          ? 'bg-green-100 text-green-800'
+                          : appointment.status === 'cancelled'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {appointment.status || 'N/A'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* Leave Management Report */}
+      {reportType === 'leave' && (
+        <Card className="overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Leave Management Report</h2>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => exportToCSV(
+                    staffData.map(s => ({
+                      'Name': `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'N/A',
+                      'Role': s.roles?.[0] || s.role || 'N/A',
+                      'Email': s.email || 'N/A',
+                      'Status': s.isActive !== false ? 'Active' : 'Inactive'
+                    })),
+                    'Leave_Management_Report'
+                  )}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="p-6">
+            <p className="text-gray-600 mb-4">
+              Leave management data will be displayed here. This report shows staff leave requests and approvals.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Staff Name
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Role
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {staffData.length === 0 ? (
+                    <tr>
+                      <td colSpan="3" className="px-6 py-4 text-center text-gray-500">
+                        No staff data available
+                      </td>
+                    </tr>
+                  ) : (
+                    staffData.map(staff => (
+                      <tr key={staff.uid || staff.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {`${staff.firstName || ''} ${staff.lastName || ''}`.trim() || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {staff.roles?.[0] || staff.role || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            staff.isActive !== false
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            {staff.isActive !== false ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Print Modal for Revenue Report */}
+      {showPrintModal && reportType === 'revenue' && (
+        <Modal
+          isOpen={showPrintModal}
+          onClose={() => setShowPrintModal(false)}
+          title="Print Revenue Report"
+          size="lg"
+        >
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Date Range */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date From
+                </label>
+                <Input
+                  type="date"
+                  value={printFilters.dateFrom}
+                  onChange={(e) => setPrintFilters({ ...printFilters, dateFrom: e.target.value })}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date To
+                </label>
+                <Input
+                  type="date"
+                  value={printFilters.dateTo}
+                  onChange={(e) => setPrintFilters({ ...printFilters, dateTo: e.target.value })}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Transaction Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Transaction Type
+                </label>
+                <select
+                  value={printFilters.transactionType}
+                  onChange={(e) => setPrintFilters({ ...printFilters, transactionType: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Types</option>
+                  <option value="service">Service Only</option>
+                  <option value="product">Product Only</option>
+                </select>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Status
+                </label>
+                <select
+                  value={printFilters.status}
+                  onChange={(e) => setPrintFilters({ ...printFilters, status: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="paid">Paid</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+
+              {/* View Type */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  View Type
+                </label>
+                <select
+                  value={printFilters.viewType}
+                  onChange={(e) => setPrintFilters({ ...printFilters, viewType: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="period">Period Summary</option>
+                  <option value="yearly">Yearly Breakdown</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Preview Summary - Only show if data is loaded */}
+            {printTransactions.length > 0 && (
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="text-sm font-medium text-gray-700 mb-2">Preview Summary:</p>
+                {(() => {
+                  const previewStats = calculateFilteredRevenueStats(printFilters, printTransactions);
+                  return (
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-600">Total Revenue: </span>
+                        <span className="font-semibold">₱{previewStats.totalRevenue.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Service Revenue: </span>
+                        <span className="font-semibold text-blue-600">₱{previewStats.serviceRevenue.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Product Revenue: </span>
+                        <span className="font-semibold text-purple-600">₱{previewStats.productRevenue.toLocaleString()}</span>
+                      </div>
+                      <div className="col-span-3">
+                        <span className="text-gray-600">Total Transactions: </span>
+                        <span className="font-semibold">{previewStats.totalTransactions}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Modal Footer */}
+            <div className="flex gap-3 pt-4 border-t border-gray-200">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowPrintModal(false);
+                  setPrintTransactions([]);
+                }}
+                className="flex-1"
+                disabled={printLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handlePrintWithFilters}
+                className="flex-1 bg-[#160B53] hover:bg-[#12094A] text-white"
+                disabled={printLoading}
+              >
+                {printLoading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Loading Data...
+                  </>
+                ) : (
+                  <>
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print Report
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {error && (

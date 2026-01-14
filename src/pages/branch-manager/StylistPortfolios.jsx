@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { Card } from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
+import Modal from "../../components/ui/Modal";
 import { db } from "../../config/firebase";
 import {
   collection,
@@ -67,6 +68,7 @@ const StylistPortfolios = () => {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [showFilterModal, setShowFilterModal] = useState(false);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [portfolioToReject, setPortfolioToReject] = useState(null);
   const [rejectionRemark, setRejectionRemark] = useState("");
@@ -112,6 +114,9 @@ const StylistPortfolios = () => {
     approved: portfolios.filter(p => p.status === "active").length,
     rejected: portfolios.filter(p => p.status === "rejected").length,
   };
+
+  // Check if any filters are active
+  const hasActiveFilters = selectedStylist !== "all" || statusFilter !== "all" || categoryFilter !== "all";
 
   // Fetch stylists for the branch
   useEffect(() => {
@@ -527,74 +532,38 @@ const StylistPortfolios = () => {
         </div>
       )}
 
-      {/* Filter + Actions */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
-          {/* Left Side: Filter Controls */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            {/* Search Input */}
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-4 w-4 text-gray-400" />
-              </div>
-              <input
-                type="text"
-                placeholder="Search portfolios..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] w-full sm:w-64"
-              />
-            </div>
-
-            {/* Stylist Filter */}
-            <select
-              value={selectedStylist}
-              onChange={(e) => setSelectedStylist(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] whitespace-nowrap"
-            >
-              <option value="all">All Stylists</option>
-              {Object.entries(stylists).map(([id, stylist]) => (
-                <option key={id} value={id}>
-                  {stylist.fullName}
-                </option>
-              ))}
-            </select>
-              
-            {/* Status Filter Dropdown */}
-            <select
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] whitespace-nowrap"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="all">All (Pending + Approved)</option>
-              <option value="pending">Pending</option>
-              <option value="active">Approved</option>
-              <option value="rejected">Rejected</option>
-            </select>
-              
-            {/* Category Filter Dropdown */}
-            <select
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] whitespace-nowrap min-w-[150px]"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-            >
-              <option value="all">All Services</option>
-              {availableCategories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
+      {/* Filter Row */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search portfolios..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
+            />
           </div>
 
-          {/* Right Side: Status Info */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <div className="text-sm text-gray-600 bg-gray-50 px-3 py-2 rounded-lg whitespace-nowrap">
-              Showing <span className="font-semibold text-gray-900">{filteredPortfolios.length}</span> of <span className="font-semibold text-gray-900">{portfolios.length}</span> portfolios
-            </div>
-          </div>
+          {/* Filter Button */}
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+              hasActiveFilters
+                ? 'bg-[#160B53]/10 border-[#160B53]/30 text-[#160B53] hover:bg-[#160B53]/20'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredPortfolios.length} portfolios`}
+          >
+            <Filter className="w-5 h-5" />
+            <span className="bg-[#160B53] text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+              {filteredPortfolios.length}
+            </span>
+          </button>
         </div>
-      </Card>
+      </div>
 
       {/* Portfolio Grid */}
       {loading ? (
@@ -858,6 +827,104 @@ const StylistPortfolios = () => {
             )}
           </div>
         </div>
+      )}
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <Modal
+          isOpen={showFilterModal}
+          onClose={() => setShowFilterModal(false)}
+          title="Filter Portfolios"
+          size="md"
+        >
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-6">
+              {/* Stylist Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Stylist
+                </label>
+                <select
+                  value={selectedStylist}
+                  onChange={(e) => setSelectedStylist(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Stylists</option>
+                  {Object.entries(stylists).map(([id, stylist]) => (
+                    <option key={id} value={id}>
+                      {stylist.fullName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Status
+                </label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All (Pending + Approved)</option>
+                  <option value="pending">Pending</option>
+                  <option value="active">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+
+              {/* Category Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Service Category
+                </label>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Services</option>
+                  {availableCategories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Results Summary */}
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Filtered Results:</span>
+                <span className="font-semibold text-[#160B53]">{filteredPortfolios.length} of {portfolios.length} portfolios</span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex gap-3 pt-4 border-t border-gray-200">
+              <Button
+                onClick={() => {
+                  setSelectedStylist("all");
+                  setStatusFilter("all");
+                  setCategoryFilter("all");
+                }}
+                variant="outline"
+                className="flex-1"
+              >
+                Clear Filters
+              </Button>
+              <Button
+                onClick={() => setShowFilterModal(false)}
+                className="flex-1 bg-[#160B53] hover:bg-[#12094A] text-white"
+              >
+                Apply Filters
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Rejection Remark Modal */}

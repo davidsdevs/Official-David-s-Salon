@@ -320,7 +320,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">Purchase Orders Approval</h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">Review and approve/reject purchase orders from Inventory Controllers</p>
+          <p className="text-sm md:text-base text-gray-600 mt-1">Monitor purchase orders processed by Branch Managers</p>
         </div>
       </div>
 

@@ -25,6 +25,7 @@ import { earnLoyaltyPoints, redeemLoyaltyPoints } from './loyaltyService';
 import { getClientProfile, updateClientProfile } from './clientService';
 import { getReferralCode } from './referralService';
 import { getBranchById } from './branchService';
+import { getNextReceiptNumber } from './birReceiptService';
 
 // Collections
 const BILLS_COLLECTION = 'transactions';
@@ -166,7 +167,8 @@ export const createBill = async (billData, currentUser) => {
       total: billData.total || 0,
       paymentMethod: billData.paymentMethod,
       paymentReference: billData.paymentReference || null,
-      receiptNumber: billData.receiptNumber || null, // Receipt number from physical receipt
+      receiptNumber: null, // Will be set from BIR batch below
+      birBatchId: null, // Track which BIR batch this receipt came from
       status: BILL_STATUS.PAID,
       notes: billData.notes || '',
       createdBy: userId,
@@ -175,6 +177,28 @@ export const createBill = async (billData, currentUser) => {
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now()
     };
+
+    // Auto-generate receipt number from BIR batch if available
+    // If billData.receiptNumber is provided (manual entry), use that instead
+    if (billData.receiptNumber) {
+      bill.receiptNumber = billData.receiptNumber;
+    } else if (billData.branchId) {
+      try {
+        const birResult = await getNextReceiptNumber(billData.branchId);
+        bill.receiptNumber = birResult.receiptNumber;
+        bill.birBatchId = birResult.batchId;
+        
+        // Warn if this is the last receipt in the batch
+        if (birResult.isLastInBatch) {
+          console.warn('⚠️ BIR receipt batch exhausted! Please add a new batch.');
+        } else if (birResult.remaining <= 10) {
+          console.warn(`⚠️ BIR receipt batch running low: ${birResult.remaining} receipts remaining`);
+        }
+      } catch (birError) {
+        console.warn('Could not get BIR receipt number:', birError.message);
+        // Continue without receipt number - it's optional
+      }
+    }
 
     // Create document with the transaction ID as the document ID
     const docRef = doc(billRef, transactionId);
@@ -291,56 +315,21 @@ export const createBill = async (billData, currentUser) => {
       }
     }
 
-    // Deduct products for services performed (salon-use products)
+    // NOTE: Salon-use product deduction is now MANUAL
+    // Products used in services must be manually deducted from the Stock Management page
+    // This ensures accurate manual counting and prevents automatic errors
+    // 
+    // To deduct salon-use products:
+    // 1. Go to Inventory > Stocks
+    // 2. Find the salon-use product
+    // 3. Click "Deduct Salon Use" button
+    // 4. Enter quantity and reason (e.g., "Service: Haircut for Client X")
+    // 5. Confirm deduction
+    
+    // Removed automatic deduction - salon-use products rely on manual counting
     if (salesType === 'service' || salesType === 'mixed') {
-      try {
-        const serviceItems = items.filter(item => item.type === 'service');
-        const { inventoryService } = await import('./inventoryService');
-        const { getServiceById } = await import('./serviceManagementService');
-        
-        for (const serviceItem of serviceItems) {
-          if (!serviceItem.id) continue;
-          
-          try {
-            // Get service details including product mappings
-            const service = await getServiceById(serviceItem.id);
-            if (!service || !service.productMappings || service.productMappings.length === 0) {
-              continue; // No product mappings for this service
-            }
-            
-            // Deduct products for this service (salon-use batches only)
-            for (const mapping of service.productMappings) {
-              if (!mapping.productId || !mapping.quantity) continue;
-              
-              // Deduct from salon-use batches only
-              const deductionResult = await inventoryService.deductStockFIFO({
-                branchId: billData.branchId,
-                productId: mapping.productId,
-                quantity: mapping.quantity,
-                reason: 'Service Use',
-                notes: `Service: ${service.name || serviceItem.name}, Bill ID: ${transactionId}`,
-                createdBy: billData.createdBy || 'system',
-                productName: mapping.productName || 'Unknown Product',
-                usageType: 'salon-use' // Only use salon-use batches for services
-              });
-              
-              if (!deductionResult.success) {
-                console.warn(`⚠️ Service product deduction failed for ${mapping.productName}:`, deductionResult.message);
-                // Log but don't fail the transaction
-              } else {
-                console.log(`✅ Service product deducted: ${mapping.productName} - ${mapping.quantity} units (salon-use)`);
-              }
-            }
-          } catch (serviceError) {
-            console.error(`Error processing service ${serviceItem.id}:`, serviceError);
-            // Continue with other services
-          }
-        }
-      } catch (serviceStockError) {
-        console.error('Error deducting service products:', serviceStockError);
-        // Don't fail the transaction if service product deduction fails
-        toast.error('Transaction created but service product deduction failed. Please update stock manually.');
-      }
+      console.log('ℹ️ Service transaction created. Remember to manually deduct salon-use products from Stock Management.');
+      // Salon-use products must be manually deducted - see Stocks page
     }
     
     // CRM Integration: Handle loyalty points
@@ -807,7 +796,7 @@ export const calculateBillTotals = (billData) => {
 
   // Calculate discount amount
   let discountAmount = 0;
-  if (discountType === 'percentage') {
+  if (discountType === 'percentage' || discountType === 'percent') {
     discountAmount = (subtotal * discount) / 100;
   } else {
     discountAmount = discount;

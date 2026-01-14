@@ -55,7 +55,7 @@ const StylistLayout = () => {
   };
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-screen flex bg-gray-50 overflow-hidden">
       <Sidebar 
         isOpen={sidebarOpen} 
         toggleSidebar={() => setSidebarOpen(false)} 
@@ -63,11 +63,11 @@ const StylistLayout = () => {
         bottomItems={bottomItems}
       />
       
-      <div className="flex-1 flex flex-col md:ml-64">
+      <div className="flex-1 flex flex-col md:ml-64 min-w-0 overflow-hidden">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
         
-        <div className="flex-1 flex flex-col overflow-y-auto">
-          <main className="flex-1 p-4 md:p-6">
+        <div className="flex-1 flex flex-col overflow-y-auto min-h-0">
+          <main className="flex-1 p-4 md:p-6 min-w-0 max-w-full">
             <Outlet />
           </main>
         </div>

@@ -371,7 +371,6 @@ const MasterProducts = () => {
       'Product Name',
       'Category',
       'Brand',
-      'Suppliers (comma-separated supplier names)',
       'Description',
       'UPC Code',
       'Unit Cost',
@@ -389,7 +388,6 @@ const MasterProducts = () => {
         'Product Name': 'Hair Color Treatment',
         'Category': 'Hair Color',
         'Brand': 'Schwarzkopf',
-        'Suppliers (comma-separated supplier names)': 'Schwarzkopf Professional PH',
         'Description': 'Professional hair color treatment',
         'UPC Code': 'DS-HAIR-SCHW-1234',
         'Unit Cost': '500',
@@ -404,7 +402,6 @@ const MasterProducts = () => {
         'Product Name': 'Hair Shampoo',
         'Category': 'Hair Care',
         'Brand': 'Matrix',
-        'Suppliers (comma-separated supplier names)': 'Matrix Professional Supplies',
         'Description': 'Professional hair shampoo',
         'UPC Code': 'DS-SHAM-MATR-5678',
         'Unit Cost': '300',
@@ -467,7 +464,6 @@ const MasterProducts = () => {
           const productName = (row['Product Name'] || row['product name'] || '').trim();
           const category = (row['Category'] || row['category'] || '').trim();
           const brand = (row['Brand'] || row['brand'] || '').trim();
-          const suppliersInput = (row['Suppliers (comma-separated supplier names)'] || row['Suppliers'] || row['suppliers'] || '').trim();
           const description = (row['Description'] || row['description'] || '').trim();
           const upc = (row['UPC Code'] || row['UPC'] || row['upc'] || '').trim();
           const unitCost = parseFloat(row['Unit Cost'] || row['unit cost'] || 0);
@@ -495,23 +491,6 @@ const MasterProducts = () => {
             throw new Error('UPC Code must be in format: DS-XXXX-XXXX-XXXX');
           }
 
-          // Process suppliers - find supplier IDs by name
-          let suppliersArray = [];
-          if (suppliersInput) {
-            const supplierNames = suppliersInput.split(',').map(s => s.trim()).filter(Boolean);
-            suppliersArray = supplierNames.map(supplierName => {
-              const supplier = suppliers.find(s => s.name === supplierName);
-              if (!supplier) {
-                throw new Error(`Supplier "${supplierName}" not found. Please use exact supplier name.`);
-              }
-              return supplier.id;
-            });
-          }
-
-          if (suppliersArray.length === 0) {
-            throw new Error('At least one supplier is required');
-          }
-
           // Validate numeric fields
           if (isNaN(unitCost) || unitCost <= 0) {
             throw new Error('Unit Cost must be a positive number');
@@ -527,12 +506,12 @@ const MasterProducts = () => {
           const validStatuses = ['Active', 'Inactive', 'Discontinued'];
           const finalStatus = validStatuses.includes(status) ? status : 'Active';
 
-          // Create product data
+          // Create product data (suppliers can be linked separately)
           const productData = {
             name: productName,
             category: category,
             brand: brand,
-            suppliers: suppliersArray,
+            suppliers: [], // Suppliers can be linked after import
             description: description || '',
             upc: upc,
             unitCost: unitCost,
@@ -2957,7 +2936,6 @@ const MasterProducts = () => {
             'Product Name',
             'Category',
             'Brand',
-            'Suppliers (comma-separated supplier names)',
             'Description',
             'UPC Code',
             'Unit Cost',
@@ -2974,7 +2952,6 @@ const MasterProducts = () => {
               'Product Name': 'Hair Color Treatment',
               'Category': 'Hair Color',
               'Brand': 'Schwarzkopf',
-              'Suppliers (comma-separated supplier names)': 'Schwarzkopf Professional PH',
               'Description': 'Professional hair color treatment',
               'UPC Code': 'DS-HAIR-SCHW-1234',
               'Unit Cost': '500',

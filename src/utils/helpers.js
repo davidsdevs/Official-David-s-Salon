@@ -93,6 +93,57 @@ export const formatCurrency = (amount, currency = 'PHP') => {
 };
 
 /**
+ * Format large numbers in a "big data friendly" way with abbreviations
+ * @param {number} num - Number to format
+ * @param {number} decimals - Number of decimal places (default: 1)
+ * @returns {string} Formatted number string
+ */
+export const formatNumber = (num, decimals = 1) => {
+  if (typeof num !== 'number' || isNaN(num)) return '0';
+  
+  const absNum = Math.abs(num);
+  const sign = num < 0 ? '-' : '';
+  
+  if (absNum >= 1e9) {
+    return sign + (absNum / 1e9).toFixed(decimals) + 'B';
+  } else if (absNum >= 1e6) {
+    return sign + (absNum / 1e6).toFixed(decimals) + 'M';
+  } else if (absNum >= 1e3) {
+    return sign + (absNum / 1e3).toFixed(decimals) + 'K';
+  } else {
+    return sign + absNum.toLocaleString('en-PH', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  }
+};
+
+/**
+ * Format currency value in a "big data friendly" way
+ * @param {number} amount - Amount to format
+ * @param {string} currency - Currency code (default: 'PHP')
+ * @param {number} decimals - Number of decimal places for large numbers (default: 1)
+ * @returns {string} Formatted currency string
+ */
+export const formatCurrencyBigData = (amount, currency = 'PHP', decimals = 1) => {
+  if (typeof amount !== 'number') return 'N/A';
+  
+  const absAmount = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+  const currencySymbol = currency === 'PHP' ? '₱' : '$';
+  
+  if (absAmount >= 1e9) {
+    return currencySymbol + sign + (absAmount / 1e9).toFixed(decimals) + 'B';
+  } else if (absAmount >= 1e6) {
+    return currencySymbol + sign + (absAmount / 1e6).toFixed(decimals) + 'M';
+  } else if (absAmount >= 1e3) {
+    return currencySymbol + sign + (absAmount / 1e3).toFixed(decimals) + 'K';
+  } else {
+    return new Intl.NumberFormat('en-PH', {
+      style: 'currency',
+      currency: currency,
+    }).format(amount);
+  }
+};
+
+/**
  * Truncate text to a specified length
  * @param {string} text - Text to truncate
  * @param {number} maxLength - Maximum length

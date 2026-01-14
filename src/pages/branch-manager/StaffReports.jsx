@@ -880,13 +880,6 @@ const StaffReports = () => {
               <h2 className="text-lg font-semibold text-gray-900">Schedule Report</h2>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handlePrintSchedules}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-                >
-                  <Printer className="w-4 h-4" />
-                  Print Schedule
-                </button>
-                <button
                   onClick={exportSchedules}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors"
                 >

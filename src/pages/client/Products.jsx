@@ -88,7 +88,12 @@ const ClientProducts = () => {
   const fetchStocks = async () => {
     try {
       const stocksRef = collection(db, 'stocks');
-      const q = query(stocksRef, where('status', '==', 'active'));
+      // Only fetch OTC stocks for client view
+      const q = query(
+        stocksRef, 
+        where('status', '==', 'active'),
+        where('usageType', '==', 'otc')
+      );
       const snapshot = await getDocs(q);
       const stocksData = {};
       
@@ -96,17 +101,17 @@ const ClientProducts = () => {
         const data = doc.data();
         const productId = data.productId;
         const branchId = data.branchId;
-        const realTimeStock = data.realTimeStock || 0;
+        const stock = data.remainingQuantity || data.realTimeStock || 0;
         
         // Only count stocks with positive quantities
-        if (realTimeStock > 0) {
+        if (stock > 0) {
           if (!stocksData[productId]) {
             stocksData[productId] = {};
           }
           if (!stocksData[productId][branchId]) {
             stocksData[productId][branchId] = 0;
           }
-          stocksData[productId][branchId] += realTimeStock;
+          stocksData[productId][branchId] += stock;
         }
       });
       

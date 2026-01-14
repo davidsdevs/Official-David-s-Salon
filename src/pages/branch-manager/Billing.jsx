@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Banknote, Calendar, Receipt, Eye, RefreshCw, XCircle, Download, Printer, User, CheckCircle, FileSearch, AlertCircle, CheckCircle2, Upload, FileText, BarChart3, X, Filter, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
+import { Search, Banknote, Calendar, Receipt, Eye, RefreshCw, XCircle, Download, Printer, User, CheckCircle, FileSearch, AlertCircle, CheckCircle2, Upload, FileText, BarChart3, X, Filter, ChevronUp, ChevronDown, ArrowUpDown, Package } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getBillsByBranch,
@@ -27,6 +27,8 @@ import { USER_ROLES } from '../../utils/constants';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import ReceiptComponent from '../../components/billing/Receipt';
+import BIRReceiptBatchModal from '../../components/billing/BIRReceiptBatchModal';
+import { getBIRReceiptBatches, getActiveBIRReceiptBatch } from '../../services/birReceiptService';
 import { useReactToPrint } from 'react-to-print';
 import toast from 'react-hot-toast';
 import { exportToExcel } from '../../utils/excelExport';
@@ -84,6 +86,13 @@ const BranchManagerBilling = () => {
   // CSV Import modal
   const [showImportModal, setShowImportModal] = useState(false);
 
+  // BIR Receipt Batch modal
+  const [showBIRBatchModal, setShowBIRBatchModal] = useState(false);
+  
+  // BIR Receipt Batch summary data
+  const [birBatchSummary, setBirBatchSummary] = useState(null);
+  const [activeBirBatch, setActiveBirBatch] = useState(null);
+
   // Receipt printing
   const receiptRef = useRef();
   const handlePrint = useReactToPrint({
@@ -95,8 +104,32 @@ const BranchManagerBilling = () => {
       fetchData();
       fetchBranchData();
       fetchCashiers();
+      fetchBIRBatchSummary();
     }
   }, [userBranch]);
+
+  // Fetch BIR Receipt Batch summary
+  const fetchBIRBatchSummary = async () => {
+    try {
+      const [batches, active] = await Promise.all([
+        getBIRReceiptBatches(userBranch),
+        getActiveBIRReceiptBatch(userBranch)
+      ]);
+      
+      // Calculate summary
+      const summary = {
+        totalBatches: batches.length,
+        totalReceipts: batches.reduce((sum, b) => sum + b.totalReceipts, 0),
+        usedReceipts: batches.reduce((sum, b) => sum + b.usedReceipts, 0),
+        availableReceipts: batches.filter(b => b.status === 'active').reduce((sum, b) => sum + b.remainingReceipts, 0)
+      };
+      
+      setBirBatchSummary(summary);
+      setActiveBirBatch(active);
+    } catch (error) {
+      console.error('Error fetching BIR batch summary:', error);
+    }
+  };
 
   // Fetch cashiers for filter (Receptionists POS only)
   const fetchCashiers = async () => {
@@ -1148,41 +1181,10 @@ const BranchManagerBilling = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing Management</h1>
-          <p className="text-gray-600">View transactions, void transactions, and manage billing</p>
+          <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
+          <p className="text-gray-600">View and manage all transaction records</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            Export CSV
-          </button>
-          <button
-            onClick={handleImportCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Upload className="w-4 h-4" />
-            Import CSV
-          </button>
-          <button
-            onClick={handlePrintReport}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <Printer className="w-4 h-4" />
-            Print Report
-          </button>
-          <button
-            onClick={() => {
-              resetReceiptChecker();
-              setShowReceiptChecker(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <FileSearch className="w-5 h-5" />
-            Advanced Receipt Checker
-          </button>
         </div>
       </div>
 
@@ -1237,172 +1239,127 @@ const BranchManagerBilling = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          {/* BIR Receipt Summary Card */}
+          <div 
+            className="bg-white rounded-lg shadow border border-gray-200 p-4 cursor-pointer hover:border-purple-300 hover:shadow-md transition-all"
+            onClick={() => setShowBIRBatchModal(true)}
+            title="Click to manage BIR receipt batches"
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Refunds</p>
-                <p className="text-2xl font-bold text-red-600 mt-1">₱{dailySummary.totalRefunds?.toFixed(2) || '0.00'}</p>
+                <p className="text-sm text-gray-600">BIR Receipts</p>
+                <p className="text-2xl font-bold text-purple-600 mt-1">
+                  {birBatchSummary?.availableReceipts?.toLocaleString() || '0'}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {birBatchSummary?.usedReceipts?.toLocaleString() || '0'} used / {birBatchSummary?.totalReceipts?.toLocaleString() || '0'} total
+                </p>
               </div>
-              <div className="p-3 bg-red-100 rounded-lg">
-                <RefreshCw className="w-6 h-6 text-red-600" />
+              <div className="p-3 bg-purple-100 rounded-lg">
+                <Package className="w-6 h-6 text-purple-600" />
               </div>
             </div>
+            {activeBirBatch && activeBirBatch.remainingReceipts <= 20 && (
+              <div className="mt-2 flex items-center gap-1 text-xs text-yellow-600">
+                <AlertCircle className="w-3 h-3" />
+                Low stock: {activeBirBatch.remainingReceipts} left
+              </div>
+            )}
+            {!activeBirBatch && birBatchSummary?.totalBatches === 0 && (
+              <div className="mt-2 flex items-center gap-1 text-xs text-red-600">
+                <AlertCircle className="w-3 h-3" />
+                No batch configured
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow border border-gray-200">
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-600" />
-            <span className="font-medium text-gray-900">Filters</span>
-            {(statusFilter !== 'all' || paymentMethodFilter !== 'all' || startDateFilter || endDateFilter || 
-              minAmountFilter || maxAmountFilter || cashierFilter !== 'all' || receiptNumberFilter) && (
-              <span className="px-2 py-0.5 bg-primary-100 text-primary-700 text-xs rounded-full">
-                Active
+      {/* Filters and Actions */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search transactions..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+          </div>
+
+          {/* Filter Button */}
+          <button
+            onClick={() => setShowFilters(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+              (statusFilter !== 'all' || paymentMethodFilter !== 'all' || startDateFilter || endDateFilter ||
+               minAmountFilter || maxAmountFilter || cashierFilter !== 'all' || receiptNumberFilter)
+                ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredBills.length} transactions`}
+          >
+            <Filter className="w-5 h-5" />
+            {filteredBills.length > 0 && (
+              <span className="bg-primary-600 text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                {filteredBills.length}
               </span>
             )}
-          </div>
-          {showFilters ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
-        </button>
-        
-        {showFilters && (
-          <div className="border-t border-gray-200 p-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Search by client, phone, bill ID..."
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                />
-              </div>
+          </button>
 
-              <select
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                <option value="all">All Status</option>
-                <option value={BILL_STATUS.PAID}>Paid</option>
-                <option value={BILL_STATUS.VOIDED}>Voided</option>
-                <option value={BILL_STATUS.REFUNDED}>Refunded</option>
-              </select>
+          {/* Export CSV Button */}
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Export Transactions Data"
+          >
+            <Download className="w-5 h-5 text-gray-600" />
+          </button>
 
-              <select
-                value={paymentMethodFilter}
-                onChange={(e) => {
-                  setPaymentMethodFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                <option value="all">All Payment Methods</option>
-                <option value={PAYMENT_METHODS.CASH}>Cash</option>
-                <option value={PAYMENT_METHODS.CARD}>Card</option>
-                <option value={PAYMENT_METHODS.VOUCHER}>E-Wallet</option>
-                <option value={PAYMENT_METHODS.GIFT_CARD}>Gift Card</option>
-              </select>
+          {/* Import CSV Button */}
+          <button
+            onClick={handleImportCSV}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Import Transactions Data"
+          >
+            <Upload className="w-5 h-5 text-gray-600" />
+          </button>
 
-              <input
-                type="date"
-                value={startDateFilter}
-                onChange={(e) => {
-                  setStartDateFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Start Date"
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
+          {/* Print Report Button */}
+          <button
+            onClick={handlePrintReport}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            title="Print Report"
+          >
+            <Printer className="w-5 h-5" />
+          </button>
 
-              <input
-                type="date"
-                value={endDateFilter}
-                onChange={(e) => {
-                  setEndDateFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="End Date"
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
+          {/* Advanced Receipt Checker Button */}
+          <button
+            onClick={() => {
+              resetReceiptChecker();
+              setShowReceiptChecker(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            title="Advanced Receipt Checker"
+          >
+            <FileSearch className="w-5 h-5" />
+          </button>
 
-              <input
-                type="number"
-                value={minAmountFilter}
-                onChange={(e) => {
-                  setMinAmountFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Min Amount (₱)"
-                min="0"
-                step="0.01"
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-
-              <input
-                type="number"
-                value={maxAmountFilter}
-                onChange={(e) => {
-                  setMaxAmountFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Max Amount (₱)"
-                min="0"
-                step="0.01"
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-
-              <select
-                value={cashierFilter}
-                onChange={(e) => {
-                  setCashierFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                <option value="all">All Cashiers</option>
-                {cashiers.map(cashier => (
-                  <option key={cashier.id} value={cashier.id}>{cashier.name}</option>
-                ))}
-              </select>
-
-              <input
-                type="text"
-                value={receiptNumberFilter}
-                onChange={(e) => {
-                  setReceiptNumberFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Receipt Number"
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent uppercase"
-              />
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-              <p className="text-sm text-gray-600">
-                Showing {filteredBills.length} of {bills.length} bills
-              </p>
-              <button
-                onClick={clearFilters}
-                className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Clear Filters
-              </button>
-            </div>
-          </div>
-        )}
+          {/* BIR Receipt Batch Button */}
+          <button
+            onClick={() => setShowBIRBatchModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+            title="Manage BIR Receipt Batches"
+          >
+            <Package className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Bills Table */}
@@ -2334,6 +2291,163 @@ const BranchManagerBilling = () => {
           </div>
         </div>
       )}
+
+      {/* Filter Modal */}
+      {showFilters && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-gray-900">Filter Transactions</h3>
+                <button
+                  onClick={() => setShowFilters(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="all">All Status</option>
+                      <option value={BILL_STATUS.PAID}>Paid</option>
+                      <option value={BILL_STATUS.VOIDED}>Voided</option>
+                      <option value={BILL_STATUS.REFUNDED}>Refunded</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+                    <select
+                      value={paymentMethodFilter}
+                      onChange={(e) => setPaymentMethodFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="all">All Payment Methods</option>
+                      <option value={PAYMENT_METHODS.CASH}>Cash</option>
+                      <option value={PAYMENT_METHODS.CARD}>Card</option>
+                      <option value={PAYMENT_METHODS.VOUCHER}>E-Wallet</option>
+                      <option value={PAYMENT_METHODS.GIFT_CARD}>Gift Card</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Cashier</label>
+                    <select
+                      value={cashierFilter}
+                      onChange={(e) => setCashierFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="all">All Cashiers</option>
+                      {cashiers.map(cashier => (
+                        <option key={cashier.id} value={cashier.id}>{cashier.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Receipt Number</label>
+                    <input
+                      type="text"
+                      value={receiptNumberFilter}
+                      onChange={(e) => setReceiptNumberFilter(e.target.value)}
+                      placeholder="Enter receipt number"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent uppercase"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Min Amount (₱)</label>
+                    <input
+                      type="number"
+                      value={minAmountFilter}
+                      onChange={(e) => setMinAmountFilter(e.target.value)}
+                      placeholder="0.00"
+                      min="0"
+                      step="0.01"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Max Amount (₱)</label>
+                    <input
+                      type="number"
+                      value={maxAmountFilter}
+                      onChange={(e) => setMaxAmountFilter(e.target.value)}
+                      placeholder="0.00"
+                      min="0"
+                      step="0.01"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">From</label>
+                      <input
+                        type="date"
+                        value={startDateFilter}
+                        onChange={(e) => setStartDateFilter(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">To</label>
+                      <input
+                        type="date"
+                        value={endDateFilter}
+                        onChange={(e) => setEndDateFilter(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mt-6 pt-6 border-t border-gray-200">
+                <div className="text-sm text-gray-600">
+                  Showing {filteredBills.length} of {bills.length} transactions
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={clearFilters}
+                    className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                  >
+                    Clear Filters
+                  </button>
+                  <button
+                    onClick={() => setShowFilters(false)}
+                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm"
+                  >
+                    Apply Filters
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BIR Receipt Batch Modal */}
+      <BIRReceiptBatchModal
+        isOpen={showBIRBatchModal}
+        onClose={() => {
+          setShowBIRBatchModal(false);
+          fetchBIRBatchSummary(); // Refresh summary when modal closes
+        }}
+        branchId={userBranch}
+      />
     </div>
   );
 };

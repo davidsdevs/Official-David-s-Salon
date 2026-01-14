@@ -281,6 +281,8 @@ const Deliveries = () => {
         };
       });
 
+      const totalAmount = itemsWithExpiration.reduce((sum, item) => sum + (item.receivedQuantity * item.unitPrice), 0);
+
       const receivingData = {
         purchaseOrderId: selectedOrder.orderId || selectedOrder.id,
         purchaseOrderDocId: selectedOrder.id,
@@ -288,6 +290,7 @@ const Deliveries = () => {
         supplierId: selectedOrder.supplierId,
         supplierName: selectedOrder.supplierName,
         items: itemsWithExpiration,
+        totalAmount: totalAmount,
         notes: receivingNotes.trim(),
         receivedBy: userData.uid || userData.id,
         receivedByName: (userData.firstName && userData.lastName 
@@ -673,7 +676,7 @@ const Deliveries = () => {
                 <tr>
                   <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
                     {deliveries.length === 0 
-                      ? 'No deliveries pending. Purchase orders will appear here after being approved by the Overall Inventory Controller.'
+                      ? 'No deliveries pending. Purchase orders will appear here after being approved by the Branch Manager.'
                       : 'No deliveries match your search criteria.'}
                   </td>
                 </tr>

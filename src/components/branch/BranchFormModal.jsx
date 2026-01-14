@@ -3,9 +3,10 @@
  * For creating and editing branches
  */
 
-import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Upload, Image, Trash2 } from 'lucide-react';
 import { createBranch, updateBranch } from '../../services/branchService';
+import { cloudinaryService } from '../../services/cloudinaryService';
 import { useAuth } from '../../context/AuthContext';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import toast from 'react-hot-toast';
@@ -13,11 +14,15 @@ import toast from 'react-hot-toast';
 const BranchFormModal = ({ branch, onClose, onSave }) => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imagePreview, setImagePreview] = useState(null);
+  const fileInputRef = useRef(null);
   const [formData, setFormData] = useState({
     name: '',
     address: '',
     contact: '',
     email: '',
+    imageUrl: '',
     operatingHours: {
       monday: { open: '09:00', close: '18:00', isOpen: true },
       tuesday: { open: '09:00', close: '18:00', isOpen: true },
@@ -38,8 +43,12 @@ const BranchFormModal = ({ branch, onClose, onSave }) => {
         address: branch.address || '',
         contact: branch.contact || '',
         email: branch.email || '',
+        imageUrl: branch.imageUrl || '',
         operatingHours: branch.operatingHours || formData.operatingHours
       });
+      if (branch.imageUrl) {
+        setImagePreview(branch.imageUrl);
+      }
     }
   }, [branch]);
 
@@ -77,6 +86,67 @@ const BranchFormModal = ({ branch, onClose, onSave }) => {
     }));
   };
 
+  // Handle image file selection
+  const handleImageSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select a valid image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size must be less than 5MB');
+      return;
+    }
+
+    // Show preview immediately
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setImagePreview(e.target.result);
+    };
+    reader.readAsDataURL(file);
+
+    // Upload to Cloudinary
+    try {
+      setUploadingImage(true);
+      const result = await cloudinaryService.uploadImage(file, 'branch-images');
+      
+      if (result.success) {
+        setFormData(prev => ({
+          ...prev,
+          imageUrl: result.url
+        }));
+        setImagePreview(result.url);
+        toast.success('Image uploaded successfully');
+      } else {
+        toast.error(result.error || 'Failed to upload image');
+        setImagePreview(null);
+      }
+    } catch (error) {
+      console.error('Image upload error:', error);
+      toast.error('Failed to upload image');
+      setImagePreview(null);
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // Remove image
+  const handleRemoveImage = () => {
+    setFormData(prev => ({
+      ...prev,
+      imageUrl: ''
+    }));
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -106,8 +176,8 @@ const BranchFormModal = ({ branch, onClose, onSave }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full my-auto overflow-hidden flex flex-col">
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
           {/* Header */}
           <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 flex-shrink-0">
@@ -131,6 +201,72 @@ const BranchFormModal = ({ branch, onClose, onSave }) => {
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+            {/* Branch Image Section */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                Branch Image
+              </h3>
+              <div className="flex flex-col sm:flex-row items-start gap-4">
+                {/* Image Preview */}
+                <div className="w-full sm:w-48 h-32 sm:h-36 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden relative">
+                  {uploadingImage ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <LoadingSpinner size="md" />
+                      <span className="text-xs text-gray-500">Uploading...</span>
+                    </div>
+                  ) : imagePreview ? (
+                    <>
+                      <img 
+                        src={imagePreview} 
+                        alt="Branch preview" 
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRemoveImage}
+                        className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-md"
+                        title="Remove image"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 text-gray-400">
+                      <Image className="w-10 h-10" />
+                      <span className="text-xs">No image</span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Upload Controls */}
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    className="hidden"
+                    id="branch-image-input"
+                  />
+                  <label
+                    htmlFor="branch-image-input"
+                    className={`inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors ${uploadingImage ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <Upload className="w-4 h-4 text-gray-600" />
+                    <span className="text-sm text-gray-700">
+                      {imagePreview ? 'Change Image' : 'Upload Image'}
+                    </span>
+                  </label>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Recommended: 800x600px or larger. Max 5MB. JPG, PNG, or WebP.
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    This image will be displayed on the branch page and listings.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Basic Information Section */}
             <div>
               <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">

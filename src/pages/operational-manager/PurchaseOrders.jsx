@@ -239,12 +239,32 @@ const PurchaseOrders = () => {
 
     try {
       setLoadingStocks(true);
-      const result = await inventoryService.getBranchStocks(branchId);
-      if (result.success) {
-        setBranchStocks(result.stocks);
-      } else {
-        setBranchStocks([]);
-      }
+      
+      // Get all batches for the branch and sum by product
+      const batchesRef = collection(db, 'batches');
+      const q = query(batchesRef, where('branchId', '==', branchId));
+      const snapshot = await getDocs(q);
+      
+      const stocksByProduct = {};
+      snapshot.forEach(doc => {
+        const batch = doc.data();
+        const productId = batch.productId;
+        
+        if (!stocksByProduct[productId]) {
+          stocksByProduct[productId] = {
+            productId: productId,
+            productName: batch.productName || 'Unknown',
+            currentStock: 0,
+            minStock: batch.minStock || 0,
+            branchId: branchId
+          };
+        }
+        
+        // Sum up quantities from all batches for this product
+        stocksByProduct[productId].currentStock += batch.quantity || 0;
+      });
+      
+      setBranchStocks(Object.values(stocksByProduct));
     } catch (err) {
       console.error('Error loading branch stocks:', err);
       setBranchStocks([]);
@@ -374,10 +394,11 @@ const PurchaseOrders = () => {
       </div>
 
       {/* Search and Filters */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row gap-4">
+      <Card className="p-4">
+        <div className="flex items-center gap-3">
+          {/* Search Bar */}
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
             <Input
               type="text"
               placeholder="Search by order ID, supplier, or notes..."
@@ -386,35 +407,37 @@ const PurchaseOrders = () => {
               className="w-full pl-10"
             />
           </div>
-          <div className="flex gap-3">
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-            >
-              <option value="all">All Status</option>
-              <option value="Pending">Pending</option>
-              <option value="Received">Received</option>
-              <option value="Approved">Approved</option>
-              <option value="In Transit">In Transit</option>
-              <option value="Rejected">Rejected</option>
-              <option value="Shipped">Shipped</option>
-              <option value="Delivered">Delivered</option>
-              <option value="Cancelled">Cancelled</option>
-              <option value="Overdue">Overdue</option>
-            </select>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSearchTerm('');
-                setSelectedStatus('all');
-              }}
-              className="flex items-center gap-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Reset
-            </Button>
-          </div>
+
+          {/* Status Filter */}
+          <select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] text-sm bg-white"
+          >
+            <option value="all">All Status</option>
+            <option value="Pending">Pending</option>
+            <option value="Received">Received</option>
+            <option value="Approved">Approved</option>
+            <option value="In Transit">In Transit</option>
+            <option value="Rejected">Rejected</option>
+            <option value="Shipped">Shipped</option>
+            <option value="Delivered">Delivered</option>
+            <option value="Cancelled">Cancelled</option>
+            <option value="Overdue">Overdue</option>
+          </select>
+
+          {/* Reset Button */}
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSearchTerm('');
+              setSelectedStatus('all');
+            }}
+            className="flex items-center gap-2 p-2.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+            title="Reset filters"
+          >
+            <RefreshCw className="h-5 w-5" />
+          </Button>
         </div>
       </Card>
 

@@ -4,9 +4,10 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Users as UsersIcon, Plus, Search, Edit, Power, Mail, Scissors, Calendar, ArrowRight, ArrowLeftRight, Printer, Download, Filter, X, Key } from 'lucide-react';
+import { Users as UsersIcon, Plus, Search, Edit, Power, Mail, Scissors, Calendar, ArrowRight, ArrowLeftRight, Printer, Download, Filter, X, Key, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 import { getUsersByBranch, toggleUserStatus, getUserById } from '../../services/userService';
 import { getBranchById } from '../../services/branchService';
+import { getBranchServices } from '../../services/branchServicesService';
 import { getActiveLendingForBranch, getActiveLendingFromBranch, getActiveLending } from '../../services/stylistLendingService';
 import { getActiveSchedulesByEmployee } from '../../services/scheduleService';
 import { useAuth } from '../../context/AuthContext';
@@ -16,6 +17,7 @@ import BranchStaffFormModal from '../../components/branch/BranchStaffFormModal';
 import StaffServicesCertificatesModal from '../../components/branch/StaffServicesCertificatesModal';
 import ResetPasswordModal from '../../components/branch/ResetPasswordModal';
 import StaffDetailPrint from '../../components/branch/StaffDetailPrint';
+import LendStylistModal from '../../components/branch/LendStylistModal';
 import StaffSchedule from './StaffSchedule';
 import StaffLending from './StaffLending';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -42,7 +44,10 @@ const StaffManagement = () => {
   const [shiftFilter, setShiftFilter] = useState('all');
   const [dateRangeFilter, setDateRangeFilter] = useState('all');
   const [lendingFilter, setLendingFilter] = useState('all');
+  const [serviceFilter, setServiceFilter] = useState('all');
+  const [branchServices, setBranchServices] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [showServicesCertificatesModal, setShowServicesCertificatesModal] = useState(false);
@@ -59,8 +64,10 @@ const StaffManagement = () => {
   const [branchCache, setBranchCache] = useState({});
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [staffToToggle, setStaffToToggle] = useState(null);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(10); // Fixed to 10 rows per page
   const [currentPage, setCurrentPage] = useState(1);
+  const [scheduleEditTrigger, setScheduleEditTrigger] = useState(0); // Counter to trigger edit mode in StaffSchedule
+  const [showRequestModal, setShowRequestModal] = useState(false); // For lending modal
   
   // Print refs
   const printRef = useRef(); // For all staff
@@ -77,6 +84,7 @@ const StaffManagement = () => {
     if (userBranch) {
       fetchBranchDetails();
       fetchStaff();
+      fetchBranchServicesData();
     }
   }, [userBranch]);
 
@@ -228,9 +236,19 @@ const StaffManagement = () => {
   const fetchBranchDetails = async () => {
     try {
       const branch = await getBranchById(userBranch);
-      setBranchName(branch.branchName);
+      setBranchName(branch.name || branch.branchName);
     } catch (error) {
       console.error('Error fetching branch details:', error);
+    }
+  };
+
+  // Fetch branch services for the service filter
+  const fetchBranchServicesData = async () => {
+    try {
+      const services = await getBranchServices(userBranch);
+      setBranchServices(services);
+    } catch (error) {
+      console.error('Error fetching branch services:', error);
     }
   };
 
@@ -384,8 +402,16 @@ const StaffManagement = () => {
       });
     }
 
+    // Service filter - filter by services the staff can offer
+    if (serviceFilter !== 'all') {
+      filtered = filtered.filter(member => {
+        const memberServices = member.service_id || [];
+        return memberServices.includes(serviceFilter);
+      });
+    }
+
     return filtered;
-  }, [staff, lentStaff, searchTerm, roleFilter, statusFilter, shiftFilter, dateRangeFilter, lendingFilter, lentOutStaff]);
+  }, [staff, lentStaff, searchTerm, roleFilter, statusFilter, shiftFilter, dateRangeFilter, lendingFilter, serviceFilter, lentOutStaff]);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredStaff.length / itemsPerPage)), [filteredStaff.length, itemsPerPage]);
   const safePage = Math.min(currentPage, totalPages);
@@ -594,10 +620,26 @@ const StaffManagement = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Staff Management</h1>
-          <p className="text-gray-600 mt-1">
-            Manage staff members for branch: <span className="font-semibold">{branchName || 'Loading...'}</span>
-          </p>
+          {activeTab === 'schedule' ? (
+            <>
+              <h1 className="text-2xl font-bold text-gray-900">Staff Schedule</h1>
+              <p className="text-gray-600 mt-1">Weekly view of staff shifts and availability</p>
+            </>
+          ) : activeTab === 'lending' ? (
+            <>
+              <h1 className="text-2xl font-bold text-gray-900">Temporary Branch Assignment</h1>
+              <p className="text-gray-600 mt-1">
+                Manage temporary staff assignments between branches: <span className="font-semibold">{branchName || 'Loading...'}</span>
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold text-gray-900">Staff Management</h1>
+              <p className="text-gray-600 mt-1">
+                Manage staff members for branch: <span className="font-semibold">{branchName || 'Loading...'}</span>
+              </p>
+            </>
+          )}
         </div>
         {activeTab === 'list' && (
           <button
@@ -609,6 +651,26 @@ const StaffManagement = () => {
           >
             <Plus className="w-5 h-5" />
             Add Staff
+          </button>
+        )}
+        {activeTab === 'schedule' && (
+          <button
+            onClick={() => {
+              setScheduleEditTrigger(prev => prev + 1);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Update Shift
+          </button>
+        )}
+        {activeTab === 'lending' && (
+          <button
+            onClick={() => setShowRequestModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Request Help
           </button>
         )}
       </div>
@@ -717,70 +779,9 @@ const StaffManagement = () => {
 
       {/* Filters and Actions */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                showFilters 
-                  ? 'bg-primary-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              <Filter className="w-4 h-4" />
-              Filters
-              {(statusFilter !== 'all' || shiftFilter !== 'all' || dateRangeFilter !== 'all' || lendingFilter !== 'all') && (
-                <span className="ml-1 px-1.5 py-0.5 text-xs bg-white text-primary-600 rounded-full">
-                  {[statusFilter, shiftFilter, dateRangeFilter, lendingFilter].filter(f => f !== 'all').length}
-                </span>
-              )}
-            </button>
-            {((statusFilter !== 'all' || shiftFilter !== 'all' || dateRangeFilter !== 'all' || lendingFilter !== 'all')) && (
-              <button
-                onClick={() => {
-                  setStatusFilter('all');
-                  setShiftFilter('all');
-                  setDateRangeFilter('all');
-                  setLendingFilter('all');
-                }}
-                className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                <X className="w-4 h-4" />
-                Clear
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                if (!filteredStaff || filteredStaff.length === 0) {
-                  toast.error('No staff data to print');
-                  return;
-                }
-                if (!printRef.current) {
-                  toast.error('Print content not ready. Please try again.');
-                  return;
-                }
-                handlePrint();
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              <Printer className="w-4 h-4" />
-              Print Staff Data
-            </button>
-            <button
-              onClick={exportToCSV}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Export CSV
-            </button>
-          </div>
-        </div>
-
-        {/* Basic Search and Role Filter - Always Visible */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-          <div className="relative">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
@@ -790,110 +791,199 @@ const StaffManagement = () => {
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+
+          {/* Filter Button */}
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+              (roleFilter !== 'all' || statusFilter !== 'all' || shiftFilter !== 'all' || dateRangeFilter !== 'all' || lendingFilter !== 'all')
+                ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredStaff.length} staff`}
           >
-            <option value="all">All Roles</option>
-            {MANAGEABLE_ROLES.map((role) => (
-              <option key={role} value={role}>
-                {ROLE_LABELS[role]}
-              </option>
-            ))}
-          </select>
-        </div>
+            <Filter className="w-5 h-5" />
+            {filteredStaff.length > 0 && (
+              <span className="bg-primary-600 text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                {filteredStaff.length}
+              </span>
+            )}
+          </button>
 
-        {/* Advanced Filters - Collapsible */}
-        {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-3 border-t border-gray-200">
-            {/* Status Filter */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </div>
-
-            {/* Shift Filter */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Shifts</label>
-              <select
-                value={shiftFilter}
-                onChange={(e) => setShiftFilter(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                <option value="all">All</option>
-                <option value="with-shifts">With Shifts</option>
-                <option value="no-shifts">No Shifts</option>
-              </select>
-            </div>
-
-            {/* Date Range Filter */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Joined Date</label>
-              <select
-                value={dateRangeFilter}
-                onChange={(e) => setDateRangeFilter(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                <option value="all">All Time</option>
-                <option value="today">Today</option>
-                <option value="week">Last 7 Days</option>
-                <option value="month">Last 30 Days</option>
-                <option value="year">Last Year</option>
-              </select>
-            </div>
-
-            {/* Lending Filter */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Lending Status</label>
-              <select
-                value={lendingFilter}
-                onChange={(e) => setLendingFilter(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                <option value="all">All</option>
-                <option value="lent-in">Lent In</option>
-                <option value="lent-out">Lent Out</option>
-                <option value="not-lent">Not Lent</option>
-              </select>
-            </div>
-          </div>
-        )}
-
-        {/* Results Count */}
-        <div className="mt-3 text-sm text-gray-600">
-          Showing <span className="font-medium">{filteredStaff.length}</span> of <span className="font-medium">{staff.length + lentStaff.length}</span> staff members
+          {/* Action Buttons */}
+          <button
+            onClick={() => {
+              if (!filteredStaff || filteredStaff.length === 0) {
+                toast.error('No staff data to print');
+                return;
+              }
+              if (!printRef.current) {
+                toast.error('Print content not ready. Please try again.');
+                return;
+              }
+              handlePrint();
+            }}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Printer className="w-5 h-5 text-gray-600" />
+          </button>
+          <button
+            onClick={exportToCSV}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Download className="w-5 h-5 text-gray-600" />
+          </button>
         </div>
       </div>
 
-      {/* Staff Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Staff</h2>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-600">Items per page:</span>
-            <select
-              value={itemsPerPage}
-              onChange={(e) => {
-                setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#160B53]"
-            >
-              {[10, 25, 50, 100].map(size => (
-                <option key={size} value={size}>{size}</option>
-              ))}
-            </select>
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-900">Filter Staff</h2>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Role Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Role
+                </label>
+                <select
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Roles</option>
+                  {MANAGEABLE_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {ROLE_LABELS[role]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Status
+                </label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+
+              {/* Shift Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Shifts
+                </label>
+                <select
+                  value={shiftFilter}
+                  onChange={(e) => setShiftFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All</option>
+                  <option value="with-shifts">With Shifts</option>
+                  <option value="no-shifts">No Shifts</option>
+                </select>
+              </div>
+
+              {/* Date Range Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Joined Date
+                </label>
+                <select
+                  value={dateRangeFilter}
+                  onChange={(e) => setDateRangeFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Time</option>
+                  <option value="today">Today</option>
+                  <option value="week">Last 7 Days</option>
+                  <option value="month">Last 30 Days</option>
+                  <option value="year">Last Year</option>
+                </select>
+              </div>
+
+              {/* Lending Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Lending Status
+                </label>
+                <select
+                  value={lendingFilter}
+                  onChange={(e) => setLendingFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All</option>
+                  <option value="lent-in">Lent In</option>
+                  <option value="lent-out">Lent Out</option>
+                  <option value="not-lent">Not Lent</option>
+                </select>
+              </div>
+
+              {/* Service Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Can Offer Service
+                </label>
+                <select
+                  value={serviceFilter}
+                  onChange={(e) => setServiceFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Services</option>
+                  {branchServices.map((service) => (
+                    <option key={service.id} value={service.id}>
+                      {service.name || service.serviceName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setRoleFilter('all');
+                  setStatusFilter('all');
+                  setShiftFilter('all');
+                  setDateRangeFilter('all');
+                  setLendingFilter('all');
+                  setServiceFilter('all');
+                }}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Clear Filters
+              </button>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                Apply Filters
+              </button>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* Staff Table */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -1058,61 +1148,118 @@ const StaffManagement = () => {
             </tbody>
           </table>
         </div>
-        {filteredStaff.length > 0 && (
-          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
-            <div className="text-sm text-gray-600">
-              Showing {startIndex + 1} to {Math.min(endIndex, filteredStaff.length)} of {filteredStaff.length} staff
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={safePage === 1}
-                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
-              >
-                Previous
-              </button>
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (safePage <= 3) {
-                    pageNum = i + 1;
-                  } else if (safePage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = safePage - 2 + i;
-                  }
-                  
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`px-3 py-1 border rounded-lg text-sm ${
-                        safePage === pageNum
-                          ? 'bg-[#160B53] text-white border-[#160B53]'
-                          : 'border-gray-300 hover:bg-gray-100'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
+        {filteredStaff.length > 0 && totalPages > 0 && (
+          <div className="px-6 py-3 border-t border-gray-200">
+            <div className="flex flex-col space-y-3">
+              {/* Top row: Items per page and page info */}
+              <div className="flex flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-600">Show</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value={10}>10</option>
+                  </select>
+                  <span className="text-xs text-gray-600">per page</span>
+                </div>
+
+                <div className="text-xs text-gray-600">
+                  Showing <span className="font-semibold text-gray-900">{startIndex + 1}</span> to{' '}
+                  <span className="font-semibold text-gray-900">{Math.min(endIndex, filteredStaff.length)}</span> of{' '}
+                  <span className="font-semibold text-gray-900">{filteredStaff.length.toLocaleString()}</span> staff
+                </div>
               </div>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={safePage === totalPages}
-                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
-              >
-                Next
-              </button>
+
+              {/* Bottom row: Navigation buttons */}
+              <div className="flex items-center justify-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safePage === 1}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="First page"
+                >
+                  <ChevronsLeft className="w-4 h-4" />
+                  First
+                </button>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safePage === 1}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Prev
+                </button>
+
+                {/* Page numbers */}
+                <div className="flex items-center gap-1">
+                  {totalPages > 0 && (
+                    <>
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (safePage <= 3) {
+                          pageNum = i + 1;
+                        } else if (safePage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = safePage - 2 + i;
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`px-3 py-1.5 text-xs min-w-[32px] rounded border transition-colors ${
+                              safePage === pageNum
+                                ? 'bg-primary-600 text-white border-primary-600 font-semibold'
+                                : 'border-gray-300 hover:bg-gray-50 text-gray-700'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      {totalPages > 5 && (
+                        <span className="px-2 text-xs text-gray-500">
+                          ... of {totalPages}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safePage === totalPages}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="Next page"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safePage === totalPages}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="Last page"
+                >
+                  Last
+                  <ChevronsRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
         </>
       ) : activeTab === 'schedule' ? (
-        <StaffSchedule />
+        <StaffSchedule onEditTrigger={scheduleEditTrigger} />
       ) : (
         <StaffLending />
       )}
@@ -1323,6 +1470,18 @@ const StaffManagement = () => {
           </p>
         )}
       </ConfirmModal>
+
+      {/* Request Help Modal */}
+      <LendStylistModal
+        isOpen={showRequestModal}
+        stylist={null}
+        requestingBranchId={userBranch}
+        onClose={() => setShowRequestModal(false)}
+        onSave={() => {
+          setShowRequestModal(false);
+          // Optionally refresh lending data if needed
+        }}
+      />
     </div>
   );
 };

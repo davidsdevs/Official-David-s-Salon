@@ -14,6 +14,7 @@ import {
   getAvailableTimeSlots,
   APPOINTMENT_STATUS 
 } from '../../services/appointmentService';
+import { isBranchClosedOnDate } from '../../services/branchCloseUtils';
 import { getAllBranches, getBranchById } from '../../services/branchService';
 import { getBranchServices, getServiceById } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
@@ -289,11 +290,18 @@ const ClientAppointments = () => {
       return;
     }
 
+
+    // Check if branch is closed on this date
+    const closeCheck = await isBranchClosedOnDate(bookingData.branchId, bookingData.date);
+    if (closeCheck.closed) {
+      toast.error('This branch is closed on the selected date. Reason: ' + (closeCheck.entry?.title || 'Branch Closed'));
+      return;
+    }
+
     // Check if client already has an appointment on the selected date
     const selectedDate = new Date(bookingData.date);
     const startOfDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
     const endOfDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 23, 59, 59);
-    
     const existingAppointments = appointments.filter(apt => {
       const aptDate = new Date(apt.appointmentDate);
       return aptDate >= startOfDay && 
@@ -301,7 +309,6 @@ const ClientAppointments = () => {
              apt.status !== APPOINTMENT_STATUS.CANCELLED && 
              apt.status !== APPOINTMENT_STATUS.COMPLETED;
     });
-
     if (existingAppointments.length > 0) {
       toast.error('You already have an appointment on this date. Please choose a different date.');
       return;
@@ -498,27 +505,47 @@ const ClientAppointments = () => {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               type="text"
-              placeholder="Search appointments..."
+              placeholder="Search by service, stylist, or branch..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
             />
           </div>
 
-          {/* Filter Toggle */}
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center gap-2 px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            <Filter className="w-4 h-4" />
-            Filters
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Refresh Button */}
+            <button
+              onClick={() => fetchAppointments()}
+              className="flex items-center gap-2 px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+              title="Refresh"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            
+            {/* Filter Toggle */}
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition-colors ${
+                showFilters || dateRange.from || dateRange.to
+                  ? 'bg-[#160B53] text-white border-[#160B53]'
+                  : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              Filters
+              {(dateRange.from || dateRange.to) && (
+                <span className="bg-white text-[#160B53] text-xs px-1.5 py-0.5 rounded-full font-medium">
+                  {(dateRange.from ? 1 : 0) + (dateRange.to ? 1 : 0)}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Advanced Filters */}
         {showFilters && (
-          <div className="border-t pt-4 mt-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="border-t pt-4 mt-4 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
                 <input
@@ -537,15 +564,118 @@ const ClientAppointments = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
                 />
               </div>
+              
+              {/* Quick Date Filters */}
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quick Filters</label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      const today = new Date();
+                      setDateRange({
+                        from: today.toISOString().split('T')[0],
+                        to: today.toISOString().split('T')[0]
+                      });
+                    }}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Today
+                  </button>
+                  <button
+                    onClick={() => {
+                      const today = new Date();
+                      const tomorrow = new Date(today);
+                      tomorrow.setDate(tomorrow.getDate() + 1);
+                      setDateRange({
+                        from: tomorrow.toISOString().split('T')[0],
+                        to: tomorrow.toISOString().split('T')[0]
+                      });
+                    }}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Tomorrow
+                  </button>
+                  <button
+                    onClick={() => {
+                      const today = new Date();
+                      const weekEnd = new Date(today);
+                      weekEnd.setDate(weekEnd.getDate() + 7);
+                      setDateRange({
+                        from: today.toISOString().split('T')[0],
+                        to: weekEnd.toISOString().split('T')[0]
+                      });
+                    }}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    This Week
+                  </button>
+                  <button
+                    onClick={() => {
+                      const today = new Date();
+                      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                      setDateRange({
+                        from: today.toISOString().split('T')[0],
+                        to: monthEnd.toISOString().split('T')[0]
+                      });
+                    }}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    This Month
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => setDateRange({ from: '', to: '' })}
-                className="px-3 py-1 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
-              >
-                Clear Filters
-              </button>
-            </div>
+            
+            {/* Active Filters & Clear */}
+            {(dateRange.from || dateRange.to || searchTerm) && (
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-gray-500">Active filters:</span>
+                  {dateRange.from && (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-[#160B53]/10 text-[#160B53] text-xs rounded-full">
+                      From: {dateRange.from}
+                      <button 
+                        onClick={() => setDateRange(prev => ({ ...prev, from: '' }))}
+                        className="hover:text-red-600"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  {dateRange.to && (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-[#160B53]/10 text-[#160B53] text-xs rounded-full">
+                      To: {dateRange.to}
+                      <button 
+                        onClick={() => setDateRange(prev => ({ ...prev, to: '' }))}
+                        className="hover:text-red-600"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  {searchTerm && (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-[#160B53]/10 text-[#160B53] text-xs rounded-full">
+                      Search: "{searchTerm}"
+                      <button 
+                        onClick={() => setSearchTerm('')}
+                        className="hover:text-red-600"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setDateRange({ from: '', to: '' });
+                    setSearchTerm('');
+                  }}
+                  className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  Clear All
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

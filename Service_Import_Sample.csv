@@ -1,0 +1,11 @@
+Service Name,Description,Category,Duration (minutes),Is Chemical,Base Price
+Basic Haircut,Simple haircut with wash and dry,Haircut and Blowdry,30,No,500
+Manicure,Basic manicure with nail polish,Nail Services,45,Yes,350
+Pedicure,Basic pedicure with nail polish,Nail Services,60,Yes,400
+Hair Color,Full head hair coloring service,Hair Treatment,120,Yes,1500
+Facial Treatment,Basic facial with cleansing and moisturizing,Facial Services,60,Yes,800
+Massage,Full body relaxation massage,Spa Services,60,No,1200
+Eyebrow Threading,Eyebrow shaping and threading,Beauty Services,20,No,150
+Hair Rebond,Hair straightening treatment,Hair Treatment,180,Yes,2500
+Keratin Treatment,Hair smoothing and strengthening,Hair Treatment,120,Yes,1800
+Waxing,Full body waxing service,Beauty Services,45,Yes,600

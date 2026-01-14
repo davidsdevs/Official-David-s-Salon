@@ -1,70 +1,33 @@
-/**
- * Billing & POS Page - Receptionist
- * For processing payments and viewing billing history
- */
-
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useReactToPrint } from 'react-to-print';
+import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { Search, Banknote, Calendar, Filter, Receipt, Eye, AlertCircle, Printer, X, UserPlus, Bell, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
-  getBillsByBranch,
-  getDailySalesSummary,
-  BILL_STATUS,
+  getBillsByBranch, 
+  getDailySalesSummary, 
+  BILL_STATUS, 
   PAYMENT_METHODS,
-  createBill
+  createBill,
+  getBillById
 } from '../../services/billingService';
-import { 
-  getAppointmentsByBranch, 
-  APPOINTMENT_STATUS, 
-  updateAppointmentStatus
-} from '../../services/appointmentService';
+import { getAppointmentsByBranch } from '../../services/appointmentService';
 import { getBranchById } from '../../services/branchService';
 import { getBranchServices } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
-import { USER_ROLES, ROUTES } from '../../utils/constants';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { USER_ROLES, APPOINTMENT_STATUS, ROUTES } from '../../utils/constants';
 import BillingModalPOS from '../../components/billing/BillingModalPOS';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ReceiptComponent from '../../components/billing/Receipt';
-import { useReactToPrint } from 'react-to-print';
-import toast from 'react-hot-toast';
+import { 
+  Banknote, UserPlus, Bell, Filter, Search, Eye, Printer, X, CheckCircle, AlertCircle,
+  ArrowUpDown, ArrowUp, ArrowDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight,
+  Receipt
+} from 'lucide-react';
 
 const ReceptionistBilling = () => {
   const navigate = useNavigate();
-  const { currentUser, userBranch, userBranchData, userData } = useAuth();
-  const printRef = useRef();
-
-  const handlePrintReport = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: `Billing Report - ${new Date().toLocaleDateString()}`,
-    pageStyle: `
-      @page {
-        size: A4;
-        margin: 20mm;
-      }
-      @media print {
-        body {
-          font-size: 12px;
-        }
-        .no-print {
-          display: none !important;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-        th, td {
-          border: 1px solid #ddd;
-          padding: 8px;
-          text-align: left;
-        }
-        th {
-          background-color: #f5f5f5;
-          font-weight: bold;
-        }
-      }
-    `
-  });
+  const { currentUser, userBranch, userData } = useAuth();
   const [bills, setBills] = useState([]);
   const [completedAppointments, setCompletedAppointments] = useState([]);
   const [filteredBills, setFilteredBills] = useState([]);
@@ -85,7 +48,7 @@ const ReceptionistBilling = () => {
   const [sortField, setSortField] = useState('createdAt');
   const [sortDirection, setSortDirection] = useState('desc'); // Default to newest first
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25); // Default to 25 rows for big data
+  const [pageSize, setPageSize] = useState(10); // Fixed to 10 rows per page
 
   // Sort icon helper
   const getSortIcon = (field) => {
@@ -207,6 +170,8 @@ const ReceptionistBilling = () => {
   const [dailySummary, setDailySummary] = useState(null);
   const [selectedBill, setSelectedBill] = useState(null);
   const [showBillDetails, setShowBillDetails] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [completedBill, setCompletedBill] = useState(null);
   const [branchData, setBranchData] = useState(null);
   const [services, setServices] = useState([]);
   const [stylists, setStylists] = useState([]);
@@ -223,6 +188,10 @@ const ReceptionistBilling = () => {
   const receiptRef = useRef();
   const handlePrint = useReactToPrint({
     contentRef: receiptRef,
+  });
+  const printRef = useRef();
+  const handlePrintReport = useReactToPrint({
+    contentRef: printRef,
   });
 
   useEffect(() => {
@@ -491,7 +460,9 @@ const ReceptionistBilling = () => {
         ...userData,
         uid: currentUser.uid // Ensure uid is from Firebase Auth
       };
-      await createBill(billData, userForBilling);
+      const transactionId = await createBill(billData, userForBilling);
+      // Fetch the full bill object (with timestamps and normalized fields)
+      const fullBill = await getBillById(transactionId);
 
       // Update appointment status to include billing info if needed
       // (Optional: You can add a billedAt field to appointments)
@@ -503,9 +474,13 @@ const ReceptionistBilling = () => {
       await fetchData();
       
       toast.success('Payment processed successfully!');
+      
+      // Return the created bill with all the data for receipt display
+      return fullBill;
     } catch (error) {
       console.error('Error processing payment:', error);
       toast.error('Failed to process payment');
+      throw error;
     } finally {
       setProcessing(false);
     }
@@ -652,13 +627,17 @@ const ReceptionistBilling = () => {
           {/* Filter Button */}
           <button
             onClick={() => setShowFilterModal(true)}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            title="Filter"
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+              (statusFilter !== 'all' || paymentMethodFilter !== 'all' || saleTypeFilter !== 'all' || startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter)
+                ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredBills.length} bills`}
           >
-            <Filter className="w-5 h-5 text-gray-600" />
-            {(statusFilter !== 'all' || paymentMethodFilter !== 'all' || saleTypeFilter !== 'all' || startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter) && (
-              <span className="bg-primary-600 text-white text-xs px-2 py-0.5 rounded-full">
-                {(statusFilter !== 'all' ? 1 : 0) + (paymentMethodFilter !== 'all' ? 1 : 0) + (saleTypeFilter !== 'all' ? 1 : 0) + (startDateFilter || endDateFilter ? 1 : 0) + (minAmountFilter ? 1 : 0) + (maxAmountFilter ? 1 : 0)}
+            <Filter className="w-5 h-5" />
+            {filteredBills.length > 0 && (
+              <span className="bg-primary-600 text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                {filteredBills.length}
               </span>
             )}
           </button>
@@ -1119,51 +1098,111 @@ const ReceptionistBilling = () => {
         )}
 
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between bg-white px-6 py-3 border-t border-gray-200">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-700">Show</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+        {totalPages > 0 && (
+          <div className="px-6 py-3 border-t border-gray-200">
+            <div className="flex flex-col space-y-3">
+              {/* Top row: Items per page and page info */}
+              <div className="flex flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-600">Show</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value={10}>10</option>
+                  </select>
+                  <span className="text-xs text-gray-600">per page</span>
+                </div>
+
+                <div className="text-xs text-gray-600">
+                  Showing <span className="font-semibold text-gray-900">{Math.min((currentPage - 1) * pageSize + 1, bills.length)}</span> to{' '}
+                  <span className="font-semibold text-gray-900">{Math.min(currentPage * pageSize, bills.length)}</span> of{' '}
+                  <span className="font-semibold text-gray-900">{bills.length.toLocaleString()}</span> bills
+                </div>
+              </div>
+
+              {/* Bottom row: Navigation buttons */}
+              <div className="flex items-center justify-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="First page"
                 >
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-                <span className="text-sm text-gray-700">per page</span>
+                  <ChevronsLeft className="w-4 h-4" />
+                  First
+                </button>
+                <button
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Prev
+                </button>
+
+                {/* Page numbers */}
+                <div className="flex items-center gap-1">
+                  {totalPages > 0 && (
+                    <>
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`px-3 py-1.5 text-xs min-w-[32px] rounded border transition-colors ${
+                              currentPage === pageNum 
+                                ? 'bg-primary-600 text-white border-primary-600 font-semibold' 
+                                : 'border-gray-300 hover:bg-gray-50 text-gray-700'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      {totalPages > 5 && (
+                        <span className="px-2 text-xs text-gray-500">
+                          ... of {totalPages}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="Next page"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 min-w-[60px] justify-center"
+                  title="Last page"
+                >
+                  Last
+                  <ChevronsRight className="w-4 h-4" />
+                </button>
               </div>
-              <div className="text-sm text-gray-700">
-                Showing {Math.min((currentPage - 1) * pageSize + 1, bills.length)} to {Math.min(currentPage * pageSize, bills.length)} of {bills.length} bills
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-
-              <span className="text-sm text-gray-700">
-                Page {currentPage} of {totalPages}
-              </span>
-
-              <button
-                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
             </div>
           </div>
         )}
@@ -1174,7 +1213,7 @@ const ReceptionistBilling = () => {
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Billing Report</h1>
           <p className="text-gray-600">Generated on {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString()}</p>
-          {userBranchData && <p className="text-gray-600">{userBranchData.name} - {userBranchData.address}</p>}
+          {branchData && <p className="text-gray-600">{branchData.name || branchData.branchName} - {branchData.address}</p>}
         </div>
 
         {/* Applied Filters Summary */}
@@ -1271,7 +1310,15 @@ const ReceptionistBilling = () => {
       <BillingModalPOS
         isOpen={showPOSModal}
         appointment={null} // No appointment for direct product sales
-        onClose={() => setShowPOSModal(false)}
+        onClose={(billData) => {
+          setShowPOSModal(false);
+          
+          // If bill data is passed, show the receipt modal
+          if (billData && billData.id) {
+            setCompletedBill(billData);
+            setShowReceiptModal(true);
+          }
+        }}
         onSubmit={handleSubmitBill}
         loading={processing}
         services={[]} // Empty services array for products-only mode
@@ -1325,6 +1372,460 @@ const ReceptionistBilling = () => {
       <div className="hidden">
         <ReceiptComponent ref={receiptRef} bill={selectedBill || {}} branch={branchData} />
       </div>
+
+      {/* Receipt Modal - Shown after Quick POS transaction */}
+      {showReceiptModal && completedBill && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-green-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Payment Successful!</h3>
+                  <p className="text-sm text-gray-600">Transaction #{completedBill.id}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReceiptModal(false);
+                  setCompletedBill(null);
+                }}
+                className="p-1 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4">
+              <div ref={receiptRef}>
+                <ReceiptComponent bill={completedBill} branch={branchData} />
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-gray-200 flex gap-3 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => {
+                  const bill = completedBill;
+                  const branch = branchData;
+                  // Get services and products from items
+                  const services = bill.items?.filter(item => item.type === 'service') || [];
+                  const products = bill.items?.filter(item => item.type === 'product') || [];
+
+                  // Format date
+                  const formatDate = (date) => {
+                    if (!date) return 'N/A';
+                    const d = date.toDate ? date.toDate() : new Date(date);
+                    return d.toLocaleString('en-US', { 
+                      month: 'short', 
+                      day: 'numeric', 
+                      year: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true
+                    });
+                  };
+
+                  // Get client type label
+                  const getClientTypeLabel = (type) => {
+                    switch(type) {
+                      case 'X': return 'New';
+                      case 'R': return 'Regular';
+                      case 'TR': return 'Transfer';
+                      default: return type || 'Regular';
+                    }
+                  };
+
+                  // Build services HTML
+                  let servicesHtml = '';
+                  services.forEach(service => {
+                    const qty = service.quantity > 1 ? ` x${service.quantity}` : '';
+                    const price = (service.price * (service.quantity || 1)).toFixed(2);
+                    servicesHtml += `
+                      <div class="item">
+                        <div class="item-name">${service.name}${qty}</div>
+                        <div class="item-price">₱${price}</div>
+                      </div>
+                      ${service.stylistName ? `<div class="item-detail">Stylist: ${service.stylistName}</div>` : ''}
+                      ${service.clientType ? `<div class="item-detail">Client Type: ${getClientTypeLabel(service.clientType)}</div>` : ''}
+                      ${service.adjustment && service.adjustment !== 0 ? `<div class="item-detail">Adjustment: ${service.adjustment > 0 ? '+' : ''}₱${service.adjustment.toFixed(2)}${service.adjustmentReason ? ` (${service.adjustmentReason})` : ''}</div>` : ''}
+                    `;
+                  });
+
+                  // Build products HTML
+                  let productsHtml = '';
+                  products.forEach(product => {
+                    const qty = product.quantity > 1 ? ` x${product.quantity}` : '';
+                    const price = (product.price * (product.quantity || 1)).toFixed(2);
+                    productsHtml += `
+                      <div class="item">
+                        <div class="item-name">${product.name}${qty}</div>
+                        <div class="item-price">₱${price}</div>
+                      </div>
+                    `;
+                  });
+
+                  // Build service product charges HTML
+                  let serviceProductChargesHtml = '';
+                  if (bill.serviceProductCharges && bill.serviceProductCharges.length > 0) {
+                    serviceProductChargesHtml = `<div class="section-title">SERVICE PRODUCT USAGE</div>`;
+                    bill.serviceProductCharges.forEach(charge => {
+                      serviceProductChargesHtml += `
+                        <div class="item">
+                          <div class="item-name">${charge.productName}</div>
+                          <div class="item-price">₱${charge.charge?.toFixed(2) || '0.00'}</div>
+                        </div>
+                        <div class="item-detail">${charge.usageDisplay || ''}</div>
+                      `;
+                    });
+                  }
+
+                  const printWindow = window.open('', '_blank');
+                  printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                      <title>Receipt - ${bill.receiptNumber || 'Transaction'}</title>
+                      <style>
+                        @page {
+                          size: 58mm auto;
+                          margin: 0;
+                        }
+                        * { 
+                          margin: 0; 
+                          padding: 0; 
+                          box-sizing: border-box; 
+                        }
+                        html, body {
+                          width: 58mm;
+                          max-width: 58mm;
+                          margin: 0 auto;
+                          padding: 3mm;
+                          font-family: 'Courier New', 'Lucida Console', monospace;
+                          font-size: 8pt;
+                          line-height: 1.2;
+                          color: #000;
+                          background: #fff;
+                          -webkit-print-color-adjust: exact;
+                          print-color-adjust: exact;
+                        }
+                        .receipt {
+                          width: 100%;
+                        }
+                        .header {
+                          text-align: center;
+                          margin-bottom: 2mm;
+                          padding-bottom: 2mm;
+                          border-bottom: 1px dashed #000;
+                        }
+                        .salon-name {
+                          font-size: 11pt;
+                          font-weight: bold;
+                          margin-bottom: 1mm;
+                        }
+                        .branch-name {
+                          font-size: 9pt;
+                          margin-bottom: 1mm;
+                        }
+                        .branch-address {
+                          font-size: 7pt;
+                          margin-bottom: 2mm;
+                        }
+                        .receipt-title {
+                          font-size: 9pt;
+                          font-weight: bold;
+                          margin-top: 2mm;
+                        }
+                        .info-section {
+                          margin: 2mm 0;
+                          padding: 2mm 0;
+                          border-bottom: 1px dashed #000;
+                        }
+                        .info-row {
+                          display: flex;
+                          justify-content: space-between;
+                          margin: 0.5mm 0;
+                          font-size: 7pt;
+                        }
+                        .info-label {
+                          color: #333;
+                        }
+                        .info-value {
+                          font-weight: bold;
+                          text-align: right;
+                          max-width: 55%;
+                          word-break: break-word;
+                        }
+                        .section-title {
+                          font-size: 8pt;
+                          font-weight: bold;
+                          margin: 2mm 0 1mm 0;
+                          text-align: center;
+                          border-top: 1px dashed #000;
+                          border-bottom: 1px dashed #000;
+                          padding: 1mm 0;
+                        }
+                        .item {
+                          display: flex;
+                          justify-content: space-between;
+                          margin: 1mm 0;
+                          font-size: 7pt;
+                        }
+                        .item-name {
+                          flex: 1;
+                          word-break: break-word;
+                        }
+                        .item-price {
+                          font-weight: bold;
+                          text-align: right;
+                          min-width: 12mm;
+                        }
+                        .item-detail {
+                          font-size: 6pt;
+                          color: #555;
+                          margin-left: 2mm;
+                          margin-bottom: 0.5mm;
+                        }
+                        .totals-section {
+                          margin-top: 2mm;
+                          padding-top: 2mm;
+                          border-top: 1px dashed #000;
+                        }
+                        .total-row {
+                          display: flex;
+                          justify-content: space-between;
+                          margin: 0.5mm 0;
+                          font-size: 7pt;
+                        }
+                        .total-row.grand-total {
+                          font-size: 10pt;
+                          font-weight: bold;
+                          border-top: 1px solid #000;
+                          padding-top: 1mm;
+                          margin-top: 1mm;
+                        }
+                        .total-row.discount {
+                          color: #006600;
+                        }
+                        .payment-section {
+                          margin-top: 2mm;
+                          padding-top: 2mm;
+                          border-top: 1px dashed #000;
+                        }
+                        .change-row {
+                          font-size: 9pt;
+                          font-weight: bold;
+                          background: #eee;
+                          padding: 1mm;
+                          margin: 1mm 0;
+                        }
+                        .notes-section {
+                          margin-top: 2mm;
+                          padding-top: 2mm;
+                          border-top: 1px dashed #000;
+                          font-size: 7pt;
+                        }
+                        .footer {
+                          text-align: center;
+                          margin-top: 3mm;
+                          padding-top: 2mm;
+                          border-top: 1px dashed #000;
+                          font-size: 7pt;
+                        }
+                        .footer-thanks {
+                          font-size: 8pt;
+                          font-weight: bold;
+                          margin-bottom: 1mm;
+                        }
+                        .footer-note {
+                          margin: 1mm 0;
+                        }
+                        .footer-ids {
+                          margin-top: 2mm;
+                          font-size: 7pt;
+                        }
+                        @media print {
+                          html, body {
+                            width: 58mm !important;
+                            max-width: 58mm !important;
+                            min-width: 58mm !important;
+                            padding: 2mm !important;
+                            margin: 0 !important;
+                          }
+                        }
+                        @media screen {
+                          html, body {
+                            background: #f5f5f5;
+                          }
+                          .receipt {
+                            background: #fff;
+                            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                            padding: 3mm;
+                          }
+                        }
+                      </style>
+                    </head>
+                    <body>
+                      <div class="receipt">
+                        <div class="header">
+                          <div class="salon-name">DAVID'S SALON</div>
+                          <div class="branch-name">${branch?.name || branch?.branchName || bill.branchName || 'Branch'}</div>
+                          ${branch?.address ? `<div class="branch-address">${branch.address}</div>` : ''}
+                          <div class="receipt-title">OFFICIAL RECEIPT</div>
+                        </div>
+
+                        <div class="info-section">
+                          <div class="info-row">
+                            <span class="info-label">Receipt No:</span>
+                            <span class="info-value">#${bill.receiptNumber || 'N/A'}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Transaction ID:</span>
+                            <span class="info-value">${bill.id || 'N/A'}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Date:</span>
+                            <span class="info-value">${formatDate(bill.createdAt)}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Cashier:</span>
+                            <span class="info-value">${bill.createdByName || 'Staff'}</span>
+                          </div>
+                        </div>
+
+                        <div class="info-section">
+                          <div class="info-row">
+                            <span class="info-label">Customer:</span>
+                            <span class="info-value">${bill.clientName || 'Guest'}</span>
+                          </div>
+                          ${bill.clientPhone ? `
+                          <div class="info-row">
+                            <span class="info-label">Phone:</span>
+                            <span class="info-value">${bill.clientPhone}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.clientEmail ? `
+                          <div class="info-row">
+                            <span class="info-label">Email:</span>
+                            <span class="info-value">${bill.clientEmail}</span>
+                          </div>
+                          ` : ''}
+                        </div>
+
+                        ${services.length > 0 ? `
+                        <div class="section-title">SERVICES</div>
+                        ${servicesHtml}
+                        ` : ''}
+
+                        ${products.length > 0 ? `
+                        <div class="section-title">PRODUCTS</div>
+                        ${productsHtml}
+                        ` : ''}
+
+                        ${serviceProductChargesHtml}
+
+                        <div class="totals-section">
+                          <div class="total-row">
+                            <span>Subtotal:</span>
+                            <span>₱${(bill.subtotal || 0).toFixed(2)}</span>
+                          </div>
+                          ${bill.serviceProductChargeTotal > 0 ? `
+                          <div class="total-row">
+                            <span>Product Usage:</span>
+                            <span>₱${bill.serviceProductChargeTotal.toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.promotionDiscount > 0 ? `
+                          <div class="total-row discount">
+                            <span>Promo (${bill.promotionCode}):</span>
+                            <span>-₱${bill.promotionDiscount.toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.discount > 0 ? `
+                          <div class="total-row discount">
+                            <span>Discount:</span>
+                            <span>-₱${bill.discount.toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.loyaltyPointsUsed > 0 ? `
+                          <div class="total-row discount">
+                            <span>Points Used:</span>
+                            <span>-₱${bill.loyaltyPointsUsed.toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          <div class="total-row grand-total">
+                            <span>TOTAL:</span>
+                            <span>₱${(bill.total || 0).toFixed(2)}</span>
+                          </div>
+                        </div>
+
+                        <div class="payment-section">
+                          <div class="total-row">
+                            <span>Payment Method:</span>
+                            <span>${bill.paymentMethod ? bill.paymentMethod.charAt(0).toUpperCase() + bill.paymentMethod.slice(1) : 'Cash'}</span>
+                          </div>
+                          ${bill.paymentMethod === 'cash' && bill.amountReceived ? `
+                          <div class="total-row">
+                            <span>Amount Received:</span>
+                            <span>₱${bill.amountReceived.toFixed(2)}</span>
+                          </div>
+                          <div class="total-row change-row">
+                            <span>Change:</span>
+                            <span>₱${(bill.change || 0).toFixed(2)}</span>
+                          </div>
+                          ` : ''}
+                          ${bill.paymentReference ? `
+                          <div class="total-row">
+                            <span>Reference:</span>
+                            <span>${bill.paymentReference}</span>
+                          </div>
+                          ` : ''}
+                        </div>
+
+                        ${bill.notes ? `
+                        <div class="notes-section">
+                          <strong>Notes:</strong> ${bill.notes}
+                        </div>
+                        ` : ''}
+
+                        <div class="footer">
+                          <div class="footer-thanks">THANK YOU FOR CHOOSING DAVID'S SALON!</div>
+                          <div class="footer-note">This serves as your official receipt.</div>
+                          <div class="footer-note">Please keep this for your records.</div>
+                          <div class="footer-ids">
+                            <div>Transaction ID: ${bill.id || 'N/A'}</div>
+                            <div>Receipt No: ${bill.receiptNumber || 'N/A'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </body>
+                    </html>
+                  `);
+                  printWindow.document.close();
+                  setTimeout(() => { printWindow.print(); }, 250);
+                }}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <Printer className="w-4 h-4" />
+                Print Receipt
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReceiptModal(false);
+                  setCompletedBill(null);
+                }}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Pending Payments Button */}
       {completedAppointments.length > 0 && (

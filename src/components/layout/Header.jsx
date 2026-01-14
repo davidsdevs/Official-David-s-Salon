@@ -7,7 +7,7 @@ import { getInitials, getFullName } from '../../utils/helpers';
 import { getBranchById } from '../../services/branchService';
 import RoleSwitcher from './RoleSwitcher';
 
-const Header = ({ toggleSidebar, sidebarOpen }) => {
+const Header = ({ toggleSidebar, sidebarOpen, children }) => {
   const { currentUser, activeRole, userData, logout, userBranch } = useAuth();
   const [showDropdown, setShowDropdown] = useState(false);
   const [branchName, setBranchName] = useState('');
@@ -91,7 +91,7 @@ const Header = ({ toggleSidebar, sidebarOpen }) => {
         <div className="flex items-center gap-4">
           <button
             onClick={toggleSidebar}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors md:hidden"
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors lg:hidden"
             aria-label="Toggle sidebar"
           >
             {sidebarOpen ? (
@@ -136,6 +136,9 @@ const Header = ({ toggleSidebar, sidebarOpen }) => {
 
         {/* Right section */}
         <div className="flex items-center gap-3">
+          {/* Custom children (e.g., notification buttons) */}
+          {children}
+          
           {/* Role Switcher */}
           <RoleSwitcher />
           

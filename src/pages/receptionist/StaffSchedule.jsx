@@ -667,33 +667,14 @@ const ReceptionistStaffSchedule = () => {
           <p className="text-gray-600 mt-1">Weekly view of staff shifts and availability</p>
         </div>
         <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg px-3 py-2 whitespace-nowrap">
-            <input
-              type="checkbox"
-              checked={printOnlyWithSchedules}
-              onChange={(e) => setPrintOnlyWithSchedules(e.target.checked)}
-              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-            />
-            Print only staff with schedules
-          </label>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <Filter className="w-4 h-4" />
-            Filters
-            {(searchTerm || roleFilter !== 'all' || statusFilter !== 'all') && (
-              <span className="bg-primary-600 text-white text-xs px-2 py-0.5 rounded-full">
-                {(searchTerm ? 1 : 0) + (roleFilter !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={handlePrintSchedule}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap"
-          >
-            <Printer className="w-4 h-4" />
-            Print Schedule
+            <span className="bg-primary-600 text-white text-xs px-2 py-0.5 rounded-full">
+              {filteredStaff.length}
+            </span>
           </button>
         </div>
       </div>
@@ -823,19 +804,10 @@ const ReceptionistStaffSchedule = () => {
           </div>
 
           <div className="flex justify-between items-center mt-4">
-            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4">
               <div className="text-sm text-gray-600">
                 Showing {paginatedStaff.length} of {filteredStaff.length} staff members
               </div>
-              <label className="flex items-center gap-2 text-sm text-gray-600">
-                <input
-                  type="checkbox"
-                  checked={printOnlyWithSchedules}
-                  onChange={(e) => setPrintOnlyWithSchedules(e.target.checked)}
-                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                Print only staff with schedules
-              </label>
             </div>
             <button
               onClick={() => {
@@ -854,7 +826,7 @@ const ReceptionistStaffSchedule = () => {
 
       {/* Week Navigation */}
       <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-right justify-between">
           <button
             onClick={() => navigateWeek('prev')}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -863,27 +835,21 @@ const ReceptionistStaffSchedule = () => {
             <ChevronLeft className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setCurrentWeek(() => {
-                const date = new Date();
-                const day = date.getDay();
-                const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-                return new Date(date.setDate(diff));
-              })}
-              className={`px-4 py-2 rounded-lg border transition-colors text-sm ${
-                isCurrentWeek
-                  ? 'bg-primary-600 text-white border-primary-600'
-                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-              }`}
-            >
-              Today
-            </button>
-            <div className="min-w-[200px] text-center font-semibold text-gray-900">
-              {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
-              {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </div>
-          </div>
+          <button
+            onClick={() => setCurrentWeek(() => {
+              const date = new Date();
+              const day = date.getDay();
+              const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+              return new Date(date.setDate(diff));
+            })}
+            className={`px-4 py-2 rounded-lg border transition-colors text-sm ${
+              isCurrentWeek
+                ? 'bg-primary-600 text-white border-primary-600'
+                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            Today
+          </button>
 
           <button
             onClick={() => navigateWeek('next')}
@@ -892,6 +858,11 @@ const ReceptionistStaffSchedule = () => {
           >
             <ChevronRight className="w-5 h-5" />
           </button>
+
+          <div className="min-w-[200px] text-right font-semibold text-gray-900">
+            {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
+            {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </div>
         </div>
       </div>
 

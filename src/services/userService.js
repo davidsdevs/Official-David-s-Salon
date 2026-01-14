@@ -194,16 +194,35 @@ export const createUser = async (userData, currentUser) => {
 
     // Send welcome email with temporary passwords (async, don't wait)
     // Build password summary for email
+    console.log('📧 [User Created] Building password summary...');
+    console.log('📧 [User Created] Roles:', roles);
+    console.log('📧 [User Created] rolePasswords object:', rolePasswords);
+    
     const passwordSummary = roles.map(role => {
       const rolePassword = rolePasswords[role] || defaultPassword;
+      console.log(`📧 [User Created] Role: ${role}, Password from map: ${rolePasswords[role]}, Using: ${rolePassword}`);
       return `${ROLE_LABELS[role]}: ${rolePassword}`;
     }).join('\n');
+    
+    console.log('📧 [User Created] Final password summary:', passwordSummary);
+    
+    // Get branch name if branchId is provided
+    let branchName = null;
+    if (userData.branchId) {
+      try {
+        const branch = await getBranchById(userData.branchId);
+        branchName = branch?.name || branch?.branchName || null;
+      } catch (err) {
+        console.warn('Could not fetch branch name for email:', err);
+      }
+    }
     
     sendUserCreatedEmail({
       email: userData.email,
       displayName: fullName,
       role: roles.map(r => ROLE_LABELS[r]).join(', '),
-      temporaryPassword: passwordSummary // Send all role passwords
+      temporaryPassword: passwordSummary, // Send all role passwords
+      branchName: branchName
     }).catch(err => console.error('User created email error:', err));
     
     toast.success(`User ${fullName} created successfully!`);

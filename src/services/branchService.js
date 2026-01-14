@@ -30,38 +30,27 @@ export const getAllBranches = async () => {
   try {
     const branchesRef = collection(db, 'branches');
     
-    // Try with orderBy first, fallback to simple query if it fails
-    let snapshot;
-    try {
-      // Try ordering by branchName first (actual field name), then fallback to name
-      const q = query(branchesRef, orderBy('branchName', 'asc'));
-      snapshot = await getDocs(q);
-    } catch (orderByError) {
-      // If orderBy fails (e.g., missing index or field), try without it
-      console.warn('orderBy failed, fetching without order:', orderByError.message);
-      snapshot = await getDocs(branchesRef);
-    }
+    // Simple fetch without orderBy to avoid index issues
+    const snapshot = await getDocs(branchesRef);
     
     const branches = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
     
-    // Sort manually by branchName or name field
-    if (branches.length > 0) {
-      branches.sort((a, b) => {
-        const nameA = (a.branchName || a.name || '').toLowerCase();
-        const nameB = (b.branchName || b.name || '').toLowerCase();
-        return nameA.localeCompare(nameB);
-      });
-    }
+    // Sort manually by name or branchName field
+    branches.sort((a, b) => {
+      const nameA = (a.name || a.branchName || '').toLowerCase();
+      const nameB = (b.name || b.branchName || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
     
     console.log(`[branchService] getAllBranches: Found ${branches.length} branches`);
     if (branches.length > 0) {
       console.log('[branchService] Sample branch:', {
         id: branches[0].id,
-        branchName: branches[0].branchName,
         name: branches[0].name,
+        branchName: branches[0].branchName,
         isActive: branches[0].isActive
       });
     }
@@ -70,8 +59,7 @@ export const getAllBranches = async () => {
     console.error('Error fetching branches:', error);
     console.error('Error details:', {
       code: error.code,
-      message: error.message,
-      stack: error.stack
+      message: error.message
     });
     throw error;
   }
@@ -86,15 +74,23 @@ export const getActiveBranches = async () => {
     const branchesRef = collection(db, 'branches');
     const q = query(
       branchesRef, 
-      where('isActive', '==', true),
-      orderBy('name', 'asc')
+      where('isActive', '==', true)
     );
     const snapshot = await getDocs(q);
     
-    return snapshot.docs.map(doc => ({
+    const branches = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    
+    // Sort manually by name
+    branches.sort((a, b) => {
+      const nameA = (a.name || a.branchName || '').toLowerCase();
+      const nameB = (b.name || b.branchName || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+    
+    return branches;
   } catch (error) {
     console.error('Error fetching active branches:', error);
     throw error;
@@ -288,15 +284,23 @@ export const getBranchesByManager = async (managerId) => {
     const branchesRef = collection(db, 'branches');
     const q = query(
       branchesRef,
-      where('managerID', '==', managerId),
-      orderBy('name', 'asc')
+      where('managerID', '==', managerId)
     );
     const snapshot = await getDocs(q);
     
-    return snapshot.docs.map(doc => ({
+    const branches = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    
+    // Sort manually by name
+    branches.sort((a, b) => {
+      const nameA = (a.name || a.branchName || '').toLowerCase();
+      const nameB = (b.name || b.branchName || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+    
+    return branches;
   } catch (error) {
     console.error('Error fetching manager branches:', error);
     throw error;
@@ -443,18 +447,12 @@ export const getBranchStats = async (branchId) => {
     const staffQuery = query(usersRef, where('branchId', '==', branchId));
     const staffSnapshot = await getDocs(staffQuery);
 
-    // Get today's appointment count
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
+    // Get all appointments (not just today's)
     const appointmentsRef = collection(db, 'appointments');
     const appointmentsQuery = query(
       appointmentsRef,
       where('branchId', '==', branchId),
-      where('appointmentDate', '>=', Timestamp.fromDate(today)),
-      where('appointmentDate', '<', Timestamp.fromDate(tomorrow))
+      where('status', 'in', ['pending', 'confirmed', 'in_service', 'completed'])
     );
     const appointmentsSnapshot = await getDocs(appointmentsQuery);
 
@@ -464,7 +462,7 @@ export const getBranchStats = async (branchId) => {
 
     return {
       staffCount: staffSnapshot.size,
-      appointmentCount: appointmentsSnapshot.size,
+      appointmentsCount: appointmentsSnapshot.size,
       revenue: 0, // Placeholder for M04
       inventoryItems: 0 // Placeholder for M05
     };

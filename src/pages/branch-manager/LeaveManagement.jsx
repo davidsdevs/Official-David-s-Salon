@@ -55,6 +55,7 @@ const LeaveManagement = () => {
   const [typeFilter, setTypeFilter] = useState('all');
   const [staffFilter, setStaffFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -386,6 +387,16 @@ const LeaveManagement = () => {
     return badges[status] || badges.pending;
   };
 
+  // Reset filters function
+  const resetFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setTypeFilter('all');
+    setStaffFilter('all');
+    setItemsPerPage(25);
+    setCurrentPage(1);
+  };
+
   // Print handler
   const handlePrint = () => {
     if (!printRef.current) {
@@ -509,34 +520,32 @@ const LeaveManagement = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Leave Management</h1>
-          <p className="text-gray-600">Manage leave requests for your branch</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-          >
-            <Printer className="w-5 h-5" />
-            Print Report
-          </button>
-          <button
-            onClick={() => handleRequestLeave(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <UserPlus className="w-5 h-5" />
-            Add Leave for Staff
-          </button>
-          <button
-            onClick={() => handleRequestLeave(false)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Request My Leave
-          </button>
+      {/* Header with Title and Actions */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3">
+          {/* Title */}
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Leave Management</h1>
+            <p className="text-gray-600">Manage leave requests for your branch</p>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleRequestLeave(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm"
+            >
+              <UserPlus className="w-5 h-5" />
+              Add Leave for Staff
+            </button>
+            <button
+              onClick={() => handleRequestLeave(false)}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm"
+            >
+              <Plus className="w-5 h-5" />
+              Request My Leave
+            </button>
+          </div>
         </div>
       </div>
 
@@ -599,139 +608,47 @@ const LeaveManagement = () => {
         </div>
       </div>
 
-      {/* Filters Section */}
-      <div className="bg-white rounded-lg shadow border border-gray-200">
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-600" />
-            <span className="font-medium text-gray-900">Filters</span>
-            {(statusFilter !== 'all' || typeFilter !== 'all' || staffFilter !== 'all' || debouncedSearchTerm) && (
-              <span className="px-2 py-0.5 bg-primary-100 text-primary-700 text-xs rounded-full">
-                Active
+      {/* Filters and Actions */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search leave requests..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+          </div>
+
+          {/* Filter Button */}
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
+              (statusFilter !== 'all' || typeFilter !== 'all' || staffFilter !== 'all' || debouncedSearchTerm)
+                ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredAndSortedRequests.length} requests`}
+          >
+            <Filter className="w-5 h-5" />
+            {filteredAndSortedRequests.length > 0 && (
+              <span className="bg-primary-600 text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                {filteredAndSortedRequests.length}
               </span>
             )}
-          </div>
-          {showFilters ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
-        </button>
-        
-        {showFilters && (
-          <div className="border-t border-gray-200 p-4 space-y-4">
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Search by employee name..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
+          </button>
 
-            {/* Filter Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {/* Staff Filter - Prominent */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Staff Member <span className="text-[#160B53]">*</span>
-                </label>
-                <select
-                  value={staffFilter}
-                  onChange={(e) => setStaffFilter(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="all">All Staff</option>
-                  <option value={currentUser.uid}>Me ({getFullName(userData) || currentUser.displayName || 'My Requests'})</option>
-                  {staffMembers.map(staff => {
-                    const staffId = staff.id || staff.uid;
-                    return (
-                      <option key={staffId} value={staffId}>
-                        {getFullName(staff)}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              {/* Status Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Status
-                </label>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="all">All Status</option>
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected_cancelled">Rejected + Cancelled</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </div>
-
-              {/* Type Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Leave Type
-                </label>
-                <select
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="all">All Types</option>
-                  {LEAVE_TYPES.map(type => (
-                    <option key={type.value} value={type.value}>{type.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Items Per Page */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Items Per Page
-                </label>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Clear Filters Button */}
-            {(statusFilter !== 'all' || typeFilter !== 'all' || staffFilter !== 'all' || debouncedSearchTerm) && (
-              <div className="flex justify-end">
-                <button
-                  onClick={() => {
-                    setSearchTerm('');
-                    setStatusFilter('all');
-                    setTypeFilter('all');
-                    setStaffFilter('all');
-                  }}
-                  className="text-sm text-gray-600 hover:text-gray-900 underline"
-                >
-                  Clear All Filters
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+          {/* Print Button */}
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Printer className="w-5 h-5 text-gray-600" />
+          </button>
+        </div>
       </div>
 
       {/* Leave Requests Table */}
@@ -903,6 +820,34 @@ const LeaveManagement = () => {
                               Cancel
                             </button>
                           )}
+                          {/* Allow cancellation of approved leaves that haven't started yet */}
+                          {request.status === 'approved' && (() => {
+                            const startDate = request.startDate?.toDate ? request.startDate.toDate() : new Date(request.startDate);
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            return startDate > today;
+                          })() && (
+                            <button
+                              onClick={() => handleCancel(request)}
+                              disabled={processing === request.id}
+                              className="px-2 py-1 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 text-xs"
+                              title="Cancel approved leave"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                          {/* Show dash for completed/past leaves with no actions */}
+                          {!canApprove && !canCancel && request.status !== 'approved' && (
+                            <span className="text-gray-400 text-xs">—</span>
+                          )}
+                          {request.status === 'approved' && (() => {
+                            const startDate = request.startDate?.toDate ? request.startDate.toDate() : new Date(request.startDate);
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            return startDate <= today;
+                          })() && (
+                            <span className="text-gray-400 text-xs">—</span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -958,6 +903,107 @@ const LeaveManagement = () => {
         isForStaff={isForStaff}
         currentUserId={currentUser.uid}
       />
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">Filter Leave Requests</h2>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Staff Member</label>
+                <select
+                  value={staffFilter}
+                  onChange={(e) => setStaffFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Staff</option>
+                  <option value={currentUser.uid}>Me ({getFullName(userData) || currentUser.displayName || 'My Requests'})</option>
+                  {staffMembers.map(staff => {
+                    const staffId = staff.id || staff.uid;
+                    return (
+                      <option key={staffId} value={staffId}>
+                        {getFullName(staff)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Leave Type</label>
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">All Types</option>
+                  {LEAVE_TYPES.map(type => (
+                    <option key={type.value} value={type.value}>{type.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Items Per Page</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-6 border-t border-gray-200">
+              <button
+                onClick={resetFilters}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                Clear Filters
+              </button>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm"
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <RejectLeaveModal
         isOpen={showRejectModal}

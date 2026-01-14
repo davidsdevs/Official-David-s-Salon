@@ -1,58 +1,19 @@
-// src/pages/02_OperationalManager/Inventory.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
-
-import { Card } from '../../components/ui/Card';
-import Button from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
-import { SearchInput } from '../../components/ui/SearchInput';
-import Modal from '../../components/ui/Modal';
-import { getBranchById, getBranches } from '../../services/branchService';
+import { Search, TrendingUp, DollarSign, Package, AlertTriangle } from 'lucide-react';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { getBranches } from '../../services/branchService';
 import { inventoryService } from '../../services/inventoryService';
-import { productService } from '../../services/productService';
-import {
-  Package,
-  Search,
-  Filter,
-  Eye,
-  RefreshCw,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Calendar,
-  Building,
-  TrendingUp,
-  TrendingDown,
-  Banknote,
-  Home,
-  BarChart3,
-  ShoppingCart,
-  Award,
-  MapPin,
-  Users,
-  UserCog,
-  ArrowRightLeft,
-  Package2
-} from 'lucide-react';
-import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 
 const OperationalManagerInventory = () => {
   const { userData } = useAuth();
-
-  
-
   const [branches, setBranches] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState('all');
   const [inventory, setInventory] = useState([]);
-  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
   // Load branches
   const loadBranches = async () => {
@@ -65,23 +26,14 @@ const OperationalManagerInventory = () => {
     }
   };
 
-  // Load inventory across all branches or specific branch
+  // Load inventory across all branches
   const loadInventory = async () => {
     try {
       setLoading(true);
-      setError(null);
 
-      // Load all products first
-      const productsResult = await productService.getAllProducts();
-      if (productsResult.success) {
-        setProducts(productsResult.products);
-      }
-
-      // Load inventory for each branch
       const allInventory = [];
       
       if (selectedBranch === 'all') {
-        // Load inventory from all branches
         for (const branch of branches) {
           try {
             const stocksResult = await inventoryService.getBranchStocks(branch.id);
@@ -99,7 +51,6 @@ const OperationalManagerInventory = () => {
           }
         }
       } else {
-        // Load inventory for selected branch
         const stocksResult = await inventoryService.getBranchStocks(selectedBranch);
         if (stocksResult.success) {
           const branch = branches.find(b => b.id === selectedBranch);
@@ -116,7 +67,7 @@ const OperationalManagerInventory = () => {
       setInventory(allInventory);
     } catch (err) {
       console.error('Error loading inventory:', err);
-      setError(err.message || 'Failed to load inventory');
+      toast.error('Failed to load inventory');
     } finally {
       setLoading(false);
     }
@@ -137,376 +88,242 @@ const OperationalManagerInventory = () => {
     return [...new Set(inventory.map(item => item.category).filter(Boolean))];
   }, [inventory]);
 
-  // Filter inventory
-  const filteredInventory = useMemo(() => {
-    return inventory.filter(item => {
-      const matchesSearch = 
-        item.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.branchName?.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter;
-      const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
-      
-      return matchesSearch && matchesCategory && matchesStatus;
-    });
-  }, [inventory, searchTerm, categoryFilter, statusFilter]);
+  // Calculate cost summaries
+  const costSummary = useMemo(() => {
+    let totalCost = 0;
+    let totalSalesValue = 0;
+    let lowStockValue = 0;
+    let outOfStockCount = 0;
 
-  // Calculate statistics
-  const stats = useMemo(() => {
-    const totalProducts = new Set(inventory.map(item => item.productId)).size;
-    const totalValue = inventory.reduce((sum, item) => {
-      return sum + ((item.currentStock || 0) * (item.unitCost || 0));
-    }, 0);
-    const lowStock = inventory.filter(item => {
-      const current = item.currentStock || 0;
-      const min = item.minStock || 0;
-      return current <= min && current > 0;
-    }).length;
-    const outOfStock = inventory.filter(item => (item.currentStock || 0) === 0).length;
-    const totalBranches = selectedBranch === 'all' ? branches.length : 1;
+    inventory.forEach(item => {
+      const unitCost = item.unitCost || 0;
+      const currentStock = item.currentStock || 0;
+      const sellingPrice = item.sellingPrice || unitCost * 1.5;
+      
+      totalCost += unitCost * currentStock;
+      totalSalesValue += sellingPrice * currentStock;
+      
+      if (currentStock > 0 && currentStock <= (item.minStock || 0)) {
+        lowStockValue += unitCost * currentStock;
+      }
+      
+      if (currentStock === 0) {
+        outOfStockCount++;
+      }
+    });
+
+    const grossProfit = totalSalesValue - totalCost;
+    const profitMargin = totalSalesValue > 0 ? (grossProfit / totalSalesValue * 100) : 0;
 
     return {
-      totalProducts,
-      totalValue,
-      lowStock,
-      outOfStock,
-      totalBranches
+      totalCost,
+      totalSalesValue,
+      grossProfit,
+      profitMargin,
+      lowStockValue,
+      outOfStockCount,
+      totalItems: inventory.length
     };
-  }, [inventory, selectedBranch, branches.length]);
+  }, [inventory]);
 
-  // Handle view details
-  const handleViewDetails = (item) => {
-    const product = products.find(p => p.id === item.productId);
-    setSelectedProduct({ ...item, product });
-    setIsDetailsModalOpen(true);
-  };
+  // Filter inventory by category
+  const filteredByCategory = useMemo(() => {
+    if (categoryFilter === 'all') return inventory;
+    return inventory.filter(item => item.category === categoryFilter);
+  }, [inventory, categoryFilter]);
 
-  // Get status color
-  const getStatusColor = (item) => {
-    const current = item.currentStock || 0;
-    const min = item.minStock || 0;
+  // Category breakdown
+  const categoryBreakdown = useMemo(() => {
+    const breakdown = {};
     
-    if (current === 0) return 'text-red-600 bg-red-100';
-    if (current <= min) return 'text-orange-600 bg-orange-100';
-    return 'text-green-600 bg-green-100';
-  };
+    filteredByCategory.forEach(item => {
+      const category = item.category || 'Uncategorized';
+      if (!breakdown[category]) {
+        breakdown[category] = {
+          cost: 0,
+          sales: 0,
+          count: 0
+        };
+      }
+      
+      const unitCost = item.unitCost || 0;
+      const currentStock = item.currentStock || 0;
+      const sellingPrice = item.sellingPrice || unitCost * 1.5;
+      
+      breakdown[category].cost += unitCost * currentStock;
+      breakdown[category].sales += sellingPrice * currentStock;
+      breakdown[category].count += currentStock;
+    });
 
-  // Get status text
-  const getStatusText = (item) => {
-    const current = item.currentStock || 0;
-    const min = item.minStock || 0;
-    
-    if (current === 0) return 'Out of Stock';
-    if (current <= min) return 'Low Stock';
-    return 'In Stock';
-  };
+    return Object.entries(breakdown).map(([category, data]) => ({
+      category,
+      ...data,
+      profit: data.sales - data.cost,
+      margin: data.sales > 0 ? ((data.sales - data.cost) / data.sales * 100) : 0
+    }));
+  }, [filteredByCategory]);
 
-  if (loading && inventory.length === 0) {
+  if (loading) {
     return (
-      
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
-        <span className="ml-2 text-gray-600">Loading inventory...</span>
+        <LoadingSpinner size="lg" />
       </div>
-      
     );
   }
 
   return (
-    
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory Overview</h1>
-          <p className="text-gray-600">View inventory across all branches</p>
-        </div>
-        <Button onClick={loadInventory} className="flex items-center gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Inventory Cost Summary</h1>
+        <p className="text-gray-600">Overview of costs, prices, and sales across inventory</p>
       </div>
 
-      {/* Statistics Cards */}
+      {/* Summary Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center">
-            <Package className="h-8 w-8 text-blue-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Total Products</p>
-              <p className="text-xl font-bold text-gray-900">{stats.totalProducts}</p>
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Total Cost</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">₱{costSummary.totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+            </div>
+            <div className="p-3 bg-blue-100 rounded-lg">
+              <DollarSign className="w-6 h-6 text-blue-600" />
             </div>
           </div>
-        </Card>
-          
-        <Card className="p-4">
-          <div className="flex items-center">
-            <Banknote className="h-8 w-8 text-green-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Total Value</p>
-              <p className="text-xl font-bold text-gray-900">₱{stats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Sales Value</p>
+              <p className="text-2xl font-bold text-green-600 mt-1">₱{costSummary.totalSalesValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+            </div>
+            <div className="p-3 bg-green-100 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-green-600" />
             </div>
           </div>
-        </Card>
-          
-        <Card className="p-4">
-          <div className="flex items-center">
-            <AlertTriangle className="h-8 w-8 text-orange-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Low Stock</p>
-              <p className="text-xl font-bold text-gray-900">{stats.lowStock}</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Gross Profit</p>
+              <p className="text-2xl font-bold text-purple-600 mt-1">₱{costSummary.grossProfit.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+              <p className="text-xs text-gray-500 mt-1">{costSummary.profitMargin.toFixed(1)}% margin</p>
+            </div>
+            <div className="p-3 bg-purple-100 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-purple-600" />
             </div>
           </div>
-        </Card>
-          
-        <Card className="p-4">
-          <div className="flex items-center">
-            <XCircle className="h-8 w-8 text-red-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Out of Stock</p>
-              <p className="text-xl font-bold text-gray-900">{stats.outOfStock}</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Low Stock Value</p>
+              <p className="text-2xl font-bold text-orange-600 mt-1">₱{costSummary.lowStockValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+            </div>
+            <div className="p-3 bg-orange-100 rounded-lg">
+              <AlertTriangle className="w-6 h-6 text-orange-600" />
             </div>
           </div>
-        </Card>
-          
-        <Card className="p-4">
-          <div className="flex items-center">
-            <Building className="h-8 w-8 text-purple-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Branches</p>
-              <p className="text-xl font-bold text-gray-900">{stats.totalBranches}</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Out of Stock</p>
+              <p className="text-2xl font-bold text-red-600 mt-1">{costSummary.outOfStockCount}</p>
+              <p className="text-xs text-gray-500 mt-1">items</p>
+            </div>
+            <div className="p-3 bg-red-100 rounded-lg">
+              <Package className="w-6 h-6 text-red-600" />
             </div>
           </div>
-        </Card>
+        </div>
       </div>
 
-      {/* Filters */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row gap-4">
-          <div className="flex-1">
-            <SearchInput
-              placeholder="Search by product name, brand, category, or branch..."
+      {/* Search and Filter Row */}
+      <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+        <div className="flex items-center gap-3">
+          {/* Search Bar */}
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search products..."
               value={searchTerm}
-              onChange={setSearchTerm}
-              className="w-full"
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
             />
           </div>
-          <div className="flex gap-3">
-            <select
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="all">All Branches</option>
-              {branches.map(branch => (
-                <option key={branch.id} value={branch.id}>{branch.name}</option>
-              ))}
-            </select>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="all">All Categories</option>
-              {categories.map(category => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="all">All Status</option>
-              <option value="In Stock">In Stock</option>
-              <option value="Low Stock">Low Stock</option>
-              <option value="Out of Stock">Out of Stock</option>
-            </select>
-          </div>
+
+          {/* Branch Filter */}
+          <select
+            value={selectedBranch}
+            onChange={(e) => setSelectedBranch(e.target.value)}
+            className="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm bg-white"
+          >
+            <option value="all">All Branches</option>
+            {branches.map(branch => (
+              <option key={branch.id} value={branch.id}>{branch.name}</option>
+            ))}
+          </select>
+
+          {/* Category Filter */}
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm bg-white"
+          >
+            <option value="all">All Categories</option>
+            {categories.map(category => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
         </div>
-      </Card>
+      </div>
 
-      {/* Inventory Table */}
-      {filteredInventory.length > 0 ? (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Product
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Branch
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Category
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Current Stock
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Min Stock
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Unit Cost
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Total Value
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredInventory.map((item) => (
-                  <tr key={`${item.id}-${item.branchId}`} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{item.productName}</div>
-                        <div className="text-xs text-gray-500">{item.brand}</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.branchName}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.category || '-'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{item.currentStock || 0}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.minStock || 0}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">₱{item.unitCost?.toFixed(2) || '0.00'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        ₱{((item.currentStock || 0) * (item.unitCost || 0)).toFixed(2)}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(item)}`}>
-                        {getStatusText(item) === 'Out of Stock' && <XCircle className="h-3 w-3" />}
-                        {getStatusText(item) === 'Low Stock' && <AlertTriangle className="h-3 w-3" />}
-                        {getStatusText(item) === 'In Stock' && <CheckCircle className="h-3 w-3" />}
-                        {getStatusText(item)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleViewDetails(item)}
-                        className="flex items-center gap-2"
-                      >
-                        <Eye className="h-4 w-4" />
-                        View
-                      </Button>
-                    </td>
+      {/* Category Breakdown Table */}
+      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cost</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Sales Value</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Profit</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Margin</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {categoryBreakdown.length > 0 ? (
+                categoryBreakdown.map((cat) => (
+                  <tr key={cat.category} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{cat.category}</td>
+                    <td className="px-6 py-4 text-sm text-right text-gray-900">{cat.count}</td>
+                    <td className="px-6 py-4 text-sm text-right text-gray-900">₱{cat.cost.toLocaleString('en-US', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-6 py-4 text-sm text-right text-green-600 font-medium">₱{cat.sales.toLocaleString('en-US', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-6 py-4 text-sm text-right text-purple-600 font-medium">₱{cat.profit.toLocaleString('en-US', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-6 py-4 text-sm text-right font-medium">{cat.margin.toFixed(1)}%</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : (
-        <Card className="p-12 text-center">
-          <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No Inventory Found</h3>
-          <p className="text-gray-600">
-            {searchTerm || categoryFilter !== 'all' || statusFilter !== 'all'
-              ? 'Try adjusting your search or filters'
-              : 'No inventory data available'}
-          </p>
-        </Card>
-      )}
-
-      {/* Product Details Modal */}
-      {isDetailsModalOpen && selectedProduct && (
-        <Modal
-          isOpen={isDetailsModalOpen}
-          onClose={() => {
-            setIsDetailsModalOpen(false);
-            setSelectedProduct(null);
-          }}
-          title="Product Inventory Details"
-          size="lg"
-        >
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Product Name</label>
-                <p className="text-gray-900 font-semibold">{selectedProduct.productName}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Branch</label>
-                <p className="text-gray-900">{selectedProduct.branchName}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Brand</label>
-                <p className="text-gray-900">{selectedProduct.brand || '-'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Category</label>
-                <p className="text-gray-900">{selectedProduct.category || '-'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Current Stock</label>
-                <p className="text-gray-900 font-semibold">{selectedProduct.currentStock || 0}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Min Stock</label>
-                <p className="text-gray-900">{selectedProduct.minStock || 0}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Max Stock</label>
-                <p className="text-gray-900">{selectedProduct.maxStock || 0}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Unit Cost</label>
-                <p className="text-gray-900">₱{selectedProduct.unitCost?.toFixed(2) || '0.00'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Total Value</label>
-                <p className="text-gray-900 font-semibold text-green-600">
-                  ₱{((selectedProduct.currentStock || 0) * (selectedProduct.unitCost || 0)).toFixed(2)}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Status</label>
-                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedProduct)}`}>
-                  {getStatusText(selectedProduct)}
-                </span>
-              </div>
-              {selectedProduct.lastUpdated && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Last Updated</label>
-                  <p className="text-gray-900">{format(new Date(selectedProduct.lastUpdated), 'MMM dd, yyyy HH:mm')}</p>
-                </div>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
+                    No inventory data available
+                  </td>
+                </tr>
               )}
-              {selectedProduct.location && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Location</label>
-                  <p className="text-gray-900">{selectedProduct.location}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </Modal>
-      )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
-    
   );
 };
 
 export default OperationalManagerInventory;
-

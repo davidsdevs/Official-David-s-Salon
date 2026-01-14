@@ -1,5 +1,5 @@
 // src/pages/04_BranchManager/Inventory.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -7,6 +7,7 @@ import { Input } from '../../components/ui/Input';
 
 
 import { inventoryService } from '../../services/inventoryService';
+import { transactionApiService } from '../../services/transactionApiService';
 import { db } from '../../config/firebase';
 import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import {
@@ -43,11 +44,17 @@ import {
   AlertCircle,
   Info,
   Filter,
-  Calendar
+  Calendar,
+  Printer,
+  ChevronUp,
+  ChevronDown,
+  Upload,
+  DollarSign,
+  Edit
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatDate } from '../../utils/helpers';
-import { transactionApiService } from '../../services/transactionApiService';
+import toast from 'react-hot-toast';
 import { openaiService } from '../../services/openaiService';
 import { getAllServices } from '../../services/serviceManagementService';
 import { Sparkles, Loader2 as Loader2Icon, Scissors } from 'lucide-react';
@@ -60,458 +67,114 @@ const useDebounce = (value, delay) => {
     const handler = setTimeout(() => {
       setDebouncedValue(value);
     }, delay);
-
     return () => {
-    clearTimeout(handler);
+      clearTimeout(handler);
     };
   }, [value, delay]);
-
   return debouncedValue;
 };
 
 const Inventory = () => {
-  const { userData } = useAuth();
-  
-  // Tab state
-  const [activeTab, setActiveTab] = useState('products'); // 'products', 'reports', 'purchaseOrders', 'analytics', 'productSales'
-  
-  // ========== ANALYTICS TAB STATE ==========
-  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
-  const [analyticsData, setAnalyticsData] = useState(null);
-  const [anomalies, setAnomalies] = useState([]);
-  const [lowSalesProducts, setLowSalesProducts] = useState([]);
-  const [inventoryMovements, setInventoryMovements] = useState([]);
-  const [selectedAnalyticsView, setSelectedAnalyticsView] = useState('overview'); // 'overview', 'anomalies', 'lowSales', 'trends'
-  const [analyticsDateRange, setAnalyticsDateRange] = useState('30'); // days
-  
-  // ========== PRODUCTS TAB STATE ==========
-  const [products, setProducts] = useState([]);
-  const [stocks, setStocks] = useState([]);
-  const [services, setServices] = useState([]); // For service-product mapping
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [selectedStatus, setSelectedStatus] = useState('all');
-  
-  // Modal states
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-
-  // ========== REPORTS TAB STATE ==========
-  const [loadingReports, setLoadingReports] = useState(true);
-  const [errorReports, setErrorReports] = useState(null);
-  const [salesData, setSalesData] = useState([]);
-  const [inventoryStats, setInventoryStats] = useState(null);
-  const [topSellingProducts, setTopSellingProducts] = useState([]);
-
-  // ========== PURCHASE ORDERS TAB STATE ==========
-  const [purchaseOrders, setPurchaseOrders] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
-  const [branchProductsForPO, setBranchProductsForPO] = useState([]);
-  const [supplierProducts, setSupplierProducts] = useState([]);
-  const [loadingPO, setLoadingPO] = useState(true);
-  const [errorPO, setErrorPO] = useState(null);
-
-  // ========== PRODUCT SALES TAB STATE ==========
-  const [productSales, setProductSales] = useState([]);
-  const [loadingSales, setLoadingSales] = useState(false);
-  const [salesDateRange, setSalesDateRange] = useState('30'); // days
-  const [salesSearchTerm, setSalesSearchTerm] = useState('');
-  const [salesSortBy, setSalesSortBy] = useState('revenue'); // 'revenue', 'quantity', 'name'
-  const [salesSortOrder, setSalesSortOrder] = useState('desc'); // 'asc', 'desc'
-  
-  // AI Insights for Product Sales
-  const [productSalesInsights, setProductSalesInsights] = useState(null);
-  const [loadingProductAI, setLoadingProductAI] = useState(false);
-  
-  // Purchase Orders UI states
-  const [searchTermPO, setSearchTermPO] = useState('');
+  // State declarations
+  const [activeTab, setActiveTab] = useState('products');
   const [selectedStatusPO, setSelectedStatusPO] = useState('all');
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('all');
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [suppliers, setSuppliers] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedBrand, setSelectedBrand] = useState('all');
+  const [products, setProducts] = useState([]);
+  const [selectedSupplier, setSelectedSupplier] = useState('all');
+  const [productStatus, setProductStatus] = useState('all');
+  const [selectedStatus, setSelectedStatus] = useState('all');
+  const [minStock, setMinStock] = useState('');
+  const [maxStock, setMaxStock] = useState('');
+  const [stockAlerts, setStockAlerts] = useState('all');
+  const [expiryFilter, setExpiryFilter] = useState('all');
+  const [minUnitCost, setMinUnitCost] = useState('');
+  const [maxUnitCost, setMaxUnitCost] = useState('');
+  const [minOtcPrice, setMinOtcPrice] = useState('');
+  const [maxOtcPrice, setMaxOtcPrice] = useState('');
+  const [minTotalValue, setMinTotalValue] = useState('');
+  const [maxTotalValue, setMaxTotalValue] = useState('');
+  const [hasServiceMapping, setHasServiceMapping] = useState('all');
+  const [stocks, setStocks] = useState([]);
+
+  const [services, setServices] = useState([]);
+  
+  // Missing state declarations
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTermPO, setSearchTermPO] = useState('');
+  const [sortColumn, setSortColumn] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  
+  // Reports states
+  const [productTransactions, setProductTransactions] = useState([]);
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [errorReports, setErrorReports] = useState(null);
+  
+  // Purchase Orders states
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [loadingPO, setLoadingPO] = useState(false);
+  const [errorPO, setErrorPO] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isConfirmApproveModalOpen, setIsConfirmApproveModalOpen] = useState(false);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [isConfirmRejectModalOpen, setIsConfirmRejectModalOpen] = useState(false);
+  const [pendingOrderId, setPendingOrderId] = useState(null);
+  const [rejectionNote, setRejectionNote] = useState('');
+  const [isProcessingApproval, setIsProcessingApproval] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Big data optimizations for products
-  const [productSearchTerm, setProductSearchTerm] = useState('');
-  const debouncedProductSearch = useDebounce(productSearchTerm, 300);
-  const [currentProductPage, setCurrentProductPage] = useState(1);
-  const productsPerPage = 20;
-  
-  // Form states - Step 1: Select Supplier
+  // Purchase Order form states
+  const [orderItems, setOrderItems] = useState([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [selectedSupplierName, setSelectedSupplierName] = useState('');
   const [showProductSelection, setShowProductSelection] = useState(false);
-  
-  // Form states - Step 2: Select Products
-  const [orderItems, setOrderItems] = useState([]);
+  const [branchProductsForPO, setBranchProductsForPO] = useState([]);
+  const [supplierProducts, setSupplierProducts] = useState([]);
+  const [productsPerPage, setProductsPerPage] = useState(10);
+  const [currentProductPage, setCurrentProductPage] = useState(1);
+  const [productSearchTerm, setProductSearchTerm] = useState('');
   const [orderFormData, setOrderFormData] = useState({
     orderDate: new Date().toISOString().split('T')[0],
     expectedDelivery: '',
     notes: ''
   });
+  
+  // Analytics states
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [topSellingProducts, setTopSellingProducts] = useState([]);
+  const [lowSellingProducts, setLowSellingProducts] = useState([]);
+  const [lowStockProducts, setLowStockProducts] = useState([]);
+  const [highStockProducts, setHighStockProducts] = useState([]);
+  const [anomalies, setAnomalies] = useState([]);
+  const [selectedAnalyticsTab, setSelectedAnalyticsTab] = useState('topSelling'); // 'topSelling' | 'lowSelling' | 'lowStock' | 'highStock' | 'anomalies'
+  const [analyticsDateRange, setAnalyticsDateRange] = useState('30');
 
-  // ========== LOAD PRODUCTS ==========
-  const loadProducts = async () => {
-    if (!userData?.branchId) {
-    setError('Branch ID not found');
-    setLoading(false);
-    return;
-    }
+  // Stock Transfer states
+  const [stockTransfers, setStockTransfers] = useState([]);
+  const [loadingTransfers, setLoadingTransfers] = useState(false);
+  const [errorTransfers, setErrorTransfers] = useState(null);
+  const [searchTermTransfer, setSearchTermTransfer] = useState('');
+  const [showCreateTransferModal, setShowCreateTransferModal] = useState(false);
+  const [selectedTransfer, setSelectedTransfer] = useState(null);
+  const [showTransferDetailsModal, setShowTransferDetailsModal] = useState(false);
+  
+  // Refs
+  const printRef = useRef(null);
+  
+  // Debounced search
+  const debouncedProductSearch = useDebounce(productSearchTerm, 300);
 
-    try {
-    setLoading(true);
-    setError(null);
-
-      // Get products available to this branch (where branchId is in branches array)
-    const productsRef = collection(db, 'products');
-    const productsSnapshot = await getDocs(productsRef);
-      
-    const branchProducts = [];
-    productsSnapshot.forEach((doc) => {
-      const productData = doc.data();
-        
-        // Check if the product is available to this branch
-      const isAvailableToBranch = productData.branches && 
-        Array.isArray(productData.branches) &&
-        productData.branches.includes(userData.branchId);
-        
-      if (isAvailableToBranch) {
-        branchProducts.push({
-          id: doc.id,
-          name: productData.name || 'Unknown',
-          category: productData.category || '',
-          brand: productData.brand || '',
-          sku: productData.sku || productData.upc || '',
-          unitCost: productData.unitCost || 0,
-          otcPrice: productData.otcPrice || 0,
-          salonUsePrice: productData.salonUsePrice || 0,
-          description: productData.description || '',
-          imageUrl: productData.imageUrl || '',
-          suppliers: productData.suppliers || (productData.supplier ? [productData.supplier] : []), // Suppliers array
-          supplier: productData.supplier || '', // Keep for backward compatibility
-          status: productData.status || 'Active',
-          variants: productData.variants || '',
-          shelfLife: productData.shelfLife || '',
-          ...productData
-        });
-      }
-    });
-
-      // Fetch stock information from stocks collection (includes batch_stocks)
-      // Get all stocks for this branch - both regular stocks and batch_stocks
-      // Fetch by branchId only, then filter by status client-side to avoid index requirement
-      const stocksRef = collection(db, 'stocks');
-      const stocksQuery = query(
-        stocksRef,
-        where('branchId', '==', userData.branchId)
-      );
-      const stocksSnapshot = await getDocs(stocksQuery);
-      
-      // Aggregate stock by product (sum all batch stocks for each product)
-      // Filter by status client-side to avoid index requirement
-      const stockMap = new Map();
-      const productHasBatchStocks = new Set(); // Track which products have batch stocks
-      
-      // First pass: identify products that have batch stocks
-      stocksSnapshot.forEach((doc) => {
-        const stockData = doc.data();
-        const productId = stockData.productId;
-        const status = stockData.status || 'active';
-        const stockType = stockData.stockType || 'regular';
-        
-        if (productId && status === 'active' && stockType === 'batch') {
-          productHasBatchStocks.add(productId);
-        }
-      });
-      
-      // Second pass: aggregate stocks
-      // If product has batch stocks, only count batch stocks
-      // If product doesn't have batch stocks, count regular stocks
-      const arganStockRecords = []; // Debug array
-      const processedDocIds = new Set(); // Track processed documents to detect duplicates
-      
-      stocksSnapshot.forEach((doc) => {
-        // Check for duplicate document processing
-        if (processedDocIds.has(doc.id)) {
-          console.error('⚠️ DUPLICATE DOCUMENT DETECTED:', doc.id);
-          return;
-        }
-        processedDocIds.add(doc.id);
-        const stockData = doc.data();
-        const productId = stockData.productId;
-        const status = stockData.status || 'active';
-        const stockType = stockData.stockType || 'regular';
-        
-        // Only process active stocks
-        if (productId && status === 'active') {
-          // If product has batch stocks, only count batch stocks
-          // If product doesn't have batch stocks, only count regular stocks
-          const shouldCount = productHasBatchStocks.has(productId) 
-            ? stockType === 'batch' 
-            : stockType !== 'batch';
-          
-          if (!shouldCount) return;
-          
-          // IMPORTANT: Use realTimeStock, NOT beginningStock
-          // realTimeStock is the current available stock after sales/deductions
-          const realTimeStock = typeof stockData.realTimeStock === 'number' 
-            ? stockData.realTimeStock 
-            : Number(stockData.realTimeStock) || 0;
-          const beginningStock = typeof stockData.beginningStock === 'number'
-            ? stockData.beginningStock
-            : Number(stockData.beginningStock) || 0;
-          
-          // CRITICAL: Log exactly what we're reading
-          if (productId === 'mZorRF53mbG553ZUHDuU') {
-            console.log('🔍 Reading stock record:', {
-              stockId: doc.id,
-              realTimeStock: stockData.realTimeStock,
-              realTimeStockType: typeof stockData.realTimeStock,
-              realTimeStockConverted: realTimeStock,
-              beginningStock: stockData.beginningStock,
-              beginningStockConverted: beginningStock,
-              willUse: realTimeStock // This is what we're adding to total
-            });
-          }
-          
-          // Debug logging for ARGAN product
-          if (productId === 'mZorRF53mbG553ZUHDuU') {
-            arganStockRecords.push({
-              stockId: doc.id,
-              batchNumber: stockData.batchNumber || 'N/A',
-              stockType,
-              realTimeStock,
-              beginningStock,
-              shouldCount,
-              hasBatchStocks: productHasBatchStocks.has(productId),
-              rawData: {
-                realTimeStock: stockData.realTimeStock,
-                beginningStock: stockData.beginningStock,
-                status: stockData.status
-              }
-            });
-          }
-          
-          if (!stockMap.has(productId)) {
-            stockMap.set(productId, {
-              productId: productId,
-              totalStock: 0,
-              minStock: stockData.minStock || 0,
-              maxStock: stockData.maxStock || 0,
-              unitCost: stockData.unitCost || 0,
-              location: stockData.location || null,
-              expiryDate: stockData.expiryDate || null,
-              lastUpdated: stockData.updatedAt || stockData.lastUpdated || null
-            });
-          }
-          
-          // Sum ONLY realTimeStock from all batches for this product
-          const current = stockMap.get(productId);
-          const beforeAdd = current.totalStock;
-          current.totalStock += realTimeStock;
-          
-          // Debug: Log the addition
-          if (productId === 'mZorRF53mbG553ZUHDuU') {
-            console.log('➕ Adding to total:', {
-              before: beforeAdd,
-              adding: realTimeStock,
-              after: current.totalStock
-            });
-          }
-          
-          // Use the most recent minStock, maxStock, unitCost if available
-          if (stockData.minStock) current.minStock = stockData.minStock;
-          if (stockData.maxStock) current.maxStock = stockData.maxStock;
-          if (stockData.unitCost) current.unitCost = stockData.unitCost;
-        }
-      });
-      
-      // Debug: Log all ARGAN stock records and final total
-      if (arganStockRecords.length > 0) {
-        console.group('🔍 ARGAN Stock Aggregation Debug');
-        console.log('Stock records found:', arganStockRecords.length);
-        arganStockRecords.forEach((record, index) => {
-          console.log(`Record ${index + 1}:`, record);
-        });
-        const finalTotal = stockMap.get('mZorRF53mbG553ZUHDuU')?.totalStock || 0;
-        const sumOfRealTime = arganStockRecords.reduce((sum, r) => sum + r.realTimeStock, 0);
-        console.log('Sum of realTimeStock values:', sumOfRealTime);
-        console.log('Final aggregated totalStock:', finalTotal);
-        console.groupEnd();
-      }
-      
-      // Convert to array for backward compatibility
-      const aggregatedStocks = Array.from(stockMap.values());
-      setStocks(aggregatedStocks);
-
-      // Merge products with aggregated stock data
-    const mergedProducts = branchProducts.map(product => {
-      const stock = stockMap.get(product.id);
-      const totalStock = Number(stock?.totalStock) || 0;
-      const minStock = Number(stock?.minStock) || 0;
-      
-      // Debug for ARGAN
-      if (product.id === 'mZorRF53mbG553ZUHDuU') {
-        console.log('🔍 Merging ARGAN product:', {
-          productId: product.id,
-          stockFromMap: stock,
-          totalStock: totalStock,
-          totalStockType: typeof totalStock,
-          willSetCurrentStock: totalStock,
-          productBeforeMerge: {
-            name: product.name,
-            currentStock: product.currentStock,
-            unitCost: product.unitCost
-          }
-        });
-      }
-      
-      // Calculate status based on stock levels
-      let status = 'No Stock Data';
-      if (stock) {
-        if (totalStock > minStock) {
-          status = 'In Stock';
-        } else if (totalStock > 0) {
-          status = 'Low Stock';
-        } else {
-          status = 'Out of Stock';
-        }
-      }
-      
-      // Debug for ARGAN
-      if (product.id === 'mZorRF53mbG553ZUHDuU') {
-        console.log('📊 Status calculation for ARGAN:', {
-          totalStock,
-          minStock,
-          calculatedStatus: status,
-          hasStock: !!stock
-        });
-      }
-        
-      // Create merged product - explicitly override any stock fields from product object
-      const mergedProduct = {
-        ...product,
-        // CRITICAL: Override any stock-related fields from product object
-        // Only use the aggregated totalStock from stocks collection
-        currentStock: totalStock,
-        stock: undefined, // Remove any stock field from product object
-        stockCount: undefined, // Remove any stockCount field
-        minStock: minStock,
-        maxStock: stock?.maxStock || 0,
-        unitCost: stock?.unitCost || product.unitCost || 0,
-        status: String(status), // CRITICAL: Ensure status is always a string
-        lastUpdated: stock?.lastUpdated || null,
-        location: stock?.location || null,
-        expiryDate: stock?.expiryDate || null
-      };
-      
-      // Remove any stock-related fields that might be in the product object
-      delete mergedProduct.stock;
-      delete mergedProduct.stockCount;
-      delete mergedProduct.totalStock;
-      
-      // CRITICAL: Ensure status is a string, not a number
-      if (typeof mergedProduct.status !== 'string') {
-        mergedProduct.status = String(mergedProduct.status || 'No Stock Data');
-      }
-      
-      // Debug for ARGAN - verify final merged product
-      if (product.id === 'mZorRF53mbG553ZUHDuU') {
-        console.log('✅ Final merged ARGAN product:', {
-          productId: mergedProduct.id,
-          name: mergedProduct.name,
-          currentStock: mergedProduct.currentStock,
-          currentStockType: typeof mergedProduct.currentStock,
-          unitCost: mergedProduct.unitCost,
-          status: mergedProduct.status,
-          statusType: typeof mergedProduct.status,
-          originalProductStatus: product.status,
-          originalProductStatusType: typeof product.status
-        });
-      }
-      
-      return mergedProduct;
-    });
-
-    setProducts(mergedProducts);
-    } catch (err) {
-    console.error('Error loading products:', err);
-    setError(err.message || 'Failed to load products');
-    } finally {
-    setLoading(false);
-    }
-  };
-
-  // Load product sales data
-  const loadProductSales = async () => {
-    if (!userData?.branchId) return;
-    
-    try {
-    setLoadingSales(true);
-      
-      // Calculate date range
-    const days = parseInt(salesDateRange) || 30;
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-      
-      // Load transactions for this branch
-    const transactions = await transactionApiService.getBranchTransactions(
-      userData.branchId,
-      userData.roles?.[0] || 'Branch Manager',
-      {
-        startDate: startDate.toISOString(),
-        endDate: new Date().toISOString(),
-        status: 'completed'
-      }
-    );
-      
-      // Aggregate product sales
-    const salesMap = {};
-      
-    transactions.forEach(transaction => {
-      if (transaction.products && Array.isArray(transaction.products)) {
-        transaction.products.forEach(product => {
-          const productId = product.productId || product.id;
-          const productName = product.name || product.productName || 'Unknown Product';
-          const quantity = product.quantity || 0;
-          const price = product.price || product.unitPrice || 0;
-          const revenue = quantity * price;
-            
-          if (!salesMap[productId]) {
-            salesMap[productId] = {
-              productId: productId,
-              productName: productName,
-              totalQuantity: 0,
-              totalRevenue: 0,
-              transactionCount: 0,
-              averagePrice: 0
-            };
-          }
-            
-          salesMap[productId].totalQuantity += quantity;
-          salesMap[productId].totalRevenue += revenue;
-          salesMap[productId].transactionCount += 1;
-        });
-      }
-    });
-      
-      // Convert to array and calculate averages
-    const salesArray = Object.values(salesMap).map(sale => ({
-      ...sale,
-      averagePrice: sale.totalQuantity > 0 ? sale.totalRevenue / sale.totalQuantity : 0
-    }));
-      
-    setProductSales(salesArray);
-    } catch (err) {
-    console.error('Error loading product sales:', err);
-    setError(err.message || 'Failed to load product sales');
-    } finally {
-    setLoadingSales(false);
-    }
-  };
+  const { userData } = useAuth();
 
   // Load services for service-product mapping
   const loadServices = async () => {
@@ -523,6 +186,340 @@ const Inventory = () => {
     }
   };
 
+  // Handle filter modal
+  const handleFilter = () => {
+    setShowFilterModal(true);
+  };
+
+  // Handle import
+  const handleImportData = () => {
+    setShowImportModal(true);
+  };
+
+  // Load products and stocks
+  const loadProducts = async () => {
+    if (!userData?.branchId) {
+      setError('Branch ID not found');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      console.log('🔍 Loading stocks for branchId:', userData.branchId);
+
+      // Load stocks directly from 'stocks' collection (FIFO batch tracking)
+      // Query without status filter first to see all stocks
+      const stocksRef = collection(db, 'stocks');
+      const stocksQuery = query(
+        stocksRef,
+        where('branchId', '==', userData.branchId)
+      );
+      const stocksSnapshot = await getDocs(stocksQuery);
+
+      console.log('📦 Stocks found:', stocksSnapshot.size);
+
+      // Process stocks to aggregate by product (separate OTC and Salon Use)
+      const stockMap = new Map();
+
+      // Process each stock entry (batch)
+      stocksSnapshot.forEach((doc) => {
+        const stockData = doc.data();
+        
+        // Only count active stocks (or stocks without status field)
+        if (stockData.status && stockData.status !== 'active') {
+          return;
+        }
+        
+        // Use remainingQuantity or realTimeStock (not currentStock)
+        const currentStock = stockData.remainingQuantity || stockData.realTimeStock || stockData.currentStock || 0;
+          
+        // Sum currentStock from all batches for this product
+        const productId = stockData.productId;
+        if (!productId) return;
+        
+        const usageType = stockData.usageType || 'otc'; // default to otc if not specified
+        
+        const current = stockMap.get(productId) || { 
+          otcStock: 0, 
+          salonStock: 0,
+          totalStock: 0 
+        };
+        
+        // Track stocks separately by usage type
+        if (usageType === 'otc') {
+          current.otcStock = (current.otcStock || 0) + currentStock;
+        } else if (usageType === 'salon-use' || usageType === 'salon_use' || usageType === 'salonUse') {
+          current.salonStock = (current.salonStock || 0) + currentStock;
+        }
+        current.totalStock = (current.otcStock || 0) + (current.salonStock || 0);
+          
+        // Use the most recent minStock, maxStock, unitCost if available
+        if (stockData.minStock) current.minStock = stockData.minStock;
+        if (stockData.maxStock) current.maxStock = stockData.maxStock;
+        if (stockData.unitCost) current.unitCost = stockData.unitCost;
+        if (stockData.lastUpdated) current.lastUpdated = stockData.lastUpdated;
+        if (stockData.location) current.location = stockData.location;
+        if (stockData.expiryDate) current.expiryDate = stockData.expiryDate;
+        
+        stockMap.set(productId, current);
+      });
+      
+      // Convert to array for backward compatibility
+      const aggregatedStocks = Array.from(stockMap.entries()).map(([productId, data]) => ({
+        productId,
+        ...data
+      }));
+      setStocks(aggregatedStocks);
+
+      // Load products from database
+      const productsRef = collection(db, 'products');
+      const productsSnapshot = await getDocs(productsRef);
+
+      const productsList = [];
+      productsSnapshot.forEach((doc) => {
+        const productData = doc.data();
+        // Check if product is available to this branch
+        const isAvailableToBranch = productData.branches && 
+          productData.branches.includes(userData.branchId);
+        if (isAvailableToBranch) {
+          productsList.push({
+            id: doc.id,
+            ...productData
+          });
+        }
+      });
+
+      // Merge products with aggregated stock data
+      const mergedProducts = productsList.map(product => {
+        const stock = stockMap.get(product.id);
+        const otcStock = Number(stock?.otcStock) || 0;
+        const salonStock = Number(stock?.salonStock) || 0;
+        const totalStock = otcStock + salonStock;
+        const minStockVal = Number(stock?.minStock) || 0;
+      
+      // Calculate status based on stock levels
+      let status = 'No Stock Data';
+      if (stock && (otcStock > 0 || salonStock > 0)) {
+          if (totalStock > minStockVal) {
+          status = 'In Stock';
+        } else if (totalStock > 0) {
+          status = 'Low Stock';
+        } else {
+          status = 'Out of Stock';
+        }
+      }
+      
+        return {
+        ...product,
+        currentStock: totalStock,
+        otcStock: otcStock,
+        salonStock: salonStock,
+          minStock: minStockVal,
+        maxStock: stock?.maxStock || 0,
+        unitCost: stock?.unitCost || product.unitCost || 0,
+          status: String(status),
+        lastUpdated: stock?.lastUpdated || null,
+        location: stock?.location || null,
+        expiryDate: stock?.expiryDate || null
+      };
+    });
+
+    setProducts(mergedProducts);
+    } catch (err) {
+    console.error('Error loading products:', err);
+    setError(err.message || 'Failed to load products');
+    } finally {
+    setLoading(false);
+    }
+  };
+
+  // Handle export to CSV
+  const handleExportCSV = () => {
+    if (!products.length) {
+      toast.error('No products to export');
+      return;
+    }
+
+    const csvHeaders = ['Product Name', 'Category', 'Brand', 'UPC', 'Stock', 'Unit Cost (₱)', 'OTC Price (₱)', 'Salon Price (₱)', 'Status'];
+    const csvRows = products.map(product => [
+      product.name,
+      product.category,
+      product.brand,
+      product.sku,
+      product.currentStock,
+      product.unitCost.toFixed(2),
+      product.otcPrice.toFixed(2),
+      product.salonUsePrice.toFixed(2),
+      product.status
+    ]);
+
+    const csvContent = [csvHeaders, ...csvRows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `inventory_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Inventory exported to CSV');
+  };
+
+  // Handle print
+  const handlePrint = () => {
+    if (!printRef.current) {
+      toast.error('Print content not ready. Please try again.');
+      return;
+    }
+
+    // Create print content with only the table data
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Inventory Report - ${new Date().toLocaleDateString()}</title>
+          <style>
+            @media print {
+              body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 20px;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 0;
+                font-size: 12px;
+              }
+              th, td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+                vertical-align: top;
+              }
+              th {
+                background-color: #f5f5f5 !important;
+                font-weight: bold;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              tr:nth-child(even) {
+                background-color: #f9f9f9 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .no-print {
+                display: none !important;
+              }
+              @page {
+                size: A4 landscape;
+                margin: 10mm;
+              }
+              h1 {
+                font-size: 18px;
+                margin-bottom: 20px;
+                text-align: center;
+                color: #333;
+              }
+              .print-header {
+                margin-bottom: 20px;
+                text-align: center;
+                font-size: 14px;
+                color: #666;
+              }
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 20px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 0;
+              font-size: 12px;
+            }
+            th, td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              text-align: left;
+              vertical-align: top;
+            }
+            th {
+              background-color: #f5f5f5;
+              font-weight: bold;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            h1 {
+              font-size: 18px;
+              margin-bottom: 20px;
+              text-align: center;
+              color: #333;
+            }
+            .print-header {
+              margin-bottom: 20px;
+              text-align: center;
+              font-size: 14px;
+              color: #666;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Inventory Report</h1>
+          <div class="print-header">
+            Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}
+          </div>
+          ${printRef.current.innerHTML}
+        </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.focus();
+
+    // Wait for content to load, then print
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 500);
+    };
+  };
+
+  // Handle sorting
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // SortIcon component
+  const SortIcon = ({ column }) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="w-4 h-4 text-gray-400 ml-1" />;
+    }
+    return sortDirection === 'asc' 
+      ? <ChevronUp className="w-4 h-4 text-primary-600 ml-1" />
+      : <ChevronDown className="w-4 h-4 text-primary-600 ml-1" />;
+  };
+
+  // Handle filter modal for purchase orders
+  const handleFilterPurchaseOrders = () => {
+    setShowFilterModal(true);
+  };
+
   useEffect(() => {
     loadServices();
   }, []);
@@ -532,55 +529,184 @@ const Inventory = () => {
     loadProducts();
     } else if (activeTab === 'purchaseOrders') {
     loadPurchaseOrdersData();
-    } else if (activeTab === 'productSales') {
-    loadProductSales();
+    } else if (activeTab === 'analytics' && products.length === 0) {
+      // Load products first if analytics tab is opened and products aren't loaded
+      loadProducts();
     }
-  }, [userData?.branchId, activeTab, salesDateRange]);
-
-  // Load AI insights for product sales when data is available
-  useEffect(() => {
-    if (activeTab === 'productSales' && productSales.length > 0 && openaiService.isConfigured()) {
-    loadProductSalesAIInsights();
-    }
-  }, [activeTab, productSales]);
-
-  // Load AI insights for product sales
-  const loadProductSalesAIInsights = async () => {
-    if (!openaiService.isConfigured() || productSales.length === 0) return;
-    
-    try {
-    setLoadingProductAI(true);
-    const insights = await openaiService.generateProductSalesInsights(productSales);
-    if (insights) {
-      setProductSalesInsights(insights);
-    }
-    } catch (error) {
-    console.error('Error loading product sales AI insights:', error);
-    } finally {
-    setLoadingProductAI(false);
-    }
-  };
+  }, [userData?.branchId, activeTab]);
 
   // Filter products
   const filteredProducts = useMemo(() => {
-    return products.filter(product => {
-    const matchesSearch = 
-      product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.sku?.toLowerCase().includes(searchTerm.toLowerCase());
+    let filtered = products.filter(product => {
+      const matchesSearch = 
+        product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.sku?.toLowerCase().includes(searchTerm.toLowerCase());
+        
+      const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
+      const matchesBrand = selectedBrand === 'all' || product.brand === selectedBrand;
+      const matchesSupplier = selectedSupplier === 'all' || 
+        (product.suppliers && product.suppliers.some(supplier => supplier.name === selectedSupplier));
+        
+      const matchesStatus = selectedStatus === 'all' || 
+        (selectedStatus === 'In Stock' && product.currentStock > (product.minStock || 0)) ||
+        (selectedStatus === 'Low Stock' && product.currentStock > 0 && product.currentStock <= (product.minStock || 0)) ||
+        (selectedStatus === 'Out of Stock' && product.currentStock === 0) ||
+        (selectedStatus === 'No Stock Data' && !product.currentStock && product.currentStock !== 0);
+        
+      // Stock level filters
+      const stockLevel = product.currentStock || 0;
+      const matchesMinStock = minStock === '' || stockLevel >= parseFloat(minStock);
+      const matchesMaxStock = maxStock === '' || stockLevel <= parseFloat(maxStock);
       
-    const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
+      // Price filters
+      const unitCost = product.unitCost || 0;
+      const otcPrice = product.otcPrice || 0;
+      const totalValue = stockLevel * unitCost;
       
-    const matchesStatus = selectedStatus === 'all' || 
-      (selectedStatus === 'In Stock' && product.currentStock > (product.minStock || 0)) ||
-      (selectedStatus === 'Low Stock' && product.currentStock > 0 && product.currentStock <= (product.minStock || 0)) ||
-      (selectedStatus === 'Out of Stock' && product.currentStock === 0) ||
-      (selectedStatus === 'No Stock Data' && !product.currentStock && product.currentStock !== 0);
+      const matchesMinUnitCost = minUnitCost === '' || unitCost >= parseFloat(minUnitCost);
+      const matchesMaxUnitCost = maxUnitCost === '' || unitCost <= parseFloat(maxUnitCost);
+      const matchesMinOtcPrice = minOtcPrice === '' || otcPrice >= parseFloat(minOtcPrice);
+      const matchesMaxOtcPrice = maxOtcPrice === '' || otcPrice <= parseFloat(maxOtcPrice);
+      const matchesMinTotalValue = minTotalValue === '' || totalValue >= parseFloat(minTotalValue);
+      const matchesMaxTotalValue = maxTotalValue === '' || totalValue <= parseFloat(maxTotalValue);
       
-    return matchesSearch && matchesCategory && matchesStatus;
+      // Service mapping filter
+      const hasMapping = services.some(service => 
+        service.productMappings && service.productMappings.some(mapping => mapping.productId === product.id)
+      );
+      const matchesServiceMapping = hasServiceMapping === 'all' || 
+        (hasServiceMapping === 'yes' && hasMapping) || 
+        (hasServiceMapping === 'no' && !hasMapping);
+      
+      // Stock alerts filter
+      let matchesStockAlerts = true;
+      if (stockAlerts !== 'all') {
+        const minStock = product.minStock || 0;
+        const maxStock = product.maxStock || 0;
+        
+        switch (stockAlerts) {
+          case 'low_stock':
+            matchesStockAlerts = stockLevel > 0 && stockLevel <= minStock;
+            break;
+          case 'overstock':
+            matchesStockAlerts = maxStock > 0 && stockLevel > maxStock;
+            break;
+          case 'no_max_stock':
+            matchesStockAlerts = !maxStock || maxStock === 0;
+            break;
+          default:
+            matchesStockAlerts = true;
+        }
+      }
+      
+      // Expiry filter
+      let matchesExpiry = true;
+      if (expiryFilter !== 'all') {
+        const expiryDate = product.expiryDate?.toDate ? product.expiryDate.toDate() : 
+                          product.expiryDate ? new Date(product.expiryDate) : null;
+        
+        if (!expiryDate) {
+          matchesExpiry = expiryFilter === 'no_expiry';
+        } else {
+          const now = new Date();
+          const daysUntilExpiry = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+          
+          switch (expiryFilter) {
+            case 'has_expiry':
+              matchesExpiry = true;
+              break;
+            case 'expiring_soon':
+              matchesExpiry = daysUntilExpiry <= 30 && daysUntilExpiry > 0;
+              break;
+            case 'expired':
+              matchesExpiry = daysUntilExpiry <= 0;
+              break;
+            default:
+              matchesExpiry = true;
+          }
+        }
+      }
+      
+      // Product status filter
+      const matchesProductStatus = productStatus === 'all' || 
+        (productStatus === 'active' && (!product.status || product.status === 'Active')) ||
+        (productStatus === 'inactive' && product.status === 'Inactive') ||
+        (productStatus === 'discontinued' && product.status === 'Discontinued');
+      
+      return matchesSearch && matchesCategory && matchesBrand && matchesSupplier && 
+             matchesStatus && matchesMinStock && matchesMaxStock && 
+             matchesMinUnitCost && matchesMaxUnitCost && matchesMinOtcPrice && matchesMaxOtcPrice &&
+             matchesMinTotalValue && matchesMaxTotalValue && matchesServiceMapping && 
+             matchesStockAlerts && matchesExpiry && matchesProductStatus;
     });
-  }, [products, searchTerm, selectedCategory, selectedStatus]);
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortColumn) {
+        case 'name':
+          aValue = a.name?.toLowerCase() || '';
+          bValue = b.name?.toLowerCase() || '';
+          break;
+        case 'category':
+          aValue = a.category?.toLowerCase() || '';
+          bValue = b.category?.toLowerCase() || '';
+          break;
+        case 'brand':
+          aValue = a.brand?.toLowerCase() || '';
+          bValue = b.brand?.toLowerCase() || '';
+          break;
+        case 'currentStock':
+          aValue = a.currentStock || 0;
+          bValue = b.currentStock || 0;
+          break;
+        case 'otcStock':
+          aValue = a.otcStock || 0;
+          bValue = b.otcStock || 0;
+          break;
+        case 'salonStock':
+          aValue = a.salonStock || 0;
+          bValue = b.salonStock || 0;
+          break;
+        case 'status':
+          aValue = a.status?.toLowerCase() || '';
+          bValue = b.status?.toLowerCase() || '';
+          break;
+        case 'unitCost':
+          aValue = a.unitCost || 0;
+          bValue = b.unitCost || 0;
+          break;
+        case 'otcPrice':
+          aValue = a.otcPrice || 0;
+          bValue = b.otcPrice || 0;
+          break;
+        case 'totalValue':
+          aValue = (a.currentStock || 0) * (a.unitCost || 0);
+          bValue = (b.currentStock || 0) * (b.unitCost || 0);
+          break;
+        default:
+          aValue = a.name?.toLowerCase() || '';
+          bValue = b.name?.toLowerCase() || '';
+      }
+      
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
+      }
+      
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [products, services, searchTerm, selectedCategory, selectedBrand, selectedSupplier, selectedStatus, 
+      minStock, maxStock, minUnitCost, maxUnitCost, minOtcPrice, maxOtcPrice, 
+      minTotalValue, maxTotalValue, hasServiceMapping, stockAlerts, expiryFilter, 
+      productStatus, sortColumn, sortDirection]);
 
   // Calculate statistics
   const stats = useMemo(() => {
@@ -626,37 +752,58 @@ const Inventory = () => {
     setLoadingReports(true);
     setErrorReports(null);
 
-      // Get date range for current month
-    const now = new Date();
-    const startDate = format(new Date(now.getFullYear(), now.getMonth(), 1), 'yyyy-MM-dd');
-    const endDate = format(new Date(now.getFullYear(), now.getMonth() + 1, 0), 'yyyy-MM-dd');
+      console.log('🔍 Loading product transactions for branch:', userData.branchId);
 
-      // Load inventory sales
-    const salesResult = await inventoryService.getInventorySales(
-      userData.branchId,
-      startDate,
-      endDate
-    );
-
-    if (salesResult.success) {
-      setSalesData(salesResult.salesData);
-        
-        // Calculate top selling products
-      const sorted = [...salesResult.salesData].sort((a, b) => 
-        (b.totalRevenue || 0) - (a.totalRevenue || 0)
+      // Query Firestore directly for transactions with salesType: "product" and matching branchId
+      const transactionsRef = collection(db, 'transactions');
+      const q = query(
+        transactionsRef,
+        where('branchId', '==', userData.branchId),
+        where('salesType', '==', 'product'),
+        where('status', '==', 'paid')
       );
-      setTopSellingProducts(sorted.slice(0, 10));
-    }
+      
+      const snapshot = await getDocs(q);
+      console.log('📊 Transactions found in Firestore:', snapshot.size);
 
-      // Load inventory statistics
-    const statsResult = await inventoryService.getInventoryStats(userData.branchId);
-    if (statsResult.success) {
-      setInventoryStats(statsResult.stats);
-    }
+      const transactionsList = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        transactionsList.push({
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
+          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.updatedAt ? new Date(data.updatedAt) : null),
+          stockDeductedAt: data.stockDeductedAt?.toDate ? data.stockDeductedAt.toDate() : (data.stockDeductedAt ? new Date(data.stockDeductedAt) : null)
+        });
+      });
+
+      console.log('🛍️ Product transactions loaded:', transactionsList.length);
+      if (transactionsList.length > 0) {
+        console.log('📋 Sample transaction:', transactionsList[0]);
+        console.log('📋 Transaction details:', {
+          receiptNumber: transactionsList[0].receiptNumber,
+          clientName: transactionsList[0].clientName,
+          total: transactionsList[0].total,
+          items: transactionsList[0].items,
+          salesType: transactionsList[0].salesType
+        });
+      }
+
+      // Sort by date (newest first)
+      transactionsList.sort((a, b) => {
+        const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt || 0);
+        const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt || 0);
+        return dateB.getTime() - dateA.getTime();
+      });
+
+      // Store the filtered product transactions
+      setProductTransactions(transactionsList);
 
     } catch (err) {
-    console.error('Error loading reports:', err);
+      console.error('❌ Error loading reports:', err);
     setErrorReports(err.message);
+      setProductTransactions([]);
     } finally {
     setLoadingReports(false);
     }
@@ -668,26 +815,6 @@ const Inventory = () => {
     }
   }, [userData?.branchId, activeTab]);
 
-  // Calculate summary statistics
-  const summaryStats = useMemo(() => {
-    const totalRevenue = salesData.reduce((sum, item) => sum + (item.totalRevenue || 0), 0);
-    const totalQuantitySold = salesData.reduce((sum, item) => sum + (item.quantitySold || 0), 0);
-    const totalCost = salesData.reduce((sum, item) => {
-    const cost = (item.quantitySold || 0) * (item.unitCost || 0);
-    return sum + cost;
-    }, 0);
-    const totalProfit = totalRevenue - totalCost;
-    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
-
-    return {
-    totalRevenue,
-    totalQuantitySold,
-    totalCost,
-    totalProfit,
-    profitMargin,
-    totalProducts: salesData.length
-    };
-  }, [salesData]);
 
   // ========== PURCHASE ORDERS FUNCTIONS ==========
   const loadPurchaseOrdersData = async () => {
@@ -1127,13 +1254,234 @@ const Inventory = () => {
   // Purchase order statistics
   const orderStats = useMemo(() => {
     return {
-    totalOrders: purchaseOrders.length,
-    pendingOrders: purchaseOrders.filter(o => o.status === 'Pending').length,
-    deliveredOrders: purchaseOrders.filter(o => o.status === 'Delivered').length,
-    overdueOrders: purchaseOrders.filter(o => o.status === 'Overdue').length,
-    totalValue: purchaseOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0)
+      totalOrders: purchaseOrders.length,
+      pendingOrders: purchaseOrders.filter(o => o.status === 'Pending').length,
+      deliveredOrders: purchaseOrders.filter(o => o.status === 'Delivered').length,
+      overdueOrders: purchaseOrders.filter(o => o.status === 'Overdue').length,
+      totalValue: purchaseOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0)
     };
   }, [purchaseOrders]);
+
+  // Purchase order export functions
+  const handleExportPurchaseOrdersCSV = () => {
+    if (!filteredOrders.length) {
+      toast.error('No purchase orders to export');
+      return;
+    }
+
+    const csvHeaders = ['Order ID', 'Supplier', 'Order Date', 'Expected Delivery', 'Status', 'Total Amount', 'Created By'];
+    const csvRows = filteredOrders.map(order => [
+      order.orderId || order.id,
+      order.supplierName || 'Unknown',
+      order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A',
+      order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A',
+      order.status,
+      (order.totalAmount || 0).toFixed(2),
+      order.createdByName || 'Unknown'
+    ]);
+
+    const csvContent = [csvHeaders, ...csvRows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `purchase_orders_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Purchase orders exported to CSV');
+  };
+
+  const handlePrintPurchaseOrders = () => {
+    if (!filteredOrders.length) {
+      toast.error('No purchase orders to print');
+      return;
+    }
+
+    // Create print content
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Purchase Orders Report - ${new Date().toLocaleDateString()}</title>
+          <style>
+            @media print {
+              body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 20px;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 0;
+                font-size: 12px;
+              }
+              th, td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+                vertical-align: top;
+              }
+              th {
+                background-color: #f5f5f5 !important;
+                font-weight: bold;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              tr:nth-child(even) {
+                background-color: #f9f9f9 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .no-print {
+                display: none !important;
+              }
+              @page {
+                size: A4 landscape;
+                margin: 10mm;
+              }
+              h1 {
+                font-size: 18px;
+                margin-bottom: 20px;
+                text-align: center;
+                color: #333;
+              }
+              .print-header {
+                margin-bottom: 20px;
+                text-align: center;
+                font-size: 14px;
+                color: #666;
+              }
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 20px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 0;
+              font-size: 12px;
+            }
+            th, td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              text-align: left;
+              vertical-align: top;
+            }
+            th {
+              background-color: #f5f5f5;
+              font-weight: bold;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            h1 {
+              font-size: 18px;
+              margin-bottom: 20px;
+              text-align: center;
+              color: #333;
+            }
+            .print-header {
+              margin-bottom: 20px;
+              text-align: center;
+              font-size: 14px;
+              color: #666;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Purchase Orders Report</h1>
+          <div class="print-header">
+            Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>Supplier</th>
+                <th>Order Date</th>
+                <th>Expected Delivery</th>
+                <th>Status</th>
+                <th>Total Amount</th>
+                <th>Created By</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredOrders.map(order => `
+                <tr>
+                  <td>${order.orderId || order.id}</td>
+                  <td>${order.supplierName || 'Unknown'}</td>
+                  <td>${order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}</td>
+                  <td>${order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}</td>
+                  <td>${order.status}</td>
+                  <td>₱${(order.totalAmount || 0).toLocaleString()}</td>
+                  <td>${order.createdByName || 'Unknown'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.focus();
+
+    // Wait for content to load, then print
+    printWindow.onload = () => {
+      printWindow.print();
+      printWindow.close();
+    };
+  };
+
+  const getProductStockInfo = (productId) => {
+    const stock = stocks.find(s => s.productId === productId);
+    if (!stock) {
+      return {
+        currentStock: 0,
+        minStock: 0,
+        maxStock: 0,
+        status: 'No Stock Data',
+        statusColor: 'text-gray-600 bg-gray-100 border-gray-200',
+        usageType: 'otc' // Default to OTC if no stock data
+      };
+    }
+
+    const currentStock = stock.totalStock || 0;
+    const minStock = stock.minStock || 0;
+    const maxStock = stock.maxStock || 0;
+
+    let status = 'In Stock';
+    let statusColor = 'text-green-600 bg-green-100 border-green-200';
+
+    if (currentStock === 0) {
+      status = 'Out of Stock';
+      statusColor = 'text-red-600 bg-red-100 border-red-200';
+    } else if (currentStock <= minStock && minStock > 0) {
+      status = 'Low Stock';
+      statusColor = 'text-yellow-600 bg-yellow-100 border-yellow-200';
+    } else if (maxStock > 0 && currentStock > maxStock) {
+      status = 'Overstock';
+      statusColor = 'text-orange-600 bg-orange-100 border-orange-200';
+    }
+
+    return {
+      currentStock,
+      minStock,
+      maxStock,
+      status,
+      statusColor,
+      usageType: stock.usageType || 'otc' // Default to 'otc' if not specified
+    };
+  };
 
   // Get status color and icon
   const getStatusColorPO = (status) => {
@@ -1189,131 +1537,364 @@ const Inventory = () => {
     return order.createdByRole === 'inventoryController' && order.status === 'Pending';
   };
 
+  // Approval functions
+  const handleOpenApproveModal = (orderId) => {
+    setPendingOrderId(orderId);
+    setIsConfirmApproveModalOpen(true);
+  };
+
+  const handleApproveOrder = async () => {
+    if (!pendingOrderId) return;
+    
+    try {
+      setIsProcessingApproval(true);
+      setErrorPO(null);
+      const orderRef = doc(db, 'purchaseOrders', pendingOrderId);
+      await updateDoc(orderRef, {
+        status: 'Approved',
+        approvedBy: userData.uid || userData.id,
+        approvedByName: (userData.firstName && userData.lastName 
+          ? `${userData.firstName} ${userData.lastName}`.trim() 
+          : (userData.email || 'Unknown')),
+        approvedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      await loadPurchaseOrders();
+      setIsConfirmApproveModalOpen(false);
+      setIsDetailsModalOpen(false);
+      setSelectedOrder(null);
+      setPendingOrderId(null);
+    } catch (err) {
+      console.error('Error approving order:', err);
+      setErrorPO('Failed to approve order. Please try again.');
+    } finally {
+      setIsProcessingApproval(false);
+    }
+  };
+
+  const handleOpenRejectModal = (order) => {
+    setSelectedOrder(order);
+    setRejectionNote('');
+    setIsRejectModalOpen(true);
+  };
+
+  const handleRejectOrderConfirm = () => {
+    if (!selectedOrder || !rejectionNote.trim()) {
+      setErrorPO('Rejection note is required');
+      return;
+    }
+    setIsConfirmRejectModalOpen(true);
+  };
+
+  const handleRejectOrder = async () => {
+    if (!selectedOrder || !rejectionNote.trim()) return;
+
+    try {
+      setIsProcessingApproval(true);
+      const orderRef = doc(db, 'purchaseOrders', selectedOrder.id);
+      await updateDoc(orderRef, {
+        status: 'Cancelled',
+        rejectedBy: userData.uid || userData.id,
+        rejectedByName: (userData.firstName && userData.lastName 
+          ? `${userData.firstName} ${userData.lastName}`.trim() 
+          : (userData.email || 'Unknown')),
+        rejectedAt: serverTimestamp(),
+        rejectionNote: rejectionNote.trim(),
+        updatedAt: serverTimestamp()
+      });
+      await loadPurchaseOrders();
+      setIsRejectModalOpen(false);
+      setIsConfirmRejectModalOpen(false);
+      setSelectedOrder(null);
+      setRejectionNote('');
+    } catch (err) {
+      console.error('Error rejecting order:', err);
+      setErrorPO('Failed to reject order. Please try again.');
+    } finally {
+      setIsProcessingApproval(false);
+    }
+  };
+
+  // Check if order can be approved/rejected
+  const canApproveOrReject = (order) => {
+    return order.status === 'Pending';
+  };
+
   // ========== ANALYTICS FUNCTIONS ==========
   const loadAnalytics = async () => {
     if (!userData?.branchId) return;
 
     try {
     setLoadingAnalytics(true);
+      const days = parseInt(analyticsDateRange) || 30;
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - days);
 
-      // Load inventory movements for anomaly detection
-    const movementsRef = collection(db, 'inventory_movements');
-    const movementsQuery = query(
-      movementsRef,
-      where('branchId', '==', userData.branchId)
-    );
-    const movementsSnapshot = await getDocs(movementsQuery);
-      
-    const movements = [];
-    movementsSnapshot.forEach((doc) => {
+      console.log('📊 Loading Product Analytics...');
+
+      // 1. Load product transactions for sales analysis
+      const transactionsRef = collection(db, 'transactions');
+      const transactionsQuery = query(
+        transactionsRef,
+        where('branchId', '==', userData.branchId),
+        where('salesType', '==', 'product'),
+        where('status', '==', 'paid')
+      );
+      const transactionsSnapshot = await getDocs(transactionsQuery);
+
+      const allTransactions = [];
+      transactionsSnapshot.forEach((doc) => {
       const data = doc.data();
-      movements.push({
+        const transactionDate = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || 0);
+        if (transactionDate >= cutoffDate) {
+          allTransactions.push({
         id: doc.id,
         ...data,
-        timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.timestamp || Date.now())
+            createdAt: transactionDate
+          });
+        }
       });
-    });
 
-      // Sort by timestamp (newest first)
-    movements.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-    setInventoryMovements(movements);
+      console.log('📈 Transactions loaded:', allTransactions.length);
 
-      // Detect anomalies
-    const detectedAnomalies = detectAnomalies(products, movements, stocks);
-    setAnomalies(detectedAnomalies);
+      // 2. Calculate Top Selling Products
+      const productSalesMap = {};
+      allTransactions.forEach(transaction => {
+        if (transaction.items && Array.isArray(transaction.items)) {
+          transaction.items.forEach(item => {
+            if (item.type === 'product') {
+              const productId = item.id || item.stockId;
+              if (!productSalesMap[productId]) {
+                productSalesMap[productId] = {
+                  productId,
+                  productName: item.name,
+                  quantitySold: 0,
+                  revenue: 0,
+                  cost: 0,
+                  transactionCount: 0,
+                  lastSoldDate: transaction.createdAt
+                };
+              }
+              productSalesMap[productId].quantitySold += item.quantity || 0;
+              productSalesMap[productId].revenue += (item.price || 0) * (item.quantity || 0);
+              productSalesMap[productId].cost += (item.unitCost || 0) * (item.quantity || 0);
+              productSalesMap[productId].transactionCount += 1;
+              if (transaction.createdAt > productSalesMap[productId].lastSoldDate) {
+                productSalesMap[productId].lastSoldDate = transaction.createdAt;
+              }
+            }
+          });
+        }
+      });
 
-      // Find low sales products
-    const lowSales = findLowSalesProducts(products, movements);
-    setLowSalesProducts(lowSales);
+      const topSelling = Object.values(productSalesMap)
+        .map(p => ({
+          ...p,
+          profit: p.revenue - p.cost,
+          margin: p.revenue > 0 ? ((p.revenue - p.cost) / p.revenue) * 100 : 0
+        }))
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 20);
+      setTopSellingProducts(topSelling);
 
-      // Calculate analytics metrics
-    const analytics = calculateAnalyticsMetrics(products, movements, stocks);
-    setAnalyticsData(analytics);
+      // 3. Calculate Low Selling Products
+      const lowSelling = Object.values(productSalesMap)
+        .map(p => ({
+          ...p,
+          profit: p.revenue - p.cost,
+          margin: p.revenue > 0 ? ((p.revenue - p.cost) / p.revenue) * 100 : 0,
+          daysSinceLastSale: Math.floor((new Date() - p.lastSoldDate) / (1000 * 60 * 60 * 24))
+        }))
+        .filter(p => p.quantitySold === 0 || p.quantitySold < 5 || p.daysSinceLastSale > 14)
+        .sort((a, b) => {
+          if (a.quantitySold === 0 && b.quantitySold > 0) return -1;
+          if (a.quantitySold > 0 && b.quantitySold === 0) return 1;
+          return b.daysSinceLastSale - a.daysSinceLastSale;
+        });
+      setLowSellingProducts(lowSelling);
+
+      // 4. Calculate Low Stock Products
+      const lowStock = products
+        .filter(product => {
+          const stock = product.currentStock || 0;
+          const minStock = product.minStock || 0;
+          return stock > 0 && stock <= minStock;
+        })
+        .map(product => ({
+          ...product,
+          stockLevel: product.currentStock || 0,
+          minStock: product.minStock || 0,
+          maxStock: product.maxStock || 0,
+          stockPercentage: product.maxStock > 0 ? ((product.currentStock || 0) / product.maxStock) * 100 : 0
+        }))
+        .sort((a, b) => (a.currentStock || 0) - (b.currentStock || 0));
+      setLowStockProducts(lowStock);
+
+      // 5. Calculate High Stock Products with batch info
+      const stocksRef = collection(db, 'stocks');
+      const stocksQuery = query(
+        stocksRef,
+        where('branchId', '==', userData.branchId)
+      );
+      const stocksSnapshot = await getDocs(stocksQuery);
+
+      const stockBatches = [];
+      stocksSnapshot.forEach((doc) => {
+        const data = doc.data();
+        stockBatches.push({
+          id: doc.id,
+          productId: data.productId,
+          batchNumber: data.batchNumber,
+          currentStock: data.currentStock || 0,
+          receivedDate: data.receivedDate?.toDate ? data.receivedDate.toDate() : (data.receivedDate ? new Date(data.receivedDate) : null),
+          expirationDate: data.expirationDate?.toDate ? data.expirationDate.toDate() : (data.expirationDate ? new Date(data.expirationDate) : null),
+          ...data
+        });
+      });
+
+      // Group stocks by product and calculate totals
+      const productStockMap = new Map();
+      stockBatches.forEach(stock => {
+        const productId = stock.productId;
+        if (!productStockMap.has(productId)) {
+          const product = products.find(p => p.id === productId);
+          if (product) {
+            productStockMap.set(productId, {
+              ...product,
+              totalStock: 0,
+              batches: []
+            });
+          }
+        }
+        const productData = productStockMap.get(productId);
+        if (productData) {
+          productData.totalStock += stock.currentStock || 0;
+          productData.batches.push(stock);
+        }
+      });
+
+      const highStock = Array.from(productStockMap.values())
+        .filter(product => {
+          const stock = product.totalStock || 0;
+          const maxStock = product.maxStock || 0;
+          return maxStock > 0 && stock > maxStock * 1.2; // 20% over max stock
+        })
+        .map(product => ({
+          ...product,
+          stockLevel: product.totalStock,
+          maxStock: product.maxStock || 0,
+          overstockAmount: product.totalStock - (product.maxStock || 0),
+          overstockPercentage: product.maxStock > 0 ? ((product.totalStock - product.maxStock) / product.maxStock) * 100 : 0,
+          batches: product.batches
+            .filter(b => (b.currentStock || 0) > 0)
+            .sort((a, b) => {
+              const dateA = a.receivedDate || new Date(0);
+              const dateB = b.receivedDate || new Date(0);
+              return dateB.getTime() - dateA.getTime();
+            })
+        }))
+        .sort((a, b) => b.overstockAmount - a.overstockAmount);
+      setHighStockProducts(highStock);
+
+      // 6. Detect Anomalies
+      const detectedAnomalies = detectAnomalies(products, allTransactions, stockBatches);
+      setAnomalies(detectedAnomalies);
+
+      console.log('✅ Analytics loaded:', {
+        topSelling: topSelling.length,
+        lowSelling: lowSelling.length,
+        lowStock: lowStock.length,
+        highStock: highStock.length,
+        anomalies: detectedAnomalies.length
+      });
 
     } catch (err) {
-    console.error('Error loading analytics:', err);
+      console.error('❌ Error loading analytics:', err);
     } finally {
     setLoadingAnalytics(false);
     }
   };
 
   // Detect inventory anomalies
-  const detectAnomalies = (products, movements, stocks) => {
+  const detectAnomalies = (products, transactions, stockBatches) => {
     const anomalies = [];
     const days = parseInt(analyticsDateRange) || 30;
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - days);
 
-    // Filter recent movements
-    const recentMovements = movements.filter(m => m.timestamp >= cutoffDate);
-
-    // 1. Sudden stock drops (more than 50% in a day)
-    products.forEach(product => {
-    const productMovements = recentMovements.filter(m => m.productId === product.id);
-    if (productMovements.length < 2) return;
-
-      // Group by date
-    const movementsByDate = {};
-    productMovements.forEach(m => {
-      const dateKey = format(m.timestamp, 'yyyy-MM-dd');
-      if (!movementsByDate[dateKey]) {
-        movementsByDate[dateKey] = { additions: 0, deductions: 0 };
-      }
-      if (m.type === 'addition') {
-        movementsByDate[dateKey].additions += Math.abs(m.quantity || 0);
-      } else {
-        movementsByDate[dateKey].deductions += Math.abs(m.quantity || 0);
-      }
-    });
-
-      // Check for sudden drops
-    Object.keys(movementsByDate).forEach(date => {
-      const dayMovements = movementsByDate[date];
-      const stockBefore = product.currentStock + dayMovements.deductions - dayMovements.additions;
-      const dropPercentage = stockBefore > 0 ? (dayMovements.deductions / stockBefore) * 100 : 0;
-        
-      if (dropPercentage > 50 && dayMovements.deductions > 5) {
-        anomalies.push({
-          type: 'sudden_stock_drop',
-          severity: dropPercentage > 80 ? 'critical' : 'high',
-          productId: product.id,
-          productName: product.name,
-          date: date,
-          description: `Stock dropped by ${dropPercentage.toFixed(1)}% (${dayMovements.deductions} units) on ${date}`,
-          currentStock: product.currentStock,
-          previousStock: stockBefore
+    // 1. Products with no sales but stock exists (dead stock)
+    const productSalesMap = {};
+    transactions.forEach(transaction => {
+      if (transaction.items && Array.isArray(transaction.items)) {
+        transaction.items.forEach(item => {
+          if (item.type === 'product') {
+            const productId = item.id || item.stockId;
+            if (!productSalesMap[productId]) {
+              productSalesMap[productId] = { quantitySold: 0, lastSaleDate: null };
+            }
+            productSalesMap[productId].quantitySold += item.quantity || 0;
+            const saleDate = transaction.createdAt instanceof Date ? transaction.createdAt : new Date(transaction.createdAt);
+            if (!productSalesMap[productId].lastSaleDate || saleDate > productSalesMap[productId].lastSaleDate) {
+              productSalesMap[productId].lastSaleDate = saleDate;
+            }
+          }
         });
       }
     });
-    });
 
-    // 2. Products with no movement but stock exists (potential dead stock)
     products.forEach(product => {
-    const productMovements = recentMovements.filter(m => m.productId === product.id);
-    if (productMovements.length === 0 && product.currentStock > 0) {
+      const sales = productSalesMap[product.id];
+      const stock = product.currentStock || 0;
+      
+      if (stock > 0) {
+        if (!sales || sales.quantitySold === 0) {
+        anomalies.push({
+            type: 'no_sales',
+            severity: 'high',
+          productId: product.id,
+          productName: product.name,
+            description: `No sales in the last ${days} days despite having ${stock} units in stock`,
+            currentStock: stock,
+            stockValue: stock * (product.unitCost || 0),
+            daysWithoutSale: days
+          });
+        } else {
+          const daysSinceLastSale = Math.floor((new Date() - sales.lastSaleDate) / (1000 * 60 * 60 * 24));
+          if (daysSinceLastSale > 30 && stock > 10) {
       anomalies.push({
-        type: 'no_movement',
+              type: 'slow_moving',
         severity: 'medium',
         productId: product.id,
         productName: product.name,
-        description: `No inventory movement in the last ${days} days despite having ${product.currentStock} units in stock`,
-        currentStock: product.currentStock,
-        daysWithoutMovement: days
-      });
-    }
+              description: `No sales for ${daysSinceLastSale} days with ${stock} units in stock`,
+              currentStock: stock,
+              daysSinceLastSale: daysSinceLastSale
+            });
+          }
+        }
+      }
     });
 
-    // 3. Price discrepancies (unit cost vs OTC price)
+    // 2. Price discrepancies (unit cost vs OTC price - very low margin)
     products.forEach(product => {
     if (product.unitCost > 0 && product.otcPrice > 0) {
       const margin = ((product.otcPrice - product.unitCost) / product.unitCost) * 100;
-      if (margin < 10) {
+        if (margin < 5) {
+          anomalies.push({
+            type: 'very_low_margin',
+            severity: 'high',
+            productId: product.id,
+            productName: product.name,
+            description: `Very low profit margin: ${margin.toFixed(1)}% (Cost: ₱${product.unitCost}, Price: ₱${product.otcPrice})`,
+            margin: margin,
+            unitCost: product.unitCost,
+            otcPrice: product.otcPrice
+          });
+        } else if (margin < 10) {
         anomalies.push({
           type: 'low_margin',
           severity: 'medium',
           productId: product.id,
           productName: product.name,
-          description: `Very low profit margin: ${margin.toFixed(1)}% (Cost: ₱${product.unitCost}, Price: ₱${product.otcPrice})`,
+            description: `Low profit margin: ${margin.toFixed(1)}% (Cost: ₱${product.unitCost}, Price: ₱${product.otcPrice})`,
           margin: margin,
           unitCost: product.unitCost,
           otcPrice: product.otcPrice
@@ -1322,182 +1903,119 @@ const Inventory = () => {
     }
     });
 
-    // 4. Stock level anomalies (stock way above max or way below min)
+    // 3. Critically low stock (below 50% of min stock)
     products.forEach(product => {
-    if (product.maxStock && product.currentStock > product.maxStock * 1.5) {
+      const stock = product.currentStock || 0;
+      const minStock = product.minStock || 0;
+      if (minStock > 0 && stock > 0 && stock < minStock * 0.5) {
       anomalies.push({
-        type: 'overstocked',
-        severity: 'medium',
+          type: 'critically_low_stock',
+          severity: 'critical',
         productId: product.id,
         productName: product.name,
-        description: `Overstocked: ${product.currentStock} units (Max: ${product.maxStock})`,
-        currentStock: product.currentStock,
-        maxStock: product.maxStock
-      });
-    }
-    if (product.minStock && product.currentStock < product.minStock * 0.5 && product.currentStock > 0) {
+          description: `Critically low stock: ${stock} units (Min: ${minStock})`,
+          currentStock: stock,
+          minStock: minStock,
+          stockPercentage: (stock / minStock) * 100
+        });
+      }
+    });
+
+    // 4. Expiring soon batches
+    const now = new Date();
+    const thirtyDaysFromNow = new Date();
+    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+
+    stockBatches.forEach(batch => {
+      if (batch.expirationDate && batch.currentStock > 0) {
+        const expDate = batch.expirationDate instanceof Date ? batch.expirationDate : new Date(batch.expirationDate);
+        if (expDate <= thirtyDaysFromNow && expDate > now) {
+          const daysUntilExpiry = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+          const product = products.find(p => p.id === batch.productId);
+          if (product) {
       anomalies.push({
-        type: 'critically_low',
-        severity: 'high',
+              type: 'expiring_soon',
+              severity: daysUntilExpiry <= 7 ? 'high' : 'medium',
         productId: product.id,
         productName: product.name,
-        description: `Critically low stock: ${product.currentStock} units (Min: ${product.minStock})`,
-        currentStock: product.currentStock,
-        minStock: product.minStock
-      });
-    }
+              description: `Batch ${batch.batchNumber} expiring in ${daysUntilExpiry} days (${batch.currentStock} units)`,
+              batchNumber: batch.batchNumber,
+              expirationDate: expDate,
+              daysUntilExpiry: daysUntilExpiry,
+              quantity: batch.currentStock
+            });
+          }
+        }
+      }
+    });
+
+    // 5. Sudden sales spike (potential data error or bulk sale)
+    const salesByDate = {};
+    transactions.forEach(transaction => {
+      const dateKey = format(transaction.createdAt, 'yyyy-MM-dd');
+      if (!salesByDate[dateKey]) {
+        salesByDate[dateKey] = { count: 0, total: 0 };
+      }
+      salesByDate[dateKey].count += 1;
+      salesByDate[dateKey].total += transaction.total || 0;
+    });
+
+    const avgDailySales = Object.values(salesByDate).reduce((sum, day) => sum + day.total, 0) / Object.keys(salesByDate).length;
+    Object.keys(salesByDate).forEach(date => {
+      if (salesByDate[date].total > avgDailySales * 3 && avgDailySales > 0) {
+        anomalies.push({
+          type: 'sales_spike',
+          severity: 'low',
+          description: `Unusual sales spike on ${date}: ₱${salesByDate[date].total.toLocaleString()} (Average: ₱${avgDailySales.toLocaleString()})`,
+          date: date,
+          amount: salesByDate[date].total,
+          averageAmount: avgDailySales
+        });
+      }
     });
 
     return anomalies.sort((a, b) => {
-    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-    return severityOrder[a.severity] - severityOrder[b.severity];
+      const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+      return severityOrder[a.severity] - severityOrder[b.severity];
     });
   };
 
-  // Find low sales products
-  const findLowSalesProducts = (products, movements) => {
-    const days = parseInt(analyticsDateRange) || 30;
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - days);
-
-    const recentMovements = movements.filter(m => 
-    m.timestamp >= cutoffDate && 
-    m.type === 'deduction' && 
-    m.reason?.toLowerCase().includes('sale')
-    );
-
-    // Calculate sales per product
-    const productSales = {};
-    recentMovements.forEach(m => {
-    if (!productSales[m.productId]) {
-      productSales[m.productId] = {
-        quantitySold: 0,
-        revenue: 0,
-        productName: products.find(p => p.id === m.productId)?.name || 'Unknown'
-      };
-    }
-    productSales[m.productId].quantitySold += Math.abs(m.quantity || 0);
-    productSales[m.productId].revenue += Math.abs(m.quantity || 0) * (m.unitPrice || 0);
-    });
-
-    // Find products with low or no sales
-    const lowSales = products
-    .map(product => {
-      const sales = productSales[product.id] || { quantitySold: 0, revenue: 0, productName: product.name };
-      const stockValue = (product.currentStock || 0) * (product.unitCost || 0);
-      const turnoverRate = stockValue > 0 ? (sales.revenue / stockValue) * 100 : 0;
-        
-      return {
-        ...product,
-        quantitySold: sales.quantitySold,
-        revenue: sales.revenue,
-        stockValue: stockValue,
-        turnoverRate: turnoverRate,
-        daysWithoutSale: sales.quantitySold === 0 ? days : 0
-      };
-    })
-    .filter(product => 
-      product.quantitySold === 0 || 
-      product.quantitySold < 5 || 
-      (product.stockValue > 0 && product.turnoverRate < 10)
-    )
-    .sort((a, b) => {
-        // Sort by: no sales first, then by low turnover
-      if (a.quantitySold === 0 && b.quantitySold > 0) return -1;
-      if (a.quantitySold > 0 && b.quantitySold === 0) return 1;
-      return a.turnoverRate - b.turnoverRate;
-    });
-
-    return lowSales;
-  };
-
-  // Calculate analytics metrics
-  const calculateAnalyticsMetrics = (products, movements, stocks) => {
-    const days = parseInt(analyticsDateRange) || 30;
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - days);
-
-    const recentMovements = movements.filter(m => m.timestamp >= cutoffDate);
-
-    // Total inventory value
-    const totalInventoryValue = products.reduce((sum, p) => 
-    sum + ((p.currentStock || 0) * (p.unitCost || 0)), 0
-    );
-
-    // Sales metrics
-    const salesMovements = recentMovements.filter(m => 
-    m.type === 'deduction' && m.reason?.toLowerCase().includes('sale')
-    );
-    const totalSalesRevenue = salesMovements.reduce((sum, m) => 
-    sum + (Math.abs(m.quantity || 0) * (m.unitPrice || 0)), 0
-    );
-    const totalUnitsSold = salesMovements.reduce((sum, m) => 
-    sum + Math.abs(m.quantity || 0), 0
-    );
-
-    // Inventory turnover
-    const avgInventoryValue = totalInventoryValue / 2; // Simplified average
-    const inventoryTurnover = avgInventoryValue > 0 ? (totalSalesRevenue / avgInventoryValue) : 0;
-
-    // Profit margins
-    const totalCost = salesMovements.reduce((sum, m) => 
-    sum + (Math.abs(m.quantity || 0) * (m.unitCost || 0)), 0
-    );
-    const totalProfit = totalSalesRevenue - totalCost;
-    const profitMargin = totalSalesRevenue > 0 ? (totalProfit / totalSalesRevenue) * 100 : 0;
-
-    // Stock status distribution
-    const inStock = products.filter(p => (p.currentStock || 0) > (p.minStock || 0)).length;
-    const lowStock = products.filter(p => {
-    const stock = p.currentStock || 0;
-    const minStock = p.minStock || 0;
-    return stock > 0 && stock <= minStock;
-    }).length;
-    const outOfStock = products.filter(p => (p.currentStock || 0) === 0).length;
-
-    // Top performing products
-    const productPerformance = {};
-    salesMovements.forEach(m => {
-    if (!productPerformance[m.productId]) {
-      productPerformance[m.productId] = {
-        productId: m.productId,
-        productName: products.find(p => p.id === m.productId)?.name || 'Unknown',
-        quantitySold: 0,
-        revenue: 0
-      };
-    }
-    productPerformance[m.productId].quantitySold += Math.abs(m.quantity || 0);
-    productPerformance[m.productId].revenue += Math.abs(m.quantity || 0) * (m.unitPrice || 0);
-    });
-
-    const topProducts = Object.values(productPerformance)
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 10);
-
-    return {
-    totalInventoryValue,
-    totalSalesRevenue,
-    totalUnitsSold,
-    inventoryTurnover,
-    totalProfit,
-    profitMargin,
-    stockDistribution: { inStock, lowStock, outOfStock },
-    topProducts,
-    totalProducts: products.length,
-    daysAnalyzed: days
-    };
-  };
 
   // Load analytics when tab is active
   useEffect(() => {
-    if (activeTab === 'analytics' && products.length > 0) {
+    if (activeTab === 'analytics' && products.length > 0 && userData?.branchId) {
     loadAnalytics();
     }
   }, [userData?.branchId, activeTab, analyticsDateRange, products.length]);
 
   return (
     
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {activeTab === 'reports' 
+              ? 'Product Sales' 
+              : activeTab === 'purchaseOrders'
+              ? 'Purchase Orders'
+              : activeTab === 'analytics'
+              ? 'Product Analytics'
+              : 'Inventory'}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {activeTab === 'reports' 
+              ? 'Track product sales performance and revenue' 
+              : activeTab === 'purchaseOrders'
+              ? 'View purchase orders from suppliers'
+              : activeTab === 'analytics'
+              ? 'Inventory insights, anomalies, and performance metrics'
+              : 'Manage products, stock levels, and purchase orders'
+            }
+          </p>
+        </div>
+      </div>
+
       {/* Tabs */}
       <Card className="p-0">
         <div className="border-b border-gray-200">
@@ -1525,7 +2043,7 @@ const Inventory = () => {
             >
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-5 w-5" />
-                <span>Reports</span>
+                <span>Product Sales</span>
               </div>
             </button>
             <button
@@ -1551,20 +2069,20 @@ const Inventory = () => {
             >
               <div className="flex items-center gap-2">
                 <Activity className="h-5 w-5" />
-                <span>Business Analytics</span>
+                <span>Product Analytics</span>
               </div>
             </button>
             <button
-              onClick={() => setActiveTab('productSales')}
+              onClick={() => setActiveTab('stockTransfer')}
               className={`py-4 px-1 font-medium text-sm border-b-2 transition-colors ${
-                activeTab === 'productSales'
+                activeTab === 'stockTransfer'
                   ? 'border-[#160B53] text-[#160B53]'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
               <div className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                <span>Product Sales</span>
+                <Truck className="h-5 w-5" />
+                <span>Stock Transfer</span>
               </div>
             </button>
           </div>
@@ -1627,55 +2145,58 @@ const Inventory = () => {
         </Card>
       </div>
 
-      {/* Controls */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
-              <div className="flex flex-col sm:flex-row gap-4 flex-1 w-full">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
+      {/* Filter Row */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-4">
+          {/* Search Bar */}
+            <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
                 placeholder="Search products..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
               />
             </div>
               
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Categories</option>
-                  {categories.filter(c => c !== 'all').map(category => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
+          {/* Filter Button */}
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors ${
+              (selectedCategory !== 'all' || selectedBrand !== 'all' || selectedSupplier !== 'all' || selectedStatus !== 'all' || minStock || maxStock || minUnitCost || maxUnitCost || minOtcPrice || maxOtcPrice || minTotalValue || maxTotalValue || hasServiceMapping !== 'all' || stockAlerts !== 'all' || expiryFilter !== 'all' || productStatus !== 'all')
+                ? 'bg-[#160B53]/10 border-[#160B53]/30 text-[#160B53] hover:bg-[#160B53]/20'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+            title={`Filter - ${filteredProducts.length} products`}
+          >
+            <Filter className="w-5 h-5" />
+            {filteredProducts.length > 0 && (
+              <span className="bg-[#160B53] text-white text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                {filteredProducts.length}
+              </span>
+            )}
+          </button>
 
-            <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-                  <option value="all">All Status</option>
-                  <option value="In Stock">In Stock</option>
-                  <option value="Low Stock">Low Stock</option>
-                  <option value="Out of Stock">Out of Stock</option>
-                  <option value="No Stock Data">No Stock Data</option>
-            </select>
-          </div>
+          {/* Export Button */}
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Export Products Data"
+          >
+            <Download className="w-5 h-5 text-gray-600" />
+          </button>
 
-          <div className="flex gap-2">
-                <Button variant="outline" onClick={loadProducts}>
-                  <RefreshCw className="h-4 w-4" />
-            </Button>
-            <Button variant="outline">
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
+          {/* Print Button */}
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Print Report"
+          >
+            <Printer className="w-5 h-5 text-gray-600" />
+          </button>
+            </div>
           </div>
-        </div>
-      </Card>
 
       {/* Products Table */}
       <Card className="p-6">
@@ -1690,27 +2211,105 @@ const Inventory = () => {
                 <p className="text-red-600">{error}</p>
               </div>
             ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" ref={printRef}>
           <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Product</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Category</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Brand</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Stock</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Unit Cost</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">OTC Price</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700 hidden lg:table-cell">Service Mapping</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Total Value</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('name')}
+                >
+                  <div className="flex items-center">
+                    Product
+                    <span className="no-print"><SortIcon column="name" /></span>
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('category')}
+                >
+                  <div className="flex items-center">
+                    Category
+                    <span className="no-print"><SortIcon column="category" /></span>
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('brand')}
+                >
+                  <div className="flex items-center">
+                    Brand
+                    <span className="no-print"><SortIcon column="brand" /></span>
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('otcStock')}
+                >
+                  <div className="flex items-center">
+                    OTC Stock
+                    <span className="no-print"><SortIcon column="otcStock" /></span>
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('salonStock')}
+                >
+                  <div className="flex items-center">
+                    Salon Stock
+                    <span className="no-print"><SortIcon column="salonStock" /></span>
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('status')}
+                >
+                  <div className="flex items-center">
+                    Status
+                    <span className="no-print"><SortIcon column="status" /></span>
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('unitCost')}
+                >
+                  <div className="flex items-center">
+                    Unit Cost
+                    <span className="no-print"><SortIcon column="unitCost" /></span>
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('otcPrice')}
+                >
+                  <div className="flex items-center">
+                    OTC Price
+                    <span className="no-print"><SortIcon column="otcPrice" /></span>
+                  </div>
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                  Service Mapping
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('totalValue')}
+                >
+                  <div className="flex items-center">
+                    Total Value
+                    <span className="no-print"><SortIcon column="totalValue" /></span>
+                  </div>
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider no-print">
+                  Actions
+                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="bg-white divide-y divide-gray-200">
                     {filteredProducts.length === 0 ? (
                       <tr>
-                        <td colSpan="10" className="text-center py-8 text-gray-500">
-                          No products found
+                        <td colSpan="10" className="px-6 py-12 text-center">
+                          <AlertTriangle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                          <p className="text-gray-500">No products found</p>
                         </td>
                       </tr>
                     ) : (
@@ -1726,28 +2325,24 @@ const Inventory = () => {
                           });
                         }
                         return (
-                <tr key={product.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="py-4 px-4">
+                <tr key={product.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                               <p className="font-medium text-gray-900">{product.name || 'Unknown'}</p>
                               {product.sku && (
-                                <p className="text-sm text-gray-500">SKU: {product.sku}</p>
+                                <p className="text-sm text-gray-500">UPC: {product.sku}</p>
                               )}
                     </div>
                   </td>
-                          <td className="py-4 px-4 text-gray-700">{product.category || '-'}</td>
-                          <td className="py-4 px-4 text-gray-700">{product.brand || '-'}</td>
-                  <td className="py-4 px-4">
-                    <div className="flex items-center">
-                      <span className="font-medium text-gray-900">
-                        {Number(product.currentStock) || 0}
-                      </span>
-                      {product.maxStock > 0 && (
-                        <span className="text-sm text-gray-500 ml-1">/ {product.maxStock}</span>
-                      )}
-                    </div>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{product.category || '-'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{product.brand || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <span className="font-medium">{Number(product.otcStock) || 0}</span>
                   </td>
-                  <td className="py-4 px-4">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <span className="font-medium">{Number(product.salonStock) || 0}</span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
                               {(() => {
                                 const statusValue = product.status || 'Unknown';
@@ -1766,33 +2361,40 @@ const Inventory = () => {
                               })()}
                     </span>
                   </td>
-                          <td className="py-4 px-4 text-gray-700">₱{(product.unitCost || 0).toFixed(2)}</td>
-                          <td className="py-4 px-4 text-gray-700">₱{(product.otcPrice || 0).toFixed(2)}</td>
-                          <td className="py-4 px-4 hidden lg:table-cell">
-                            {product.serviceProductMapping && Object.keys(product.serviceProductMapping).length > 0 ? (
-                              <div className="space-y-1">
-                                {Object.entries(product.serviceProductMapping).slice(0, 2).map(([serviceId, minimumCost]) => {
-                                  const service = services.find(s => s.id === serviceId);
-                                  return (
-                                    <div key={serviceId} className="flex items-center gap-1 text-xs">
-                                      <Scissors className="w-3 h-3 text-purple-500 flex-shrink-0" />
-                                      <span className="text-gray-700 truncate">{service?.name || 'Unknown'}</span>
-                                      <span className="text-purple-600 font-medium">₱{parseFloat(minimumCost || 0).toLocaleString()}</span>
-                                    </div>
-                                  );
-                                })}
-                                {Object.keys(product.serviceProductMapping).length > 2 && (
-                                  <span className="text-xs text-gray-400">+{Object.keys(product.serviceProductMapping).length - 2} more</span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-xs text-gray-400">None</span>
-                            )}
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">₱{(product.unitCost || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">₱{(product.otcPrice || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap hidden lg:table-cell">
+                            {(() => {
+                              const productServices = services.filter(service => 
+                                service.productMappings && service.productMappings.some(mapping => mapping.productId === product.id)
+                              );
+                              return productServices.length > 0 ? (
+                                <div className="space-y-1">
+                                  {productServices.slice(0, 2).map(service => {
+                                    const mapping = service.productMappings.find(m => m.productId === product.id);
+                                    return (
+                                      <div key={service.id} className="flex items-center gap-1 text-xs">
+                                        <Scissors className="w-3 h-3 text-purple-500 flex-shrink-0" />
+                                        <span className="text-gray-700 truncate">{service.name}</span>
+                                        <span className="text-purple-600 font-medium">
+                                          {mapping.quantity}{mapping.unit} ({mapping.percentage}%)
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                  {productServices.length > 2 && (
+                                    <span className="text-xs text-gray-400">+{productServices.length - 2} more</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-400">None</span>
+                              );
+                            })()}
                           </td>
-                          <td className="py-4 px-4 text-gray-700">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             ₱{((product.currentStock || 0) * (product.unitCost || 0)).toLocaleString()}
                           </td>
-                  <td className="py-4 px-4">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium no-print">
                       <Button
                         size="sm"
                         variant="outline"
@@ -1851,157 +2453,177 @@ const Inventory = () => {
       {/* REPORTS TAB */}
       {activeTab === 'reports' && (
         <>
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Inventory Reports</h1>
-              <p className="text-gray-600">Sales analysis and inventory insights</p>
+          {/* Controls */}
+          <Card className="p-6">
+            <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
+              <div className="flex flex-col sm:flex-row gap-4 flex-1 w-full">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                  <Input
+                    placeholder="Search transactions..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                  
+                <div className="flex gap-1">
+                  <Button variant="outline" onClick={handleExportCSV}>
+                    <Download className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" onClick={handlePrint}>
+                    <Printer className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" onClick={handleFilter}>
+                    <Filter className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={loadReports}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
-              <Button variant="outline">
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Button>
-            </div>
-          </div>
+          </Card>
 
-          {loadingReports && !salesData.length ? (
+          {/* Transactions Table */}
+          {loadingReports && productTransactions.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
-              <span className="ml-2 text-gray-600">Loading reports...</span>
+              <span className="ml-2 text-gray-600">Loading transactions...</span>
             </div>
           ) : (
-            <>
-              {/* Summary Statistics */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <Card className="p-6">
-                  <div className="flex items-center">
-                    <Banknote className="h-8 w-8 text-green-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-                      <p className="text-2xl font-bold text-gray-900">₱{summaryStats.totalRevenue.toLocaleString()}</p>
-                    </div>
-                  </div>
-                </Card>
-                  
-                <Card className="p-6">
-                  <div className="flex items-center">
-                    <TrendingUp className="h-8 w-8 text-blue-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Total Profit</p>
-                      <p className="text-2xl font-bold text-gray-900">₱{summaryStats.totalProfit.toLocaleString()}</p>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="flex items-center">
-                    <Package className="h-8 w-8 text-purple-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Units Sold</p>
-                      <p className="text-2xl font-bold text-gray-900">{summaryStats.totalQuantitySold}</p>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="flex items-center">
-                    <BarChart3 className="h-8 w-8 text-orange-600" />
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Profit Margin</p>
-                      <p className="text-2xl font-bold text-gray-900">{summaryStats.profitMargin.toFixed(1)}%</p>
-                    </div>
-                  </div>
-                </Card>
-    </div>
-
-              {/* Inventory Statistics */}
-              {inventoryStats && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <Card className="p-6">
-                    <div className="flex items-center">
-                      <Package className="h-8 w-8 text-blue-600" />
-                      <div className="ml-4">
-                        <p className="text-sm font-medium text-gray-600">Total Products</p>
-                        <p className="text-2xl font-bold text-gray-900">{inventoryStats.totalProducts}</p>
-                      </div>
-                    </div>
-                  </Card>
-                    
-                  <Card className="p-6">
-                    <div className="flex items-center">
-                      <CheckCircle className="h-8 w-8 text-green-600" />
-                      <div className="ml-4">
-                        <p className="text-sm font-medium text-gray-600">In Stock</p>
-                        <p className="text-2xl font-bold text-gray-900">{inventoryStats.inStockCount}</p>
-                      </div>
-                    </div>
-                  </Card>
-                    
-                  <Card className="p-6">
-                    <div className="flex items-center">
-                      <AlertTriangle className="h-8 w-8 text-yellow-600" />
-                      <div className="ml-4">
-                        <p className="text-sm font-medium text-gray-600">Low Stock</p>
-                        <p className="text-2xl font-bold text-gray-900">{inventoryStats.lowStockCount}</p>
-                      </div>
-                    </div>
-                  </Card>
-                    
-                  <Card className="p-6">
-                    <div className="flex items-center">
-                      <Banknote className="h-8 w-8 text-purple-600" />
-                      <div className="ml-4">
-                        <p className="text-sm font-medium text-gray-600">Inventory Value</p>
-                        <p className="text-2xl font-bold text-gray-900">₱{inventoryStats.totalValue.toLocaleString()}</p>
-                      </div>
-                    </div>
-                  </Card>
-                </div>
-              )}
-
-              {/* Top Selling Products */}
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-gray-900">Top Selling Products</h2>
-                </div>
-                <div className="overflow-x-auto">
+              <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Product</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Quantity Sold</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Revenue</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Profit</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Margin</th>
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Receipt #
+                        </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Date
+                        </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Client
+                        </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Products
+                        </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Payment Method
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Total Amount
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                        </th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {topSellingProducts.length === 0 ? (
+                    <tbody className="bg-white divide-y divide-gray-200">
+                    {productTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan="5" className="text-center py-8 text-gray-500">
-                            No sales data for this period
+                        <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
+                          {loadingReports ? 'Loading...' : 'No product transactions found'}
                           </td>
                         </tr>
                       ) : (
-                        topSellingProducts.map((product, index) => {
-                          const profit = (product.totalRevenue || 0) - ((product.quantitySold || 0) * (product.unitCost || 0));
-                          const margin = (product.totalRevenue || 0) > 0 
-                            ? (profit / product.totalRevenue) * 100 
-                            : 0;
+                      productTransactions
+                        .filter(transaction => {
+                          if (!searchTerm) return true;
+                          const searchLower = searchTerm.toLowerCase();
                           return (
-                            <tr key={product.productId || index} className="border-b border-gray-100 hover:bg-gray-50">
-                              <td className="py-4 px-4">
-                                <p className="font-medium text-gray-900">{product.productName || 'Unknown'}</p>
+                            transaction.receiptNumber?.toLowerCase().includes(searchLower) ||
+                            transaction.clientName?.toLowerCase().includes(searchLower) ||
+                            transaction.items?.some(item => item.name?.toLowerCase().includes(searchLower))
+                          );
+                        })
+                        .map((transaction) => {
+                          // Handle date conversion properly
+                          let transactionDate;
+                          if (transaction.createdAt instanceof Date) {
+                            transactionDate = transaction.createdAt;
+                          } else if (transaction.createdAt?.toDate) {
+                            transactionDate = transaction.createdAt.toDate();
+                          } else if (transaction.createdAt) {
+                            transactionDate = new Date(transaction.createdAt);
+                          } else {
+                            transactionDate = new Date();
+                          }
+                          
+                          const productItems = transaction.items?.filter(item => item.type === 'product') || [];
+                          
+                          return (
+                            <tr key={transaction.id || transaction.receiptNumber} className="hover:bg-gray-50">
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-medium text-gray-900">
+                                  {transaction.receiptNumber || transaction.id || 'N/A'}
+                                </div>
                               </td>
-                              <td className="py-4 px-4 text-gray-700">{product.quantitySold || 0}</td>
-                              <td className="py-4 px-4 text-gray-700">₱{(product.totalRevenue || 0).toLocaleString()}</td>
-                              <td className="py-4 px-4 text-gray-700">₱{profit.toLocaleString()}</td>
-                              <td className="py-4 px-4 text-gray-700">{margin.toFixed(1)}%</td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900">
+                                  {format(transactionDate, 'MMM dd, yyyy HH:mm')}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="text-sm font-medium text-gray-900">{transaction.clientName || 'Guest'}</div>
+                                {transaction.clientPhone && (
+                                  <div className="text-xs text-gray-500">{transaction.clientPhone}</div>
+                                )}
+                                {transaction.createdByName && (
+                                  <div className="text-xs text-gray-400">By: {transaction.createdByName}</div>
+                                )}
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="text-sm text-gray-900 space-y-1">
+                                  {productItems.length > 0 ? (
+                                    productItems.map((item, idx) => (
+                                      <div key={idx} className="mb-1">
+                                        <span className="font-medium">{item.name}</span>
+                                        <span className="text-gray-600"> × {item.quantity}</span>
+                                        {item.price && (
+                                          <span className="text-gray-500 text-xs ml-1">
+                                            (₱{(item.price * item.quantity).toLocaleString()})
+                                          </span>
+                                        )}
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <span className="text-gray-400">No products</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 capitalize">
+                                  {transaction.paymentMethod || 'N/A'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-right">
+                                <div className="text-sm font-medium text-gray-900">
+                                  ₱{(transaction.total || 0).toLocaleString()}
+                                </div>
+                                {transaction.discount > 0 && (
+                                  <div className="text-xs text-gray-500">
+                                    Discount: ₱{transaction.discount.toLocaleString()}
+                                  </div>
+                                )}
+                                {transaction.subtotal && transaction.subtotal !== transaction.total && (
+                                  <div className="text-xs text-gray-500">
+                                    Subtotal: ₱{transaction.subtotal.toLocaleString()}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                  transaction.status === 'paid' 
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {transaction.status || 'Unknown'}
+                                </span>
+                                {transaction.notes && (
+                                  <div className="text-xs text-gray-500 mt-1 max-w-xs truncate" title={transaction.notes}>
+                                    {transaction.notes}
+                                  </div>
+                                )}
+                              </td>
                             </tr>
                           );
                         })
@@ -2010,7 +2632,6 @@ const Inventory = () => {
                   </table>
                 </div>
               </Card>
-            </>
           )}
         </>
       )}
@@ -2018,14 +2639,6 @@ const Inventory = () => {
       {/* PURCHASE ORDERS TAB */}
       {activeTab === 'purchaseOrders' && (
         <>
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
-              <p className="text-gray-600">View purchase orders from suppliers</p>
-            </div>
-          </div>
-
           {/* Error Display */}
           {errorPO && (
             <Card className="p-4 bg-red-50 border-red-200">
@@ -2094,54 +2707,29 @@ const Inventory = () => {
 
           {/* Search and Filters */}
           <Card className="p-6">
-            <div className="flex flex-col lg:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  type="text"
-                  placeholder="Search by order ID, supplier, or notes..."
-                  value={searchTermPO}
-                  onChange={(e) => setSearchTermPO(e.target.value)}
-                  className="w-full pl-10"
-                />
+            <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
+              <div className="flex flex-col sm:flex-row gap-4 flex-1 w-full">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    type="text"
+                    placeholder="Search by order ID, supplier, or notes..."
+                    value={searchTermPO}
+                    onChange={(e) => setSearchTermPO(e.target.value)}
+                    className="w-full pl-10"
+                  />
+                </div>
               </div>
-              <div className="flex gap-3">
-                <select
-                  value={selectedStatusPO}
-                  onChange={(e) => setSelectedStatusPO(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                >
-                  <option value="all">All Status</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Received">Received</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Rejected">Rejected</option>
-                  <option value="Shipped">Shipped</option>
-                  <option value="Delivered">Delivered</option>
-                  <option value="Cancelled">Cancelled</option>
-                  <option value="Overdue">Overdue</option>
-                </select>
-                <select
-                  value={selectedSupplierFilter}
-                  onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                >
-                  <option value="all">All Suppliers</option>
-                  {suppliers.map(supplier => (
-                    <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                  ))}
-                </select>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSearchTermPO('');
-                    setSelectedStatusPO('all');
-                    setSelectedSupplierFilter('all');
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Reset
+              
+              <div className="flex gap-1">
+                <Button variant="outline" onClick={handleExportPurchaseOrdersCSV}>
+                  <Download className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" onClick={handlePrintPurchaseOrders}>
+                  <Printer className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" onClick={handleFilterPurchaseOrders}>
+                  <Filter className="h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -2229,18 +2817,42 @@ const Inventory = () => {
                             )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedOrder(order);
-                                setIsDetailsModalOpen(true);
-                              }}
-                              className="flex items-center gap-1"
-                            >
-                              <Eye className="h-3 w-3" />
-                              View
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedOrder(order);
+                                  setIsDetailsModalOpen(true);
+                                }}
+                                className="flex items-center gap-1"
+                              >
+                                <Eye className="h-3 w-3" />
+                                View
+                              </Button>
+                              {canApproveOrReject(order) && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleOpenApproveModal(order.id)}
+                                    className="flex items-center gap-1 text-green-600 border-green-300 hover:bg-green-50"
+                                  >
+                                    <CheckCircle className="h-3 w-3" />
+                                    Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleOpenRejectModal(order)}
+                                    className="flex items-center gap-1 text-red-600 border-red-300 hover:bg-red-50"
+                                  >
+                                    <XCircle className="h-3 w-3" />
+                                    Reject
+                                  </Button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -2257,11 +2869,7 @@ const Inventory = () => {
       {activeTab === 'analytics' && (
         <>
           {/* Header with Date Range */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Business Analytics</h1>
-              <p className="text-gray-600">Inventory insights, anomalies, and performance metrics</p>
-            </div>
+          <div className="flex items-center justify-end">
             <div className="flex items-center gap-3">
               <select
                 value={analyticsDateRange}
@@ -2280,80 +2888,64 @@ const Inventory = () => {
             </div>
           </div>
 
-          {/* Quick Actions */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card 
-              className="p-6 cursor-pointer hover:shadow-lg transition-shadow border-2 border-transparent hover:border-[#160B53]"
-              onClick={() => setSelectedAnalyticsView('anomalies')}
+          {/* View Selection Buttons */}
+          <div className="flex flex-wrap gap-3 mb-6">
+            <button
+              onClick={() => setSelectedAnalyticsTab('topSelling')}
+              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 border-2 ${
+                selectedAnalyticsTab === 'topSelling'
+                  ? 'bg-green-100 text-green-700 border-green-300 shadow-sm'
+                  : 'bg-gray-100 text-gray-600 border-transparent hover:bg-gray-200'
+              }`}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Inventory Anomalies</p>
-                  <p className="text-2xl font-bold text-gray-900">{anomalies.length}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {anomalies.filter(a => a.severity === 'critical' || a.severity === 'high').length} critical
-                  </p>
-                </div>
-                <div className="p-3 bg-red-100 rounded-full">
-                  <AlertTriangle className="h-6 w-6 text-red-600" />
-                </div>
-              </div>
-            </Card>
-
-            <Card 
-              className="p-6 cursor-pointer hover:shadow-lg transition-shadow border-2 border-transparent hover:border-[#160B53]"
-              onClick={() => setSelectedAnalyticsView('lowSales')}
+              <TrendingUp className="h-4 w-4" />
+              <span>Top Selling</span>
+            </button>
+            <button
+              onClick={() => setSelectedAnalyticsTab('lowSelling')}
+              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 border-2 ${
+                selectedAnalyticsTab === 'lowSelling'
+                  ? 'bg-yellow-100 text-yellow-700 border-yellow-300 shadow-sm'
+                  : 'bg-gray-100 text-gray-600 border-transparent hover:bg-gray-200'
+              }`}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Low Sales Products</p>
-                  <p className="text-2xl font-bold text-gray-900">{lowSalesProducts.length}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {lowSalesProducts.filter(p => p.quantitySold === 0).length} with no sales
-                  </p>
-                </div>
-                <div className="p-3 bg-yellow-100 rounded-full">
-                  <TrendingDown className="h-6 w-6 text-yellow-600" />
-                </div>
-              </div>
-            </Card>
-
-            <Card 
-              className="p-6 cursor-pointer hover:shadow-lg transition-shadow border-2 border-transparent hover:border-[#160B53]"
-              onClick={() => setSelectedAnalyticsView('overview')}
+              <TrendingDown className="h-4 w-4" />
+              <span>Low Selling</span>
+            </button>
+            <button
+              onClick={() => setSelectedAnalyticsTab('lowStock')}
+              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 border-2 ${
+                selectedAnalyticsTab === 'lowStock'
+                  ? 'bg-orange-100 text-orange-700 border-orange-300 shadow-sm'
+                  : 'bg-gray-100 text-gray-600 border-transparent hover:bg-gray-200'
+              }`}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Inventory Value</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    ₱{analyticsData?.totalInventoryValue?.toLocaleString() || '0'}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">Total stock value</p>
-                </div>
-                <div className="p-3 bg-blue-100 rounded-full">
-                  <Banknote className="h-6 w-6 text-blue-600" />
-                </div>
-              </div>
-            </Card>
-
-            <Card 
-              className="p-6 cursor-pointer hover:shadow-lg transition-shadow border-2 border-transparent hover:border-[#160B53]"
-              onClick={() => setSelectedAnalyticsView('trends')}
+              <AlertTriangle className="h-4 w-4" />
+              <span>Low Stock</span>
+            </button>
+            <button
+              onClick={() => setSelectedAnalyticsTab('highStock')}
+              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 border-2 ${
+                selectedAnalyticsTab === 'highStock'
+                  ? 'bg-blue-100 text-blue-700 border-blue-300 shadow-sm'
+                  : 'bg-gray-100 text-gray-600 border-transparent hover:bg-gray-200'
+              }`}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Sales Revenue</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    ₱{analyticsData?.totalSalesRevenue?.toLocaleString() || '0'}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">Last {analyticsDateRange} days</p>
+              <Package className="h-4 w-4" />
+              <span>High Stock</span>
+            </button>
+            <button
+              onClick={() => setSelectedAnalyticsTab('anomalies')}
+              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 border-2 ${
+                selectedAnalyticsTab === 'anomalies'
+                  ? 'bg-red-100 text-red-700 border-red-300 shadow-sm'
+                  : 'bg-gray-100 text-gray-600 border-transparent hover:bg-gray-200'
+              }`}
+            >
+              <AlertTriangle className="h-4 w-4" />
+              <span>Anomalies</span>
+            </button>
                 </div>
-                <div className="p-3 bg-green-100 rounded-full">
-                  <TrendingUpIcon className="h-6 w-6 text-green-600" />
-                </div>
-              </div>
-            </Card>
-          </div>
 
           {/* Analytics Content */}
           {loadingAnalytics ? (
@@ -2364,612 +2956,542 @@ const Inventory = () => {
               </div>
             </Card>
           ) : (
-            <>
-              {/* Overview View */}
-              {selectedAnalyticsView === 'overview' && analyticsData && (
-                <div className="space-y-6">
-                  {/* Key Metrics */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="space-y-6">
+              {/* Summary Cards - 3 cards per tab */}
+              {selectedAnalyticsTab === 'topSelling' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Card className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Profit Margin</p>
-                          <p className="text-2xl font-bold text-gray-900">
-                            {analyticsData.profitMargin?.toFixed(1) || '0'}%
-                          </p>
-                        </div>
-                        <PieChart className="h-8 w-8 text-purple-600" />
-                      </div>
-                    </Card>
-
+              <div className="flex items-center justify-between">
+                <div>
+                          <p className="text-sm font-medium text-gray-600">Total Products</p>
+                          <p className="text-2xl font-bold text-gray-900">{topSellingProducts.length}</p>
+                          <p className="text-xs text-gray-500 mt-1">Top performers</p>
+                </div>
+                        <div className="p-3 bg-green-100 rounded-full">
+                          <TrendingUp className="h-6 w-6 text-green-600" />
+                </div>
+              </div>
+            </Card>
                     <Card className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Inventory Turnover</p>
-                          <p className="text-2xl font-bold text-gray-900">
-                            {analyticsData.inventoryTurnover?.toFixed(2) || '0'}x
-                          </p>
-                        </div>
-                        <Target className="h-8 w-8 text-blue-600" />
-                      </div>
-                    </Card>
-
+              <div className="flex items-center justify-between">
+                <div>
+                          <p className="text-sm font-medium text-gray-600">Total Revenue</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                            ₱{topSellingProducts.reduce((sum, p) => sum + p.revenue, 0).toLocaleString()}
+                  </p>
+                          <p className="text-xs text-gray-500 mt-1">From top sellers</p>
+                </div>
+                <div className="p-3 bg-blue-100 rounded-full">
+                          <DollarSign className="h-6 w-6 text-blue-600" />
+                </div>
+              </div>
+            </Card>
                     <Card className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div>
+              <div className="flex items-center justify-between">
+                <div>
                           <p className="text-sm font-medium text-gray-600">Total Profit</p>
-                          <p className="text-2xl font-bold text-gray-900">
-                            ₱{analyticsData.totalProfit?.toLocaleString() || '0'}
+                          <p className="text-2xl font-bold text-green-600">
+                            ₱{topSellingProducts.reduce((sum, p) => sum + p.profit, 0).toLocaleString()}
                           </p>
+                          <p className="text-xs text-gray-500 mt-1">Net profit</p>
+                </div>
+                <div className="p-3 bg-green-100 rounded-full">
+                          <TrendingUp className="h-6 w-6 text-green-600" />
+                </div>
+              </div>
+            </Card>
+          </div>
+                  <Card className="overflow-hidden">
+                    <div className="p-6 border-b border-gray-200">
+                      <h3 className="text-lg font-semibold text-gray-900">Top Selling Products</h3>
+              </div>
+                    <div className="p-6">
+                      {topSellingProducts.length === 0 ? (
+                        <div className="text-center py-12 text-gray-500">No top selling products found</div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rank</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity Sold</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Profit</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Margin</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transactions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {topSellingProducts.map((product, index) => (
+                                <tr key={product.productId} className="hover:bg-gray-50">
+                                  <td className="px-6 py-4">
+                                    <span className="text-lg font-bold text-gray-900">#{index + 1}</span>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <div className="font-medium text-gray-900">{product.productName}</div>
+                                  </td>
+                                  <td className="px-6 py-4 text-gray-900">{product.quantitySold}</td>
+                                  <td className="px-6 py-4 text-gray-900">₱{product.revenue.toLocaleString()}</td>
+                                  <td className="px-6 py-4 text-green-600 font-medium">₱{product.profit.toLocaleString()}</td>
+                                  <td className="px-6 py-4 text-gray-900">{product.margin.toFixed(1)}%</td>
+                                  <td className="px-6 py-4 text-gray-900">{product.transactionCount}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
-                        <Banknote className="h-8 w-8 text-green-600" />
-                      </div>
-                    </Card>
+                      )}
+                    </div>
+                  </Card>
+                </>
+              )}
 
+              {selectedAnalyticsTab === 'lowSelling' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Card className="p-6">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-medium text-gray-600">Units Sold</p>
-                          <p className="text-2xl font-bold text-gray-900">
-                            {analyticsData.totalUnitsSold || '0'}
-                          </p>
+                          <p className="text-sm font-medium text-gray-600">Total Products</p>
+                          <p className="text-2xl font-bold text-gray-900">{lowSellingProducts.length}</p>
+                          <p className="text-xs text-gray-500 mt-1">Need attention</p>
                         </div>
-                        <Package className="h-8 w-8 text-orange-600" />
+                        <div className="p-3 bg-yellow-100 rounded-full">
+                          <TrendingDown className="h-6 w-6 text-yellow-600" />
+                        </div>
+                      </div>
+                    </Card>
+                    <Card className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">No Sales</p>
+                          <p className="text-2xl font-bold text-red-600">
+                            {lowSellingProducts.filter(p => p.quantitySold === 0).length}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">Zero sales</p>
+                        </div>
+                        <div className="p-3 bg-red-100 rounded-full">
+                          <AlertCircle className="h-6 w-6 text-red-600" />
+                        </div>
+                      </div>
+                    </Card>
+                    <Card className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Low Sales</p>
+                          <p className="text-2xl font-bold text-yellow-600">
+                            {lowSellingProducts.filter(p => p.quantitySold > 0).length}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">Below threshold</p>
+                        </div>
+                        <div className="p-3 bg-yellow-100 rounded-full">
+                          <TrendingDown className="h-6 w-6 text-yellow-600" />
+                        </div>
                       </div>
                     </Card>
                   </div>
+                  <Card className="overflow-hidden">
+                    <div className="p-6 border-b border-gray-200">
+                      <h3 className="text-lg font-semibold text-gray-900">Low Selling Products</h3>
+                    </div>
+                    <div className="p-6">
+                      {lowSellingProducts.length === 0 ? (
+                        <div className="text-center py-12 text-gray-500">All products are selling well!</div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity Sold</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Sold</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {lowSellingProducts.map((product) => (
+                                <tr key={product.productId} className="hover:bg-gray-50">
+                                  <td className="px-6 py-4">
+                                    <div className="font-medium text-gray-900">{product.productName}</div>
+                                  </td>
+                                  <td className="px-6 py-4 text-gray-900">{product.quantitySold || 0}</td>
+                                  <td className="px-6 py-4 text-gray-900">₱{product.revenue.toLocaleString()}</td>
+                                  <td className="px-6 py-4 text-gray-900">
+                                    {product.lastSoldDate ? format(product.lastSoldDate, 'MMM dd, yyyy') : 'Never'}
+                                    {product.daysSinceLastSale !== undefined && product.daysSinceLastSale > 0 && (
+                                      <div className="text-xs text-gray-500">{product.daysSinceLastSale} days ago</div>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    {product.quantitySold === 0 ? (
+                                      <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">No Sales</span>
+                                    ) : (
+                                      <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800">Low Sales</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </>
+              )}
 
-                  {/* Stock Distribution */}
+              {selectedAnalyticsTab === 'lowStock' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Total Products</p>
+                          <p className="text-2xl font-bold text-gray-900">{lowStockProducts.length}</p>
+                          <p className="text-xs text-gray-500 mt-1">Low stock items</p>
+                        </div>
+                        <div className="p-3 bg-orange-100 rounded-full">
+                          <AlertTriangle className="h-6 w-6 text-orange-600" />
+                      </div>
+                  </div>
+                    </Card>
                   <Card className="p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Stock Status Distribution</h3>
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="text-center p-4 bg-green-50 rounded-lg">
-                        <p className="text-2xl font-bold text-green-600">
-                          {analyticsData.stockDistribution?.inStock || 0}
-                        </p>
-                        <p className="text-sm text-gray-600">In Stock</p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Critical Stock</p>
+                          <p className="text-2xl font-bold text-red-600">
+                            {lowStockProducts.filter(p => p.currentStock < (p.minStock * 0.5)).length}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">Below 50% of min</p>
                       </div>
-                      <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                        <p className="text-2xl font-bold text-yellow-600">
-                          {analyticsData.stockDistribution?.lowStock || 0}
-                        </p>
-                        <p className="text-sm text-gray-600">Low Stock</p>
+                        <div className="p-3 bg-red-100 rounded-full">
+                          <AlertCircle className="h-6 w-6 text-red-600" />
                       </div>
-                      <div className="text-center p-4 bg-red-50 rounded-lg">
-                        <p className="text-2xl font-bold text-red-600">
-                          {analyticsData.stockDistribution?.outOfStock || 0}
-                        </p>
-                        <p className="text-sm text-gray-600">Out of Stock</p>
+                      </div>
+                    </Card>
+                    <Card className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Warning Stock</p>
+                          <p className="text-2xl font-bold text-orange-600">
+                            {lowStockProducts.filter(p => p.currentStock >= (p.minStock * 0.5) && p.currentStock <= p.minStock).length}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">At min level</p>
+                        </div>
+                        <div className="p-3 bg-orange-100 rounded-full">
+                          <AlertTriangle className="h-6 w-6 text-orange-600" />
                       </div>
                     </div>
                   </Card>
-
-                  {/* Top Products */}
-                  {analyticsData.topProducts && analyticsData.topProducts.length > 0 && (
-                    <Card className="p-6">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Performing Products</h3>
+                  </div>
+                  <Card className="overflow-hidden">
+                    <div className="p-6 border-b border-gray-200">
+                      <h3 className="text-lg font-semibold text-gray-900">Low Stock Products</h3>
+                    </div>
+                    <div className="p-6">
+                      {lowStockProducts.length === 0 ? (
+                        <div className="text-center py-12 text-gray-500">All products have adequate stock!</div>
+                      ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full">
-                          <thead>
-                            <tr className="border-b border-gray-200">
-                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Product</th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Units Sold</th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Revenue</th>
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Stock</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Min Stock</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Max Stock</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock Level</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                             </tr>
                           </thead>
-                          <tbody>
-                            {analyticsData.topProducts.map((product, index) => (
-                              <tr key={product.productId} className="border-b border-gray-100">
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-gray-500">#{index + 1}</span>
-                                    <span className="font-medium text-gray-900">{product.productName}</span>
+                            <tbody className="divide-y divide-gray-200">
+                              {lowStockProducts.map((product) => (
+                                <tr key={product.id} className="hover:bg-gray-50">
+                                  <td className="px-6 py-4">
+                                    <div className="font-medium text-gray-900">{product.name}</div>
+                                    <div className="text-sm text-gray-500">{product.category} • {product.brand}</div>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className="font-medium text-orange-600">{product.currentStock || 0}</span>
+                                  </td>
+                                  <td className="px-6 py-4 text-gray-900">{product.minStock || 0}</td>
+                                  <td className="px-6 py-4 text-gray-900">{product.maxStock || 0}</td>
+                                  <td className="px-6 py-4">
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                      <div 
+                                        className="bg-orange-600 h-2 rounded-full" 
+                                        style={{ width: `${Math.min((product.currentStock / (product.maxStock || 1)) * 100, 100)}%` }}
+                                      ></div>
                                   </div>
+                                    <div className="text-xs text-gray-500 mt-1">{product.stockPercentage.toFixed(1)}% of max</div>
                                 </td>
-                                <td className="py-3 px-4 text-gray-700">{product.quantitySold}</td>
-                                <td className="py-3 px-4 font-semibold text-gray-900">
-                                  ₱{product.revenue.toLocaleString()}
+                                  <td className="px-6 py-4">
+                                    <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800">Low Stock</span>
                                 </td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
                       </div>
-                    </Card>
                   )}
                 </div>
+                  </Card>
+                </>
               )}
 
-              {/* Anomalies View */}
-              {selectedAnalyticsView === 'anomalies' && (
+              {selectedAnalyticsTab === 'highStock' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">Inventory Anomalies</h3>
-                    <span className="text-sm text-gray-500">
-                      {anomalies.length} anomaly{anomalies.length !== 1 ? 'ies' : ''} detected
-                    </span>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Total Products</p>
+                          <p className="text-2xl font-bold text-gray-900">{highStockProducts.length}</p>
+                          <p className="text-xs text-gray-500 mt-1">Overstocked</p>
                   </div>
-                  {anomalies.length === 0 ? (
-                    <div className="text-center py-12">
-                      <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                      <p className="text-gray-600">No anomalies detected</p>
+                        <div className="p-3 bg-blue-100 rounded-full">
+                          <Package className="h-6 w-6 text-blue-600" />
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {anomalies.map((anomaly, index) => (
-                        <div
-                          key={index}
-                          className={`p-4 rounded-lg border-l-4 ${
-                            anomaly.severity === 'critical'
-                              ? 'bg-red-50 border-red-500'
-                              : anomaly.severity === 'high'
-                              ? 'bg-orange-50 border-orange-500'
-                              : 'bg-yellow-50 border-yellow-500'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <AlertTriangle className={`h-5 w-5 ${
-                                  anomaly.severity === 'critical' ? 'text-red-600' :
-                                  anomaly.severity === 'high' ? 'text-orange-600' : 'text-yellow-600'
-                                }`} />
-                                <span className={`font-semibold ${
-                                  anomaly.severity === 'critical' ? 'text-red-800' :
-                                  anomaly.severity === 'high' ? 'text-orange-800' : 'text-yellow-800'
-                                }`}>
-                                  {anomaly.severity.toUpperCase()}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  {anomaly.type.replace('_', ' ').toUpperCase()}
-                                </span>
                               </div>
-                              <p className="font-medium text-gray-900 mb-1">{anomaly.productName}</p>
-                              <p className="text-sm text-gray-700">{anomaly.description}</p>
-                              {anomaly.date && (
-                                <p className="text-xs text-gray-500 mt-1">Date: {anomaly.date}</p>
-                              )}
+                    </Card>
+                    <Card className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Overstocked Count</p>
+                          <p className="text-2xl font-bold text-blue-600">{highStockProducts.length}</p>
+                          <p className="text-xs text-gray-500 mt-1">Above max stock</p>
                             </div>
+                        <div className="p-3 bg-blue-100 rounded-full">
+                          <Package className="h-6 w-6 text-blue-600" />
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
                 </Card>
-              )}
-
-              {/* Low Sales Products View */}
-              {selectedAnalyticsView === 'lowSales' && (
                 <Card className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">Low Sales Products</h3>
-                    <span className="text-sm text-gray-500">
-                      {lowSalesProducts.length} product{lowSalesProducts.length !== 1 ? 's' : ''} with low sales
-                    </span>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Total Overstock</p>
+                          <p className="text-2xl font-bold text-red-600">
+                            +{highStockProducts.reduce((sum, p) => sum + p.overstockAmount, 0)}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">Units over max</p>
                   </div>
-                  {lowSalesProducts.length === 0 ? (
-                    <div className="text-center py-12">
-                      <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                      <p className="text-gray-600">All products are performing well</p>
+                        <div className="p-3 bg-red-100 rounded-full">
+                          <AlertTriangle className="h-6 w-6 text-red-600" />
                     </div>
+                      </div>
+                    </Card>
+                  </div>
+                  <Card className="overflow-hidden">
+                    <div className="p-6 border-b border-gray-200">
+                      <h3 className="text-lg font-semibold text-gray-900">High Stock Products</h3>
+                    </div>
+                    <div className="p-6">
+                      {highStockProducts.length === 0 ? (
+                        <div className="text-center py-12 text-gray-500">No overstocked products</div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-gray-200">
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Product</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Current Stock</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Units Sold</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Revenue</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Stock Value</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Turnover Rate</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Stock</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Max Stock</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Overstock</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Overstock %</th>
                           </tr>
                         </thead>
-                        <tbody>
-                          {lowSalesProducts.map((product) => (
-                            <tr key={product.id} className="border-b border-gray-100 hover:bg-gray-50">
-                              <td className="py-3 px-4">
-                                <p className="font-medium text-gray-900">{product.name}</p>
-                                <p className="text-xs text-gray-500">{product.category}</p>
+                            <tbody className="divide-y divide-gray-200">
+                              {highStockProducts.map((product) => (
+                                <tr key={product.id} className="hover:bg-gray-50">
+                                  <td className="px-6 py-4">
+                                    <div className="font-medium text-gray-900">{product.name}</div>
                               </td>
-                              <td className="py-3 px-4 text-gray-700">{product.currentStock || 0}</td>
-                              <td className="py-3 px-4 text-gray-700">{product.quantitySold || 0}</td>
-                              <td className="py-3 px-4 text-gray-700">₱{(product.revenue || 0).toLocaleString()}</td>
-                              <td className="py-3 px-4 text-gray-700">₱{(product.stockValue || 0).toLocaleString()}</td>
-                              <td className="py-3 px-4">
-                                <span className={`font-medium ${
-                                  product.turnoverRate < 5 ? 'text-red-600' :
-                                  product.turnoverRate < 10 ? 'text-yellow-600' : 'text-gray-600'
-                                }`}>
-                                  {product.turnoverRate.toFixed(1)}%
-                                </span>
+                                  <td className="px-6 py-4">
+                                    <span className="font-medium text-blue-600">{product.stockLevel}</span>
                               </td>
-                              <td className="py-3 px-4">
-                                {product.quantitySold === 0 ? (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                    No Sales
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                    Low Sales
-                                  </span>
-                                )}
+                                  <td className="px-6 py-4 text-gray-900">{product.maxStock}</td>
+                                  <td className="px-6 py-4">
+                                    <span className="font-medium text-red-600">+{product.overstockAmount}</span>
                               </td>
+                                  <td className="px-6 py-4 text-gray-900">{product.overstockPercentage.toFixed(1)}%</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   )}
+                      {highStockProducts.length > 0 && (
+                        <div className="mt-6 space-y-6">
+                          <h4 className="text-md font-semibold text-gray-900">Batch Details</h4>
+                          {highStockProducts.map((product) => (
+                            <div key={product.id} className="border border-gray-200 rounded-lg p-4">
+                              <h5 className="font-semibold text-gray-900 mb-3">{product.name}</h5>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Batch Number</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Received Date</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Expiration Date</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-gray-200">
+                                    {product.batches && product.batches.length > 0 ? (
+                                      product.batches.map((batch, idx) => (
+                                        <tr key={idx} className="hover:bg-gray-50">
+                                          <td className="px-4 py-2 font-medium text-gray-900">{batch.batchNumber || 'N/A'}</td>
+                                          <td className="px-4 py-2 text-gray-900">{batch.currentStock || 0}</td>
+                                          <td className="px-4 py-2 text-gray-900">
+                                            {batch.receivedDate ? format(batch.receivedDate, 'MMM dd, yyyy') : 'N/A'}
+                                          </td>
+                                          <td className="px-4 py-2 text-gray-900">
+                                            {batch.expirationDate ? format(batch.expirationDate, 'MMM dd, yyyy') : 'N/A'}
+                                          </td>
+                                        </tr>
+                                      ))
+                                    ) : (
+                                      <tr>
+                                        <td colSpan="4" className="px-4 py-4 text-center text-gray-500">No batch information available</td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                 </Card>
+                </>
               )}
 
-              {/* Trends View */}
-              {selectedAnalyticsView === 'trends' && analyticsData && (
-                <div className="space-y-6">
-                  <Card className="p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Sales Performance</h3>
+              {selectedAnalyticsTab === 'anomalies' && (
+                <>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="p-4 bg-blue-50 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-                        <p className="text-2xl font-bold text-blue-600">
-                          ₱{analyticsData.totalSalesRevenue?.toLocaleString() || '0'}
-                        </p>
+                    <Card className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Total Anomalies</p>
+                          <p className="text-2xl font-bold text-gray-900">{anomalies.length}</p>
+                          <p className="text-xs text-gray-500 mt-1">Detected issues</p>
                       </div>
-                      <div className="p-4 bg-green-50 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Total Profit</p>
-                        <p className="text-2xl font-bold text-green-600">
-                          ₱{analyticsData.totalProfit?.toLocaleString() || '0'}
-                        </p>
+                        <div className="p-3 bg-red-100 rounded-full">
+                          <AlertTriangle className="h-6 w-6 text-red-600" />
                       </div>
-                      <div className="p-4 bg-purple-50 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Profit Margin</p>
-                        <p className="text-2xl font-bold text-purple-600">
-                          {analyticsData.profitMargin?.toFixed(1) || '0'}%
-                        </p>
+                      </div>
+                    </Card>
+                    <Card className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Critical</p>
+                          <p className="text-2xl font-bold text-red-600">
+                            {anomalies.filter(a => a.severity === 'critical').length}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">Urgent action</p>
+                        </div>
+                        <div className="p-3 bg-red-100 rounded-full">
+                          <AlertCircle className="h-6 w-6 text-red-600" />
                       </div>
                     </div>
                   </Card>
-
                   <Card className="p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Inventory Efficiency</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="p-4 border border-gray-200 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Inventory Turnover</p>
-                        <p className="text-3xl font-bold text-gray-900 mt-2">
-                          {analyticsData.inventoryTurnover?.toFixed(2) || '0'}x
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {analyticsData.inventoryTurnover > 1 ? 'Good' : analyticsData.inventoryTurnover > 0.5 ? 'Moderate' : 'Low'} turnover rate
-                        </p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">High Priority</p>
+                          <p className="text-2xl font-bold text-orange-600">
+                            {anomalies.filter(a => a.severity === 'high').length}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">Needs attention</p>
                       </div>
-                      <div className="p-4 border border-gray-200 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Average Days to Sell</p>
-                        <p className="text-3xl font-bold text-gray-900 mt-2">
-                          {analyticsData.inventoryTurnover > 0 
-                            ? (parseInt(analyticsDateRange) / analyticsData.inventoryTurnover).toFixed(0)
-                            : 'N/A'
-                          }
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">Days</p>
+                        <div className="p-3 bg-orange-100 rounded-full">
+                          <AlertTriangle className="h-6 w-6 text-orange-600" />
                       </div>
                     </div>
                   </Card>
+                  </div>
+                  <Card className="overflow-hidden">
+                    <div className="p-6 border-b border-gray-200">
+                      <h3 className="text-lg font-semibold text-gray-900">Inventory Anomalies</h3>
+                    </div>
+                    <div className="p-6">
+                      {anomalies.length === 0 ? (
+                        <div className="text-center py-12">
+                          <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                          <p className="text-gray-600">No anomalies detected - everything looks good!</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Severity</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {anomalies.map((anomaly, index) => (
+                                <tr key={index} className="hover:bg-gray-50">
+                                  <td className="px-6 py-4">
+                                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                                      anomaly.severity === 'critical'
+                                        ? 'bg-red-100 text-red-800'
+                                        : anomaly.severity === 'high'
+                                        ? 'bg-orange-100 text-orange-800'
+                                        : anomaly.severity === 'medium'
+                                        ? 'bg-yellow-100 text-yellow-800'
+                                        : 'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {anomaly.severity.toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className="text-sm text-gray-900">
+                                      {anomaly.type.replace(/_/g, ' ').toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {anomaly.productName || 'N/A'}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className="text-sm text-gray-700">{anomaly.description}</span>
+                                    {anomaly.daysUntilExpiry !== undefined && (
+                                      <div className="text-xs text-orange-600 mt-1">
+                                        Expires in {anomaly.daysUntilExpiry} days
                 </div>
               )}
-            </>
-          )}
-        </>
-      )}
-
-      {/* PRODUCT SALES TAB */}
-      {activeTab === 'productSales' && (
-        <>
-          {/* Header with Date Range and Search */}
-          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Product Sales</h1>
-              <p className="text-gray-600">Track sales performance of each product for business decisions</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <select
-                value={salesDateRange}
-                onChange={(e) => setSalesDateRange(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-              >
-                <option value="7">Last 7 days</option>
-                <option value="30">Last 30 days</option>
-                <option value="60">Last 60 days</option>
-                <option value="90">Last 90 days</option>
-                <option value="180">Last 6 months</option>
-                <option value="365">Last year</option>
-              </select>
-              <Button
-                variant="outline"
-                onClick={loadProductSales}
-                className="flex items-center gap-2"
-                disabled={loadingSales}
-              >
-                <RefreshCw className={`h-4 w-4 ${loadingSales ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-            </div>
-          </div>
-
-          {/* Search and Sort */}
-          <Card className="p-6">
-            <div className="flex flex-col lg:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  type="text"
-                  placeholder="Search products by name..."
-                  value={salesSearchTerm}
-                  onChange={(e) => setSalesSearchTerm(e.target.value)}
-                  className="w-full pl-10"
-                />
-              </div>
-              <div className="flex gap-3">
-                <select
-                  value={salesSortBy}
-                  onChange={(e) => setSalesSortBy(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                >
-                  <option value="revenue">Sort by Revenue</option>
-                  <option value="quantity">Sort by Quantity</option>
-                  <option value="name">Sort by Name</option>
-                </select>
-                <Button
-                  variant="outline"
-                  onClick={() => setSalesSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                  className="flex items-center gap-2"
-                >
-                  <ArrowUpDown className="h-4 w-4" />
-                  {salesSortOrder === 'asc' ? 'Ascending' : 'Descending'}
-                </Button>
-              </div>
-            </div>
-          </Card>
-
-          {/* AI Insights for Product Sales */}
-          {openaiService.isConfigured() && (
-            <Card className="p-6 bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <Sparkles className="h-5 w-5 text-purple-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">AI-Powered Product Insights</h3>
-                    <p className="text-sm text-gray-600">Actionable recommendations based on sales data</p>
-                  </div>
-                </div>
-                {loadingProductAI && (
-                  <Loader2Icon className="h-5 w-5 animate-spin text-purple-600" />
-                )}
-              </div>
-                
-              {productSalesInsights && !loadingProductAI ? (
-                <div className="space-y-4">
-                  {productSalesInsights.insights && productSalesInsights.insights.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-900 mb-2">Key Insights</h4>
-                      <ul className="space-y-1">
-                        {productSalesInsights.insights.map((insight, idx) => (
-                          <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                            <span className="text-purple-600 mt-1">•</span>
-                            <span>{typeof insight === 'string' ? insight : insight}</span>
-                          </li>
-                        ))}
-                      </ul>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className="text-sm text-gray-500">{anomaly.date || 'N/A'}</span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
-                  )}
-                    
-                  {productSalesInsights.recommendations && productSalesInsights.recommendations.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-900 mb-2">Inventory Recommendations</h4>
-                      <ul className="space-y-1">
-                        {productSalesInsights.recommendations.map((rec, idx) => (
-                          <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                            <span className="text-blue-600 mt-1">→</span>
-                            <span>{typeof rec === 'string' ? rec : rec}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                    
-                  {productSalesInsights.opportunities && productSalesInsights.opportunities.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-900 mb-2">Promotion Opportunities</h4>
-                      <ul className="space-y-1">
-                        {productSalesInsights.opportunities.map((opp, idx) => (
-                          <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                            <span className="text-green-600 mt-1">★</span>
-                            <span>{typeof opp === 'string' ? opp : opp}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ) : !loadingProductAI && productSales.length > 0 && (
-                <Button
-                  onClick={loadProductSalesAIInsights}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Generate AI Insights
-                </Button>
+                  </Card>
+                </>
               )}
-            </Card>
-          )}
-
-          {/* Sales Statistics */}
-          {productSales.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card className="p-4">
-                <div className="flex items-center">
-                  <Package className="h-8 w-8 text-blue-600" />
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-600">Products Sold</p>
-                    <p className="text-xl font-bold text-gray-900">{productSales.length}</p>
-                  </div>
-                </div>
-              </Card>
-              <Card className="p-4">
-                <div className="flex items-center">
-                  <TrendingUp className="h-8 w-8 text-green-600" />
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-                    <p className="text-xl font-bold text-gray-900">
-                      ₱{productSales.reduce((sum, sale) => sum + sale.totalRevenue, 0).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </Card>
-              <Card className="p-4">
-                <div className="flex items-center">
-                  <Target className="h-8 w-8 text-purple-600" />
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-600">Total Units</p>
-                    <p className="text-xl font-bold text-gray-900">
-                      {productSales.reduce((sum, sale) => sum + sale.totalQuantity, 0).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </Card>
-              <Card className="p-4">
-                <div className="flex items-center">
-                  <Banknote className="h-8 w-8 text-orange-600" />
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-600">Avg Price</p>
-                    <p className="text-xl font-bold text-gray-900">
-                      ₱{productSales.length > 0 
-                        ? (productSales.reduce((sum, sale) => sum + sale.averagePrice, 0) / productSales.length).toFixed(2)
-                        : '0.00'}
-                    </p>
-                  </div>
-                </div>
-              </Card>
             </div>
-          )}
-
-          {/* Product Sales Table */}
-          {loadingSales ? (
-            <Card className="p-12 text-center">
-              <RefreshCw className="h-8 w-8 animate-spin text-[#160B53] mx-auto mb-4" />
-              <p className="text-gray-600">Loading product sales data...</p>
-            </Card>
-          ) : productSales.length > 0 ? (
-            <Card className="overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Product Name
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Quantity Sold
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Transactions
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Average Price
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total Revenue
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {productSales
-                      .filter(sale => 
-                        sale.productName.toLowerCase().includes(salesSearchTerm.toLowerCase())
-                      )
-                      .sort((a, b) => {
-                        let aValue, bValue;
-                        if (salesSortBy === 'revenue') {
-                          aValue = a.totalRevenue;
-                          bValue = b.totalRevenue;
-                        } else if (salesSortBy === 'quantity') {
-                          aValue = a.totalQuantity;
-                          bValue = b.totalQuantity;
-                        } else {
-                          aValue = a.productName.toLowerCase();
-                          bValue = b.productName.toLowerCase();
-                        }
-                          
-                        if (salesSortOrder === 'asc') {
-                          return aValue > bValue ? 1 : -1;
-                        } else {
-                          return aValue < bValue ? 1 : -1;
-                        }
-                      })
-                      .map((sale) => (
-                        <tr key={sale.productId} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">{sale.productName}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <div className="text-sm text-gray-900 font-semibold">{sale.totalQuantity.toLocaleString()}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <div className="text-sm text-gray-600">{sale.transactionCount}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right">
-                            <div className="text-sm text-gray-900">₱{sale.averagePrice.toFixed(2)}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right">
-                            <div className="text-sm font-bold text-green-600">₱{sale.totalRevenue.toLocaleString()}</div>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                  {productSales.length > 0 && (
-                    <tfoot className="bg-gray-50">
-                      <tr>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                          Total
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-semibold text-gray-900">
-                          {productSales.reduce((sum, sale) => sum + sale.totalQuantity, 0).toLocaleString()}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-semibold text-gray-900">
-                          {productSales.reduce((sum, sale) => sum + sale.transactionCount, 0)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-semibold text-gray-900">
-                          -
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-green-600">
-                          ₱{productSales.reduce((sum, sale) => sum + sale.totalRevenue, 0).toLocaleString()}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
-            </Card>
-          ) : (
-            <Card className="p-12 text-center">
-              <TrendingUp className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Sales Data</h3>
-              <p className="text-gray-600">
-                No product sales found for the selected period. Sales data will appear here once products are sold.
-              </p>
-            </Card>
           )}
         </>
       )}
 
       {/* Product Details Modal */}
       {showDetailsModal && selectedProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col transform transition-all duration-300 scale-100 mx-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col transform transition-all duration-300 scale-100">
             <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -3009,7 +3531,7 @@ const Inventory = () => {
                   <p className="text-lg font-semibold text-gray-900">{selectedProduct.category || '-'}</p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-500">SKU</p>
+                  <p className="text-sm font-medium text-gray-500">UPC</p>
                   <p className="text-lg font-semibold text-gray-900">{selectedProduct.sku || '-'}</p>
                 </div>
                 <div>
@@ -3028,6 +3550,18 @@ const Inventory = () => {
                   <p className="text-sm font-medium text-gray-500">Status</p>
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(selectedProduct.status)}`}>
                     {selectedProduct.status || 'Unknown'}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-500">Usage Type</p>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    selectedProduct.usageType === 'otc' 
+                      ? 'bg-blue-100 text-blue-800' 
+                      : selectedProduct.usageType === 'salon' 
+                      ? 'bg-purple-100 text-purple-800' 
+                      : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {selectedProduct.usageType === 'otc' ? 'OTC' : selectedProduct.usageType === 'salon' ? 'Salon Use' : 'Unknown'}
                   </span>
                 </div>
                 <div>
@@ -3069,28 +3603,40 @@ const Inventory = () => {
                   </div>
                 )}
                 {/* Service Mapping */}
-                {selectedProduct.serviceProductMapping && Object.keys(selectedProduct.serviceProductMapping).length > 0 && (
-                  <div className="col-span-2 border-t pt-4 mt-4">
-                    <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                      <Scissors className="w-4 h-4 text-purple-500" />
-                      Service-Product Mapping (Minimum Cost)
-                    </p>
-                    <div className="space-y-2">
-                      {Object.entries(selectedProduct.serviceProductMapping).map(([serviceId, minimumCost]) => {
-                        const service = services.find(s => s.id === serviceId);
+                <div className="col-span-2 border-t pt-4 mt-4">
+                  <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <Scissors className="w-4 h-4 text-purple-500" />
+                    Service-Product Mapping
+                  </p>
+                  <div className="max-h-96 overflow-y-auto space-y-2">
+                    {services
+                      .filter(service => service.productMappings && service.productMappings.some(mapping => mapping.productId === selectedProduct.id))
+                      .map(service => {
+                        const mapping = service.productMappings.find(m => m.productId === selectedProduct.id);
                         return (
-                          <div key={serviceId} className="flex items-center justify-between p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                            <div className="flex items-center gap-2">
-                              <Scissors className="w-4 h-4 text-purple-500" />
-                              <span className="text-sm font-medium text-gray-900">{service?.name || 'Unknown Service'}</span>
+                          <div key={service.id} className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <Scissors className="w-4 h-4 text-purple-500" />
+                                <span className="text-sm font-medium text-gray-900">{service.name}</span>
+                              </div>
+                              <span className="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded">
+                                {mapping.percentage}% usage
+                              </span>
                             </div>
-                            <span className="text-sm font-semibold text-purple-600">₱{parseFloat(minimumCost || 0).toLocaleString()}</span>
+                            <div className="text-xs text-gray-600 space-y-1">
+                              <div>Quantity: {mapping.quantity} {mapping.unit}</div>
+                              <div>Category: {service.category}</div>
+                              {service.duration && <div>Duration: {service.duration} mins</div>}
+                            </div>
                           </div>
                         );
                       })}
-                    </div>
+                    {services.filter(service => service.productMappings && service.productMappings.some(mapping => mapping.productId === selectedProduct.id)).length === 0 && (
+                      <p className="text-sm text-gray-500 italic">No service mappings found for this product</p>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             </div>
               
@@ -3197,6 +3743,37 @@ const Inventory = () => {
                         )}
                       </div>
                     )}
+                    {selectedOrder.updatedByName && selectedOrder.updatedAt && selectedOrder.createdAt && (() => {
+                      // Only show "Edited" if updatedAt is significantly different from createdAt (more than 1 minute)
+                      try {
+                        const updatedAt = selectedOrder.updatedAt.toDate ? selectedOrder.updatedAt.toDate() : new Date(selectedOrder.updatedAt);
+                        const createdAt = selectedOrder.createdAt.toDate ? selectedOrder.createdAt.toDate() : new Date(selectedOrder.createdAt);
+                        return Math.abs(updatedAt - createdAt) > 60000; // More than 1 minute difference
+                      } catch {
+                        return false;
+                      }
+                    })() && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Last Updated By</label>
+                        <p className="text-gray-900 text-blue-600 font-semibold">{selectedOrder.updatedByName}</p>
+                        {selectedOrder.updatedAt && (
+                          <p className="text-xs text-gray-500">
+                            {(() => {
+                              try {
+                                const date = selectedOrder.updatedAt.toDate ? selectedOrder.updatedAt.toDate() : new Date(selectedOrder.updatedAt);
+                                return format(date, 'MMM dd, yyyy HH:mm');
+                              } catch (error) {
+                                return 'Invalid date';
+                              }
+                            })()}
+                          </p>
+                        )}
+                        <div className="mt-1 inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                          <Edit className="h-3 w-3" />
+                          Edited
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-4">
                     <div>
@@ -3207,6 +3784,14 @@ const Inventory = () => {
                       <div>
                         <label className="text-sm font-medium text-gray-500">Notes</label>
                         <p className="text-gray-900">{selectedOrder.notes}</p>
+                      </div>
+                    )}
+                    {selectedOrder.managerNotes && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Manager Notes</label>
+                        <div className="mt-1 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="text-sm text-amber-800">{selectedOrder.managerNotes}</p>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -3220,36 +3805,48 @@ const Inventory = () => {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ordered Qty</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Usage Type</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
                           <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
                         {selectedOrder.items && selectedOrder.items.length > 0 ? (
-                          selectedOrder.items.map((item, index) => (
-                            <tr key={index}>
-                              <td className="px-4 py-3">
-                                <div className="font-medium text-gray-900">{item.productName}</div>
-                                {item.sku && (
-                                  <div className="text-xs text-gray-500">SKU: {item.sku}</div>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-gray-900">{item.quantity}</td>
-                              <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
-                              <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
-                            </tr>
-                          ))
+                          selectedOrder.items.map((item, index) => {
+                            return (
+                              <tr key={index}>
+                                <td className="px-4 py-3">
+                                  <div className="font-medium text-gray-900">{item.productName}</div>
+                                  {item.sku && (
+                                    <div className="text-xs text-gray-500">SKU: {item.sku}</div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-gray-900 font-medium">{item.quantity || 0}</td>
+                                <td className="px-4 py-3 text-gray-900">
+                                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                    item.usageType === 'salon-use' 
+                                      ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                      : 'bg-blue-100 text-blue-800 border border-blue-200'
+                                  }`}>
+                                    {item.usageType === 'salon-use' ? 'Salon Use' : 'OTC'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
+                              </tr>
+                            );
+                          })
                         ) : (
                           <tr>
-                            <td colSpan="4" className="px-4 py-4 text-center text-gray-500">No items</td>
+                            <td colSpan="5" className="px-4 py-4 text-center text-gray-500">No items</td>
                           </tr>
                         )}
                       </tbody>
                       {selectedOrder.items && selectedOrder.items.length > 0 && (
                         <tfoot className="bg-gray-50">
                           <tr>
-                            <td colSpan="3" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
+                            <td colSpan="6" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
                             <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
                               ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
                             </td>
@@ -3280,9 +3877,738 @@ const Inventory = () => {
           </div>
         </div>
       )}
+      
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {activeTab === 'purchaseOrders' ? 'Purchase Order Filters' : 'Product Filters'}
+                </h3>
+                <button
+                  onClick={() => setShowFilterModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+              
+              {(() => {
+                if (activeTab === 'purchaseOrders') {
+                  return (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Order Status</label>
+                          <select
+                            value={selectedStatusPO}
+                            onChange={(e) => setSelectedStatusPO(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          >
+                            <option value="all">All Status</option>
+                            <option value="pending">Pending</option>
+                            <option value="approved">Approved</option>
+                            <option value="in_transit">In Transit</option>
+                            <option value="delivered">Delivered</option>
+                            <option value="rejected">Rejected</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
+                          <select
+                            value={selectedSupplierFilter}
+                            onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          >
+                            <option value="all">All Suppliers</option>
+                            {suppliers.map(supplier => (
+                              <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* Basic Filters */}
+                <div className="space-y-4">
+                  <h4 className="font-medium text-gray-900 border-b pb-2">Basic Information</h4>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                    <select
+                      value={selectedCategory}
+                      onChange={(e) => setSelectedCategory(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="all">All Categories</option>
+                      {categories.filter(c => c !== 'all').map(category => (
+                        <option key={category} value={category}>{category}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Brand</label>
+                    <select
+                      value={selectedBrand}
+                      onChange={(e) => setSelectedBrand(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="all">All Brands</option>
+                      {[...new Set(products.map(p => p.brand).filter(Boolean))].sort().map(brand => (
+                        <option key={brand} value={brand}>{brand}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
+                    <select
+                      value={selectedSupplier}
+                      onChange={(e) => setSelectedSupplier(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="all">All Suppliers</option>
+                      {[...new Set(products.flatMap(p => p.suppliers?.map(s => s.name) || []).filter(Boolean))].sort().map(supplier => (
+                        <option key={supplier} value={supplier}>{supplier}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Product Status</label>
+                    <select
+                      value={productStatus}
+                      onChange={(e) => setProductStatus(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="discontinued">Discontinued</option>
+                    </select>
+                  </div>
+                </div>
+                
+                {/* Stock Filters */}
+                <div className="space-y-4">
+                  <h4 className="font-medium text-gray-900 border-b pb-2">Stock & Inventory</h4>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Stock Status</label>
+                    <select
+                      value={selectedStatus}
+                      onChange={(e) => setSelectedStatus(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="In Stock">In Stock</option>
+                      <option value="Low Stock">Low Stock</option>
+                      <option value="Out of Stock">Out of Stock</option>
+                      <option value="No Stock Data">No Stock Data</option>
+                    </select>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Min Stock</label>
+                      <input
+                        type="number"
+                        value={minStock}
+                        onChange={(e) => setMinStock(e.target.value)}
+                        placeholder="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Max Stock</label>
+                      <input
+                        type="number"
+                        value={maxStock}
+                        onChange={(e) => setMaxStock(e.target.value)}
+                        placeholder="∞"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Stock Alerts</label>
+                    <select
+                      value={stockAlerts}
+                      onChange={(e) => setStockAlerts(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="all">All Products</option>
+                      <option value="low_stock">Low Stock Alert</option>
+                      <option value="overstock">Overstock Alert</option>
+                      <option value="no_max_stock">No Max Stock Set</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Status</label>
+                    <select
+                      value={expiryFilter}
+                      onChange={(e) => setExpiryFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="all">All Products</option>
+                      <option value="has_expiry">Has Expiry Date</option>
+                      <option value="expiring_soon">Expiring Soon (30 days)</option>
+                      <option value="expired">Expired</option>
+                    </select>
+                  </div>
+                </div>
+                
+                {/* Price Filters */}
+                <div className="space-y-4">
+                  <h4 className="font-medium text-gray-900 border-b pb-2">Pricing & Value</h4>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Min Unit Cost</label>
+                      <input
+                        type="number"
+                        value={minUnitCost}
+                        onChange={(e) => setMinUnitCost(e.target.value)}
+                        placeholder="0"
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Max Unit Cost</label>
+                      <input
+                        type="number"
+                        value={maxUnitCost}
+                        onChange={(e) => setMaxUnitCost(e.target.value)}
+                        placeholder="∞"
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Min OTC Price</label>
+                      <input
+                        type="number"
+                        value={minOtcPrice}
+                        onChange={(e) => setMinOtcPrice(e.target.value)}
+                        placeholder="0"
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Max OTC Price</label>
+                      <input
+                        type="number"
+                        value={maxOtcPrice}
+                        onChange={(e) => setMaxOtcPrice(e.target.value)}
+                        placeholder="∞"
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Min Total Value</label>
+                      <input
+                        type="number"
+                        value={minTotalValue}
+                        onChange={(e) => setMinTotalValue(e.target.value)}
+                        placeholder="0"
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Max Total Value</label>
+                      <input
+                        type="number"
+                        value={maxTotalValue}
+                        onChange={(e) => setMaxTotalValue(e.target.value)}
+                        placeholder="∞"
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Service Mapping</label>
+                    <select
+                      value={hasServiceMapping}
+                      onChange={(e) => setHasServiceMapping(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="all">All Products</option>
+                      <option value="yes">Has Service Mapping</option>
+                      <option value="no">No Service Mapping</option>
+                    </select>
+                  </div>
+                </div>
+                  </div>
+                  </div>
+                );
+              }
+            })()}
+              
+              <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (activeTab === 'purchaseOrders') {
+                      // Clear purchase order filters
+                      setSelectedStatusPO('all');
+                      setSelectedSupplierFilter('all');
+                    } else {
+                      // Clear product filters
+                      setSelectedCategory('all');
+                      setSelectedBrand('all');
+                      setSelectedSupplier('all');
+                      setSelectedStatus('all');
+                      setMinStock('');
+                      setMaxStock('');
+                      setMinUnitCost('');
+                      setMaxUnitCost('');
+                      setMinOtcPrice('');
+                      setMaxOtcPrice('');
+                      setMinTotalValue('');
+                      setMaxTotalValue('');
+                      setHasServiceMapping('all');
+                      setStockAlerts('all');
+                      setExpiryFilter('all');
+                      setProductStatus('all');
+                    }
+                  }}
+                  className="px-6"
+                >
+                  Clear All Filters
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowFilterModal(false)}
+                  className="px-6"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Approve Confirmation Modal */}
+      {isConfirmApproveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-green-100 rounded-full">
+                <CheckCircle className="h-6 w-6 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Approve Purchase Order</h3>
+                <p className="text-sm text-gray-600">Confirm approval of this purchase order</p>
+              </div>
+            </div>
+            <p className="text-gray-700 mb-6">
+              Are you sure you want to approve this purchase order? This will change its status to "Approved".
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setIsConfirmApproveModalOpen(false)}
+                disabled={isProcessingApproval}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleApproveOrder}
+                disabled={isProcessingApproval}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                {isProcessingApproval ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Approving...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Approve Order
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Modal */}
+      {isRejectModalOpen && selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-full">
+                <XCircle className="h-6 w-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Reject Purchase Order</h3>
+                <p className="text-sm text-gray-600">Provide a reason for rejection</p>
+              </div>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Rejection Note <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={rejectionNote}
+                onChange={(e) => setRejectionNote(e.target.value)}
+                placeholder="Please provide a reason for rejecting this purchase order..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                rows={4}
+                required
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsRejectModalOpen(false);
+                  setSelectedOrder(null);
+                  setRejectionNote('');
+                }}
+                disabled={isProcessingApproval}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleRejectOrderConfirm}
+                disabled={isProcessingApproval || !rejectionNote.trim()}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                {isProcessingApproval ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject Order
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Reject Modal */}
+      {isConfirmRejectModalOpen && selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-full">
+                <AlertTriangle className="h-6 w-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Confirm Rejection</h3>
+                <p className="text-sm text-gray-600">This action cannot be undone</p>
+              </div>
+            </div>
+            <div className="mb-4">
+              <p className="text-gray-700 mb-2">Are you sure you want to reject this purchase order?</p>
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="text-sm text-gray-600">
+                  <strong>Order:</strong> {selectedOrder.orderId || selectedOrder.id}<br />
+                  <strong>Supplier:</strong> {selectedOrder.supplierName}<br />
+                  <strong>Reason:</strong> {rejectionNote}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setIsConfirmRejectModalOpen(false)}
+                disabled={isProcessingApproval}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleRejectOrder}
+                disabled={isProcessingApproval}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                {isProcessingApproval ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Rejecting...
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Confirm Rejection
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STOCK TRANSFER TAB */}
+      {activeTab === 'stockTransfer' && (
+        <>
+          {/* Statistics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{stockTransfers.filter(t => t.status === 'pending').length}</p>
+                  <p className="text-sm text-gray-600">Pending Transfers</p>
+                </div>
+                <div className="p-3 bg-yellow-100 rounded-full">
+                  <Clock className="h-6 w-6 text-yellow-600" />
+                </div>
+              </div>
+            </Card>
+            <Card className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{stockTransfers.filter(t => t.status === 'completed').length}</p>
+                  <p className="text-sm text-gray-600">Completed Transfers</p>
+                </div>
+                <div className="p-3 bg-green-100 rounded-full">
+                  <CheckCircle className="h-6 w-6 text-green-600" />
+                </div>
+              </div>
+            </Card>
+            <Card className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{stockTransfers.filter(t => t.status === 'in_transit').length}</p>
+                  <p className="text-sm text-gray-600">In Transit</p>
+                </div>
+                <div className="p-3 bg-blue-100 rounded-full">
+                  <Truck className="h-6 w-6 text-blue-600" />
+                </div>
+              </div>
+            </Card>
+            <Card className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{stockTransfers.reduce((sum, t) => sum + (t.totalItems || 0), 0)}</p>
+                  <p className="text-sm text-gray-600">Total Items Transferred</p>
+                </div>
+                <div className="p-3 bg-purple-100 rounded-full">
+                  <Package className="h-6 w-6 text-purple-600" />
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Filter Row */}
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex items-center gap-4">
+              {/* Search Bar */}
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search transfers..."
+                  value={searchTermTransfer}
+                  onChange={(e) => setSearchTermTransfer(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
+                />
+              </div>
+
+              {/* Filter Button */}
+              <Button variant="outline" className="flex items-center gap-2">
+                <Filter className="w-5 h-5" />
+                Filter
+              </Button>
+
+              {/* Create Transfer Button */}
+              <Button onClick={() => setShowCreateTransferModal(true)} className="flex items-center gap-2">
+                <Plus className="w-5 h-5" />
+                New Transfer
+              </Button>
+
+              {/* Export Button */}
+              <Button variant="outline" className="flex items-center gap-2">
+                <Download className="w-5 h-5" />
+                Export
+              </Button>
+            </div>
+          </div>
+
+          {/* Transfers Table */}
+          <Card className="p-6">
+            {loadingTransfers ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
+                <span className="ml-2 text-gray-600">Loading transfers...</span>
+              </div>
+            ) : errorTransfers ? (
+              <div className="text-center py-12">
+                <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+                <p className="text-red-600">{errorTransfers}</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Transfer ID
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        From/To Branch
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Items
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Date
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {stockTransfers.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                          No stock transfers found
+                        </td>
+                      </tr>
+                    ) : (
+                      stockTransfers.map((transfer) => (
+                        <tr key={transfer.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {transfer.id}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            <div>
+                              <div className="font-medium">{transfer.fromBranch}</div>
+                              <div className="text-gray-500">→ {transfer.toBranch}</div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {transfer.totalItems || 0} items
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              transfer.status === 'completed' ? 'bg-green-100 text-green-800' :
+                              transfer.status === 'in_transit' ? 'bg-blue-100 text-blue-800' :
+                              transfer.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {transfer.status?.replace('_', ' ').toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {transfer.date ? format(new Date(transfer.date), 'MMM dd, yyyy') : 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedTransfer(transfer);
+                                setShowTransferDetailsModal(true);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Import Products</h3>
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
     </div>
     
-  );
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-blue-900 mb-2">Instructions:</h4>
+                  <ul className="text-sm text-blue-800 space-y-1">
+                    <li>• Download the CSV template first</li>
+                    <li>• Fill in your product data following the exact format</li>
+                    <li>• Required fields: name, category, brand, unitCost, otcPrice</li>
+                    <li>• Save as CSV and upload below</li>
+                  </ul>
+                </div>
+
+                <div className="flex flex-col space-y-3">
+                  <button
+                    onClick={() => {
+                      // TODO: Implement template download
+                      toast.info('Template download will be implemented next');
+                    }}
+                    className="w-full flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Template
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      // TODO: Implement file picker for import
+                      setShowImportModal(false);
+                      toast.info('File picker will be implemented next');
+                    }}
+                    className="w-full flex items-center justify-center px-4 py-2 bg-[#160B53] text-white rounded-lg hover:bg-[#12094A] transition-colors"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Select CSV File
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+);
 };
 
 export default Inventory;

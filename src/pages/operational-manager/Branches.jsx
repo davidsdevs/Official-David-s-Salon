@@ -3,8 +3,8 @@
  * For Operational Manager to manage all branches
  */
 
-import { useState, useEffect } from 'react';
-import { Plus, Search, MapPin, Phone, Mail, User, Power, Edit, Eye, TrendingUp } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, Search, MapPin, Phone, Mail, User, Power, Edit, Eye, TrendingUp, Filter, Download, Printer, RefreshCw } from 'lucide-react';
 import { getAllBranches, toggleBranchStatus, getBranchStats } from '../../services/branchService';
 import { useAuth } from '../../context/AuthContext';
 import { getFullName } from '../../utils/helpers';
@@ -12,6 +12,8 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import BranchFormModal from '../../components/branch/BranchFormModal';
 import BranchDetailsModal from '../../components/branch/BranchDetailsModal';
 import toast from 'react-hot-toast';
+import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 const OperationalManagerBranches = () => {
   const { currentUser } = useAuth();
@@ -38,14 +40,20 @@ const OperationalManagerBranches = () => {
   const fetchBranches = async () => {
     try {
       setLoading(true);
+      console.log('[Branches] Fetching all branches...');
       const data = await getAllBranches();
+      console.log('[Branches] Fetched branches:', data.length, data);
       setBranches(data);
       
-      // Fetch stats for each branch
+      // Fetch stats for each branch including revenue
       const stats = {};
       for (const branch of data) {
         const branchStat = await getBranchStats(branch.id);
-        stats[branch.id] = branchStat;
+        const yearlyRevenue = await fetchBranchYearlyRevenue(branch.id);
+        stats[branch.id] = {
+          ...branchStat,
+          yearlyRevenue
+        };
       }
       setBranchStats(stats);
     } catch (error) {
@@ -53,6 +61,43 @@ const OperationalManagerBranches = () => {
       toast.error('Failed to load branches');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchBranchYearlyRevenue = async (branchId) => {
+    try {
+      const currentYear = new Date().getFullYear();
+      const yearStart = new Date(currentYear, 0, 1);
+      const yearEnd = new Date(currentYear, 11, 31, 23, 59, 59);
+
+      const transactionsRef = collection(db, 'transactions');
+      const q = query(
+        transactionsRef,
+        where('branchId', '==', branchId),
+        where('createdAt', '>=', Timestamp.fromDate(yearStart)),
+        where('createdAt', '<=', Timestamp.fromDate(yearEnd))
+      );
+
+      const snapshot = await getDocs(q);
+      let totalRevenue = 0;
+      let countedTransactions = 0;
+
+      snapshot.forEach(doc => {
+        const transaction = doc.data();
+        // Count transactions that are completed or paid (exclude voided, refunded, cancelled)
+        const status = (transaction.status || '').toLowerCase();
+        if (status === 'completed' || status === 'paid' || status === 'in_service') {
+          const amount = transaction.total || transaction.totalAmount || 0;
+          totalRevenue += amount;
+          countedTransactions++;
+        }
+      });
+
+      console.log(`📊 Branch ${branchId} yearly revenue: ₱${totalRevenue} (${countedTransactions}/${snapshot.size} transactions counted)`);
+      return totalRevenue;
+    } catch (error) {
+      console.error('Error fetching yearly revenue for branch', branchId, ':', error);
+      return 0;
     }
   };
 
@@ -124,6 +169,7 @@ const OperationalManagerBranches = () => {
   const activeBranches = branches.filter(b => b.isActive === true).length;
   const inactiveBranches = branches.filter(b => b.isActive === false).length;
   const totalStaff = Object.values(branchStats).reduce((sum, stat) => sum + (stat?.staffCount || 0), 0);
+  const totalYearlyRevenue = Object.values(branchStats).reduce((sum, stat) => sum + (stat?.yearlyRevenue || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -133,13 +179,6 @@ const OperationalManagerBranches = () => {
           <h1 className="text-2xl font-bold text-gray-900">Branch Management</h1>
           <p className="text-gray-600">Manage and monitor all salon branches</p>
         </div>
-        <button
-          onClick={handleAddBranch}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          Add Branch
-        </button>
       </div>
 
       {/* Stats Cards */}
@@ -171,18 +210,6 @@ const OperationalManagerBranches = () => {
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Inactive Branches</p>
-              <p className="text-2xl font-bold text-red-600 mt-1">{inactiveBranches}</p>
-            </div>
-            <div className="p-3 bg-red-100 rounded-lg">
-              <Power className="w-6 h-6 text-red-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
               <p className="text-sm text-gray-600">Total Staff</p>
               <p className="text-2xl font-bold text-blue-600 mt-1">{totalStaff}</p>
             </div>
@@ -191,33 +218,63 @@ const OperationalManagerBranches = () => {
             </div>
           </div>
         </div>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Yearly Revenue</p>
+              <p className="text-2xl font-bold text-purple-600 mt-1">₱{totalYearlyRevenue.toLocaleString()}</p>
+            </div>
+            <div className="p-3 bg-purple-100 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-purple-600" />
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Filters */}
+      {/* Search and Filter Row */}
       <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Search */}
-          <div className="relative">
+        <div className="flex items-center gap-3">
+          {/* Search Bar */}
+          <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
               placeholder="Search branches..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
             />
           </div>
 
-          {/* Status Filter */}
+          {/* Filter Button */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            className="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm bg-white"
           >
             <option value="all">All Status</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+
+          {/* Icon-only buttons */}
+          <button
+            onClick={handleAddBranch}
+            className="p-2.5 text-primary-600 hover:text-primary-900 hover:bg-primary-100 rounded transition-colors"
+            title="Add Branch"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+          
+          <button
+            onClick={fetchBranches}
+            disabled={loading}
+            className="p-2.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors disabled:opacity-50"
+            title="Refresh Branches"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
 
@@ -279,9 +336,9 @@ const OperationalManagerBranches = () => {
                     </p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-gray-500">Inventory</p>
-                    <p className="text-lg font-semibold text-gray-900">
-                      {branchStats[branch.id].inventoryCount || 0}
+                    <p className="text-xs text-gray-500">Yearly Revenue</p>
+                    <p className="text-lg font-semibold text-purple-600">
+                      ₱{(branchStats[branch.id].yearlyRevenue || 0).toLocaleString()}
                     </p>
                   </div>
                 </div>

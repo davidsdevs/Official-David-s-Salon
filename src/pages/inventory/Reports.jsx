@@ -327,98 +327,99 @@ const Reports = () => {
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-gray-900">Reports</h1>
-            <p className="text-sm md:text-base text-gray-600">Generate and manage inventory reports and analytics</p>
+            <h1 className="text-lg md:text-xl lg:text-2xl font-bold text-gray-900">Reports</h1>
+            <p className="text-xs md:text-sm text-gray-600">Generate and manage inventory reports and analytics</p>
           </div>
-          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-            <Button variant="outline" className="flex items-center gap-2 text-xs md:text-sm">
-              <Upload className="h-4 w-4" />
+          <div className="flex items-center gap-1 md:gap-2 flex-wrap">
+            <Button variant="outline" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+              <Upload className="h-3.5 w-3.5 md:h-4 md:w-4" />
               <span className="hidden sm:inline">Import</span>
             </Button>
-            <Button variant="outline" className="flex items-center gap-2 text-xs md:text-sm">
-              <Download className="h-4 w-4" />
+            <Button variant="outline" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+              <Download className="h-3.5 w-3.5 md:h-4 md:w-4" />
               <span className="hidden sm:inline">Export</span>
             </Button>
-            <Button onClick={handleCreateReport} className="flex items-center gap-2 text-xs md:text-sm">
-              <Plus className="h-4 w-4" />
-              Generate Report
+            <Button onClick={handleCreateReport} className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+              <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">Generate Report</span>
+              <span className="sm:hidden">Generate</span>
             </Button>
           </div>
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
-          <Card className="p-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3 lg:gap-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <FileText className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Reports</p>
-                <p className="text-xl font-bold text-gray-900">{reportStats.totalReports}</p>
+              <FileText className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Reports</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{reportStats.totalReports}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Generated</p>
-                <p className="text-xl font-bold text-gray-900">{reportStats.generatedReports}</p>
+              <CheckCircle className="h-6 w-6 md:h-8 md:w-8 text-green-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Generated</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{reportStats.generatedReports}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Clock className="h-8 w-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Generating</p>
-                <p className="text-xl font-bold text-gray-900">{reportStats.generatingReports}</p>
+              <Clock className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Generating</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{reportStats.generatingReports}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4">
             <div className="flex items-center">
-              <Download className="h-8 w-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Downloads</p>
-                <p className="text-xl font-bold text-gray-900">{reportStats.totalDownloads}</p>
+              <Download className="h-6 w-6 md:h-8 md:w-8 text-purple-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Downloads</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{reportStats.totalDownloads}</p>
               </div>
             </div>
           </Card>
           
-          <Card className="p-4">
+          <Card className="p-2 md:p-3 lg:p-4 col-span-2 md:col-span-1">
             <div className="flex items-center">
-              <Package className="h-8 w-8 text-orange-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Total Size</p>
-                <p className="text-xl font-bold text-gray-900">{reportStats.totalFileSize.toFixed(1)} MB</p>
+              <Package className="h-6 w-6 md:h-8 md:w-8 text-orange-600" />
+              <div className="ml-2 md:ml-3">
+                <p className="text-xs md:text-sm font-medium text-gray-600">Total Size</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">{reportStats.totalFileSize.toFixed(1)} MB</p>
               </div>
             </div>
           </Card>
         </div>
 
         {/* Search and Filters */}
-        <Card className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1">
+        <Card className="p-3 md:p-4 lg:p-6">
+          <div className="flex flex-col gap-3 md:gap-4">
+            <div className="w-full">
               <SearchInput
                 placeholder="Search by report name, description, or category..."
                 value={searchTerm}
                 onChange={setSearchTerm}
-                className="w-full"
+                className="w-full text-sm"
               />
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2 md:gap-3">
               <select
                 value={filters.category}
                 onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex-1 min-w-[120px] md:flex-none"
               >
                 <option value="all">All Categories</option>
                 {categories.map(category => (
@@ -428,7 +429,7 @@ const Reports = () => {
               <select
                 value={filters.period}
                 onChange={(e) => setFilters(prev => ({ ...prev, period: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex-1 min-w-[120px] md:flex-none"
               >
                 <option value="all">All Periods</option>
                 {periods.map(period => (
@@ -438,7 +439,7 @@ const Reports = () => {
               <select
                 value={filters.status}
                 onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex-1 min-w-[100px] md:flex-none"
               >
                 <option value="all">All Status</option>
                 <option value="Generated">Generated</option>
@@ -449,10 +450,11 @@ const Reports = () => {
               <Button
                 variant="outline"
                 onClick={() => setIsFilterModalOpen(true)}
-                className="flex items-center gap-2"
+                className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
               >
-                <Filter className="h-4 w-4" />
-                More Filters
+                <Filter className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <span className="hidden sm:inline">More Filters</span>
+                <span className="sm:hidden">Filters</span>
               </Button>
               <Button
                 variant="outline"
@@ -462,79 +464,79 @@ const Reports = () => {
                   status: 'all',
                   dateRange: { start: '', end: '' }
                 })}
-                className="flex items-center gap-2"
+                className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
               >
-                <RefreshCw className="h-4 w-4" />
-                Reset
+                <RefreshCw className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <span className="hidden sm:inline">Reset</span>
               </Button>
             </div>
           </div>
         </Card>
 
         {/* Reports Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-6">
           {filteredReports.map((report) => (
             <Card key={report.id} className="overflow-hidden hover:shadow-lg transition-shadow">
               {/* Report Header */}
-              <div className="p-6 border-b">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+              <div className="p-3 md:p-4 lg:p-6 border-b">
+                <div className="flex items-start justify-between mb-2 md:mb-3">
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                       {getCategoryIcon(report.category)}
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">{report.name}</h3>
-                      <p className="text-sm text-gray-500">{report.category}</p>
+                      <h3 className="font-semibold text-gray-900 text-sm md:text-base">{report.name}</h3>
+                      <p className="text-xs md:text-sm text-gray-500">{report.category}</p>
                     </div>
                   </div>
-                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(report.status)}`}>
+                  <span className={`inline-flex items-center gap-1 px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-xs font-medium ${getStatusColor(report.status)}`}>
                     {getStatusIcon(report.status)}
-                    {report.status}
+                    <span className="hidden sm:inline">{report.status}</span>
                   </span>
                 </div>
                 
-                <p className="text-sm text-gray-600 line-clamp-2">{report.description}</p>
+                <p className="text-xs md:text-sm text-gray-600 line-clamp-2">{report.description}</p>
               </div>
 
               {/* Report Info */}
-              <div className="p-6">
-                <div className="space-y-3 mb-4">
-                  <div className="flex items-center gap-3">
-                    <Calendar className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">{report.period}</span>
+              <div className="p-3 md:p-4 lg:p-6">
+                <div className="space-y-2 md:space-y-3 mb-3 md:mb-4">
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <Calendar className="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" />
+                    <span className="text-xs md:text-sm text-gray-600">{report.period}</span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Users className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">{report.generatedBy}</span>
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <Users className="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" />
+                    <span className="text-xs md:text-sm text-gray-600">{report.generatedBy}</span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">{report.format} • {report.fileSize}</span>
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <FileText className="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" />
+                    <span className="text-xs md:text-sm text-gray-600">{report.format} • {report.fileSize}</span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Download className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">{report.downloadCount} downloads</span>
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <Download className="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" />
+                    <span className="text-xs md:text-sm text-gray-600">{report.downloadCount} downloads</span>
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-1.5 md:gap-2">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => handleViewDetails(report)}
-                    className="flex-1 flex items-center gap-2"
+                    className="flex-1 flex items-center justify-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
                   >
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-3.5 w-3.5 md:h-4 md:w-4" />
                     View
                   </Button>
                   {report.status === 'Generated' && (
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
                     >
-                      <Download className="h-4 w-4" />
-                      Download
+                      <Download className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                      <span className="hidden sm:inline">Download</span>
                     </Button>
                   )}
                 </div>
@@ -545,17 +547,17 @@ const Reports = () => {
 
         {/* Empty State */}
         {filteredReports.length === 0 && (
-          <Card className="p-12 text-center">
-            <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Reports Found</h3>
-            <p className="text-gray-600 mb-4">
+          <Card className="p-6 md:p-8 lg:p-12 text-center">
+            <FileText className="h-12 w-12 md:h-16 md:w-16 text-gray-400 mx-auto mb-3 md:mb-4" />
+            <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-2">No Reports Found</h3>
+            <p className="text-xs md:text-sm text-gray-600 mb-3 md:mb-4">
               {searchTerm || Object.values(filters).some(f => f !== 'all' && f !== '')
                 ? 'Try adjusting your search or filters'
                 : 'Get started by generating your first report'
               }
             </p>
-            <Button onClick={handleCreateReport} className="flex items-center gap-2 mx-auto">
-              <Plus className="h-4 w-4" />
+            <Button onClick={handleCreateReport} className="flex items-center gap-1 md:gap-2 mx-auto text-xs md:text-sm px-2 md:px-3">
+              <Plus className="h-3.5 w-3.5 md:h-4 md:w-4" />
               Generate Report
             </Button>
           </Card>
@@ -572,22 +574,22 @@ const Reports = () => {
             title="Report Details"
             size="lg"
           >
-            <div className="space-y-6">
+            <div className="space-y-4 md:space-y-6">
               {/* Report Header */}
-              <div className="flex gap-6">
-                <div className="w-32 h-32 bg-blue-100 rounded-lg flex items-center justify-center">
+              <div className="flex flex-col sm:flex-row gap-3 md:gap-6">
+                <div className="w-20 h-20 md:w-32 md:h-32 bg-blue-100 rounded-lg flex items-center justify-center mx-auto sm:mx-0">
                   {getCategoryIcon(selectedReport.category)}
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-start justify-between mb-2">
-                    <h2 className="text-xl font-bold text-gray-900">{selectedReport.name}</h2>
-                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedReport.status)}`}>
+                <div className="flex-1 text-center sm:text-left">
+                  <div className="flex flex-col sm:flex-row items-center sm:items-start justify-between mb-2 gap-2">
+                    <h2 className="text-lg md:text-xl font-bold text-gray-900">{selectedReport.name}</h2>
+                    <span className={`inline-flex items-center gap-1 px-2 md:px-3 py-1 rounded-full text-xs md:text-sm font-medium ${getStatusColor(selectedReport.status)}`}>
                       {getStatusIcon(selectedReport.status)}
                       {selectedReport.status}
                     </span>
                   </div>
-                  <p className="text-lg text-gray-600 mb-2">{selectedReport.category}</p>
-                  <p className="text-sm text-gray-500">{selectedReport.description}</p>
+                  <p className="text-base md:text-lg text-gray-600 mb-2">{selectedReport.category}</p>
+                  <p className="text-xs md:text-sm text-gray-500">{selectedReport.description}</p>
                 </div>
               </div>
 
@@ -645,11 +647,11 @@ const Reports = () => {
 
               {/* Data Points */}
               <div>
-                <h3 className="font-semibold text-gray-900 mb-4">Key Metrics</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <h3 className="font-semibold text-gray-900 mb-3 md:mb-4 text-sm md:text-base">Key Metrics</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-4">
                   {Object.entries(selectedReport.dataPoints).map(([key, value]) => (
-                    <div key={key} className="bg-gray-50 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold text-gray-900">{value}</div>
+                    <div key={key} className="bg-gray-50 rounded-lg p-2 md:p-3 text-center">
+                      <div className="text-lg md:text-2xl font-bold text-gray-900">{value}</div>
                       <div className="text-xs text-gray-500 capitalize">
                         {key.replace(/([A-Z])/g, ' $1').trim()}
                       </div>
@@ -659,26 +661,27 @@ const Reports = () => {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-2 md:gap-3">
                 {selectedReport.status === 'Generated' && (
                   <>
-                    <Button className="flex items-center gap-2">
-                      <Download className="h-4 w-4" />
-                      Download Report
+                    <Button className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+                      <Download className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                      <span className="hidden sm:inline">Download Report</span>
+                      <span className="sm:hidden">Download</span>
                     </Button>
-                    <Button variant="outline" className="flex items-center gap-2">
-                      <Printer className="h-4 w-4" />
-                      Print
+                    <Button variant="outline" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+                      <Printer className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                      <span className="hidden sm:inline">Print</span>
                     </Button>
-                    <Button variant="outline" className="flex items-center gap-2">
-                      <Copy className="h-4 w-4" />
-                      Share
+                    <Button variant="outline" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+                      <Copy className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                      <span className="hidden sm:inline">Share</span>
                     </Button>
                   </>
                 )}
                 {selectedReport.status === 'Generating' && (
-                  <Button variant="outline" disabled className="flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
+                  <Button variant="outline" disabled className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3">
+                    <Clock className="h-3.5 w-3.5 md:h-4 md:w-4" />
                     Generating...
                   </Button>
                 )}
@@ -695,10 +698,10 @@ const Reports = () => {
             title="Generate Report"
             size="md"
           >
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-3 md:space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Report Type *</label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
+                <label className="block text-xs md:text-sm font-medium text-gray-700 mb-1.5 md:mb-2">Report Type *</label>
+                <select className="w-full px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
                   <option value="">Select Report Type</option>
                   <option value="inventory">Inventory Summary</option>
                   <option value="movement">Stock Movement</option>
@@ -710,8 +713,8 @@ const Reports = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Period *</label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
+                <label className="block text-xs md:text-sm font-medium text-gray-700 mb-1.5 md:mb-2">Period *</label>
+                <select className="w-full px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
                   <option value="">Select Period</option>
                   <option value="last7days">Last 7 Days</option>
                   <option value="last30days">Last 30 Days</option>
@@ -723,8 +726,8 @@ const Reports = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Format *</label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
+                <label className="block text-xs md:text-sm font-medium text-gray-700 mb-1.5 md:mb-2">Format *</label>
+                <select className="w-full px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
                   <option value="">Select Format</option>
                   <option value="PDF">PDF</option>
                   <option value="Excel">Excel</option>
@@ -733,38 +736,38 @@ const Reports = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Include Charts</label>
+                <label className="block text-xs md:text-sm font-medium text-gray-700 mb-1.5 md:mb-2">Include Charts</label>
                 <div className="flex items-center">
                   <input
                     type="checkbox"
                     id="includeCharts"
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    className="h-3.5 w-3.5 md:h-4 md:w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
-                  <label htmlFor="includeCharts" className="ml-2 block text-sm text-gray-900">
+                  <label htmlFor="includeCharts" className="ml-2 block text-xs md:text-sm text-gray-900">
                     Include charts and graphs
                   </label>
                 </div>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Email Notification</label>
+                <label className="block text-xs md:text-sm font-medium text-gray-700 mb-1.5 md:mb-2">Email Notification</label>
                 <div className="flex items-center">
                   <input
                     type="checkbox"
                     id="emailNotification"
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    className="h-3.5 w-3.5 md:h-4 md:w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
-                  <label htmlFor="emailNotification" className="ml-2 block text-sm text-gray-900">
+                  <label htmlFor="emailNotification" className="ml-2 block text-xs md:text-sm text-gray-900">
                     Send email when report is ready
                   </label>
                 </div>
               </div>
               
-              <div className="flex justify-end gap-3 pt-4">
-                <Button type="button" variant="outline" onClick={() => setIsCreateModalOpen(false)}>
+              <div className="flex justify-end gap-2 md:gap-3 pt-3 md:pt-4">
+                <Button type="button" variant="outline" onClick={() => setIsCreateModalOpen(false)} className="text-xs md:text-sm px-2 md:px-3">
                   Cancel
                 </Button>
-                <Button type="submit">
+                <Button type="submit" className="text-xs md:text-sm px-2 md:px-3">
                   Generate Report
                 </Button>
               </div>
@@ -780,10 +783,10 @@ const Reports = () => {
             title="Advanced Filters"
             size="md"
           >
-            <div className="space-y-4">
+            <div className="space-y-3 md:space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
-                <div className="grid grid-cols-2 gap-3">
+                <label className="block text-xs md:text-sm font-medium text-gray-700 mb-1.5 md:mb-2">Date Range</label>
+                <div className="grid grid-cols-2 gap-2 md:gap-3">
                   <Input
                     type="date"
                     placeholder="Start Date"
@@ -792,6 +795,7 @@ const Reports = () => {
                       ...prev, 
                       dateRange: { ...prev.dateRange, start: e.target.value }
                     }))}
+                    className="text-xs md:text-sm"
                   />
                   <Input
                     type="date"
@@ -801,13 +805,14 @@ const Reports = () => {
                       ...prev, 
                       dateRange: { ...prev.dateRange, end: e.target.value }
                     }))}
+                    className="text-xs md:text-sm"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">File Size</label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <label className="block text-xs md:text-sm font-medium text-gray-700 mb-1.5 md:mb-2">File Size</label>
+                <select className="w-full px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option value="all">All Sizes</option>
                   <option value="small">Small (&lt; 1 MB)</option>
                   <option value="medium">Medium (1-5 MB)</option>
@@ -815,16 +820,16 @@ const Reports = () => {
                 </select>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4">
+              <div className="flex justify-end gap-2 md:gap-3 pt-3 md:pt-4">
                 <Button variant="outline" onClick={() => setFilters({
                   category: 'all',
                   period: 'all',
                   status: 'all',
                   dateRange: { start: '', end: '' }
-                })}>
+                })} className="text-xs md:text-sm px-2 md:px-3">
                   Reset
                 </Button>
-                <Button onClick={() => setIsFilterModalOpen(false)}>
+                <Button onClick={() => setIsFilterModalOpen(false)} className="text-xs md:text-sm px-2 md:px-3">
                   Apply Filters
                 </Button>
               </div>

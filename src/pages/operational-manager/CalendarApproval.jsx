@@ -4,16 +4,34 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { CheckCircle, XCircle, Calendar as CalendarIcon, AlertCircle, Search, Check, X, Loader } from 'lucide-react';
+import { 
+  CheckCircle, 
+  XCircle, 
+  Calendar as CalendarIcon, 
+  AlertCircle, 
+  Search, 
+  Check, 
+  X, 
+  Loader,
+  RefreshCw,
+  Filter,
+  Clock,
+  Building,
+  User,
+  FileText,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   approveRejectCalendarEntry,
   getCalendarEntryTypes 
 } from '../../services/branchCalendarService';
 import { getPublicHolidays } from '../../services/holidaysApiService';
-import { getBranchById } from '../../services/branchService';
+import { getBranches } from '../../services/branchService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import { Card } from '../../components/ui/Card';
 import { formatDate } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -32,10 +50,35 @@ const CalendarApproval = () => {
   const [countryCode, setCountryCode] = useState('PH'); // Default to Philippines
   const [branchCache, setBranchCache] = useState({});
   const branchCacheRef = useRef({});
+  
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [branchFilter, setBranchFilter] = useState('all');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [expandedEntries, setExpandedEntries] = useState({});
 
   useEffect(() => {
     branchCacheRef.current = branchCache;
   }, [branchCache]);
+
+  // Load all branches on mount
+  useEffect(() => {
+    const loadBranches = async () => {
+      try {
+        const allBranches = await getBranches();
+        const branchMap = {};
+        allBranches.forEach(branch => {
+          branchMap[branch.id] = branch.name || `Branch ${branch.id.substring(0, 8)}`;
+        });
+        setBranchCache(branchMap);
+        branchCacheRef.current = branchMap;
+      } catch (error) {
+        console.error('Error loading branches:', error);
+      }
+    };
+    loadBranches();
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -60,40 +103,14 @@ const CalendarApproval = () => {
             return a.date.getTime() - b.date.getTime();
           });
 
-        try {
-          const branchNameUpdates = {};
-          const entriesWithBranch = await Promise.all(
-            docs.map(async (entry) => {
-              const cachedName = branchCacheRef.current[entry.branchId];
-              if (cachedName) {
-                return { ...entry, branchName: cachedName };
-              }
-              try {
-                const branch = await getBranchById(entry.branchId);
-                const branchName = branch?.name || branch?.branchName || 'Unknown Branch';
-                branchNameUpdates[entry.branchId] = branchName;
-                return { ...entry, branchName };
-              } catch (error) {
-                return { ...entry, branchName: 'Unknown Branch' };
-              }
-            })
-          );
+        // Map branch names from cache
+        const entriesWithBranch = docs.map(entry => ({
+          ...entry,
+          branchName: branchCacheRef.current[entry.branchId] || 'Unknown Branch'
+        }));
 
-          if (Object.keys(branchNameUpdates).length > 0) {
-            setBranchCache(prev => {
-              const merged = { ...prev, ...branchNameUpdates };
-              branchCacheRef.current = merged;
-              return merged;
-            });
-          }
-
-          setPendingEntries(entriesWithBranch);
-        } catch (error) {
-          console.error('Error processing pending entries:', error);
-          toast.error('Failed to load pending calendar entries');
-        } finally {
-          setLoading(false);
-        }
+        setPendingEntries(entriesWithBranch);
+        setLoading(false);
       },
       (error) => {
         console.error('Error listening for pending entries:', error);
@@ -110,6 +127,43 @@ const CalendarApproval = () => {
       checkAllHolidays();
     }
   }, [pendingEntries, countryCode]);
+
+  // Filter entries
+  const filteredEntries = pendingEntries.filter(entry => {
+    const matchesSearch = !searchTerm || 
+      entry.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      entry.branchName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      entry.requestedByName?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesType = typeFilter === 'all' || entry.type === typeFilter;
+    const matchesBranch = branchFilter === 'all' || entry.branchId === branchFilter;
+    
+    return matchesSearch && matchesType && matchesBranch;
+  });
+
+  // Get unique branches from entries
+  const uniqueBranches = [...new Set(pendingEntries.map(e => e.branchId))];
+
+  // Count active filters
+  const activeFilterCount = [
+    typeFilter !== 'all',
+    branchFilter !== 'all'
+  ].filter(Boolean).length;
+
+  // Clear filters
+  const clearFilters = () => {
+    setTypeFilter('all');
+    setBranchFilter('all');
+    setSearchTerm('');
+  };
+
+  // Toggle entry expansion
+  const toggleExpand = (entryId) => {
+    setExpandedEntries(prev => ({
+      ...prev,
+      [entryId]: !prev[entryId]
+    }));
+  };
 
   const checkAllHolidays = async () => {
     if (pendingEntries.length === 0) {
@@ -211,189 +265,366 @@ const CalendarApproval = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Calendar Approval</h1>
-          <p className="text-gray-600">Review and approve calendar entries from branches</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Calendar Approval</h1>
+        <p className="text-gray-600">Review and approve calendar entries from branches</p>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Pending</p>
+              <p className="text-2xl font-bold text-yellow-600">{pendingEntries.length}</p>
+            </div>
+            <Clock className="h-8 w-8 text-yellow-500" />
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Holidays</p>
+              <p className="text-2xl font-bold text-green-600">
+                {Object.values(holidayData).filter(h => h.isHoliday).length}
+              </p>
+            </div>
+            <CalendarIcon className="h-8 w-8 text-green-500" />
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Branches</p>
+              <p className="text-2xl font-bold text-blue-600">{uniqueBranches.length}</p>
+            </div>
+            <Building className="h-8 w-8 text-blue-500" />
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Filtered</p>
+              <p className="text-2xl font-bold text-purple-600">{filteredEntries.length}</p>
+            </div>
+            <Filter className="h-8 w-8 text-purple-500" />
+          </div>
+        </Card>
+      </div>
+
+      {/* Search Bar Row - Visual Hierarchy */}
+      <Card className="p-4 border border-gray-200">
         <div className="flex items-center gap-3">
+          {/* Search Bar - ~70% width */}
+          <div className="flex-1 max-w-[70%]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by title, branch, or requester..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Country Select */}
           <select
             value={countryCode}
             onChange={(e) => setCountryCode(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#160B53]"
           >
-            <option value="PH">Philippines</option>
-            <option value="US">United States</option>
-            <option value="GB">United Kingdom</option>
-            <option value="AU">Australia</option>
-            <option value="CA">Canada</option>
-            <option value="SG">Singapore</option>
+            <option value="PH">🇵🇭 PH</option>
+            <option value="US">🇺🇸 US</option>
+            <option value="GB">🇬🇧 UK</option>
+            <option value="AU">🇦🇺 AU</option>
+            <option value="CA">🇨🇦 CA</option>
+            <option value="SG">🇸🇬 SG</option>
           </select>
+
+          {/* Icon-only Buttons - No borders */}
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className="p-2 relative text-gray-600 hover:text-[#160B53] hover:bg-gray-100 rounded-lg transition-colors"
+            title="Filter"
+          >
+            <Filter className="h-5 w-5" />
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-[#160B53] text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                {filteredEntries.length}
+              </span>
+            )}
+          </button>
+
           <button
             onClick={checkAllHolidays}
             disabled={checkingHolidays || pendingEntries.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-2 text-gray-600 hover:text-[#160B53] hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+            title="Verify Holidays"
           >
             {checkingHolidays ? (
-              <>
-                <Loader className="w-4 h-4 animate-spin" />
-                Checking...
-              </>
+              <Loader className="h-5 w-5 animate-spin" />
             ) : (
-              <>
-                <Search className="w-4 h-4" />
-                Verify Holidays
-              </>
+              <CalendarIcon className="h-5 w-5" />
             )}
           </button>
-        </div>
-      </div>
 
-      {/* Info Banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
-        <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-        <div className="text-sm text-blue-800">
-          <p className="font-medium mb-1">Holiday Verification</p>
-          <p>Use the "Verify Holidays" button to check if the requested dates are actual public holidays. This helps ensure calendar entries are accurate.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="p-2 text-gray-600 hover:text-[#160B53] hover:bg-gray-100 rounded-lg transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="h-5 w-5" />
+          </button>
         </div>
-      </div>
+      </Card>
+
+      {/* Holiday Verification Info */}
+      {checkingHolidays && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-3">
+          <Loader className="w-5 h-5 text-blue-600 animate-spin" />
+          <p className="text-sm text-blue-800">Verifying holidays against {countryCode} public holiday calendar...</p>
+        </div>
+      )}
 
       {/* Pending Entries */}
-      {pendingEntries.length === 0 ? (
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-12 text-center">
+      {filteredEntries.length === 0 ? (
+        <Card className="p-12 text-center">
           <CalendarIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No Pending Entries</h3>
-          <p className="text-gray-500">All calendar entries have been reviewed.</p>
-        </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            {pendingEntries.length === 0 ? 'No Pending Entries' : 'No Matching Entries'}
+          </h3>
+          <p className="text-gray-500">
+            {pendingEntries.length === 0 
+              ? 'All calendar entries have been reviewed.' 
+              : 'Try adjusting your search or filters.'}
+          </p>
+          {activeFilterCount > 0 && (
+            <button
+              onClick={clearFilters}
+              className="mt-4 text-[#160B53] hover:underline text-sm"
+            >
+              Clear all filters
+            </button>
+          )}
+        </Card>
       ) : (
         <div className="space-y-4">
-          {pendingEntries.map((entry) => {
+          {filteredEntries.map((entry) => {
             const typeInfo = entryTypes.find(t => t.value === entry.type);
             const holidayCheck = holidayData[entry.id];
             const isVerifiedHoliday = holidayCheck?.isHoliday;
             const holidayInfo = holidayCheck?.holidayInfo;
+            const isExpanded = expandedEntries[entry.id];
             
             return (
-              <div key={entry.id} className="bg-white rounded-lg shadow border border-gray-200 p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                      <h3 className="text-lg font-semibold text-gray-900">{entry.title}</h3>
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${typeInfo?.color}`}>
-                        {typeInfo?.label}
-                      </span>
-                      <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
-                        Pending
-                      </span>
+              <Card key={entry.id} className="overflow-hidden border border-gray-200">
+                {/* Entry Header - Always visible */}
+                <div className="p-4 bg-white">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      {/* Holiday indicator */}
+                      {holidayCheck && (
+                        <div className={`w-2 h-12 rounded-full ${isVerifiedHoliday ? 'bg-green-500' : 'bg-gray-300'}`} />
+                      )}
+                      
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-lg font-semibold text-gray-900">{entry.title}</h3>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${typeInfo?.color || 'bg-gray-100 text-gray-700'}`}>
+                            {typeInfo?.label || entry.type}
+                          </span>
+                          {isVerifiedHoliday && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />
+                              Verified Holiday
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
+                          <span className="flex items-center gap-1">
+                            <CalendarIcon className="w-4 h-4" />
+                            {formatDate(entry.date, 'MMM dd, yyyy')}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Building className="w-4 h-4" />
+                            {entry.branchName}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <User className="w-4 h-4" />
+                            {entry.requestedByName || 'Unknown'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleExpand(entry.id)}
+                        className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                        title={isExpanded ? 'Collapse' : 'Expand'}
+                      >
+                        {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                      </button>
+                      <button
+                        onClick={() => handleApprove(entry)}
+                        disabled={processing}
+                        className="p-2 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
+                        title="Approve"
+                      >
+                        <Check className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => handleReject(entry)}
+                        disabled={processing}
+                        className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                        title="Reject"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Expanded Details */}
+                {isExpanded && (
+                  <div className="px-4 pb-4 pt-0 border-t border-gray-100 bg-gray-50">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                       <div>
-                        <p className="text-sm text-gray-500 mb-1">Date</p>
+                        <p className="text-xs text-gray-500 mb-1">Full Date</p>
                         <p className="text-sm font-medium text-gray-900">
                           {formatDate(entry.date, 'EEEE, MMMM dd, yyyy')}
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-gray-500 mb-1">Branch</p>
-                        <p className="text-sm font-medium text-gray-900">{entry.branchName}</p>
+                        <p className="text-xs text-gray-500 mb-1">Entry Type</p>
+                        <p className="text-sm font-medium text-gray-900">{typeInfo?.label || entry.type}</p>
                       </div>
+                      {entry.description && (
+                        <div className="md:col-span-2">
+                          <p className="text-xs text-gray-500 mb-1">Description</p>
+                          <p className="text-sm text-gray-700">{entry.description}</p>
+                        </div>
+                      )}
                       <div>
-                        <p className="text-sm text-gray-500 mb-1">Requested By</p>
+                        <p className="text-xs text-gray-500 mb-1">Schedule</p>
                         <p className="text-sm font-medium text-gray-900">
-                          {entry.requestedByName || 'Unknown'}
+                          {entry.allDay 
+                            ? 'All Day (Branch Closed)' 
+                            : entry.specialHours 
+                              ? `${entry.specialHours.open} - ${entry.specialHours.close}`
+                              : 'Regular Hours'}
                         </p>
                       </div>
-                      <div>
-                        <p className="text-sm text-gray-500 mb-1">Type</p>
-                        <p className="text-sm font-medium text-gray-900">{typeInfo?.label}</p>
-                      </div>
-                    </div>
-                    
-                    {entry.description && (
-                      <div className="mb-4">
-                        <p className="text-sm text-gray-500 mb-1">Description</p>
-                        <p className="text-sm text-gray-700">{entry.description}</p>
-                      </div>
-                    )}
-                    
-                    {/* Special Hours / All Day Info */}
-                    <div className="mb-4">
-                      {entry.allDay ? (
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm text-gray-500">All Day:</p>
-                          <p className="text-sm font-medium text-gray-900">Branch closed for the entire day</p>
-                        </div>
-                      ) : entry.specialHours ? (
-                        <div>
-                          <p className="text-sm text-gray-500 mb-1">Special Hours</p>
-                          <p className="text-sm font-medium text-gray-900">
-                            {entry.specialHours.open} - {entry.specialHours.close}
-                          </p>
-                        </div>
-                      ) : null}
-                    </div>
-                    
-                    {/* Holiday Verification */}
-                    {holidayCheck && (
-                      <div className={`mt-4 p-3 rounded-lg border ${
-                        isVerifiedHoliday 
-                          ? 'bg-green-50 border-green-200' 
-                          : 'bg-gray-50 border-gray-200'
-                      }`}>
-                        <div className="flex items-center gap-2">
-                          {isVerifiedHoliday ? (
-                            <>
-                              <CheckCircle className="w-5 h-5 text-green-600" />
-                              <div className="flex-1">
-                                <p className="text-sm font-medium text-green-900">
-                                  Verified Public Holiday
-                                </p>
-                                <p className="text-xs text-green-700">
-                                  {holidayInfo.name} ({holidayInfo.localName || holidayInfo.name})
-                                </p>
+                      
+                      {/* Holiday Verification Details */}
+                      {holidayCheck && (
+                        <div className="md:col-span-2">
+                          <p className="text-xs text-gray-500 mb-1">Holiday Verification</p>
+                          <div className={`p-3 rounded-lg ${isVerifiedHoliday ? 'bg-green-100' : 'bg-gray-100'}`}>
+                            {isVerifiedHoliday ? (
+                              <div className="flex items-center gap-2">
+                                <CheckCircle className="w-5 h-5 text-green-600" />
+                                <div>
+                                  <p className="text-sm font-medium text-green-900">{holidayInfo.name}</p>
+                                  {holidayInfo.localName && holidayInfo.localName !== holidayInfo.name && (
+                                    <p className="text-xs text-green-700">{holidayInfo.localName}</p>
+                                  )}
+                                </div>
                               </div>
-                            </>
-                          ) : (
-                            <>
-                              <XCircle className="w-5 h-5 text-gray-400" />
-                              <div className="flex-1">
-                                <p className="text-sm font-medium text-gray-700">
-                                  Not a Public Holiday
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  This date is not listed as a public holiday in {countryCode}
-                                </p>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <XCircle className="w-5 h-5 text-gray-400" />
+                                <p className="text-sm text-gray-600">Not a public holiday in {countryCode}</p>
                               </div>
-                            </>
-                          )}
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
-                  
-                  <div className="flex flex-col gap-2 ml-4">
-                    <button
-                      onClick={() => handleApprove(entry)}
-                      disabled={processing}
-                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Check className="w-4 h-4" />
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => handleReject(entry)}
-                      disabled={processing}
-                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <X className="w-4 h-4" />
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              </div>
+                )}
+              </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-4 rounded-t-xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold">Filter Entries</h2>
+                <button
+                  onClick={() => setShowFilterModal(false)}
+                  className="p-1 hover:bg-white/20 rounded transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Type Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Entry Type</label>
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] text-sm"
+                >
+                  <option value="all">All Types</option>
+                  {entryTypes.map(type => (
+                    <option key={type.value} value={type.value}>{type.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Branch Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Branch</label>
+                <select
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53] text-sm"
+                >
+                  <option value="all">All Branches</option>
+                  {uniqueBranches.map(branchId => (
+                    <option key={branchId} value={branchId}>
+                      {branchCache[branchId] || 'Unknown Branch'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Results Count */}
+              <div className="pt-2 border-t border-gray-200">
+                <p className="text-sm text-gray-600">
+                  Showing <span className="font-semibold text-[#160B53]">{filteredEntries.length}</span> of {pendingEntries.length} entries
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  onClick={clearFilters}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Clear All
+                </button>
+                <button
+                  onClick={() => setShowFilterModal(false)}
+                  className="px-4 py-2 text-sm bg-[#160B53] text-white rounded-lg hover:bg-[#12094A] transition-colors"
+                >
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

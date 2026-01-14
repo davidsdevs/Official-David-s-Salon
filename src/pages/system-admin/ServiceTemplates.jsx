@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit, Trash2, Power, Search, Scissors, Upload } from 'lucide-react';
+import { Plus, Edit, Trash2, Power, Search, Scissors, Upload, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
   getAllServices,
@@ -281,6 +281,158 @@ const ServiceTemplates = () => {
 
   const categories = ['All', ...getServiceCategories()];
 
+  // Print services report
+  const handlePrint = () => {
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Services Report - ${new Date().toISOString().split('T')[0]}</title>
+          <meta charset="utf-8">
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            @media print {
+              @page {
+                size: A4;
+                margin: 0.75in;
+              }
+              * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+            }
+            body {
+              font-family: 'Poppins', sans-serif;
+              margin: 0;
+              padding: 20px;
+              background: white;
+              color: #000;
+            }
+            h1 {
+              color: #160B53;
+              margin-bottom: 10px;
+            }
+            .header-info {
+              margin-bottom: 20px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #160B53;
+            }
+            .header-info p {
+              margin: 5px 0;
+              font-size: 14px;
+            }
+            .filters-info {
+              background-color: #f0f0f0;
+              padding: 10px;
+              margin-bottom: 20px;
+              border-radius: 4px;
+              font-size: 12px;
+            }
+            table {
+              border-collapse: collapse;
+              width: 100%;
+              margin-top: 20px;
+            }
+            th, td {
+              border: 1px solid #000;
+              padding: 10px 8px;
+              text-align: left;
+              font-size: 12px;
+            }
+            th {
+              background-color: #160B53;
+              color: white;
+              font-weight: bold;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .chemical-badge {
+              background-color: #FCD34D;
+              color: #000;
+              padding: 2px 6px;
+              border-radius: 3px;
+              font-size: 11px;
+              font-weight: bold;
+            }
+            .status-active {
+              color: #16A34A;
+              font-weight: bold;
+            }
+            .status-inactive {
+              color: #DC2626;
+              font-weight: bold;
+            }
+            .footer {
+              margin-top: 30px;
+              padding-top: 10px;
+              border-top: 1px solid #ccc;
+              font-size: 12px;
+              color: #666;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Services Report</h1>
+          <div class="header-info">
+            <p><strong>Generated:</strong> ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+            <p><strong>Total Services:</strong> ${filteredServices.length}</p>
+            <p><strong>Active Services:</strong> ${filteredServices.filter(s => s.isActive === true).length}</p>
+            <p><strong>Archived Services:</strong> ${filteredServices.filter(s => s.isActive === false).length}</p>
+          </div>
+          
+          <div class="filters-info">
+            <strong>Applied Filters:</strong><br>
+            Search: ${searchTerm || 'None'}<br>
+            Category: ${selectedCategory}<br>
+            Show Archived: ${showArchived ? 'Yes' : 'No'}
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Service Name</th>
+                <th>Category</th>
+                <th>Duration (min)</th>
+                <th>Chemical</th>
+                <th>Status</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredServices.map(service => `
+                <tr>
+                  <td><strong>${service.name || service.serviceName}</strong></td>
+                  <td>${service.category || 'N/A'}</td>
+                  <td>${service.duration || 0}</td>
+                  <td>${service.isChemical ? '<span class="chemical-badge">YES</span>' : 'No'}</td>
+                  <td><span class="${service.isActive === true ? 'status-active' : 'status-inactive'}">${service.isActive === true ? 'Active' : 'Archived'}</span></td>
+                  <td>${service.description || '-'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="footer">
+            <p>This report is for system administrator viewing purposes only.</p>
+            <p>Generated by David's Salon Management System (DSMS)</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.focus();
+    
+    // Wait for content to load, then print
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -296,6 +448,13 @@ const ServiceTemplates = () => {
           >
             <Upload className="w-5 h-5" />
             Import Services
+          </button>
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Printer className="w-5 h-5" />
+            Print Report
           </button>
           <button
             onClick={handleCreateService}
@@ -415,7 +574,7 @@ const ServiceTemplates = () => {
                           <img 
                               className="h-10 w-10 rounded-lg object-cover"
                             src={service.imageURL} 
-                            alt={service.name}
+                            alt={service.name || service.serviceName}
                           />
                           ) : (
                             <div className="h-10 w-10 rounded-lg bg-gray-200 flex items-center justify-center">
@@ -425,7 +584,7 @@ const ServiceTemplates = () => {
                         </div>
                         <div className="ml-4 min-w-0 flex-1">
                           <div className="text-sm font-medium text-gray-900 break-words">
-                      {service.name}
+                      {service.name || service.serviceName}
                           </div>
                           {service.description && (
                             <div className="text-sm text-gray-500 break-words">
@@ -614,7 +773,7 @@ const ServiceTemplates = () => {
         }}
         onConfirm={confirmDelete}
         title="Delete Service"
-        message={`Are you sure you want to delete "${serviceToDelete?.name}"?`}
+        message={`Are you sure you want to delete "${serviceToDelete?.name || serviceToDelete?.serviceName}"?`}
         confirmText="Delete"
         cancelText="Cancel"
         type="danger"
