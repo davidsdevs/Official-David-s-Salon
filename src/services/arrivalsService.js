@@ -222,25 +222,29 @@ export const createArrivalFromAppointment = async (appointmentIdOrObject, dataOr
       }
     });
 
-    // Send check-in arrived notification to stylist
-    if (appointmentData.stylistId) {
-      try {
-        const { storeCheckInArrived } = await import('./notificationService');
-        const now = new Date();
-        await storeCheckInArrived({
-          id: docRef.id,
-          checkInId: docRef.id,
-          stylistId: appointmentData.stylistId,
-          clientName: appointmentData.clientName || 'Client',
-          serviceName: appointmentData.serviceName || 'Service',
-          branchName: appointmentData.branchName || '',
-          arrivedAt: now
-        });
-        console.log('📱 Check-in arrived notification sent to stylist:', appointmentData.stylistId);
-      } catch (error) {
-        console.error('Error sending check-in notification:', error);
-        // Don't fail the check-in if notification fails
-      }
+    // Send check-in arrived notification to stylist(s)
+    // Handle both single stylist and multi-service appointments
+    try {
+      const { storeClientArrived } = await import('./notificationService');
+      
+      // Build notification data with all stylists
+      const notificationData = {
+        id: docRef.id,
+        appointmentId: appointmentId,
+        clientId: appointmentData.clientId,
+        clientName: appointmentData.clientName || 'Client',
+        branchName: appointmentData.branchName || '',
+        services: appointmentData.services || [],
+        serviceName: appointmentData.serviceName || 'Service',
+        stylistId: appointmentData.stylistId,
+        arrivedAt: new Date()
+      };
+      
+      await storeClientArrived(notificationData);
+      console.log('📱 Client arrived notification sent to stylist(s)');
+    } catch (error) {
+      console.error('Error sending check-in notification:', error);
+      // Don't fail the check-in if notification fails
     }
 
     toast.success('Client checked in and added to arrivals queue');

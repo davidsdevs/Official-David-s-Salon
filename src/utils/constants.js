@@ -67,6 +67,7 @@ export const ROUTES = {
   OPERATIONAL_MANAGER_PROMOTIONS: '/operational-manager/promotions',
   OPERATIONAL_MANAGER_CALENDAR: '/operational-manager/calendar',
   OPERATIONAL_MANAGER_CALENDAR_APPROVAL: '/operational-manager/calendar-approval',
+  OPERATIONAL_MANAGER_BRANCH_PERFORMANCE: '/operational-manager/branch-performance',
   
   // Branch Manager
   MANAGER_DASHBOARD: '/manager',
@@ -105,6 +106,8 @@ export const ROUTES = {
   OVERALL_INVENTORY_DASHBOARD: '/overall-inventory',
   OVERALL_INVENTORY_OVERVIEW: '/overall-inventory/inventory',
   OVERALL_INVENTORY_PURCHASE_ORDERS: '/overall-inventory/purchase-orders',
+  OVERALL_INVENTORY_PRODUCT_SALES: '/overall-inventory/product-sales',
+  OVERALL_INVENTORY_ADJUST_LOGS: '/overall-inventory/adjust-logs',
   OVERALL_INVENTORY_REPORTS: '/overall-inventory/reports',
   OVERALL_INVENTORY_ALERTS: '/overall-inventory/stock-alerts',
   OVERALL_INVENTORY_EXPIRY: '/overall-inventory/expiry-tracker',
@@ -123,4 +126,5 @@ export const ROUTES = {
   CLIENT_BOOK: '/client/book',
   CLIENT_HISTORY: '/client/history',
   CLIENT_PROFILE: '/client/profile',
+  CLIENT_TRANSACTIONS: '/client/transactions',
 };

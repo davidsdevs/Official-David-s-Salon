@@ -25,7 +25,6 @@ const BranchManagerLayout = () => {
     { path: '/manager/stylist-portfolios', label: 'Stylist Portfolios', icon: FileText },
     { section: 'Analytics' },
     { path: '/manager/client-analytics', label: 'Client Analytics', icon: TrendingUp },
-    { path: ROUTES.MANAGER_REPORTS, label: 'Reports', icon: BarChart3 },
   ];
 
   return (

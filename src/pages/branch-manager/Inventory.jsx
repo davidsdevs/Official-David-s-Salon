@@ -133,6 +133,15 @@ const Inventory = () => {
   const [isProcessingApproval, setIsProcessingApproval] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  // Purchase Orders enhanced filters and sorting
+  const [sortColumnPO, setSortColumnPO] = useState('createdAt');
+  const [sortDirectionPO, setSortDirectionPO] = useState('desc');
+  const [poDateFrom, setPoDateFrom] = useState('');
+  const [poDateTo, setPoDateTo] = useState('');
+  const [poMinAmount, setPoMinAmount] = useState('');
+  const [poMaxAmount, setPoMaxAmount] = useState('');
+  const [poCreatedBy, setPoCreatedBy] = useState('all');
+  
   // Purchase Order form states
   const [orderItems, setOrderItems] = useState([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
@@ -505,6 +514,16 @@ const Inventory = () => {
     }
   };
 
+  // Handle sorting for Purchase Orders
+  const handleSortPO = (column) => {
+    if (sortColumnPO === column) {
+      setSortDirectionPO(sortDirectionPO === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumnPO(column);
+      setSortDirectionPO('desc'); // Default to desc for new column (most recent first)
+    }
+  };
+
   // SortIcon component
   const SortIcon = ({ column }) => {
     if (sortColumn !== column) {
@@ -515,6 +534,16 @@ const Inventory = () => {
       : <ChevronDown className="w-4 h-4 text-primary-600 ml-1" />;
   };
 
+  // SortIcon component for Purchase Orders
+  const SortIconPO = ({ column }) => {
+    if (sortColumnPO !== column) {
+      return <ArrowUpDown className="w-4 h-4 text-gray-400 ml-1" />;
+    }
+    return sortDirectionPO === 'asc' 
+      ? <ChevronUp className="w-4 h-4 text-[#160B53] ml-1" />
+      : <ChevronDown className="w-4 h-4 text-[#160B53] ml-1" />;
+  };
+
   // Handle filter modal for purchase orders
   const handleFilterPurchaseOrders = () => {
     setShowFilterModal(true);
@@ -523,6 +552,13 @@ const Inventory = () => {
   useEffect(() => {
     loadServices();
   }, []);
+
+  // Load purchase orders on mount for badge count
+  useEffect(() => {
+    if (userData?.branchId) {
+      loadPurchaseOrders();
+    }
+  }, [userData?.branchId]);
 
   useEffect(() => {
     if (activeTab === 'products') {
@@ -1238,18 +1274,97 @@ const Inventory = () => {
 
   // Filter purchase orders
   const filteredOrders = useMemo(() => {
-    return purchaseOrders.filter(order => {
-    const matchesSearch = 
-      order.orderId?.toLowerCase().includes(searchTermPO.toLowerCase()) ||
-      order.supplierName?.toLowerCase().includes(searchTermPO.toLowerCase()) ||
-      order.notes?.toLowerCase().includes(searchTermPO.toLowerCase());
+    let filtered = purchaseOrders.filter(order => {
+      const matchesSearch = 
+        order.orderId?.toLowerCase().includes(searchTermPO.toLowerCase()) ||
+        order.supplierName?.toLowerCase().includes(searchTermPO.toLowerCase()) ||
+        order.notes?.toLowerCase().includes(searchTermPO.toLowerCase());
 
-    const matchesStatus = selectedStatusPO === 'all' || order.status === selectedStatusPO;
-    const matchesSupplier = selectedSupplierFilter === 'all' || order.supplierId === selectedSupplierFilter;
+      const matchesStatus = selectedStatusPO === 'all' || order.status === selectedStatusPO;
+      const matchesSupplier = selectedSupplierFilter === 'all' || order.supplierId === selectedSupplierFilter;
+      
+      // Date range filter
+      let matchesDateRange = true;
+      if (poDateFrom) {
+        const orderDate = order.createdAt?.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+        matchesDateRange = matchesDateRange && orderDate >= new Date(poDateFrom);
+      }
+      if (poDateTo) {
+        const orderDate = order.createdAt?.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+        const endDate = new Date(poDateTo);
+        endDate.setHours(23, 59, 59, 999);
+        matchesDateRange = matchesDateRange && orderDate <= endDate;
+      }
+      
+      // Amount range filter
+      let matchesAmountRange = true;
+      const orderAmount = order.totalAmount || 0;
+      if (poMinAmount !== '' && poMinAmount !== null) {
+        matchesAmountRange = matchesAmountRange && orderAmount >= parseFloat(poMinAmount);
+      }
+      if (poMaxAmount !== '' && poMaxAmount !== null) {
+        matchesAmountRange = matchesAmountRange && orderAmount <= parseFloat(poMaxAmount);
+      }
+      
+      // Created by filter
+      const matchesCreatedBy = poCreatedBy === 'all' || order.createdBy === poCreatedBy;
 
-    return matchesSearch && matchesStatus && matchesSupplier;
+      return matchesSearch && matchesStatus && matchesSupplier && matchesDateRange && matchesAmountRange && matchesCreatedBy;
     });
-  }, [purchaseOrders, searchTermPO, selectedStatusPO, selectedSupplierFilter]);
+    
+    // Sort the filtered results
+    filtered.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortColumnPO) {
+        case 'orderId':
+          aValue = a.orderId || a.id || '';
+          bValue = b.orderId || b.id || '';
+          break;
+        case 'supplierName':
+          aValue = a.supplierName || '';
+          bValue = b.supplierName || '';
+          break;
+        case 'orderDate':
+          aValue = a.orderDate ? new Date(a.orderDate) : new Date(0);
+          bValue = b.orderDate ? new Date(b.orderDate) : new Date(0);
+          break;
+        case 'expectedDelivery':
+          aValue = a.expectedDelivery ? new Date(a.expectedDelivery) : new Date(0);
+          bValue = b.expectedDelivery ? new Date(b.expectedDelivery) : new Date(0);
+          break;
+        case 'status':
+          aValue = a.status || '';
+          bValue = b.status || '';
+          break;
+        case 'totalAmount':
+          aValue = a.totalAmount || 0;
+          bValue = b.totalAmount || 0;
+          break;
+        case 'createdAt':
+        default:
+          aValue = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+          bValue = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+          break;
+      }
+      
+      // Handle string comparison
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortDirectionPO === 'asc' 
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
+      
+      // Handle date/number comparison
+      if (sortDirectionPO === 'asc') {
+        return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+      } else {
+        return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+      }
+    });
+    
+    return filtered;
+  }, [purchaseOrders, searchTermPO, selectedStatusPO, selectedSupplierFilter, poDateFrom, poDateTo, poMinAmount, poMaxAmount, poCreatedBy, sortColumnPO, sortDirectionPO]);
 
   // Purchase order statistics
   const orderStats = useMemo(() => {
@@ -2057,6 +2172,11 @@ const Inventory = () => {
               <div className="flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5" />
                 <span>Purchase Orders</span>
+                {purchaseOrders.filter(o => o.status === 'Pending').length > 0 && (
+                  <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                    {purchaseOrders.filter(o => o.status === 'Pending').length}
+                  </span>
+                )}
               </div>
             </button>
             <button
@@ -2721,15 +2841,50 @@ const Inventory = () => {
                 </div>
               </div>
               
-              <div className="flex gap-1">
-                <Button variant="outline" onClick={handleExportPurchaseOrdersCSV}>
+              <div className="flex gap-1 items-center">
+                {/* Sort indicator */}
+                <div className="hidden sm:flex items-center text-xs text-gray-500 mr-2">
+                  <span>Sorted by: </span>
+                  <span className="font-medium text-[#160B53] ml-1">
+                    {sortColumnPO === 'createdAt' ? 'Date Created' : 
+                     sortColumnPO === 'orderId' ? 'Order ID' :
+                     sortColumnPO === 'supplierName' ? 'Supplier' :
+                     sortColumnPO === 'orderDate' ? 'Order Date' :
+                     sortColumnPO === 'expectedDelivery' ? 'Expected Delivery' :
+                     sortColumnPO === 'status' ? 'Status' :
+                     sortColumnPO === 'totalAmount' ? 'Amount' : sortColumnPO}
+                  </span>
+                  <span className="ml-1">({sortDirectionPO === 'desc' ? '↓' : '↑'})</span>
+                </div>
+                <Button variant="outline" onClick={handleExportPurchaseOrdersCSV} title="Export to CSV">
                   <Download className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" onClick={handlePrintPurchaseOrders}>
+                <Button variant="outline" onClick={handlePrintPurchaseOrders} title="Print">
                   <Printer className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" onClick={handleFilterPurchaseOrders}>
+                <Button 
+                  variant="outline" 
+                  onClick={handleFilterPurchaseOrders}
+                  className={`relative ${(selectedStatusPO !== 'all' || selectedSupplierFilter !== 'all' || poDateFrom || poDateTo || poMinAmount || poMaxAmount || poCreatedBy !== 'all') ? 'border-[#160B53] text-[#160B53]' : ''}`}
+                  title="Filter & Sort"
+                >
                   <Filter className="h-4 w-4" />
+                  {(() => {
+                    const activeFilters = [
+                      selectedStatusPO !== 'all',
+                      selectedSupplierFilter !== 'all',
+                      poDateFrom,
+                      poDateTo,
+                      poMinAmount,
+                      poMaxAmount,
+                      poCreatedBy !== 'all'
+                    ].filter(Boolean).length;
+                    return activeFilters > 0 ? (
+                      <span className="absolute -top-1 -right-1 bg-[#160B53] text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                        {activeFilters}
+                      </span>
+                    ) : null;
+                  })()}
                 </Button>
               </div>
             </div>
@@ -2749,23 +2904,59 @@ const Inventory = () => {
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Order ID
+                      <th 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => handleSortPO('orderId')}
+                      >
+                        <div className="flex items-center">
+                          Order ID
+                          <SortIconPO column="orderId" />
+                        </div>
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Supplier
+                      <th 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => handleSortPO('supplierName')}
+                      >
+                        <div className="flex items-center">
+                          Supplier
+                          <SortIconPO column="supplierName" />
+                        </div>
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Order Date
+                      <th 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => handleSortPO('orderDate')}
+                      >
+                        <div className="flex items-center">
+                          Order Date
+                          <SortIconPO column="orderDate" />
+                        </div>
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Expected Delivery
+                      <th 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => handleSortPO('expectedDelivery')}
+                      >
+                        <div className="flex items-center">
+                          Expected Delivery
+                          <SortIconPO column="expectedDelivery" />
+                        </div>
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
+                      <th 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => handleSortPO('status')}
+                      >
+                        <div className="flex items-center">
+                          Status
+                          <SortIconPO column="status" />
+                        </div>
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total Amount
+                      <th 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => handleSortPO('totalAmount')}
+                      >
+                        <div className="flex items-center">
+                          Total Amount
+                          <SortIconPO column="totalAmount" />
+                        </div>
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Created By
@@ -3899,38 +4090,205 @@ const Inventory = () => {
                 if (activeTab === 'purchaseOrders') {
                   return (
                     <div className="space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Order Status</label>
-                          <select
-                            value={selectedStatusPO}
-                            onChange={(e) => setSelectedStatusPO(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                          >
-                            <option value="all">All Status</option>
-                            <option value="pending">Pending</option>
-                            <option value="approved">Approved</option>
-                            <option value="in_transit">In Transit</option>
-                            <option value="delivered">Delivered</option>
-                            <option value="rejected">Rejected</option>
-                            <option value="cancelled">Cancelled</option>
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
-                          <select
-                            value={selectedSupplierFilter}
-                            onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                          >
-                            <option value="all">All Suppliers</option>
-                            {suppliers.map(supplier => (
-                              <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                            ))}
-                          </select>
+                      {/* Sort Options */}
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                          <ArrowUpDown className="h-4 w-4" />
+                          Sort Options
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
+                            <select
+                              value={sortColumnPO}
+                              onChange={(e) => setSortColumnPO(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                            >
+                              <option value="createdAt">Date Created</option>
+                              <option value="orderId">Order ID</option>
+                              <option value="supplierName">Supplier</option>
+                              <option value="orderDate">Order Date</option>
+                              <option value="expectedDelivery">Expected Delivery</option>
+                              <option value="status">Status</option>
+                              <option value="totalAmount">Total Amount</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Direction</label>
+                            <select
+                              value={sortDirectionPO}
+                              onChange={(e) => setSortDirectionPO(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                            >
+                              <option value="desc">Newest First</option>
+                              <option value="asc">Oldest First</option>
+                            </select>
+                          </div>
                         </div>
                       </div>
+                      
+                      {/* Basic Filters */}
+                      <div>
+                        <h4 className="font-medium text-gray-900 mb-3 border-b pb-2">Basic Filters</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Order Status</label>
+                            <select
+                              value={selectedStatusPO}
+                              onChange={(e) => setSelectedStatusPO(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                            >
+                              <option value="all">All Status</option>
+                              <option value="pending">Pending</option>
+                              <option value="approved">Approved</option>
+                              <option value="in_transit">In Transit</option>
+                              <option value="delivered">Delivered</option>
+                              <option value="rejected">Rejected</option>
+                              <option value="cancelled">Cancelled</option>
+                            </select>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
+                            <select
+                              value={selectedSupplierFilter}
+                              onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                            >
+                              <option value="all">All Suppliers</option>
+                              {suppliers.map(supplier => (
+                                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Created By</label>
+                            <select
+                              value={poCreatedBy}
+                              onChange={(e) => setPoCreatedBy(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                            >
+                              <option value="all">All Users</option>
+                              {[...new Set(purchaseOrders.map(po => po.createdBy).filter(Boolean))].map(userId => {
+                                const order = purchaseOrders.find(po => po.createdBy === userId);
+                                return (
+                                  <option key={userId} value={userId}>
+                                    {order?.createdByName || userId}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Date Range Filters */}
+                      <div>
+                        <h4 className="font-medium text-gray-900 mb-3 border-b pb-2">Date Range</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                            <input
+                              type="date"
+                              value={poDateFrom}
+                              onChange={(e) => setPoDateFrom(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                            <input
+                              type="date"
+                              value={poDateTo}
+                              onChange={(e) => setPoDateTo(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Amount Range Filters */}
+                      <div>
+                        <h4 className="font-medium text-gray-900 mb-3 border-b pb-2">Amount Range</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Min Amount (₱)</label>
+                            <input
+                              type="number"
+                              value={poMinAmount}
+                              onChange={(e) => setPoMinAmount(e.target.value)}
+                              placeholder="0"
+                              min="0"
+                              step="0.01"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Max Amount (₱)</label>
+                            <input
+                              type="number"
+                              value={poMaxAmount}
+                              onChange={(e) => setPoMaxAmount(e.target.value)}
+                              placeholder="∞"
+                              min="0"
+                              step="0.01"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#160B53] text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Active Filters Summary */}
+                      {(selectedStatusPO !== 'all' || selectedSupplierFilter !== 'all' || poDateFrom || poDateTo || poMinAmount || poMaxAmount || poCreatedBy !== 'all') && (
+                        <div className="bg-blue-50 p-3 rounded-lg">
+                          <p className="text-sm text-blue-800 font-medium mb-2">Active Filters:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedStatusPO !== 'all' && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                Status: {selectedStatusPO}
+                                <button onClick={() => setSelectedStatusPO('all')} className="ml-1 hover:text-blue-600">×</button>
+                              </span>
+                            )}
+                            {selectedSupplierFilter !== 'all' && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                Supplier: {suppliers.find(s => s.id === selectedSupplierFilter)?.name || selectedSupplierFilter}
+                                <button onClick={() => setSelectedSupplierFilter('all')} className="ml-1 hover:text-blue-600">×</button>
+                              </span>
+                            )}
+                            {poCreatedBy !== 'all' && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                Created By: {purchaseOrders.find(po => po.createdBy === poCreatedBy)?.createdByName || poCreatedBy}
+                                <button onClick={() => setPoCreatedBy('all')} className="ml-1 hover:text-blue-600">×</button>
+                              </span>
+                            )}
+                            {poDateFrom && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                From: {poDateFrom}
+                                <button onClick={() => setPoDateFrom('')} className="ml-1 hover:text-blue-600">×</button>
+                              </span>
+                            )}
+                            {poDateTo && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                To: {poDateTo}
+                                <button onClick={() => setPoDateTo('')} className="ml-1 hover:text-blue-600">×</button>
+                              </span>
+                            )}
+                            {poMinAmount && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                Min: ₱{parseFloat(poMinAmount).toLocaleString()}
+                                <button onClick={() => setPoMinAmount('')} className="ml-1 hover:text-blue-600">×</button>
+                              </span>
+                            )}
+                            {poMaxAmount && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                Max: ₱{parseFloat(poMaxAmount).toLocaleString()}
+                                <button onClick={() => setPoMaxAmount('')} className="ml-1 hover:text-blue-600">×</button>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 } else {
@@ -4175,6 +4533,14 @@ const Inventory = () => {
                       // Clear purchase order filters
                       setSelectedStatusPO('all');
                       setSelectedSupplierFilter('all');
+                      setPoDateFrom('');
+                      setPoDateTo('');
+                      setPoMinAmount('');
+                      setPoMaxAmount('');
+                      setPoCreatedBy('all');
+                      // Reset sort to default (recent first)
+                      setSortColumnPO('createdAt');
+                      setSortDirectionPO('desc');
                     } else {
                       // Clear product filters
                       setSelectedCategory('all');

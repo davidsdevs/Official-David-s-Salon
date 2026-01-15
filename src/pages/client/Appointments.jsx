@@ -852,6 +852,7 @@ const ClientAppointments = () => {
         appointment={appointmentToReschedule}
         onSubmit={handleSubmitReschedule}
         loading={rescheduling}
+        existingAppointments={appointments}
       />
 
       {/* Cancel Confirmation Modal */}

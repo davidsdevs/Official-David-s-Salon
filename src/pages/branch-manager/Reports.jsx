@@ -116,6 +116,34 @@ const Reports = () => {
     }
   }, [userData?.branchId, dateRange, reportType]);
 
+  // Also load initial data when component mounts for overview
+  useEffect(() => {
+    if (userData?.branchId && !reportType) {
+      // Load basic data for overview cards
+      const loadOverviewData = async () => {
+        try {
+          setLoading(true);
+          const startDate = new Date(dateRange.start);
+          startDate.setHours(0, 0, 0, 0);
+          const endDate = new Date(dateRange.end);
+          endDate.setHours(23, 59, 59, 999);
+
+          // Load all data for overview
+          await Promise.all([
+            loadTransactionsData(startDate, endDate),
+            loadAppointmentsData(startDate, endDate),
+            loadStaffData()
+          ]);
+        } catch (err) {
+          console.error('Error loading overview data:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      loadOverviewData();
+    }
+  }, [userData?.branchId, dateRange]);
+
   const loadReportData = async () => {
     try {
       setLoading(true);
@@ -135,6 +163,9 @@ const Reports = () => {
       // Only load data for the active report type
       switch (reportType) {
         case 'transactions':
+        case 'revenue':
+        case 'services':
+        case 'products':
           await loadTransactionsData(startDate, endDate);
           break;
         case 'appointments':
@@ -160,6 +191,8 @@ const Reports = () => {
   };
 
   const loadTransactionsData = async (startDate, endDate) => {
+    console.log('📊 Loading transactions data...', { startDate, endDate, branchId: userData.branchId });
+    
     // Load transactions with pagination, respecting the 10000 limit
     let allTransactions = [];
     let page = 1;
@@ -177,6 +210,8 @@ const Reports = () => {
         }
       );
       
+      console.log(`📄 Page ${page} result:`, transactionsResult);
+      
       if (transactionsResult.success && transactionsResult.transactions) {
         // Filter by date range client-side
         const filtered = transactionsResult.transactions.filter(t => {
@@ -187,18 +222,23 @@ const Reports = () => {
           return transactionDate >= startDate && transactionDate <= endDate;
         });
         
+        console.log(`✅ Page ${page}: ${filtered.length} transactions in date range`);
         allTransactions.push(...filtered);
         hasMore = transactionsResult.hasMore && transactionsResult.transactions.length > 0;
         page++;
       } else {
+        console.log('❌ No more transactions or error');
         hasMore = false;
       }
     }
     
+    console.log(`📊 Total transactions loaded: ${allTransactions.length}`);
     setTransactions(allTransactions);
   };
 
   const loadAppointmentsData = async (startDate, endDate) => {
+    console.log('📅 Loading appointments data...', { startDate, endDate, branchId: userData.branchId });
+    
     const appointmentsResult = await appointmentApiService.getAppointments(
       {
         branchId: userData.branchId,
@@ -209,6 +249,10 @@ const Reports = () => {
       userData.uid,
       1000 // Reduced from 10000 to 1000
     );
+    
+    console.log('📅 Appointments result:', appointmentsResult);
+    console.log(`✅ Loaded ${appointmentsResult.appointments?.length || 0} appointments`);
+    
     setAppointments(appointmentsResult.appointments || []);
   };
 
@@ -410,23 +454,136 @@ const Reports = () => {
 
   // Calculate summary statistics
   const summaryStats = useMemo(() => {
+    console.log('📊 ========== CALCULATING SUMMARY STATS ==========');
+    console.log('📊 Total transactions loaded:', transactions.length);
+    console.log('📅 Date range:', dateRange);
+    
     // Filter completed transactions - check multiple status formats
     const completedTransactions = transactions.filter(t => {
       const status = (t.status || '').toLowerCase();
       return status === 'paid' || status === 'completed' || status === 'Paid' || status === 'Completed';
     });
     
+    console.log('✅ Completed transactions:', completedTransactions.length);
+    
+    // Log first few transactions to understand the data
+    if (completedTransactions.length > 0) {
+      console.log('📦 Sample transactions (first 3):');
+      completedTransactions.slice(0, 3).forEach((t, i) => {
+        console.log(`  ${i + 1}.`, {
+          id: t.id,
+          salesType: t.salesType,
+          subtotal: t.subtotal,
+          total: t.total,
+          status: t.status,
+          itemCount: t.items?.length,
+          date: t.createdAt?.toDate?.() || t.createdAt
+        });
+      });
+    }
+    
     const totalRevenue = completedTransactions.reduce((sum, t) => 
       sum + (t.total || t.totalAmount || 0), 0
     );
     
-    const serviceRevenue = completedTransactions
-      .filter(t => t.transactionType === 'service' || t.type === 'service')
-      .reduce((sum, t) => sum + (t.total || t.totalAmount || 0), 0);
+    console.log('💰 Total Revenue:', totalRevenue);
     
-    const productRevenue = completedTransactions
-      .filter(t => t.transactionType === 'product' || t.type === 'product')
-      .reduce((sum, t) => sum + (t.total || t.totalAmount || 0), 0);
+    // Calculate service and product revenue
+    let serviceRevenue = 0;
+    let productRevenue = 0;
+    let serviceCount = 0;
+    let productCount = 0;
+    let mixedCount = 0;
+    
+    completedTransactions.forEach((t, index) => {
+      const txnTotal = t.total || t.totalAmount || 0;
+      const salesType = t.salesType;
+      
+      console.log(`Transaction ${index + 1}:`, {
+        id: t.id,
+        salesType: salesType,
+        transactionType: t.transactionType,
+        type: t.type,
+        total: txnTotal,
+        subtotal: t.subtotal,
+        hasItems: !!t.items,
+        itemsLength: t.items?.length
+      });
+      
+      // Check salesType field first (most reliable for mixed transactions)
+      // Handle both undefined and "undefined" string
+      if (salesType && salesType !== 'undefined' && salesType !== undefined) {
+        console.log(`  → Has valid salesType: "${salesType}"`);
+        if (salesType === 'service') {
+          serviceRevenue += txnTotal;
+          serviceCount++;
+          console.log(`  ✓ Service transaction: +₱${txnTotal}`);
+        } else if (salesType === 'product') {
+          // For product transactions, use subtotal (before tax/discount)
+          const productAmount = t.subtotal || txnTotal;
+          productRevenue += productAmount;
+          productCount++;
+          console.log(`  ✓ Product transaction: +₱${productAmount} (subtotal: ${t.subtotal}, total: ${txnTotal})`);
+        } else if (salesType === 'mixed') {
+          mixedCount++;
+          console.log(`  ✓ Mixed transaction - calculating from items:`);
+          // For mixed transactions, sum up items by type
+          if (t.items && Array.isArray(t.items)) {
+            t.items.forEach((item) => {
+              const itemTotal = (item.price || 0) * (item.quantity || 1);
+              if (item.type === 'service') {
+                serviceRevenue += itemTotal;
+                console.log(`    → Service item "${item.name}": +₱${itemTotal}`);
+              } else if (item.type === 'product') {
+                productRevenue += itemTotal;
+                console.log(`    → Product item "${item.name}": +₱${itemTotal}`);
+              }
+            });
+          }
+        }
+      } else if (t.items && Array.isArray(t.items) && t.items.length > 0) {
+        // No valid salesType, calculate from items
+        console.log(`  ⚠ No valid salesType - calculating from ${t.items.length} items:`);
+        t.items.forEach((item) => {
+          const itemTotal = (item.price || 0) * (item.quantity || 1);
+          if (item.type === 'service') {
+            serviceRevenue += itemTotal;
+            serviceCount++;
+            console.log(`    → Service item "${item.name}": +₱${itemTotal}`);
+          } else if (item.type === 'product') {
+            productRevenue += itemTotal;
+            productCount++;
+            console.log(`    → Product item "${item.name}": +₱${itemTotal}`);
+          }
+        });
+      } else if (t.transactionType || t.type) {
+        // Old schema: transactionType or type field
+        console.log(`  ⚠ Using old schema - transactionType: "${t.transactionType}", type: "${t.type}"`);
+        if (t.transactionType === 'service' || t.type === 'service') {
+          serviceRevenue += txnTotal;
+          serviceCount++;
+          console.log(`  ✓ Service (old schema): +₱${txnTotal}`);
+        } else if (t.transactionType === 'product' || t.type === 'product') {
+          const productAmount = t.subtotal || txnTotal;
+          productRevenue += productAmount;
+          productCount++;
+          console.log(`  ✓ Product (old schema): +₱${productAmount}`);
+        }
+      } else {
+        // No type information at all - assume it's a service transaction (most common)
+        console.warn(`  ⚠ No type info found - assuming service: +₱${txnTotal}`);
+        serviceRevenue += txnTotal;
+        serviceCount++;
+      }
+    });
+    
+    console.log('💰 ========== REVENUE SUMMARY ==========');
+    console.log('💰 Total Revenue:', totalRevenue);
+    console.log('💰 Service Revenue:', serviceRevenue, `(${serviceCount} transactions)`);
+    console.log('💰 Product Revenue:', productRevenue, `(${productCount} transactions)`);
+    console.log('💰 Mixed Transactions:', mixedCount);
+    console.log('💰 Service + Product =', serviceRevenue + productRevenue, 'vs Total =', totalRevenue);
+    console.log('💰 ========================================');
     
     const totalTransactions = completedTransactions.length;
     const avgTransactionValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
@@ -440,7 +597,9 @@ const Reports = () => {
     );
     
     const totalProductsSold = completedTransactions.reduce((sum, t) => {
-      if (t.products && Array.isArray(t.products)) {
+      if (t.items && Array.isArray(t.items)) {
+        return sum + t.items.filter(item => item.type === 'product').reduce((pSum, p) => pSum + (p.quantity || 0), 0);
+      } else if (t.products && Array.isArray(t.products)) {
         return sum + t.products.reduce((pSum, p) => pSum + (p.quantity || 0), 0);
       }
       return sum;
@@ -468,11 +627,48 @@ const Reports = () => {
       const revenue = t.total || t.totalAmount || 0;
       yearlyRevenue[year].total += revenue;
       
-      const isService = ((t.transactionType || t.type || '').toLowerCase() === 'service');
-      if (isService) {
-        yearlyRevenue[year].service += revenue;
+      // Calculate service/product split using salesType
+      const salesType = t.salesType;
+      if (salesType && salesType !== 'undefined' && salesType !== undefined) {
+        if (salesType === 'service') {
+          yearlyRevenue[year].service += revenue;
+        } else if (salesType === 'product') {
+          // For product transactions, use subtotal
+          const productAmount = t.subtotal || revenue;
+          yearlyRevenue[year].product += productAmount;
+        } else if (salesType === 'mixed' && t.items && Array.isArray(t.items)) {
+          // For mixed, sum items by type
+          t.items.forEach(item => {
+            const itemTotal = (item.price || 0) * (item.quantity || 1);
+            if (item.type === 'service') {
+              yearlyRevenue[year].service += itemTotal;
+            } else if (item.type === 'product') {
+              yearlyRevenue[year].product += itemTotal;
+            }
+          });
+        }
+      } else if (t.items && Array.isArray(t.items) && t.items.length > 0) {
+        // No valid salesType, calculate from items
+        t.items.forEach(item => {
+          const itemTotal = (item.price || 0) * (item.quantity || 1);
+          if (item.type === 'service') {
+            yearlyRevenue[year].service += itemTotal;
+          } else if (item.type === 'product') {
+            yearlyRevenue[year].product += itemTotal;
+          }
+        });
+      } else if (t.transactionType || t.type) {
+        // Old schema
+        const isService = ((t.transactionType || t.type || '').toLowerCase() === 'service');
+        if (isService) {
+          yearlyRevenue[year].service += revenue;
+        } else {
+          const productAmount = t.subtotal || revenue;
+          yearlyRevenue[year].product += productAmount;
+        }
       } else {
-        yearlyRevenue[year].product += revenue;
+        // No type info - assume service
+        yearlyRevenue[year].service += revenue;
       }
       
       if (!yearlyRevenue[year].months[monthKey]) {
@@ -485,10 +681,49 @@ const Reports = () => {
       }
       
       yearlyRevenue[year].months[monthKey].total += revenue;
-      if (isService) {
-        yearlyRevenue[year].months[monthKey].service += revenue;
+      
+      // Calculate monthly service/product split using same salesType variable
+      // (already declared above, so we reuse it)
+      if (salesType && salesType !== 'undefined' && salesType !== undefined) {
+        if (salesType === 'service') {
+          yearlyRevenue[year].months[monthKey].service += revenue;
+        } else if (salesType === 'product') {
+          // For product transactions, use subtotal
+          const productAmount = t.subtotal || revenue;
+          yearlyRevenue[year].months[monthKey].product += productAmount;
+        } else if (salesType === 'mixed' && t.items && Array.isArray(t.items)) {
+          // For mixed, sum items by type
+          t.items.forEach(item => {
+            const itemTotal = (item.price || 0) * (item.quantity || 1);
+            if (item.type === 'service') {
+              yearlyRevenue[year].months[monthKey].service += itemTotal;
+            } else if (item.type === 'product') {
+              yearlyRevenue[year].months[monthKey].product += itemTotal;
+            }
+          });
+        }
+      } else if (t.items && Array.isArray(t.items) && t.items.length > 0) {
+        // No valid salesType, calculate from items
+        t.items.forEach(item => {
+          const itemTotal = (item.price || 0) * (item.quantity || 1);
+          if (item.type === 'service') {
+            yearlyRevenue[year].months[monthKey].service += itemTotal;
+          } else if (item.type === 'product') {
+            yearlyRevenue[year].months[monthKey].product += itemTotal;
+          }
+        });
+      } else if (t.transactionType || t.type) {
+        // Old schema
+        const isService = ((t.transactionType || t.type || '').toLowerCase() === 'service');
+        if (isService) {
+          yearlyRevenue[year].months[monthKey].service += revenue;
+        } else {
+          const productAmount = t.subtotal || revenue;
+          yearlyRevenue[year].months[monthKey].product += productAmount;
+        }
       } else {
-        yearlyRevenue[year].months[monthKey].product += revenue;
+        // No type info - assume service
+        yearlyRevenue[year].months[monthKey].service += revenue;
       }
     });
 
@@ -665,105 +900,192 @@ const Reports = () => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
-        <p className="text-gray-600">Generate comprehensive reports for your branch operations</p>
+        <h1 className="text-2xl font-bold text-gray-900">Financial Reports</h1>
+        <p className="text-gray-600">Revenue, transactions, appointments, and inventory reports with monthly and annual breakdowns</p>
       </div>
 
 
       {/* Report Cards Grid */}
       {!reportType || reportType === 'overview' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[
-            { 
-              id: 'revenue', 
-              label: 'Revenue Report', 
-              description: 'View revenue breakdown by service and product',
-              icon: Banknote,
-              bgColor: 'bg-green-100',
-              iconColor: 'text-green-600'
-            },
-            { 
-              id: 'transactions', 
-              label: 'Transaction Report', 
-              description: 'Detailed transaction history and records',
-              icon: Receipt,
-              bgColor: 'bg-blue-100',
-              iconColor: 'text-blue-600'
-            },
-            { 
-              id: 'appointments', 
-              label: 'Appointment Report', 
-              description: 'Appointment schedules and status',
-              icon: Calendar,
-              bgColor: 'bg-purple-100',
-              iconColor: 'text-purple-600'
-            },
-            { 
-              id: 'inventory', 
-              label: 'Inventory Sales Report', 
-              description: 'Product sales, revenue, and profit analysis',
-              icon: Package,
-              bgColor: 'bg-orange-100',
-              iconColor: 'text-orange-600'
-            },
-            { 
-              id: 'staff', 
-              label: 'Staff List Report', 
-              description: 'Staff information and performance',
-              icon: Users,
-              bgColor: 'bg-teal-100',
-              iconColor: 'text-teal-600'
-            },
-            { 
-              id: 'calendar', 
-              label: 'Calendar Report', 
-              description: 'Schedule and calendar overview',
-              icon: Calendar,
-              bgColor: 'bg-indigo-100',
-              iconColor: 'text-indigo-600'
-            },
-            { 
-              id: 'leave', 
-              label: 'Leave Management Report', 
-              description: 'Staff leave requests and approvals',
-              icon: Clock,
-              bgColor: 'bg-pink-100',
-              iconColor: 'text-pink-600'
-            }
-          ].map(report => (
-            <Card 
-              key={report.id}
-              className="cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => setReportType(report.id)}
-            >
-              <div className="p-6">
-                <div className="flex items-start gap-4">
-                  <div className={`p-3 ${report.bgColor} rounded-lg`}>
-                    <report.icon className={`h-6 w-6 ${report.iconColor}`} />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                      {report.label}
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      {report.description}
-                    </p>
-                  </div>
+        <div className="space-y-6">
+          {/* Revenue Overview Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-green-100 rounded-lg">
+                  <Banknote className="h-6 w-6 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Total Revenue</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    ₱{summaryStats.totalRevenue.toLocaleString()}
+                  </p>
                 </div>
               </div>
             </Card>
-          ))}
+            
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <Scissors className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Service Revenue</p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    ₱{summaryStats.serviceRevenue.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </Card>
+            
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-purple-100 rounded-lg">
+                  <ShoppingCart className="h-6 w-6 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Product Revenue</p>
+                  <p className="text-2xl font-bold text-purple-600">
+                    ₱{summaryStats.productRevenue.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </Card>
+            
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-orange-100 rounded-lg">
+                  <Receipt className="h-6 w-6 text-orange-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Transactions</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {summaryStats.totalTransactions}
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Report Type Cards */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Financial Reports</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[
+                { 
+                  id: 'revenue', 
+                  label: 'Revenue Report', 
+                  description: 'Monthly and annual revenue breakdown with service/product split',
+                  icon: Banknote,
+                  bgColor: 'bg-green-100',
+                  iconColor: 'text-green-600'
+                },
+                { 
+                  id: 'transactions', 
+                  label: 'Transaction Report', 
+                  description: 'Detailed sales transactions with payment and client information',
+                  icon: Receipt,
+                  bgColor: 'bg-blue-100',
+                  iconColor: 'text-blue-600'
+                },
+                { 
+                  id: 'appointments', 
+                  label: 'Appointment Report', 
+                  description: 'Monthly and annual appointment statistics and completion rates',
+                  icon: Calendar,
+                  bgColor: 'bg-purple-100',
+                  iconColor: 'text-purple-600'
+                },
+                { 
+                  id: 'inventory', 
+                  label: 'Inventory Report', 
+                  description: 'Monthly and annual product sales, stock movement, and profitability',
+                  icon: Package,
+                  bgColor: 'bg-orange-100',
+                  iconColor: 'text-orange-600'
+                }
+              ].map(report => (
+                <Card 
+                  key={report.id}
+                  className="cursor-pointer hover:shadow-lg transition-shadow"
+                  onClick={() => setReportType(report.id)}
+                >
+                  <div className="p-6">
+                    <div className="flex items-start gap-4">
+                      <div className={`p-3 ${report.bgColor} rounded-lg`}>
+                        <report.icon className={`h-6 w-6 ${report.iconColor}`} />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                          {report.label}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          {report.description}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Back Button */}
-          <Button
-            variant="outline"
-            onClick={() => setReportType(null)}
-            className="mb-4"
-          >
-            ← Back to Reports
-          </Button>
+          {/* Back Button and Date Range Controls */}
+          <div className="flex items-center justify-between gap-4">
+            <Button
+              variant="outline"
+              onClick={() => setReportType(null)}
+            >
+              ← Back to Reports
+            </Button>
+            
+            {/* Date Range Controls */}
+            <div className="flex items-center gap-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDateRangePreset('today')}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  Today
+                </button>
+                <button
+                  onClick={() => setDateRangePreset('week')}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  This Week
+                </button>
+                <button
+                  onClick={() => setDateRangePreset('month')}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  This Month
+                </button>
+                <button
+                  onClick={() => setDateRangePreset('year')}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  This Year
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                  className="w-40"
+                />
+                <span className="text-gray-500">to</span>
+                <Input
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                  className="w-40"
+                />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1105,6 +1427,13 @@ const Reports = () => {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold">Appointment Report</h2>
               <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setYearlyView(!yearlyView)}
+                >
+                  {yearlyView ? 'Detailed View' : 'Annual View'}
+                </Button>
                 <Button variant="outline" size="sm" onClick={handlePrint}>
                   <Printer className="h-4 w-4 mr-2" />
                   Print
@@ -1116,66 +1445,586 @@ const Reports = () => {
               </div>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Time
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Client ID
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Services
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {appointments.slice(0, 100).map(appointment => (
-                  <tr key={appointment.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {appointment.appointmentDate 
-                        ? format(appointment.appointmentDate.toDate ? appointment.appointmentDate.toDate() : new Date(appointment.appointmentDate), 'MMM dd, yyyy')
-                        : 'N/A'
-                      }
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {appointment.appointmentTime || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {appointment.clientId || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {(appointment.serviceIds || []).join(', ') || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        appointment.status === 'completed' || appointment.status === 'confirmed'
-                          ? 'bg-green-100 text-green-800'
-                          : appointment.status === 'cancelled'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {appointment.status || 'N/A'}
-                      </span>
-                    </td>
+          
+          {!yearlyView ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Time
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Client
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Services
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {appointments.slice(0, 100).map(appointment => (
+                    <tr key={appointment.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {appointment.appointmentDate 
+                          ? format(appointment.appointmentDate.toDate ? appointment.appointmentDate.toDate() : new Date(appointment.appointmentDate), 'MMM dd, yyyy')
+                          : 'N/A'
+                        }
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {appointment.appointmentTime || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {appointment.clientName || appointment.clientId || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {(appointment.serviceIds || []).join(', ') || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          appointment.status === 'completed' || appointment.status === 'confirmed'
+                            ? 'bg-green-100 text-green-800'
+                            : appointment.status === 'cancelled'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {appointment.status || 'N/A'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-6">
+              {(() => {
+                const monthlyStats = {};
+                appointments.forEach(apt => {
+                  if (!apt.appointmentDate) return;
+                  const aptDate = apt.appointmentDate.toDate ? apt.appointmentDate.toDate() : new Date(apt.appointmentDate);
+                  const monthKey = format(aptDate, 'yyyy-MM');
+                  const year = format(aptDate, 'yyyy');
+                  
+                  if (!monthlyStats[year]) {
+                    monthlyStats[year] = { total: 0, completed: 0, cancelled: 0, pending: 0, months: {} };
+                  }
+                  
+                  monthlyStats[year].total++;
+                  if (apt.status === 'completed' || apt.status === 'confirmed') monthlyStats[year].completed++;
+                  else if (apt.status === 'cancelled') monthlyStats[year].cancelled++;
+                  else monthlyStats[year].pending++;
+                  
+                  if (!monthlyStats[year].months[monthKey]) {
+                    monthlyStats[year].months[monthKey] = {
+                      total: 0,
+                      completed: 0,
+                      cancelled: 0,
+                      pending: 0,
+                      monthName: format(aptDate, 'MMMM yyyy')
+                    };
+                  }
+                  
+                  monthlyStats[year].months[monthKey].total++;
+                  if (apt.status === 'completed' || apt.status === 'confirmed') monthlyStats[year].months[monthKey].completed++;
+                  else if (apt.status === 'cancelled') monthlyStats[year].months[monthKey].cancelled++;
+                  else monthlyStats[year].months[monthKey].pending++;
+                });
+                
+                return (
+                  <div className="space-y-6">
+                    {Object.keys(monthlyStats).sort().reverse().map(year => {
+                      const yearData = monthlyStats[year];
+                      const months = Object.keys(yearData.months).sort();
+                      const completionRate = yearData.total > 0 ? ((yearData.completed / yearData.total) * 100).toFixed(1) : 0;
+                      
+                      return (
+                        <div key={year} className="border border-gray-200 rounded-lg p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-gray-900">{year}</h3>
+                            <div className="flex gap-6">
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500">Total</p>
+                                <p className="text-xl font-bold text-gray-900">{yearData.total}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500">Completed</p>
+                                <p className="text-lg font-semibold text-green-600">{yearData.completed}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500">Cancelled</p>
+                                <p className="text-lg font-semibold text-red-600">{yearData.cancelled}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500">Completion Rate</p>
+                                <p className="text-lg font-semibold text-blue-600">{completionRate}%</p>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+                            {months.map(monthKey => {
+                              const monthData = yearData.months[monthKey];
+                              const monthCompletionRate = monthData.total > 0 ? ((monthData.completed / monthData.total) * 100).toFixed(1) : 0;
+                              
+                              return (
+                                <div key={monthKey} className="border border-gray-200 rounded-lg p-4">
+                                  <p className="font-semibold text-gray-900 mb-2">{monthData.monthName}</p>
+                                  <div className="space-y-1">
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-gray-600">Total:</span>
+                                      <span className="text-sm font-semibold text-gray-900">{monthData.total}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-gray-600">Completed:</span>
+                                      <span className="text-sm font-semibold text-green-600">{monthData.completed}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-gray-600">Cancelled:</span>
+                                      <span className="text-sm font-semibold text-red-600">{monthData.cancelled}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-gray-600">Completion:</span>
+                                      <span className="text-sm font-semibold text-blue-600">{monthCompletionRate}%</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    
+                    {Object.keys(monthlyStats).length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        No appointment data available for the selected period
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Service Performance Report */}
+      {reportType === 'services' && (
+        <Card className="overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Service Performance Report</h2>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => {
+                  const serviceStats = {};
+                  transactions.filter(t => t.status === 'paid' || t.status === 'completed').forEach(t => {
+                    if (t.items && Array.isArray(t.items)) {
+                      t.items.filter(item => item.type === 'service').forEach(service => {
+                        const serviceName = service.name || service.serviceName || 'Unknown';
+                        if (!serviceStats[serviceName]) {
+                          serviceStats[serviceName] = { count: 0, revenue: 0 };
+                        }
+                        serviceStats[serviceName].count += 1;
+                        serviceStats[serviceName].revenue += (service.price || 0) * (service.quantity || 1);
+                      });
+                    }
+                  });
+                  const exportData = Object.entries(serviceStats).map(([name, stats]) => ({
+                    'Service Name': name,
+                    'Times Booked': stats.count,
+                    'Total Revenue': stats.revenue,
+                    'Avg Revenue': stats.count > 0 ? (stats.revenue / stats.count).toFixed(2) : 0
+                  }));
+                  exportToCSV(exportData, 'Service_Performance_Report');
+                }}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="p-6">
+            {(() => {
+              const serviceStats = {};
+              transactions.filter(t => t.status === 'paid' || t.status === 'completed').forEach(t => {
+                if (t.items && Array.isArray(t.items)) {
+                  t.items.filter(item => item.type === 'service').forEach(service => {
+                    const serviceName = service.name || service.serviceName || 'Unknown';
+                    if (!serviceStats[serviceName]) {
+                      serviceStats[serviceName] = { count: 0, revenue: 0 };
+                    }
+                    serviceStats[serviceName].count += 1;
+                    serviceStats[serviceName].revenue += (service.price || 0) * (service.quantity || 1);
+                  });
+                }
+              });
+              
+              const sortedServices = Object.entries(serviceStats)
+                .sort((a, b) => b[1].revenue - a[1].revenue);
+              
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Service Name
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Times Booked
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Total Revenue
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Avg Revenue
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {sortedServices.length > 0 ? (
+                        sortedServices.map(([serviceName, stats]) => (
+                          <tr key={serviceName} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {serviceName}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {stats.count}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-blue-600">
+                              ₱{stats.revenue.toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              ₱{(stats.revenue / stats.count).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                            No service data available for the selected period
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </div>
+        </Card>
+      )}
+
+      {/* Product Sales Report */}
+      {reportType === 'products' && (
+        <Card className="overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Product Sales Report</h2>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => {
+                  const productStats = {};
+                  transactions.filter(t => t.status === 'paid' || t.status === 'completed').forEach(t => {
+                    if (t.items && Array.isArray(t.items)) {
+                      t.items.filter(item => item.type === 'product').forEach(product => {
+                        const productName = product.name || product.productName || 'Unknown';
+                        if (!productStats[productName]) {
+                          productStats[productName] = { quantity: 0, revenue: 0 };
+                        }
+                        productStats[productName].quantity += product.quantity || 1;
+                        productStats[productName].revenue += (product.price || 0) * (product.quantity || 1);
+                      });
+                    }
+                  });
+                  const exportData = Object.entries(productStats).map(([name, stats]) => ({
+                    'Product Name': name,
+                    'Quantity Sold': stats.quantity,
+                    'Total Revenue': stats.revenue,
+                    'Avg Price': stats.quantity > 0 ? (stats.revenue / stats.quantity).toFixed(2) : 0
+                  }));
+                  exportToCSV(exportData, 'Product_Sales_Report');
+                }}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="p-6">
+            {(() => {
+              const productStats = {};
+              transactions.filter(t => t.status === 'paid' || t.status === 'completed').forEach(t => {
+                if (t.items && Array.isArray(t.items)) {
+                  t.items.filter(item => item.type === 'product').forEach(product => {
+                    const productName = product.name || product.productName || 'Unknown';
+                    if (!productStats[productName]) {
+                      productStats[productName] = { quantity: 0, revenue: 0 };
+                    }
+                    productStats[productName].quantity += product.quantity || 1;
+                    productStats[productName].revenue += (product.price || 0) * (product.quantity || 1);
+                  });
+                }
+              });
+              
+              const sortedProducts = Object.entries(productStats)
+                .sort((a, b) => b[1].revenue - a[1].revenue);
+              
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Product Name
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Quantity Sold
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Total Revenue
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Avg Price
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {sortedProducts.length > 0 ? (
+                        sortedProducts.map(([productName, stats]) => (
+                          <tr key={productName} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {productName}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {stats.quantity}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-purple-600">
+                              ₱{stats.revenue.toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              ₱{(stats.revenue / stats.quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                            No product sales data available for the selected period
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         </Card>
       )}
 
       {/* Inventory Report */}
       {reportType === 'inventory' && (
+        <Card className="overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Inventory Sales Report</h2>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setYearlyView(!yearlyView)}
+                >
+                  {yearlyView ? 'Detailed View' : 'Annual View'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                <Button variant="outline" size="sm" onClick={exportInventory}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
+          </div>
+          
+          {!yearlyView ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Product
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Quantity Sold
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Revenue
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Avg Price
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {(() => {
+                    const productStats = {};
+                    transactions.filter(t => t.status === 'paid' || t.status === 'completed').forEach(t => {
+                      if (t.items && Array.isArray(t.items)) {
+                        t.items.filter(item => item.type === 'product').forEach(product => {
+                          const productName = product.name || product.productName || 'Unknown';
+                          if (!productStats[productName]) {
+                            productStats[productName] = { quantity: 0, revenue: 0 };
+                          }
+                          productStats[productName].quantity += product.quantity || 1;
+                          productStats[productName].revenue += (product.price || 0) * (product.quantity || 1);
+                        });
+                      }
+                    });
+                    
+                    const sortedProducts = Object.entries(productStats).sort((a, b) => b[1].revenue - a[1].revenue);
+                    
+                    return sortedProducts.length > 0 ? (
+                      sortedProducts.map(([productName, stats]) => (
+                        <tr key={productName} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {productName}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {stats.quantity}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-purple-600">
+                            ₱{stats.revenue.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            ₱{(stats.revenue / stats.quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                          No product sales data available for the selected period
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-6">
+              {(() => {
+                const monthlyStats = {};
+                transactions.filter(t => t.status === 'paid' || t.status === 'completed').forEach(t => {
+                  if (!t.createdAt) return;
+                  const txnDate = t.createdAt.toDate ? t.createdAt.toDate() : new Date(t.createdAt);
+                  const monthKey = format(txnDate, 'yyyy-MM');
+                  const year = format(txnDate, 'yyyy');
+                  
+                  if (t.items && Array.isArray(t.items)) {
+                    t.items.filter(item => item.type === 'product').forEach(product => {
+                      if (!monthlyStats[year]) {
+                        monthlyStats[year] = { quantity: 0, revenue: 0, months: {} };
+                      }
+                      
+                      const qty = product.quantity || 1;
+                      const rev = (product.price || 0) * qty;
+                      
+                      monthlyStats[year].quantity += qty;
+                      monthlyStats[year].revenue += rev;
+                      
+                      if (!monthlyStats[year].months[monthKey]) {
+                        monthlyStats[year].months[monthKey] = {
+                          quantity: 0,
+                          revenue: 0,
+                          monthName: format(txnDate, 'MMMM yyyy')
+                        };
+                      }
+                      
+                      monthlyStats[year].months[monthKey].quantity += qty;
+                      monthlyStats[year].months[monthKey].revenue += rev;
+                    });
+                  }
+                });
+                
+                return (
+                  <div className="space-y-6">
+                    {Object.keys(monthlyStats).sort().reverse().map(year => {
+                      const yearData = monthlyStats[year];
+                      const months = Object.keys(yearData.months).sort();
+                      
+                      return (
+                        <div key={year} className="border border-gray-200 rounded-lg p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-gray-900">{year}</h3>
+                            <div className="flex gap-6">
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500">Total Quantity</p>
+                                <p className="text-xl font-bold text-gray-900">{yearData.quantity}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500">Total Revenue</p>
+                                <p className="text-xl font-bold text-purple-600">₱{yearData.revenue.toLocaleString()}</p>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+                            {months.map(monthKey => {
+                              const monthData = yearData.months[monthKey];
+                              
+                              return (
+                                <div key={monthKey} className="border border-gray-200 rounded-lg p-4">
+                                  <p className="font-semibold text-gray-900 mb-2">{monthData.monthName}</p>
+                                  <div className="space-y-1">
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-gray-600">Quantity:</span>
+                                      <span className="text-sm font-semibold text-gray-900">{monthData.quantity}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-gray-600">Revenue:</span>
+                                      <span className="text-sm font-semibold text-purple-600">
+                                        ₱{monthData.revenue.toLocaleString()}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    
+                    {Object.keys(monthlyStats).length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        No inventory sales data available for the selected period
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </Card>
+      )}
         <Card className="overflow-hidden">
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between">

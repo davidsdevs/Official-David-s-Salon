@@ -206,10 +206,21 @@ export const getNextReceiptNumber = async (branchId) => {
       let nextNumber = activeBatch.currentNumber + 1;
       const voidedNumbers = activeBatch.voidedNumbers || [];
       
+      // Convert voided numbers to integers for comparison (they may be stored as padded strings)
+      const voidedNumbersInt = voidedNumbers.map(v => parseInt(String(v).replace(/^0+/, ''), 10) || parseInt(v, 10));
+      
+      console.log('🧾 Current number:', activeBatch.currentNumber);
+      console.log('🧾 Next number candidate:', nextNumber);
+      console.log('🧾 Voided numbers (raw):', voidedNumbers);
+      console.log('🧾 Voided numbers (int):', voidedNumbersInt);
+      
       // Skip any voided numbers
-      while (voidedNumbers.includes(nextNumber) && nextNumber <= activeBatch.endNumber) {
+      while (voidedNumbersInt.includes(nextNumber) && nextNumber <= activeBatch.endNumber) {
+        console.log('🧾 Skipping voided number:', nextNumber);
         nextNumber++;
       }
+      
+      console.log('🧾 Final next number:', nextNumber);
       
       // Check if we've exceeded the batch
       if (nextNumber > activeBatch.endNumber) {

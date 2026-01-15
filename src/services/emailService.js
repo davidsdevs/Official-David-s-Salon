@@ -777,7 +777,7 @@ export const sendPromotionEmail = async (promotion, clientData) => {
       : clientData.name || 'Valued Client';
 
     // Fetch branch name
-    let branchName = 'Unknown Branch';
+    let branchName = 'All Branches';
     if (promotion.branchId) {
       try {
         const { doc, getDoc } = await import('firebase/firestore');
@@ -788,6 +788,7 @@ export const sendPromotionEmail = async (promotion, clientData) => {
         }
       } catch (err) {
         console.warn('Could not fetch branch name:', err);
+        branchName = 'Unknown Branch';
       }
     }
 
@@ -848,53 +849,59 @@ export const sendPromotionEmail = async (promotion, clientData) => {
       ? `${promotion.discountValue}% OFF`
       : `₱${promotion.discountValue} OFF`;
 
-    // Create email content
+    // Create email content with image support
     const htmlContent = `
       <!DOCTYPE html>
       <html>
       <head>
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background: linear-gradient(135deg, #160B53, #12094A); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-          .content { padding: 30px; background: white; border: 1px solid #e0e0e0; border-radius: 0 0 10px 10px; }
-          .promotion-box { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
-          .discount { font-size: 24px; font-weight: bold; color: #28a745; margin: 10px 0; }
-          .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #160B53, #12094A); color: white; padding: 30px; text-align: center; }
+          .promotion-image { width: 100%; max-height: 300px; object-fit: cover; }
+          .content { padding: 30px; background: white; }
+          .promotion-box { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
+          .discount { font-size: 32px; font-weight: bold; color: #28a745; margin: 15px 0; }
+          .code-box { background: #160B53; color: white; padding: 15px 25px; border-radius: 8px; display: inline-block; font-size: 20px; font-weight: bold; letter-spacing: 2px; margin: 15px 0; }
+          .validity { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; background: #f8f9fa; }
         </style>
       </head>
       <body>
         <div class="container">
           <div class="header">
-            <h1 style="margin: 0; font-size: 24px;">🎉 Special Promotion</h1>
+            <h1 style="margin: 0; font-size: 28px;">🎉 Special Promotion</h1>
             <p style="margin: 10px 0 0 0; opacity: 0.9;">David's Salon</p>
           </div>
+          ${promotion.imageUrl ? `<img src="${promotion.imageUrl}" alt="Promotion Banner" class="promotion-image" style="width: 100%; max-height: 300px; object-fit: cover;" />` : ''}
           <div class="content">
-            <h2 style="color: #160B53; margin-top: 0;">Hello ${clientName},</h2>
-            <p>We have an exciting promotion just for you!</p>
+            <h2 style="color: #160B53; margin-top: 0; text-align: center;">Hello ${clientName},</h2>
+            <p style="text-align: center;">We have an exciting promotion just for you!</p>
+            
             <div class="promotion-box">
-              <h3 style="color: #160B53; margin-top: 0;">${promotion.title}</h3>
-              <p>${promotion.description || 'No description provided.'}</p>
+              <h3 style="color: #160B53; margin-top: 0; font-size: 24px;">${promotion.title}</h3>
+              <p style="font-size: 16px;">${promotion.description || 'No description provided.'}</p>
               <div class="discount">${discountText}</div>
               <p><strong>${applicableText}</strong></p>
-              ${promotionCodeText ? `<p><strong>${promotionCodeText}</strong></p>` : ''}
-              <p>${usageInfo}</p>
+              ${promotion.promotionCode ? `<div class="code-box">${promotion.promotionCode}</div>` : ''}
+              <p style="font-size: 14px; color: #666;">${usageInfo}</p>
             </div>
-            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
-              <h4 style="margin-top: 0; color: #856404;">Validity Period:</h4>
+            
+            <div class="validity">
+              <h4 style="margin-top: 0; color: #856404;">📅 Validity Period</h4>
               <p style="margin: 0; color: #856404;">
-                <strong>Valid from:</strong> ${startDateFormatted}<br>
-                <strong>Valid until:</strong> ${endDateFormatted}
+                <strong>From:</strong> ${startDateFormatted}<br>
+                <strong>Until:</strong> ${endDateFormatted}
               </p>
             </div>
-            <p><strong>Branch:</strong> ${branchName}</p>
-            <p>Don't miss out on this amazing offer! Visit us soon to take advantage of this promotion.</p>
-            <p>We look forward to seeing you!</p>
-            <div class="footer">
-              <p>This is an automated email from David's Salon Management System.<br>
-              Please do not reply to this email.</p>
-              <p>© ${new Date().getFullYear()} David's Salon. All rights reserved.</p>
-            </div>
+            
+            <p style="text-align: center;"><strong>Branch:</strong> ${branchName}</p>
+            <p style="text-align: center; font-size: 16px;">Don't miss out on this amazing offer!<br>Visit us soon to take advantage of this promotion.</p>
+            <p style="text-align: center;">We look forward to seeing you! 💜</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated email from David's Salon.<br>Please do not reply to this email.</p>
+            <p>© ${new Date().getFullYear()} David's Salon. All rights reserved.</p>
           </div>
         </div>
       </body>

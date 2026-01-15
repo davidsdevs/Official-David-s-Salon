@@ -5,7 +5,7 @@
 
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
-import { Scissors, Package, FileText, Building2, ArrowRight, Banknote, Image, Clock, Users } from 'lucide-react';
+import { Scissors, Package, Building2, ArrowRight } from 'lucide-react';
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -34,18 +34,6 @@ const Settings = () => {
       iconBg: 'bg-green-100',
       iconColor: 'text-green-600',
       features: ['Product catalog', 'Pricing details', 'Inventory info']
-    },
-    {
-      id: 'page-contents',
-      title: 'Branch Page Contents',
-      shortDescription: 'Manage public page content',
-      description: 'Customize your branch\'s public-facing page content including hero sections, about descriptions, service highlights, and promotional content. Update your branch page to showcase your services and attract customers through the public website.',
-      icon: FileText,
-      path: '/manager/settings/page-contents',
-      gradient: 'from-purple-500 to-purple-600',
-      iconBg: 'bg-purple-100',
-      iconColor: 'text-purple-600',
-      features: ['Hero sections', 'About content', 'Public information']
     },
     {
       id: 'branch-settings',
@@ -137,7 +125,7 @@ const Settings = () => {
       <Card className="p-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
         <div className="flex items-start gap-4">
           <div className="p-2 bg-blue-100 rounded-lg">
-            <FileText className="h-5 w-5 text-blue-600" />
+            <Building2 className="h-5 w-5 text-blue-600" />
           </div>
           <div>
             <h4 className="font-semibold text-gray-900 mb-1">About Settings</h4>

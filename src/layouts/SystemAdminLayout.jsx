@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, Building2, Settings, Activity, Clipboard, Package, FileText, Image, Megaphone, Truck } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, Activity, Clipboard, Package, FileText, Truck, Database } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -18,22 +18,20 @@ const SystemAdminLayout = () => {
     { path: '/admin/suppliers', label: 'Suppliers', icon: Truck },
     { section: 'Content' },
     { path: '/admin/content-management', label: 'Content Management', icon: FileText },
-    { path: '/admin/homepage-content', label: 'Homepage Content', icon: Image },
-    { path: '/admin/promotions', label: 'Promotions', icon: Megaphone },
     { section: 'System' },
     { path: '/admin/activity-logs', label: 'Activity Logs', icon: Activity },
-    { path: ROUTES.ADMIN_SETTINGS, label: 'Settings', icon: Settings },
+    { path: '/admin/database-backup', label: 'Database Backup', icon: Database },
   ];
 
   return (
-    <div className="min-h-screen flex bg-gray-50 overflow-hidden">
+    <div className="min-h-screen flex bg-gray-50">
       <Sidebar isOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(false)} menuItems={menuItems} />
       
-      <div className="flex-1 flex flex-col md:ml-64 min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col md:ml-64">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
         
-        <div className="flex-1 flex flex-col overflow-y-auto min-h-0">
-          <main className="flex-1 p-4 md:p-6 min-w-0 max-w-full">
+        <div className="flex-1 flex flex-col overflow-y-auto">
+          <main className="flex-1 p-4 md:p-6">
             <Outlet />
           </main>
         </div>

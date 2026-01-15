@@ -62,10 +62,6 @@ const Suppliers = () => {
   const [productCurrentPage, setProductCurrentPage] = useState(1);
   const [productItemsPerPage, setProductItemsPerPage] = useState(25);
   
-  // Main suppliers table pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
-  
   // Form states
   const [formData, setFormData] = useState({
     name: '',
@@ -177,47 +173,21 @@ const Suppliers = () => {
     loadSuppliers();
   }, []);
 
-  // Filter suppliers with memoization for big data
-  const filteredSuppliers = useMemo(() => {
-    return suppliers.filter(supplier => {
-      const searchLower = searchTerm.toLowerCase();
-      const matchesSearch = 
-        supplier.name?.toLowerCase().includes(searchLower) ||
-        supplier.contactPerson?.toLowerCase().includes(searchLower) ||
-        supplier.email?.toLowerCase().includes(searchLower) ||
-        supplier.phone?.toLowerCase().includes(searchLower);
-      
-      const matchesCategory = categoryFilter === 'All' || supplier.category === categoryFilter;
-      const matchesStatus = statusFilter === 'All' || 
-        (statusFilter === 'Active' && supplier.isActive !== false) ||
-        (statusFilter === 'Inactive' && supplier.isActive === false);
-      
-      return matchesSearch && matchesCategory && matchesStatus;
-    });
-  }, [suppliers, searchTerm, categoryFilter, statusFilter]);
-
-  // Pagination calculations
-  const totalPages = Math.max(1, Math.ceil(filteredSuppliers.length / itemsPerPage));
-  const safeCurrentPage = Math.min(currentPage, totalPages);
-  const startIndex = (safeCurrentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  
-  // Paginated suppliers for display
-  const paginatedSuppliers = useMemo(() => {
-    return filteredSuppliers.slice(startIndex, endIndex);
-  }, [filteredSuppliers, startIndex, endIndex]);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, categoryFilter, statusFilter]);
-
-  // Adjust current page if it exceeds total pages
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
+  // Filter suppliers
+  const filteredSuppliers = suppliers.filter(supplier => {
+    const matchesSearch = 
+      supplier.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      supplier.contactPerson?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      supplier.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      supplier.phone?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesCategory = categoryFilter === 'All' || supplier.category === categoryFilter;
+    const matchesStatus = statusFilter === 'All' || 
+      (statusFilter === 'Active' && supplier.isActive !== false) ||
+      (statusFilter === 'Inactive' && supplier.isActive === false);
+    
+    return matchesSearch && matchesCategory && matchesStatus;
+  });
 
   // Get unique categories
   const categories = ['All', ...new Set(suppliers.map(s => s.category).filter(Boolean))];
@@ -927,7 +897,7 @@ const Suppliers = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {paginatedSuppliers.length === 0 ? (
+              {filteredSuppliers.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="px-6 py-12 text-center">
                     <Building className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -935,7 +905,7 @@ const Suppliers = () => {
                   </td>
                 </tr>
               ) : (
-                paginatedSuppliers.map((supplier) => (
+                filteredSuppliers.map((supplier) => (
                   <tr key={supplier.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div>
@@ -1011,108 +981,6 @@ const Suppliers = () => {
               )}
             </tbody>
           </table>
-        </div>
-        
-        {/* Pagination Controls */}
-        <div className="bg-white px-4 py-3 border-t border-gray-200">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Show</span>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-[#160B53] focus:border-[#160B53]"
-              >
-                <option value={5}>5</option>
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-              <span className="text-sm text-gray-600">per page</span>
-            </div>
-
-            <div className="text-sm text-gray-600">
-              Showing <span className="font-medium">{filteredSuppliers.length === 0 ? 0 : startIndex + 1}</span> to{' '}
-              <span className="font-medium">{Math.min(endIndex, filteredSuppliers.length)}</span> of{' '}
-              <span className="font-medium">{filteredSuppliers.length}</span> suppliers
-            </div>
-
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(1)}
-                disabled={safeCurrentPage === 1}
-                className="px-2 py-1 text-xs"
-              >
-                First
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={safeCurrentPage === 1}
-                className="px-2 py-1 text-xs"
-              >
-                Prev
-              </Button>
-              
-              {/* Page numbers */}
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(3, totalPages) }, (_, i) => {
-                  let pageNum;
-                  if (totalPages <= 3) {
-                    pageNum = i + 1;
-                  } else if (safeCurrentPage <= 2) {
-                    pageNum = i + 1;
-                  } else if (safeCurrentPage >= totalPages - 1) {
-                    pageNum = totalPages - 2 + i;
-                  } else {
-                    pageNum = safeCurrentPage - 1 + i;
-                  }
-                  
-                  return (
-                    <Button
-                      key={pageNum}
-                      variant={safeCurrentPage === pageNum ? "primary" : "outline"}
-                      size="sm"
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`px-2 py-1 text-xs min-w-[32px] ${
-                        safeCurrentPage === pageNum 
-                          ? 'bg-[#160B53] hover:bg-[#12094A] text-white' 
-                          : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      {pageNum}
-                    </Button>
-                  );
-                })}
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={safeCurrentPage === totalPages}
-                className="px-2 py-1 text-xs"
-              >
-                Next
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(totalPages)}
-                disabled={safeCurrentPage === totalPages}
-                className="px-2 py-1 text-xs"
-              >
-                Last
-              </Button>
-            </div>
-          </div>
         </div>
       </Card>
 

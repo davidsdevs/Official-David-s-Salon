@@ -2336,18 +2336,42 @@ const Stocks = () => {
       // 1. Load Force Adjustments (from stockAdjustments collection)
       try {
         const adjustmentsRef = collection(db, 'stockAdjustments');
-        let adjustmentsQuery = query(
-          adjustmentsRef,
-          where('branchId', '==', userData.branchId),
-          orderBy('createdAt', 'desc')
-        );
-        if (startTimestamp) {
-          adjustmentsQuery = query(adjustmentsQuery, where('createdAt', '>=', startTimestamp));
+        let adjustmentsSnapshot;
+        
+        try {
+          // Try with orderBy first (requires composite index)
+          let adjustmentsQuery = query(
+            adjustmentsRef,
+            where('branchId', '==', userData.branchId),
+            orderBy('createdAt', 'desc')
+          );
+          if (startTimestamp) {
+            adjustmentsQuery = query(adjustmentsQuery, where('createdAt', '>=', startTimestamp));
+          }
+          adjustmentsSnapshot = await getDocs(adjustmentsQuery);
+        } catch (indexError) {
+          // Fallback: query without orderBy and sort client-side
+          console.warn('Index missing for stockAdjustments, using client-side sort:', indexError.message);
+          const fallbackQuery = query(
+            adjustmentsRef,
+            where('branchId', '==', userData.branchId)
+          );
+          adjustmentsSnapshot = await getDocs(fallbackQuery);
         }
-        const adjustmentsSnapshot = await getDocs(adjustmentsQuery);
+        
+        const forceAdjustments = [];
         adjustmentsSnapshot.forEach((doc) => {
           const data = doc.data();
-          allAdjustments.push({
+          const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : 
+                           data.createdAt instanceof Date ? data.createdAt :
+                           data.createdAt ? new Date(data.createdAt) : new Date();
+          
+          // Apply date filter if using fallback
+          if (startTimestamp && createdAt < startDate) {
+            return; // Skip if before start date
+          }
+          
+          forceAdjustments.push({
             id: doc.id,
             type: 'force_adjustment',
             adjustmentType: 'Force Adjustment',
@@ -2359,11 +2383,13 @@ const Stocks = () => {
             notes: data.notes,
             adjustedBy: data.adjustedBy,
             managerCode: data.managerCode,
-            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : 
-                       data.createdAt instanceof Date ? data.createdAt :
-                       data.createdAt ? new Date(data.createdAt) : new Date(),
+            createdAt: createdAt,
           });
         });
+        
+        // Sort by createdAt descending (in case we used fallback)
+        forceAdjustments.sort((a, b) => b.createdAt - a.createdAt);
+        allAdjustments.push(...forceAdjustments);
       } catch (error) {
         console.error('Error loading force adjustments:', error);
       }
@@ -3717,8 +3743,9 @@ const Stocks = () => {
                   <div className="col-span-2">
                     <label className="text-xs font-medium text-blue-700">Period</label>
                     <p className="text-sm text-blue-900">
-                      {selectedStock.startPeriod ? format(new Date(selectedStock.startPeriod), 'MMM dd, yyyy') : 'N/A'} - 
-                      {selectedStock.endPeriod ? format(new Date(selectedStock.endPeriod), ' MMM dd, yyyy') : ' N/A'}
+                      {selectedStock.startPeriod 
+                        ? `${format(new Date(selectedStock.startPeriod), 'MMM dd, yyyy')} - ${selectedStock.endPeriod ? format(new Date(selectedStock.endPeriod), 'MMM dd, yyyy') : 'Ongoing'}`
+                        : 'No period set'}
                     </p>
                   </div>
                 </div>
@@ -3758,15 +3785,15 @@ const Stocks = () => {
                 <div className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-gray-500">Branch</label>
-                    <p className="text-gray-900">{selectedStock.branchName || 'N/A'}</p>
+                    <p className="text-gray-900">{branchName || 'Unknown Branch'}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-500">Location</label>
-                    <p className="text-gray-900">{selectedStock.location || 'N/A'}</p>
+                    <p className="text-gray-900">{selectedStock.location || selectedStock.storageLocation || 'Not specified'}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-500">Tracking Mode</label>
-                    <p className="text-gray-900 capitalize">{selectedStock.weekTrackingMode || 'Manual'}</p>
+                    <p className="text-gray-900 capitalize">{selectedStock.weekTrackingMode || selectedStock.trackingMode || 'Manual'}</p>
                   </div>
                 </div>
 
@@ -3778,13 +3805,13 @@ const Stocks = () => {
                   <div>
                     <label className="text-sm font-medium text-gray-500">Created At</label>
                     <p className="text-gray-900">
-                      {selectedStock.createdAt ? format(new Date(selectedStock.createdAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
+                      {selectedStock.createdAt ? format(new Date(selectedStock.createdAt), 'MMM dd, yyyy HH:mm') : 'Not available'}
                     </p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-500">Updated At</label>
                     <p className="text-gray-900">
-                      {selectedStock.updatedAt ? format(new Date(selectedStock.updatedAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
+                      {selectedStock.updatedAt ? format(new Date(selectedStock.updatedAt), 'MMM dd, yyyy HH:mm') : 'Not available'}
                     </p>
                   </div>
                 </div>
@@ -4246,6 +4273,8 @@ const Stocks = () => {
                       const adjustmentData = {
                         stockId: forceAdjustForm.stockId,
                         productId: forceAdjustForm.productId,
+                        productName: forceAdjustForm.productName || 'Unknown Product',
+                        batchNumber: forceAdjustForm.batchNumber || '',
                         branchId: userData?.branchId,
                         previousStock: parseInt(forceAdjustForm.currentStock),
                         newStock: parseInt(forceAdjustForm.newStock),

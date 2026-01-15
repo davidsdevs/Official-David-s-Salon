@@ -21,7 +21,8 @@ const Commissions = () => {
   const [showPDFPreview, setShowPDFPreview] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [selectedStylists, setSelectedStylists] = useState([]); // Array for multiple selection
-  const [selectedProducts, setSelectedProducts] = useState([]); // Array for multiple product selection
+  const [selectedItems, setSelectedItems] = useState([]); // Global filter for services or products
+  const [itemFilterType, setItemFilterType] = useState('all'); // 'all', 'services', 'products'
   const [minCommission, setMinCommission] = useState('');
   const [maxCommission, setMaxCommission] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -139,6 +140,8 @@ const Commissions = () => {
                     transactionDate: billData.createdAt,
                     productName: item.name || 'Unknown Product',
                     productId: item.id,
+                    serviceName: billData.serviceName || 'N/A',
+                    serviceId: billData.serviceId || '',
                     batchId: batch.batchId || '',
                     batchNumber: batch.batchNumber || '',
                     quantity: batchQuantity,
@@ -162,6 +165,8 @@ const Commissions = () => {
                   transactionDate: billData.createdAt,
                   productName: item.name || 'Unknown Product',
                   productId: item.id,
+                  serviceName: billData.serviceName || 'N/A',
+                  serviceId: billData.serviceId || '',
                   batchId: '',
                   batchNumber: '',
                   quantity: totalItemQuantity,
@@ -195,25 +200,47 @@ const Commissions = () => {
   const hasActiveFilters = useMemo(() => {
     return searchTerm !== '' ||
            selectedStylists.length > 0 ||
-           selectedProducts.length > 0 ||
+           selectedItems.length > 0 ||
            minCommission !== '' ||
            maxCommission !== '' ||
            startDate !== '' ||
            endDate !== '';
-  }, [searchTerm, selectedStylists, selectedProducts, minCommission, maxCommission, startDate, endDate]);
+  }, [searchTerm, selectedStylists, selectedItems, minCommission, maxCommission, startDate, endDate]);
 
   // Count active filters for badge
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (searchTerm !== '') count++;
     if (selectedStylists.length > 0) count++;
-    if (selectedProducts.length > 0) count++;
+    if (selectedItems.length > 0) count++;
     if (minCommission !== '') count++;
     if (maxCommission !== '') count++;
     if (startDate !== '') count++;
     if (endDate !== '') count++;
     return count;
-  }, [searchTerm, selectedStylists, selectedProducts, minCommission, maxCommission, startDate, endDate]);
+  }, [searchTerm, selectedStylists, selectedItems, minCommission, maxCommission, startDate, endDate]);
+
+  // Get unique services for filter dropdown
+  const uniqueServices = useMemo(() => {
+    const services = new Set();
+    transactions.forEach(t => {
+      if (t.serviceName && t.serviceName !== 'N/A') {
+        services.add(t.serviceName);
+      }
+    });
+    return Array.from(services).sort();
+  }, [transactions]);
+
+  // Get unique products for filter dropdown
+  const uniqueProducts = useMemo(() => {
+    const products = new Set();
+    transactions.forEach(t => {
+      if (t.productName) {
+        products.add(t.productName);
+      }
+    });
+    return Array.from(products).sort();
+  }, [transactions]);
 
   // Filter transactions
   const filteredTransactions = useMemo(() => {
@@ -224,6 +251,7 @@ const Commissions = () => {
       const searchLower = searchTerm.toLowerCase();
       filtered = filtered.filter(t => 
         t.productName.toLowerCase().includes(searchLower) ||
+        t.serviceName.toLowerCase().includes(searchLower) ||
         t.commissionerName.toLowerCase().includes(searchLower) ||
         t.clientName.toLowerCase().includes(searchLower) ||
         t.receiptNumber.toLowerCase().includes(searchLower)
@@ -235,9 +263,13 @@ const Commissions = () => {
       filtered = filtered.filter(t => selectedStylists.includes(t.commissionerName));
     }
     
-    // Filter by selected products (multiple selection)
-    if (selectedProducts.length > 0) {
-      filtered = filtered.filter(t => selectedProducts.includes(t.productName));
+    // Filter by selected items (services or products based on itemFilterType)
+    if (selectedItems.length > 0) {
+      if (itemFilterType === 'services') {
+        filtered = filtered.filter(t => selectedItems.includes(t.serviceName));
+      } else if (itemFilterType === 'products') {
+        filtered = filtered.filter(t => selectedItems.includes(t.productName));
+      }
     }
     
     // Filter by commission amount range
@@ -272,7 +304,7 @@ const Commissions = () => {
       const dateB = b.transactionDate?.toDate ? b.transactionDate.toDate() : new Date(b.transactionDate);
       return dateB - dateA;
     });
-  }, [transactions, searchTerm, selectedStylists, selectedProducts, minCommission, maxCommission, startDate, endDate]);
+  }, [transactions, searchTerm, selectedStylists, selectedItems, itemFilterType, minCommission, maxCommission, startDate, endDate]);
 
   // Get unique stylists for filter dropdown
   const uniqueStylists = useMemo(() => {
@@ -283,17 +315,6 @@ const Commissions = () => {
       }
     });
     return Array.from(stylists).sort();
-  }, [transactions]);
-
-  // Get unique products for filter dropdown
-  const uniqueProducts = useMemo(() => {
-    const products = new Set();
-    transactions.forEach(t => {
-      if (t.productName) {
-        products.add(t.productName);
-      }
-    });
-    return Array.from(products).sort();
   }, [transactions]);
 
   // Calculate commission summary by stylist
@@ -633,6 +654,7 @@ const Commissions = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stylist</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Cost</th>
@@ -669,6 +691,7 @@ const Commissions = () => {
                           </span>
                         </div>
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{transaction.serviceName}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{transaction.productName}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">{transaction.quantity}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">₱{transaction.unitCost.toFixed(2)}</td>
@@ -905,53 +928,102 @@ const Commissions = () => {
                   )}
                 </div>
 
-                {/* Product Filter */}
+                {/* Global Items Filter (Services or Products) */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Products/Items Sold</label>
-                  <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3 space-y-2">
-                    <div className="flex items-center">
-                      <input
-                        type="checkbox"
-                        id="select-all-products"
-                        checked={selectedProducts.length === uniqueProducts.length}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedProducts([...uniqueProducts]);
-                          } else {
-                            setSelectedProducts([]);
-                          }
-                        }}
-                        className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
-                      />
-                      <label htmlFor="select-all-products" className="ml-2 text-sm text-gray-700 font-medium">
-                        Select All Products
-                      </label>
-                    </div>
-                    <hr className="border-gray-200" />
-                    {uniqueProducts.map((product) => (
-                      <div key={product} className="flex items-center">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Filter Items By</label>
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      onClick={() => {
+                        setItemFilterType('all');
+                        setSelectedItems([]);
+                      }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        itemFilterType === 'all'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      All Items
+                    </button>
+                    <button
+                      onClick={() => {
+                        setItemFilterType('services');
+                        setSelectedItems([]);
+                      }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        itemFilterType === 'services'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      Services
+                    </button>
+                    <button
+                      onClick={() => {
+                        setItemFilterType('products');
+                        setSelectedItems([]);
+                      }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        itemFilterType === 'products'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      Products
+                    </button>
+                  </div>
+
+                  {/* Items Selection */}
+                  {itemFilterType !== 'all' && (
+                    <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center">
                         <input
                           type="checkbox"
-                          id={`product-${product}`}
-                          checked={selectedProducts.includes(product)}
+                          id="select-all-items"
+                          checked={selectedItems.length === (itemFilterType === 'services' ? uniqueServices.length : uniqueProducts.length)}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedProducts([...selectedProducts, product]);
+                              setSelectedItems(itemFilterType === 'services' ? [...uniqueServices] : [...uniqueProducts]);
                             } else {
-                              setSelectedProducts(selectedProducts.filter(p => p !== product));
+                              setSelectedItems([]);
                             }
                           }}
                           className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
                         />
-                        <label htmlFor={`product-${product}`} className="ml-2 text-sm text-gray-700">
-                          {product}
+                        <label htmlFor="select-all-items" className="ml-2 text-sm text-gray-700 font-medium">
+                          Select All {itemFilterType === 'services' ? 'Services' : 'Products'}
                         </label>
                       </div>
-                    ))}
-                  </div>
-                  {selectedProducts.length > 0 && (
+                      <hr className="border-gray-200" />
+                      {(itemFilterType === 'services' ? uniqueServices : uniqueProducts).length > 0 ? (
+                        (itemFilterType === 'services' ? uniqueServices : uniqueProducts).map((item) => (
+                          <div key={item} className="flex items-center">
+                            <input
+                              type="checkbox"
+                              id={`item-${item}`}
+                              checked={selectedItems.includes(item)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedItems([...selectedItems, item]);
+                                } else {
+                                  setSelectedItems(selectedItems.filter(i => i !== item));
+                                }
+                              }}
+                              className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                            />
+                            <label htmlFor={`item-${item}`} className="ml-2 text-sm text-gray-700">
+                              {item}
+                            </label>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-gray-500">No {itemFilterType === 'services' ? 'services' : 'products'} available</p>
+                      )}
+                    </div>
+                  )}
+                  {selectedItems.length > 0 && (
                     <p className="text-xs text-gray-500 mt-1">
-                      {selectedProducts.length} product{selectedProducts.length !== 1 ? 's' : ''} selected
+                      {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''} selected
                     </p>
                   )}
                 </div>
@@ -1020,7 +1092,8 @@ const Commissions = () => {
                   onClick={() => {
                     setSearchTerm('');
                     setSelectedStylists([]);
-                    setSelectedProducts([]);
+                    setSelectedItems([]);
+                    setItemFilterType('all');
                     setMinCommission('');
                     setMaxCommission('');
                     setStartDate('');

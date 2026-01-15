@@ -4,9 +4,12 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Calendar, Tag, Globe, Building2 } from 'lucide-react';
+import { Plus, Edit, Trash2, Calendar, Tag, Globe, Building2, Mail, Eye, Image as ImageIcon, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getAllPromotions, createPromotion, updatePromotion, deletePromotion } from '../../services/promotionService';
+import { getClients } from '../../services/clientService';
+import { sendPromotionEmail } from '../../services/emailService';
+import { cloudinaryService } from '../../services/cloudinaryService';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -14,14 +17,29 @@ import Modal from '../../components/ui/Modal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
+import { format } from 'date-fns';
 
 const OperationalManagerPromotions = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [promotions, setPromotions] = useState([]);
+  const [clients, setClients] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedPromotion, setSelectedPromotion] = useState(null);
+  
+  // Image upload states
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  
+  // Email states
+  const [isSendModalOpen, setIsSendModalOpen] = useState(false);
+  const [isEmailPreviewOpen, setIsEmailPreviewOpen] = useState(false);
+  const [emailPreviewHtml, setEmailPreviewHtml] = useState('');
+  const [selectedClients, setSelectedClients] = useState(new Set());
+  const [isSending, setIsSending] = useState(false);
+  
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -36,11 +54,13 @@ const OperationalManagerPromotions = () => {
     maxUses: '',
     startDate: '',
     endDate: '',
-    isActive: true
+    isActive: true,
+    imageUrl: ''
   });
 
   useEffect(() => {
     fetchPromotions();
+    loadClients();
   }, []);
 
   const fetchPromotions = async () => {
@@ -59,6 +79,16 @@ const OperationalManagerPromotions = () => {
     }
   };
 
+  // Load all clients for email sending
+  const loadClients = async () => {
+    try {
+      const clientsList = await getClients();
+      setClients(clientsList);
+    } catch (err) {
+      console.error('Error loading clients:', err);
+    }
+  };
+
   const generatePromotionCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let code = '';
@@ -66,6 +96,195 @@ const OperationalManagerPromotions = () => {
       code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return code;
+  };
+
+  // Handle image file selection
+  const handleImageSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size must be less than 5MB');
+      return;
+    }
+
+    setImageFile(file);
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Upload image to Cloudinary
+  const uploadPromotionImage = async (file) => {
+    if (!file) return null;
+    
+    try {
+      setUploadingImage(true);
+      
+      const result = await cloudinaryService.uploadImage(file, 'promotions');
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to upload image');
+      }
+      
+      return result.url;
+    } catch (err) {
+      console.error('Error uploading image:', err);
+      throw new Error('Failed to upload image');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // Generate email preview HTML
+  const generateEmailPreview = (promotion) => {
+    const discountText = promotion.discountType === 'percentage' 
+      ? `${promotion.discountValue}% OFF`
+      : `₱${promotion.discountValue} OFF`;
+
+    const startDate = promotion.startDate instanceof Date 
+      ? promotion.startDate 
+      : new Date(promotion.startDate);
+    const endDate = promotion.endDate instanceof Date 
+      ? promotion.endDate 
+      : new Date(promotion.endDate);
+
+    const startDateFormatted = format(startDate, 'MMMM d, yyyy');
+    const endDateFormatted = format(endDate, 'MMMM d, yyyy');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #160B53, #12094A); color: white; padding: 30px; text-align: center; }
+          .content { padding: 30px; background: white; }
+          .promotion-image { width: 100%; max-height: 300px; object-fit: cover; }
+          .promotion-box { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
+          .discount { font-size: 32px; font-weight: bold; color: #28a745; margin: 15px 0; }
+          .code-box { background: #160B53; color: white; padding: 15px 25px; border-radius: 8px; display: inline-block; font-size: 20px; font-weight: bold; letter-spacing: 2px; margin: 15px 0; }
+          .validity { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; background: #f8f9fa; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0; font-size: 28px;">🎉 Special Promotion</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">David's Salon</p>
+          </div>
+          ${promotion.imageUrl || imagePreview ? `<img src="${promotion.imageUrl || imagePreview}" alt="Promotion" class="promotion-image" />` : ''}
+          <div class="content">
+            <h2 style="color: #160B53; margin-top: 0; text-align: center;">Hello [Client Name],</h2>
+            <p style="text-align: center;">We have an exciting promotion just for you!</p>
+            
+            <div class="promotion-box">
+              <h3 style="color: #160B53; margin-top: 0; font-size: 24px;">${promotion.name || 'Promotion Title'}</h3>
+              <p style="font-size: 16px;">${promotion.description || 'Promotion description goes here.'}</p>
+              <div class="discount">${discountText}</div>
+              ${promotion.promotionCode ? `<div class="code-box">${promotion.promotionCode}</div>` : ''}
+            </div>
+            
+            <div class="validity">
+              <h4 style="margin-top: 0; color: #856404;">📅 Validity Period</h4>
+              <p style="margin: 0; color: #856404;">
+                <strong>From:</strong> ${startDateFormatted}<br>
+                <strong>Until:</strong> ${endDateFormatted}
+              </p>
+            </div>
+            
+            <p style="text-align: center;"><strong>Available at:</strong> All Branches</p>
+            <p style="text-align: center; font-size: 16px;">Don't miss out on this amazing offer!<br>Visit us soon to take advantage of this promotion.</p>
+            
+            <p style="text-align: center;">We look forward to seeing you! 💜</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated email from David's Salon.<br>Please do not reply to this email.</p>
+            <p>© ${new Date().getFullYear()} David's Salon. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  };
+
+  // Show email preview
+  const handleShowEmailPreview = (promotion) => {
+    const previewHtml = generateEmailPreview(promotion || formData);
+    setEmailPreviewHtml(previewHtml);
+    setIsEmailPreviewOpen(true);
+  };
+
+  // Open send email modal
+  const handleOpenSendModal = (promotion) => {
+    setSelectedPromotion(promotion);
+    setSelectedClients(new Set());
+    setIsSendModalOpen(true);
+  };
+
+  // Send promotion emails to selected clients
+  const handleSendPromotion = async () => {
+    if (!selectedPromotion || selectedClients.size === 0) {
+      toast.error('Please select at least one client');
+      return;
+    }
+
+    try {
+      setIsSending(true);
+      const clientsToSend = clients.filter(c => selectedClients.has(c.id) && c.email);
+      
+      let successCount = 0;
+      let failCount = 0;
+
+      // Convert promotion for email (use 'title' field expected by sendPromotionEmail)
+      const promotionForEmail = {
+        ...selectedPromotion,
+        title: selectedPromotion.name, // Map name to title for email service
+        branchId: null // System-wide
+      };
+
+      for (const client of clientsToSend) {
+        try {
+          const result = await sendPromotionEmail(promotionForEmail, client);
+          if (result.success) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (err) {
+          console.error(`Failed to send to ${client.email}:`, err);
+          failCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Promotion sent to ${successCount} client(s)${failCount > 0 ? ` (${failCount} failed)` : ''}`);
+      } else {
+        toast.error('Failed to send promotion emails');
+      }
+
+      setIsSendModalOpen(false);
+      setSelectedPromotion(null);
+      setSelectedClients(new Set());
+    } catch (error) {
+      console.error('Error sending promotion:', error);
+      toast.error('Failed to send promotion');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleCreate = () => {
@@ -85,8 +304,11 @@ const OperationalManagerPromotions = () => {
       maxUses: '',
       startDate: '',
       endDate: '',
-      isActive: true
+      isActive: true,
+      imageUrl: ''
     });
+    setImageFile(null);
+    setImagePreview('');
     setShowModal(true);
   };
 
@@ -106,8 +328,11 @@ const OperationalManagerPromotions = () => {
       maxUses: promotion.maxUses || '',
       startDate: promotion.startDate ? new Date(promotion.startDate).toISOString().split('T')[0] : '',
       endDate: promotion.endDate ? new Date(promotion.endDate).toISOString().split('T')[0] : '',
-      isActive: promotion.isActive !== false
+      isActive: promotion.isActive !== false,
+      imageUrl: promotion.imageUrl || ''
     });
+    setImageFile(null);
+    setImagePreview(promotion.imageUrl || '');
     setShowModal(true);
   };
 
@@ -130,20 +355,36 @@ const OperationalManagerPromotions = () => {
     }
 
     try {
+      // Upload image if selected
+      let imageUrl = formData.imageUrl || '';
+      if (imageFile) {
+        try {
+          imageUrl = await uploadPromotionImage(imageFile);
+        } catch (uploadErr) {
+          toast.error('Failed to upload image. Please try again.');
+          return;
+        }
+      }
+
       const promotionData = {
         ...formData,
         branchId: null, // Always null for system-wide promotions
         discountValue: parseFloat(formData.discountValue),
-        maxUses: formData.maxUses ? parseInt(formData.maxUses) : null
+        maxUses: formData.maxUses ? parseInt(formData.maxUses) : null,
+        imageUrl: imageUrl
       };
 
       if (selectedPromotion) {
         await updatePromotion(selectedPromotion.id, promotionData, currentUser);
+        toast.success('Promotion updated successfully');
       } else {
         await createPromotion(promotionData, currentUser);
+        toast.success('Promotion created successfully');
       }
       
       setShowModal(false);
+      setImageFile(null);
+      setImagePreview('');
       await fetchPromotions();
     } catch (error) {
       console.error('Error saving promotion:', error);
@@ -212,7 +453,17 @@ const OperationalManagerPromotions = () => {
           </div>
         ) : (
           promotions.map((promotion) => (
-            <Card key={promotion.id} className="hover:shadow-lg transition-shadow">
+            <Card key={promotion.id} className="hover:shadow-lg transition-shadow overflow-hidden">
+              {/* Promotion Image */}
+              {promotion.imageUrl && (
+                <div className="h-32 overflow-hidden">
+                  <img
+                    src={promotion.imageUrl}
+                    alt={promotion.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
@@ -264,7 +515,7 @@ const OperationalManagerPromotions = () => {
                   )}
                 </div>
 
-                <div className="flex gap-2 pt-4 border-t">
+                <div className="flex flex-wrap gap-2 pt-4 border-t">
                   <Button
                     variant="outline"
                     size="sm"
@@ -273,6 +524,24 @@ const OperationalManagerPromotions = () => {
                   >
                     <Edit className="h-4 w-4 mr-1" />
                     Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenSendModal(promotion)}
+                    className="text-blue-600 hover:text-blue-700"
+                    title="Send to Clients"
+                  >
+                    <Mail className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleShowEmailPreview(promotion)}
+                    className="text-purple-600 hover:text-purple-700"
+                    title="Preview Email"
+                  >
+                    <Eye className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="outline"
@@ -457,6 +726,62 @@ const OperationalManagerPromotions = () => {
             </select>
           </div>
 
+          {/* Image Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Promotion Banner Image
+            </label>
+            <div className="space-y-2">
+              {(imagePreview || formData.imageUrl) && (
+                <div className="relative inline-block">
+                  <img
+                    src={imagePreview || formData.imageUrl}
+                    alt="Promotion preview"
+                    className="w-full max-w-md h-40 object-cover rounded-lg border"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImageFile(null);
+                      setImagePreview('');
+                      setFormData(prev => ({ ...prev, imageUrl: '' }));
+                    }}
+                    className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50">
+                  <ImageIcon className="h-4 w-4 text-gray-500" />
+                  <span className="text-sm text-gray-600">
+                    {uploadingImage ? 'Uploading...' : 'Choose Image'}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    className="hidden"
+                    disabled={uploadingImage}
+                  />
+                </label>
+                {formData.startDate && formData.endDate && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleShowEmailPreview(formData)}
+                  >
+                    <Eye className="h-4 w-4 mr-1" />
+                    Preview Email
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">Max 5MB. Recommended: 600x300px</p>
+            </div>
+          </div>
+
           <div>
             <label className="flex items-center gap-2">
               <input
@@ -500,6 +825,152 @@ const OperationalManagerPromotions = () => {
         confirmText="Delete"
         confirmVariant="danger"
       />
+
+      {/* Email Preview Modal */}
+      <Modal
+        isOpen={isEmailPreviewOpen}
+        onClose={() => setIsEmailPreviewOpen(false)}
+        title="Email Preview"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            This is how the promotion email will appear to clients:
+          </p>
+          <div className="border rounded-lg overflow-hidden bg-white" style={{ height: '500px' }}>
+            <iframe
+              srcDoc={emailPreviewHtml}
+              title="Email Preview"
+              className="w-full h-full border-0"
+              sandbox="allow-same-origin"
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setIsEmailPreviewOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Send Email Modal */}
+      <Modal
+        isOpen={isSendModalOpen}
+        onClose={() => {
+          setIsSendModalOpen(false);
+          setSelectedPromotion(null);
+          setSelectedClients(new Set());
+        }}
+        title="Send Promotion to Clients"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-sm text-blue-800">
+              <strong>Promotion:</strong> {selectedPromotion?.name}
+            </p>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Select Clients ({selectedClients.size} selected)
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const clientsWithEmail = clients.filter(c => c.email);
+                    setSelectedClients(new Set(clientsWithEmail.map(c => c.id)));
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedClients(new Set())}
+                  className="text-xs text-gray-600 hover:text-gray-800"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+            <div className="max-h-64 overflow-y-auto border rounded-lg">
+              {clients.filter(c => c.email).length === 0 ? (
+                <p className="p-4 text-center text-gray-500">No clients with email addresses found</p>
+              ) : (
+                clients.filter(c => c.email).map(client => (
+                  <label
+                    key={client.id}
+                    className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedClients.has(client.id)}
+                      onChange={(e) => {
+                        const newSelected = new Set(selectedClients);
+                        if (e.target.checked) {
+                          newSelected.add(client.id);
+                        } else {
+                          newSelected.delete(client.id);
+                        }
+                        setSelectedClients(newSelected);
+                      }}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-600"
+                    />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">
+                        {client.firstName} {client.lastName}
+                      </p>
+                      <p className="text-xs text-gray-500">{client.email}</p>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center pt-4 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleShowEmailPreview(selectedPromotion)}
+            >
+              <Eye className="h-4 w-4 mr-1" />
+              Preview Email
+            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsSendModalOpen(false);
+                  setSelectedPromotion(null);
+                  setSelectedClients(new Set());
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSendPromotion}
+                disabled={selectedClients.size === 0 || isSending}
+              >
+                {isSending ? (
+                  <>
+                    <LoadingSpinner size="sm" className="mr-2" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="h-4 w-4 mr-2" />
+                    Send to {selectedClients.size} Client{selectedClients.size !== 1 ? 's' : ''}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

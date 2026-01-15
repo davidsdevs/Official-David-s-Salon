@@ -4,12 +4,11 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Plus, Search, MapPin, Phone, Mail, User, Power, Edit, Eye, Trash2, Database, Server, Activity, Users, Lock, RotateCw } from 'lucide-react';
+import { Plus, Search, MapPin, Phone, Mail, User, Power, Edit, Eye, Trash2, Database, Server, Activity, Users } from 'lucide-react';
 import { collection, getDocs, getCountFromServer, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { getAllBranches, toggleBranchStatus, getBranchStats, deleteBranch } from '../../services/branchService';
 import { getAllUsers } from '../../services/userService';
-import { verifyRolePassword } from '../../services/rolePasswordService';
 import { useAuth } from '../../context/AuthContext';
 import { getFullName } from '../../utils/helpers';
 import { USER_ROLES } from '../../utils/constants';
@@ -42,9 +41,6 @@ const Branches = () => {
     totalCollections: 0,
     totalActivityLogs: 0
   });
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [passwordError, setPasswordError] = useState('');
 
   // Set page title with role prefix
   useEffect(() => {
@@ -63,8 +59,6 @@ const Branches = () => {
   useEffect(() => {
     applyFilters();
   }, [branches, searchTerm, statusFilter]);
-
-  // No real-time listeners needed for System Admin - one-time fetches only
 
   const fetchSummaryStats = async () => {
     try {
@@ -107,11 +101,7 @@ const Branches = () => {
     try {
       setLoading(true);
       const data = await getAllBranches();
-      console.log('🔍 System Admin - Fetched branches:', data);
-      console.log('📊 Total branches:', data.length);
-      if (data.length > 0) {
-        console.log('📋 First branch:', data[0]);
-      }
+      console.log('Fetched branches:', data);
       setBranches(data);
       
       // Fetch stats for each branch
@@ -121,7 +111,7 @@ const Branches = () => {
       }
       setBranchStats(stats);
     } catch (error) {
-      console.error('❌ Error fetching branches:', error);
+      console.error('Error fetching branches:', error);
       toast.error(`Failed to load branches: ${error.message}`);
     } finally {
       setLoading(false);
@@ -168,9 +158,7 @@ const Branches = () => {
 
   const handleDeleteBranch = (branch) => {
     setBranchToDelete(branch);
-    setPasswordInput('');
-    setPasswordError('');
-    setShowPasswordModal(true);
+    setShowDeleteModal(true);
   };
 
   const confirmDelete = async () => {
@@ -181,7 +169,6 @@ const Branches = () => {
       await deleteBranch(branchToDelete.id, currentUser);
       await fetchBranches();
       setShowDeleteModal(false);
-      setShowPasswordModal(false);
     } catch (error) {
       // Error handled in service
     } finally {
@@ -193,30 +180,6 @@ const Branches = () => {
   const handleToggleStatus = (branch) => {
     setBranchToToggle(branch);
     setShowToggleStatusModal(true);
-  };
-
-  const handlePasswordSubmit = async () => {
-    if (!passwordInput.trim()) {
-      setPasswordError('Password is required');
-      return;
-    }
-
-    try {
-      setPasswordError('');
-      // Verify the system admin password
-      const isValid = await verifyRolePassword(currentUser.uid, USER_ROLES.SYSTEM_ADMIN, passwordInput);
-      
-      if (isValid) {
-        // Password is correct, proceed with deletion
-        setShowPasswordModal(false);
-        setShowDeleteModal(true);
-      } else {
-        setPasswordError('Incorrect password');
-      }
-    } catch (error) {
-      console.error('Error verifying password:', error);
-      setPasswordError('Error verifying password');
-    }
   };
 
   const confirmToggleStatus = async () => {
@@ -540,89 +503,6 @@ const Branches = () => {
         type={branchToToggle?.isActive === true ? 'danger' : 'default'}
         loading={toggling === branchToToggle?.id}
       />
-
-      {/* Password Verification Modal */}
-      {showPasswordModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-red-100 rounded-lg">
-                  <Lock className="w-5 h-5 text-red-600" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900">Confirm Deletion</h2>
-                  <p className="text-sm text-gray-600 mt-1">Enter your System Admin password to delete this branch</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                  System Admin Password
-                </label>
-                <input
-                  type="password"
-                  id="password"
-                  value={passwordInput}
-                  onChange={(e) => {
-                    setPasswordInput(e.target.value);
-                    setPasswordError('');
-                  }}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      handlePasswordSubmit();
-                    }
-                  }}
-                  placeholder="Enter your password"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  autoFocus
-                />
-                {passwordError && (
-                  <p className="text-sm text-red-600 mt-2">{passwordError}</p>
-                )}
-              </div>
-
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <RotateCw className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-blue-900 mb-1">Password Format:</p>
-                    <p className="text-sm text-blue-800 font-mono">[role]123[specialChar]</p>
-                    <p className="text-xs text-blue-700 mt-1">Example: systemadmin123]</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-800">
-                  <strong>Warning:</strong> Deleting a branch cannot be undone. Make sure no staff are assigned to this branch.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 p-6 bg-gray-50 border-t border-gray-200">
-              <button
-                onClick={() => {
-                  setShowPasswordModal(false);
-                  setPasswordInput('');
-                  setPasswordError('');
-                }}
-                className="px-4 py-2 border border-gray-300 text-gray-700 bg-white rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePasswordSubmit}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
-              >
-                Verify & Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

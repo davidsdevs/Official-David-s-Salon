@@ -22,7 +22,8 @@ import {
   Check,
   X,
   Receipt as ReceiptIcon,
-  Eye
+  Eye,
+  Ban
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -54,6 +55,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { SearchInput } from '../../components/ui/SearchInput';
+import { thermalPrinter } from '../../services/thermalPrinterService';
 import toast from 'react-hot-toast';
 
 const ReceptionistArrivals = () => {
@@ -131,9 +133,19 @@ const ReceptionistArrivals = () => {
   const [showCompleteServiceConfirmModal, setShowCompleteServiceConfirmModal] = useState(false);
   const [arrivalToCompleteService, setArrivalToCompleteService] = useState(null);
   
+  // Void service state
+  const [showVoidModal, setShowVoidModal] = useState(false);
+  const [arrivalToVoid, setArrivalToVoid] = useState(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [managerPassword, setManagerPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [verifyingPassword, setVerifyingPassword] = useState(false);
+  
   // Receipt modal state - shown after billing modal closes
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [completedBill, setCompletedBill] = useState(null);
+  const [showReprintConfirm, setShowReprintConfirm] = useState(false);
+  const [reprintingReceipt, setReprintingReceipt] = useState(false);
   const receiptRef = useRef(null);
 
   useEffect(() => {
@@ -193,6 +205,49 @@ const ReceptionistArrivals = () => {
       setClients(clientsData.filter(c => c.isActive));
     } catch (error) {
       console.error('Error fetching services and stylists:', error);
+    }
+  };
+
+  // Handle reprint receipt via Bluetooth thermal printer
+  const handleReprintReceipt = async () => {
+    if (!completedBill) return;
+    
+    try {
+      setReprintingReceipt(true);
+      
+      // Check if printer is connected
+      if (!thermalPrinter.isConnected) {
+        toast.error('Printer not connected. Please pair your printer first.');
+        setShowReprintConfirm(false);
+        return;
+      }
+      
+      // Prepare bill data for printing
+      const billData = {
+        ...completedBill,
+        receiptNumber: completedBill.receiptNumber || 'N/A',
+        createdAt: completedBill.createdAt,
+        createdByName: completedBill.createdByName || userData?.firstName || 'Staff',
+        clientName: completedBill.clientName || 'Guest',
+        items: completedBill.items || [],
+        subtotal: completedBill.subtotal || 0,
+        discount: completedBill.discount || 0,
+        promotionDiscount: completedBill.promotionDiscount || 0,
+        loyaltyDiscount: completedBill.loyaltyDiscount || 0,
+        total: completedBill.total || completedBill.grandTotal || 0,
+        paymentMethod: completedBill.paymentMethod || 'cash',
+        amountReceived: completedBill.amountReceived || 0,
+        change: completedBill.change || 0
+      };
+      
+      await thermalPrinter.printReceipt(billData, branchData);
+      toast.success('Receipt printed successfully!');
+      setShowReprintConfirm(false);
+    } catch (error) {
+      console.error('Error reprinting receipt:', error);
+      toast.error('Failed to print receipt: ' + error.message);
+    } finally {
+      setReprintingReceipt(false);
     }
   };
 
@@ -759,6 +814,146 @@ const ReceptionistArrivals = () => {
       throw error; // Re-throw so BillingModalPOS knows it failed
     } finally {
       setProcessingBilling(false);
+    }
+  };
+
+  // Void service handlers
+  const handleVoidService = (arrival) => {
+    setArrivalToVoid(arrival);
+    setVoidReason('');
+    setManagerPassword('');
+    setPasswordError('');
+    setShowVoidModal(true);
+  };
+
+  const confirmVoidService = async () => {
+    if (!arrivalToVoid || !voidReason.trim()) {
+      toast.error('Please provide a reason for voiding');
+      return;
+    }
+    
+    if (!managerPassword.trim()) {
+      setPasswordError('Branch manager password is required');
+      return;
+    }
+    
+    try {
+      setVerifyingPassword(true);
+      setPasswordError('');
+      
+      console.log('🔐 Verifying manager password');
+      console.log('📍 Current userBranch:', userBranch);
+      console.log('👤 Current user:', currentUser?.email);
+      
+      // Get branch managers for this branch
+      const { collection, query, where, getDocs } = await import('firebase/firestore');
+      const usersRef = collection(db, 'users');
+      
+      // First, let's check ALL users in this branch
+      const allBranchUsersQuery = query(
+        usersRef,
+        where('branchId', '==', userBranch)
+      );
+      const allBranchUsersSnapshot = await getDocs(allBranchUsersQuery);
+      console.log('👥 Total users in branch:', allBranchUsersSnapshot.size);
+      allBranchUsersSnapshot.forEach(doc => {
+        const data = doc.data();
+        console.log('  - User:', data.email, 'Role:', data.role, 'BranchId:', data.branchId);
+      });
+      
+      // Now check for branch managers
+      const managersQuery = query(
+        usersRef,
+        where('branchId', '==', userBranch),
+        where('role', '==', 'branchManager')  // Changed from 'branch_manager' to 'branchManager'
+      );
+      const managersSnapshot = await getDocs(managersQuery);
+      
+      console.log('👔 Found branch managers:', managersSnapshot.size);
+      
+      if (managersSnapshot.empty) {
+        setPasswordError('No branch manager found for this branch');
+        setVerifyingPassword(false);
+        return;
+      }
+      
+      // Verify password against any branch manager's rolePasswords.branchManager
+      let passwordValid = false;
+      let managerName = '';
+      const bcrypt = await import('bcryptjs');
+      
+      for (const managerDoc of managersSnapshot.docs) {
+        const managerData = managerDoc.data();
+        console.log('🔍 Checking manager:', managerData.email);
+        console.log('   Has rolePasswords:', !!managerData.rolePasswords);
+        console.log('   rolePasswords:', managerData.rolePasswords);
+        console.log('   Has branchManager password:', !!managerData.rolePasswords?.branchManager);
+        
+        const hashedPassword = managerData.rolePasswords?.branchManager;  // Changed from branch_manager to branchManager
+        
+        if (hashedPassword) {
+          const isMatch = await bcrypt.compare(managerPassword, hashedPassword);
+          console.log('   Password match:', isMatch);
+          if (isMatch) {
+            passwordValid = true;
+            managerName = `${managerData.firstName || ''} ${managerData.lastName || ''}`.trim() || managerData.email;
+            break;
+          }
+        } else {
+          console.log('   ⚠️ Manager has no rolePasswords.branchManager field');
+        }
+      }
+      
+      if (!passwordValid) {
+        console.log('❌ Password validation failed');
+        setPasswordError('Invalid branch manager password');
+        setVerifyingPassword(false);
+        return;
+      }
+      
+      console.log('✅ Password verified, voiding service...');
+      setVerifyingPassword(false);
+      setProcessing(arrivalToVoid.id);
+      
+      // Update arrival status to VOIDED
+      const arrivalRef = doc(db, 'arrivals', arrivalToVoid.id);
+      await updateDoc(arrivalRef, {
+        status: 'voided',
+        voidedAt: serverTimestamp(),
+        voidedBy: currentUser.uid,
+        voidedByName: `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim() || currentUser.email,
+        approvedByManager: managerName,
+        voidReason: voidReason.trim(),
+        updatedAt: serverTimestamp()
+      });
+      
+      // If linked to an appointment, update appointment status too
+      if (arrivalToVoid.appointmentId) {
+        const appointmentRef = doc(db, 'appointments', arrivalToVoid.appointmentId);
+        await updateDoc(appointmentRef, {
+          status: 'voided',
+          voidedAt: serverTimestamp(),
+          voidedBy: currentUser.uid,
+          approvedByManager: managerName,
+          voidReason: voidReason.trim(),
+          updatedAt: serverTimestamp()
+        });
+      }
+      
+      await fetchArrivals();
+      toast.success('Service voided successfully');
+      
+      setShowVoidModal(false);
+      setArrivalToVoid(null);
+      setVoidReason('');
+      setManagerPassword('');
+      setPasswordError('');
+    } catch (error) {
+      console.error('Error voiding service:', error);
+      toast.error('Failed to void service');
+      setVerifyingPassword(false);
+    } finally {
+      setProcessing(null);
     }
   };
 
@@ -1407,14 +1602,24 @@ const ReceptionistArrivals = () => {
                       )}
                       
                       {activeTab === 'in-service' && (
-                        <Button
-                          onClick={() => handleCompleteService(arrival)}
-                          disabled={isProcessing}
-                          className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-700"
-                        >
-                          <ReceiptIcon className="h-4 w-4" />
-                          Check-out
-                        </Button>
+                        <>
+                          <Button
+                            onClick={() => handleVoidService(arrival)}
+                            disabled={isProcessing}
+                            className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700"
+                          >
+                            <Ban className="h-4 w-4" />
+                            Void
+                          </Button>
+                          <Button
+                            onClick={() => handleCompleteService(arrival)}
+                            disabled={isProcessing}
+                            className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-700"
+                          >
+                            <ReceiptIcon className="h-4 w-4" />
+                            Check-out
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -1709,10 +1914,12 @@ const ReceptionistArrivals = () => {
                           padding-bottom: 2mm;
                           border-bottom: 1px dashed #000;
                         }
-                        .salon-name {
-                          font-size: 11pt;
-                          font-weight: bold;
-                          margin-bottom: 1mm;
+                        .salon-logo {
+                          width: 35mm;
+                          height: auto;
+                          margin: 0 auto 2mm auto;
+                          display: block;
+                          filter: grayscale(100%) contrast(1.2);
                         }
                         .branch-name {
                           font-size: 9pt;
@@ -1859,7 +2066,7 @@ const ReceptionistArrivals = () => {
                     <body>
                       <div class="receipt">
                         <div class="header">
-                          <div class="salon-name">DAVID'S SALON</div>
+                          <img src="/logo.jpg" alt="David's Salon" class="salon-logo" />
                           <div class="branch-name">${branch?.name || branch?.branchName || bill.branchName || 'Branch'}</div>
                           ${branch?.address ? `<div class="branch-address">${branch.address}</div>` : ''}
                           <div class="receipt-title">OFFICIAL RECEIPT</div>
@@ -1995,7 +2202,22 @@ const ReceptionistArrivals = () => {
                   printWindow.document.close();
                   setTimeout(() => { printWindow.print(); }, 250);
                 }}
-                className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium flex items-center justify-center gap-2"
+                title="Open print preview (for PDF/other printers)"
+              >
+                <Eye className="w-5 h-5" />
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReprintConfirm(true)}
+                disabled={!thermalPrinter.isConnected}
+                className={`flex-1 px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2 ${
+                  thermalPrinter.isConnected 
+                    ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+                title={thermalPrinter.isConnected ? 'Print via Bluetooth' : 'Printer not connected'}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="6 9 6 2 18 2 18 9"></polyline>
@@ -2013,6 +2235,122 @@ const ReceptionistArrivals = () => {
                 className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reprint Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showReprintConfirm}
+        onClose={() => setShowReprintConfirm(false)}
+        onConfirm={handleReprintReceipt}
+        title="Reprint Receipt"
+        message="Are you sure you want to print this receipt again?"
+        confirmText={reprintingReceipt ? "Printing..." : "Yes, Print"}
+        cancelText="Cancel"
+        type="info"
+        loading={reprintingReceipt}
+      />
+
+      {/* Void Service Modal */}
+      {showVoidModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+            <div className="p-4 border-b border-gray-200 flex items-center gap-3 bg-red-50">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <Ban className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Void Service</h3>
+                <p className="text-sm text-gray-600">Requires branch manager approval</p>
+              </div>
+            </div>
+            
+            <div className="p-4">
+              <p className="text-gray-700 mb-4">
+                Are you sure you want to void the service for <strong>{arrivalToVoid?.clientName}</strong>?
+              </p>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Reason for voiding <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  placeholder="Enter reason for voiding this service..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  rows={3}
+                />
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Branch Manager Password <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={managerPassword}
+                  onChange={(e) => {
+                    setManagerPassword(e.target.value);
+                    setPasswordError('');
+                  }}
+                  placeholder="Enter branch manager password..."
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
+                    passwordError ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                />
+                {passwordError && (
+                  <p className="text-sm text-red-600 mt-1">{passwordError}</p>
+                )}
+              </div>
+              
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <p className="text-sm text-yellow-800">
+                  <strong>Note:</strong> Voided services will be recorded and visible in the Branch Manager's dashboard for tracking purposes.
+                </p>
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-gray-200 flex gap-3 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowVoidModal(false);
+                  setArrivalToVoid(null);
+                  setVoidReason('');
+                  setManagerPassword('');
+                  setPasswordError('');
+                }}
+                disabled={processing === arrivalToVoid?.id || verifyingPassword}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmVoidService}
+                disabled={processing === arrivalToVoid?.id || verifyingPassword || !voidReason.trim() || !managerPassword.trim()}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {verifyingPassword ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    Verifying...
+                  </>
+                ) : processing === arrivalToVoid?.id ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    Voiding...
+                  </>
+                ) : (
+                  <>
+                    <Ban className="w-4 h-4" />
+                    Void Service
+                  </>
+                )}
               </button>
             </div>
           </div>

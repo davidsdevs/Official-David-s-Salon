@@ -53,8 +53,13 @@ import OperationalManagerPurchaseOrders from '../pages/operational-manager/Purch
 import OverallInventoryControllerDashboard from '../pages/overall-inventory/Dashboard';
 import OverallInventoryControllerInventory from '../pages/overall-inventory/Inventory';
 import OverallInventoryControllerPurchaseOrders from '../pages/overall-inventory/PurchaseOrders';
+import OverallInventoryProductSales from '../pages/overall-inventory/ProductSales';
+import OverallInventoryAdjustLogs from '../pages/overall-inventory/AdjustLogs';
+import OverallExpiryTracker from '../pages/overall-inventory/ExpiryTracker';
+import OverallStockAlerts from '../pages/overall-inventory/StockAlerts';
 import OperationalManagerDeposits from '../pages/operational-manager/Deposits';
 import PriceHistoryAnalytics from '../pages/operational-manager/PriceHistoryAnalytics';
+import BranchPerformanceReport from '../pages/operational-manager/BranchPerformance';
 import OperationalManagerPromotions from '../pages/operational-manager/Promotions';
 import CalendarCombined from '../pages/operational-manager/CalendarCombined';
 import OperationalManagerLeaveManagement from '../pages/operational-manager/LeaveManagement';
@@ -249,6 +254,7 @@ const AppRoutes = () => {
         <Route path="purchase-orders" element={<OperationalManagerPurchaseOrders />} />
         <Route path="deposits" element={<OperationalManagerDeposits />} />
         <Route path="price-history" element={<PriceHistoryAnalytics />} />
+        <Route path="branch-performance" element={<BranchPerformanceReport />} />
         <Route path="promotions" element={<OperationalManagerPromotions />} />
         <Route path="calendar" element={<CalendarCombined />} />
         <Route path="leave-management" element={<OperationalManagerLeaveManagement />} />
@@ -267,9 +273,11 @@ const AppRoutes = () => {
         <Route index element={<OverallInventoryControllerDashboard />} />
         <Route path="inventory" element={<OverallInventoryControllerInventory />} />
         <Route path="purchase-orders" element={<OverallInventoryControllerPurchaseOrders />} />
+        <Route path="product-sales" element={<OverallInventoryProductSales />} />
+        <Route path="adjust-logs" element={<OverallInventoryAdjustLogs />} />
         <Route path="reports" element={<InventoryReports />} />
-        <Route path="stock-alerts" element={<InventoryStockAlerts />} />
-        <Route path="expiry-tracker" element={<InventoryExpiryTracker />} />
+        <Route path="stock-alerts" element={<OverallStockAlerts />} />
+        <Route path="expiry-tracker" element={<OverallExpiryTracker />} />
         <Route path="profile" element={<Profile />} />
       </Route>
 

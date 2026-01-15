@@ -1,6 +1,6 @@
 import { Users, Building2, Activity, Database, AlertTriangle, Server, Clock } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { collection, getDocs, getCountFromServer } from 'firebase/firestore';
+import { collection, getCountFromServer } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { getAllUsers } from '../../services/userService';
 import { getAllBranches } from '../../services/branchService';
@@ -154,7 +154,7 @@ const SystemAdminDashboard = () => {
       label: 'Activity Logs', 
       value: stats.totalActivityLogs.toLocaleString(), 
       icon: Activity, 
-      color: 'bg-purple-500',
+      color: 'bg-indigo-500',
       subtitle: 'Total tracked'
     },
     { 

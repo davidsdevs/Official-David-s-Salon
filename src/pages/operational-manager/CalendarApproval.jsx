@@ -12,7 +12,6 @@ import {
   Search, 
   Check, 
   X, 
-  Loader,
   RefreshCw,
   Filter,
   Clock,
@@ -27,7 +26,6 @@ import {
   approveRejectCalendarEntry,
   getCalendarEntryTypes 
 } from '../../services/branchCalendarService';
-import { getPublicHolidays } from '../../services/holidaysApiService';
 import { getBranches } from '../../services/branchService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ConfirmModal from '../../components/ui/ConfirmModal';
@@ -42,12 +40,9 @@ const CalendarApproval = () => {
   const [pendingEntries, setPendingEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
-  const [holidayData, setHolidayData] = useState({}); // { entryId: { isHoliday: boolean, holidayInfo: object } }
-  const [checkingHolidays, setCheckingHolidays] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
-  const [countryCode, setCountryCode] = useState('PH'); // Default to Philippines
   const [branchCache, setBranchCache] = useState({});
   const branchCacheRef = useRef({});
   
@@ -93,21 +88,48 @@ const CalendarApproval = () => {
       pendingQuery,
       async (snapshot) => {
         const docs = snapshot.docs
-          .map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            date: doc.data().date?.toDate()
-          }))
+          .map(doc => {
+            const data = doc.data();
+            // Handle both single date and date range entries
+            let entryDate = null;
+            if (data.date) {
+              entryDate = data.date.toDate();
+            } else if (data.startDate) {
+              entryDate = data.startDate.toDate();
+            }
+            
+            return {
+              id: doc.id,
+              ...data,
+              date: entryDate,
+              startDate: data.startDate?.toDate(),
+              endDate: data.endDate?.toDate(),
+              // Use requestedByName if available, otherwise use createdBy as fallback
+              requestedByName: data.requestedByName || data.createdByName || 'Branch Manager'
+            };
+          })
           .sort((a, b) => {
             if (!a.date || !b.date) return 0;
             return a.date.getTime() - b.date.getTime();
           });
 
+        console.log('📅 Calendar entries received:', docs);
+
         // Map branch names from cache
-        const entriesWithBranch = docs.map(entry => ({
-          ...entry,
-          branchName: branchCacheRef.current[entry.branchId] || 'Unknown Branch'
-        }));
+        const entriesWithBranch = docs.map(entry => {
+          console.log(`Entry ${entry.id}:`, {
+            branchId: entry.branchId,
+            branchName: branchCacheRef.current[entry.branchId],
+            requestedByName: entry.requestedByName,
+            date: entry.date,
+            startDate: entry.startDate,
+            endDate: entry.endDate
+          });
+          return {
+            ...entry,
+            branchName: branchCacheRef.current[entry.branchId] || 'Unknown Branch'
+          };
+        });
 
         setPendingEntries(entriesWithBranch);
         setLoading(false);
@@ -121,12 +143,6 @@ const CalendarApproval = () => {
 
     return () => unsubscribe();
   }, []);
-
-  useEffect(() => {
-    if (pendingEntries.length > 0) {
-      checkAllHolidays();
-    }
-  }, [pendingEntries, countryCode]);
 
   // Filter entries
   const filteredEntries = pendingEntries.filter(entry => {
@@ -163,56 +179,6 @@ const CalendarApproval = () => {
       ...prev,
       [entryId]: !prev[entryId]
     }));
-  };
-
-  const checkAllHolidays = async () => {
-    if (pendingEntries.length === 0) {
-      setHolidayData({});
-      return;
-    }
-
-    setCheckingHolidays(true);
-    const holidayChecks = {};
-    
-    try {
-      // Get all unique dates and years from pending entries
-      const uniqueDates = [...new Set(pendingEntries.map(e => {
-        const d = new Date(e.date);
-        return d.toISOString().split('T')[0];
-      }))];
-      
-      const uniqueYears = [...new Set(pendingEntries.map(e => {
-        return new Date(e.date).getFullYear();
-      }))];
-      
-      // Fetch holidays for all years
-      const holidayMap = {};
-      for (const year of uniqueYears) {
-        const holidays = await getPublicHolidays(year, countryCode);
-        holidays.forEach(h => {
-          holidayMap[h.date] = h;
-        });
-      }
-      
-      // Check each entry
-      for (const entry of pendingEntries) {
-        const dateStr = new Date(entry.date).toISOString().split('T')[0];
-        const holidayInfo = holidayMap[dateStr];
-        
-        holidayChecks[entry.id] = {
-          isHoliday: !!holidayInfo,
-          holidayInfo: holidayInfo || null,
-          dateStr
-        };
-      }
-      
-      setHolidayData(holidayChecks);
-    } catch (error) {
-      console.error('Error checking holidays:', error);
-      toast.error('Failed to verify holidays');
-    } finally {
-      setCheckingHolidays(false);
-    }
   };
 
   const handleApprove = async (entry) => {
@@ -271,7 +237,7 @@ const CalendarApproval = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -279,17 +245,6 @@ const CalendarApproval = () => {
               <p className="text-2xl font-bold text-yellow-600">{pendingEntries.length}</p>
             </div>
             <Clock className="h-8 w-8 text-yellow-500" />
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Holidays</p>
-              <p className="text-2xl font-bold text-green-600">
-                {Object.values(holidayData).filter(h => h.isHoliday).length}
-              </p>
-            </div>
-            <CalendarIcon className="h-8 w-8 text-green-500" />
           </div>
         </Card>
         <Card className="p-4">
@@ -329,20 +284,6 @@ const CalendarApproval = () => {
             </div>
           </div>
 
-          {/* Country Select */}
-          <select
-            value={countryCode}
-            onChange={(e) => setCountryCode(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#160B53]"
-          >
-            <option value="PH">🇵🇭 PH</option>
-            <option value="US">🇺🇸 US</option>
-            <option value="GB">🇬🇧 UK</option>
-            <option value="AU">🇦🇺 AU</option>
-            <option value="CA">🇨🇦 CA</option>
-            <option value="SG">🇸🇬 SG</option>
-          </select>
-
           {/* Icon-only Buttons - No borders */}
           <button
             onClick={() => setShowFilterModal(true)}
@@ -358,19 +299,6 @@ const CalendarApproval = () => {
           </button>
 
           <button
-            onClick={checkAllHolidays}
-            disabled={checkingHolidays || pendingEntries.length === 0}
-            className="p-2 text-gray-600 hover:text-[#160B53] hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-            title="Verify Holidays"
-          >
-            {checkingHolidays ? (
-              <Loader className="h-5 w-5 animate-spin" />
-            ) : (
-              <CalendarIcon className="h-5 w-5" />
-            )}
-          </button>
-
-          <button
             onClick={() => window.location.reload()}
             className="p-2 text-gray-600 hover:text-[#160B53] hover:bg-gray-100 rounded-lg transition-colors"
             title="Refresh"
@@ -379,14 +307,6 @@ const CalendarApproval = () => {
           </button>
         </div>
       </Card>
-
-      {/* Holiday Verification Info */}
-      {checkingHolidays && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-3">
-          <Loader className="w-5 h-5 text-blue-600 animate-spin" />
-          <p className="text-sm text-blue-800">Verifying holidays against {countryCode} public holiday calendar...</p>
-        </div>
-      )}
 
       {/* Pending Entries */}
       {filteredEntries.length === 0 ? (
@@ -413,9 +333,6 @@ const CalendarApproval = () => {
         <div className="space-y-4">
           {filteredEntries.map((entry) => {
             const typeInfo = entryTypes.find(t => t.value === entry.type);
-            const holidayCheck = holidayData[entry.id];
-            const isVerifiedHoliday = holidayCheck?.isHoliday;
-            const holidayInfo = holidayCheck?.holidayInfo;
             const isExpanded = expandedEntries[entry.id];
             
             return (
@@ -424,36 +341,29 @@ const CalendarApproval = () => {
                 <div className="p-4 bg-white">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 flex-1">
-                      {/* Holiday indicator */}
-                      {holidayCheck && (
-                        <div className={`w-2 h-12 rounded-full ${isVerifiedHoliday ? 'bg-green-500' : 'bg-gray-300'}`} />
-                      )}
-                      
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="text-lg font-semibold text-gray-900">{entry.title}</h3>
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${typeInfo?.color || 'bg-gray-100 text-gray-700'}`}>
                             {typeInfo?.label || entry.type}
                           </span>
-                          {isVerifiedHoliday && (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" />
-                              Verified Holiday
-                            </span>
-                          )}
                         </div>
                         <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
                           <span className="flex items-center gap-1">
                             <CalendarIcon className="w-4 h-4" />
-                            {formatDate(entry.date, 'MMM dd, yyyy')}
+                            {entry.startDate && entry.endDate 
+                              ? `${formatDate(entry.startDate, 'MMM dd')} - ${formatDate(entry.endDate, 'MMM dd, yyyy')}`
+                              : entry.date 
+                                ? formatDate(entry.date, 'MMM dd, yyyy')
+                                : 'No date'}
                           </span>
                           <span className="flex items-center gap-1">
                             <Building className="w-4 h-4" />
-                            {entry.branchName}
+                            {entry.branchName || branchCache[entry.branchId] || 'Loading...'}
                           </span>
                           <span className="flex items-center gap-1">
                             <User className="w-4 h-4" />
-                            {entry.requestedByName || 'Unknown'}
+                            {entry.requestedByName || entry.requestedBy || 'Unknown'}
                           </span>
                         </div>
                       </div>
@@ -495,7 +405,11 @@ const CalendarApproval = () => {
                       <div>
                         <p className="text-xs text-gray-500 mb-1">Full Date</p>
                         <p className="text-sm font-medium text-gray-900">
-                          {formatDate(entry.date, 'EEEE, MMMM dd, yyyy')}
+                          {entry.startDate && entry.endDate 
+                            ? `${formatDate(entry.startDate, 'EEEE, MMMM dd, yyyy')} - ${formatDate(entry.endDate, 'EEEE, MMMM dd, yyyy')}`
+                            : entry.date 
+                              ? formatDate(entry.date, 'EEEE, MMMM dd, yyyy')
+                              : 'No date specified'}
                         </p>
                       </div>
                       <div>
@@ -518,31 +432,6 @@ const CalendarApproval = () => {
                               : 'Regular Hours'}
                         </p>
                       </div>
-                      
-                      {/* Holiday Verification Details */}
-                      {holidayCheck && (
-                        <div className="md:col-span-2">
-                          <p className="text-xs text-gray-500 mb-1">Holiday Verification</p>
-                          <div className={`p-3 rounded-lg ${isVerifiedHoliday ? 'bg-green-100' : 'bg-gray-100'}`}>
-                            {isVerifiedHoliday ? (
-                              <div className="flex items-center gap-2">
-                                <CheckCircle className="w-5 h-5 text-green-600" />
-                                <div>
-                                  <p className="text-sm font-medium text-green-900">{holidayInfo.name}</p>
-                                  {holidayInfo.localName && holidayInfo.localName !== holidayInfo.name && (
-                                    <p className="text-xs text-green-700">{holidayInfo.localName}</p>
-                                  )}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                <XCircle className="w-5 h-5 text-gray-400" />
-                                <p className="text-sm text-gray-600">Not a public holiday in {countryCode}</p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 )}

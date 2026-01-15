@@ -70,7 +70,10 @@ const BillingModalPOS = ({
   // QR Code Scanner states
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState('');
+  const isProcessingQRCodeRef = useRef(false); // Use ref instead of state for immediate effect
   const qrCodeScannerRef = useRef(null);
+  const videoStreamRef = useRef(null);
+  const videoPreviewRef = useRef(null);
   
   // Receipt number validation states
   const [checkingReceipt, setCheckingReceipt] = useState(false);
@@ -101,6 +104,10 @@ const BillingModalPOS = ({
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [completedBill, setCompletedBill] = useState(null);
   const receiptRef = useRef(null);
+  
+  // Service Product Usage Modal state
+  const [showServiceProductModal, setShowServiceProductModal] = useState(false);
+  const [serviceProductModalData, setServiceProductModalData] = useState({ itemIndex: null, productMappings: [] });
   
   const [totals, setTotals] = useState({
     subtotal: 0,
@@ -911,11 +918,64 @@ const BillingModalPOS = ({
     }));
   };
 
+  // Play checkout beep sound
+  const playCheckoutSound = () => {
+    try {
+      // Create a simple beep using Web Audio API
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = 1200; // Higher pitch beep
+      oscillator.type = 'sine';
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.15);
+      
+      // Play a second beep for "checkout" feel
+      setTimeout(() => {
+        const osc2 = audioContext.createOscillator();
+        const gain2 = audioContext.createGain();
+        osc2.connect(gain2);
+        gain2.connect(audioContext.destination);
+        osc2.frequency.value = 1500;
+        osc2.type = 'sine';
+        gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        osc2.start(audioContext.currentTime);
+        osc2.stop(audioContext.currentTime + 0.1);
+      }, 100);
+    } catch (e) {
+      console.log('Could not play sound:', e);
+    }
+  };
+
   // Handle QR code scan result
   const handleQRCodeScanned = async (decodedText) => {
+    // Prevent duplicate processing using ref for immediate check
+    if (isProcessingQRCodeRef.current) {
+      console.log('⏸️ QR code already being processed, ignoring duplicate scan');
+      return;
+    }
+    
+    isProcessingQRCodeRef.current = true;
+    
+    console.log('📱 QR Code scanned raw:', decodedText);
+    console.log('📱 QR Code raw length:', decodedText?.length);
+    
+    // Play checkout sound immediately on scan
+    playCheckoutSound();
+    
     // Check if stocks data is loaded
     if (!stocksData || stocksData.length === 0) {
       toast.error('Product data not loaded yet. Please wait.');
+      isProcessingQRCodeRef.current = false;
       return;
     }
 
@@ -924,17 +984,26 @@ const BillingModalPOS = ({
       let qrData;
       try {
         qrData = JSON.parse(decodedText);
+        console.log('📦 Parsed QR data:', qrData);
+        console.log('📦 QR data keys:', Object.keys(qrData));
       } catch (e) {
         // If not JSON, try to find product by UPC or other identifier
-        toast.error('Invalid QR code format');
+        console.error('Failed to parse QR code as JSON:', e);
+        console.log('📱 Raw text that failed to parse:', decodedText);
+        toast.error('Invalid QR code format - not valid JSON');
         return;
       }
 
-      // QR code should contain: productId, productName, batchNumber, etc.
-      const productId = qrData.productId;
-      const batchNumber = qrData.batchNumber;
+      // Support both old format (productId, batchNumber) and compact format (p, b)
+      const productId = qrData.productId || qrData.p;
+      const batchNumber = qrData.batchNumber || qrData.b;
+      const price = qrData.price || qrData.pr;
+      const branchId = qrData.branchId || qrData.br;
+
+      console.log('🔍 Extracted - productId:', productId, 'batch:', batchNumber, 'price:', price, 'branch:', branchId);
 
       if (!productId) {
+        console.error('❌ No productId found in QR data');
         toast.error('QR code does not contain product information');
         return;
       }
@@ -944,6 +1013,8 @@ const BillingModalPOS = ({
 
       // Find the product in available products
       let product = availableProducts.find(p => p.id === productId);
+      console.log('📦 Found product in availableProducts:', product?.name || 'NOT FOUND');
+      console.log('📦 Available products count:', availableProducts?.length);
 
       // If product found in available products, get its ALL non-salon-use batches
       if (product) {
@@ -953,45 +1024,85 @@ const BillingModalPOS = ({
           stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
           (stockItem.realTimeStock || 0) > 0
         );
+        console.log('📦 Found OTC batches:', productOtcBatches.length);
       }
 
       // If product not found in current branch, try to load it
       if (!product && userBranch) {
+        console.log('🔄 Product not in availableProducts, trying to load from Firestore...');
         try {
-          // Try to get product from inventory service
-          const stocksRef = collection(db, 'branch_stocks');
+          // Try to get product from stocks collection first
+          const stocksRef = collection(db, 'stocks');
           const stockQuery = query(
             stocksRef,
             where('branchId', '==', userBranch),
             where('productId', '==', productId)
           );
           const stockSnapshot = await getDocs(stockQuery);
+          console.log('📦 Stocks query result:', stockSnapshot.size, 'docs found');
           
           if (!stockSnapshot.empty) {
             const stockDoc = stockSnapshot.docs[0].data();
+            console.log('📦 Stock doc found:', stockDoc);
+            
             // Get product details
             const productDocRef = doc(db, 'products', productId);
             const productDoc = await getDoc(productDocRef);
             
             if (productDoc.exists()) {
               const productData = productDoc.data();
+              console.log('📦 Product data found:', productData.name);
+              
               product = {
                 id: productId,
                 name: productData.name || qrData.productName,
-                price: productData.otcPrice || productData.price || 0,
-                stock: stockDoc.realTimeStock || 0,
+                price: productData.otcPrice || productData.price || price || 0,
+                stock: stockDoc.realTimeStock || stockDoc.remainingQuantity || 0,
                 stockId: stockSnapshot.docs[0].id,
                 unitCost: stockDoc.unitCost || 0,
                 commissionPercentage: productData.commissionPercentage || 0
               };
+              console.log('📦 Created product object:', product);
 
               // Try to get ALL non-salon-use batches for this manually loaded product
               productOtcBatches = stocksData.filter(stockItem =>
                 stockItem.productId === productId &&
                 stockItem.status === 'active' &&
-                stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
+                stockItem.usageType !== 'salon-use' &&
                 (stockItem.realTimeStock || 0) > 0
               );
+              console.log('📦 Found OTC batches for loaded product:', productOtcBatches.length);
+            } else {
+              console.log('❌ Product document not found in products collection');
+            }
+          } else {
+            // Try branch_stocks as fallback
+            console.log('🔄 No stocks found, trying branch_stocks...');
+            const branchStocksRef = collection(db, 'branch_stocks');
+            const branchStockQuery = query(
+              branchStocksRef,
+              where('branchId', '==', userBranch),
+              where('productId', '==', productId)
+            );
+            const branchStockSnapshot = await getDocs(branchStockQuery);
+            
+            if (!branchStockSnapshot.empty) {
+              const stockDoc = branchStockSnapshot.docs[0].data();
+              const productDocRef = doc(db, 'products', productId);
+              const productDoc = await getDoc(productDocRef);
+              
+              if (productDoc.exists()) {
+                const productData = productDoc.data();
+                product = {
+                  id: productId,
+                  name: productData.name || qrData.productName,
+                  price: productData.otcPrice || productData.price || price || 0,
+                  stock: stockDoc.realTimeStock || 0,
+                  stockId: branchStockSnapshot.docs[0].id,
+                  unitCost: stockDoc.unitCost || 0,
+                  commissionPercentage: productData.commissionPercentage || 0
+                };
+              }
             }
           }
         } catch (error) {
@@ -1010,13 +1121,32 @@ const BillingModalPOS = ({
         return;
       }
 
-      // Check if product is already in cart
-      const existing = formData.items.find(item => item.id === product.id && item.type === 'product');
+      // Check if product is already in cart (same product ID)
+      const existingIndex = formData.items.findIndex(item => 
+        String(item.id).trim() === String(product.id).trim() && item.type === 'product'
+      );
+      const existing = existingIndex >= 0 ? formData.items[existingIndex] : null;
+      
+      console.log('🔍 Checking for existing product:', {
+        productId: product.id,
+        existingIndex,
+        found: !!existing,
+        currentItems: formData.items.map(i => ({ id: i.id, type: i.type, qty: i.quantity }))
+      });
+      
       if (existing) {
-        // If already in cart, just increase quantity
-        const existingIndex = formData.items.findIndex(item => item.id === product.id && item.type === 'product');
-        handleUpdateItem(existingIndex, 'quantity', existing.quantity + 1);
-        toast.success(`Increased quantity of ${product.name}`);
+        // Product already in cart - increase quantity
+        const newQuantity = (existing.quantity || 1) + 1;
+        
+        // Check if we have enough stock
+        if (newQuantity > product.stock) {
+          toast.error(`Cannot add more. Only ${product.stock} units available.`);
+          return;
+        }
+        
+        handleUpdateItem(existingIndex, 'quantity', newQuantity);
+        toast.success(`${product.name} x${newQuantity} (added 1 more)`);
+        console.log(`✅ Increased quantity of ${product.name} to ${newQuantity}`);
       } else {
         // Add product to cart (similar to handleToggleProduct)
         let batches = [];
@@ -1094,14 +1224,17 @@ const BillingModalPOS = ({
           }]
         }));
         
+        console.log('✅ Product added to cart:', product.name);
         toast.success(`Added ${product.name} to cart`);
       }
 
       // Stop scanning after successful scan
-      stopQRScanner();
+      await stopQRScanner();
+      isProcessingQRCodeRef.current = false;
     } catch (error) {
       console.error('Error processing QR code:', error);
       toast.error('Failed to process QR code: ' + error.message);
+      isProcessingQRCodeRef.current = false;
     }
   };
 
@@ -1109,30 +1242,70 @@ const BillingModalPOS = ({
   const startQRScanner = async () => {
     try {
       setScannerError('');
+      
+      // First check if camera is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setScannerError('Camera not supported in this browser. Use Chrome or Edge.');
+        toast.error('Camera not supported. Please use Chrome or Edge browser.');
+        return;
+      }
+
+      // Check camera permission first (without keeping the stream)
+      try {
+        const testStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'environment' } 
+        });
+        // Stop immediately - just checking permission
+        testStream.getTracks().forEach(track => track.stop());
+      } catch (permError) {
+        console.error('Camera permission error:', permError);
+        if (permError.name === 'NotAllowedError') {
+          setScannerError('Camera access denied. Please allow camera in browser settings.');
+          toast.error('Camera access denied. Click the camera icon in the address bar to allow access.');
+        } else if (permError.name === 'NotFoundError') {
+          setScannerError('No camera found on this device.');
+          toast.error('No camera found. Please connect a camera.');
+        } else {
+          setScannerError(`Camera error: ${permError.message}`);
+          toast.error(`Camera error: ${permError.message}`);
+        }
+        return;
+      }
+
       setIsScanning(true);
 
-      const scanner = new Html5Qrcode('qr-reader');
+      // Wait for DOM to update with qr-reader element
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Use the floating scanner element
+      const scannerId = document.getElementById('qr-reader-float') ? 'qr-reader-float' : 'qr-reader';
+      const scanner = new Html5Qrcode(scannerId);
       qrCodeScannerRef.current = scanner;
 
       await scanner.start(
         { facingMode: 'environment' }, // Use back camera
         {
-          fps: 10,
-          qrbox: { width: 250, height: 250 }
+          fps: 15, // Higher FPS for faster scanning
+          qrbox: { width: 250, height: 250 }, // Larger scan area
+          aspectRatio: 1.0,
+          formatsToSupport: [ 0 ] // 0 = QR_CODE only for faster detection
         },
         (decodedText) => {
           // Successfully scanned
+          console.log('✅ QR Code scanned:', decodedText);
           handleQRCodeScanned(decodedText);
         },
         (errorMessage) => {
           // Ignore scanning errors (they're frequent during scanning)
         }
       );
+      
+      console.log('📷 QR Scanner started successfully');
     } catch (error) {
       console.error('Error starting QR scanner:', error);
-      setScannerError('Failed to start camera. Please check permissions.');
+      setScannerError(`Scanner error: ${error.message}`);
       setIsScanning(false);
-      toast.error('Failed to start QR scanner. Please allow camera access.');
+      toast.error('Failed to start QR scanner: ' + error.message);
     }
   };
 
@@ -1298,7 +1471,46 @@ const BillingModalPOS = ({
           // Calculate total stock
           const totalStock = productOtcBatches.reduce((total, batch) => total + (batch.realTimeStock || 0), 0);
 
-          // Get allocated batches for current quantity
+          // Check if manual batch selection is active
+          if (updatedItems[index].manualBatchSelection && updatedItems[index].selectedBatchId) {
+            // Keep manual selection, just update the quantity in the batch allocation
+            const selectedBatch = productOtcBatches.find(b => b.id === updatedItems[index].selectedBatchId);
+            if (selectedBatch) {
+              const availableStock = selectedBatch.realTimeStock || 0;
+              if (quantity > availableStock) {
+                // Not enough stock in selected batch, clear manual selection and use FIFO
+                toast.error(`Selected batch only has ${availableStock} units. Switching to automatic allocation.`);
+                updatedItems[index].manualBatchSelection = false;
+                updatedItems[index].selectedBatchId = null;
+              } else {
+                // Update the batch allocation with new quantity
+                updatedItems[index].batches = [{
+                  batchId: selectedBatch.id,
+                  batchNumber: selectedBatch.batchNumber,
+                  quantity: quantity,
+                  expirationDate: selectedBatch.expirationDate?.toDate ? selectedBatch.expirationDate.toDate() : selectedBatch.expirationDate
+                }];
+                updatedItems[index].stock = totalStock;
+                updatedItems[index].allBatches = productOtcBatches.map(batch => ({
+                  id: batch.id,
+                  batchNumber: batch.batchNumber,
+                  remainingQuantity: batch.realTimeStock || 0,
+                  realTimeStock: batch.realTimeStock || 0,
+                  expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
+                  receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
+                }));
+                
+                setFormData(prev => {
+                  const newItems = [...prev.items];
+                  newItems[index] = { ...updatedItems[index] };
+                  return { ...prev, items: newItems };
+                });
+                return; // Exit early, don't fetch FIFO allocation
+              }
+            }
+          }
+
+          // Get allocated batches for current quantity (FIFO)
           inventoryService.getBatchesForSale({
             branchId: userBranch,
             productId: updatedItems[index].id,
@@ -1311,6 +1523,7 @@ const BillingModalPOS = ({
               id: batch.id,
               batchNumber: batch.batchNumber,
               remainingQuantity: batch.realTimeStock || 0,
+              realTimeStock: batch.realTimeStock || 0,
               expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
               receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
             }));
@@ -1351,6 +1564,114 @@ const BillingModalPOS = ({
       ...prev,
       items: prev.items.filter((_, i) => i !== index)
     }));
+  };
+
+  // Handle manual batch selection for products
+  const handleSelectBatch = (itemIndex, batchId, batchNumber) => {
+    const updatedItems = [...formData.items];
+    const item = updatedItems[itemIndex];
+    
+    if (!item || item.type !== 'product') return;
+    
+    // Find the selected batch from allBatches
+    const selectedBatch = item.allBatches?.find(b => b.id === batchId);
+    if (!selectedBatch) {
+      toast.error('Batch not found');
+      return;
+    }
+    
+    const availableStock = selectedBatch.realTimeStock || selectedBatch.remainingQuantity || 0;
+    const requestedQuantity = item.quantity || 1;
+    
+    if (availableStock < requestedQuantity) {
+      toast.error(`Batch ${batchNumber} only has ${availableStock} units available. Need ${requestedQuantity}.`);
+      return;
+    }
+    
+    // Manually set the batch allocation
+    updatedItems[itemIndex].batches = [{
+      batchId: batchId,
+      batchNumber: batchNumber,
+      quantity: requestedQuantity,
+      expirationDate: selectedBatch.expirationDate
+    }];
+    updatedItems[itemIndex].manualBatchSelection = true;
+    updatedItems[itemIndex].selectedBatchId = batchId;
+    
+    setFormData(prev => ({ ...prev, items: updatedItems }));
+    toast.success(`Selected batch ${batchNumber} for ${item.name}`);
+  };
+
+  // Clear manual batch selection and revert to FIFO
+  const handleClearBatchSelection = (itemIndex) => {
+    const updatedItems = [...formData.items];
+    const item = updatedItems[itemIndex];
+    
+    if (!item || item.type !== 'product') return;
+    
+    // Clear manual selection flags
+    updatedItems[itemIndex].manualBatchSelection = false;
+    updatedItems[itemIndex].selectedBatchId = null;
+    
+    // Re-fetch FIFO allocation
+    if (userBranch && item.id) {
+      inventoryService.getBatchesForSale({
+        branchId: userBranch,
+        productId: item.id,
+        quantity: item.quantity || 1,
+        saleType: 'otc'
+      }).then(allocatedResult => {
+        updatedItems[itemIndex].batches = allocatedResult.success ? allocatedResult.batches : [];
+        setFormData(prev => {
+          const newItems = [...prev.items];
+          newItems[itemIndex] = { ...updatedItems[itemIndex] };
+          return { ...prev, items: newItems };
+        });
+        toast.success('Reverted to automatic FIFO batch selection');
+      }).catch(error => {
+        console.error('Error fetching allocated batches:', error);
+      });
+    }
+  };
+
+  // Open Service Product Modal
+  const handleOpenServiceProductModal = (itemIndex) => {
+    const item = formData.items[itemIndex];
+    if (!item || item.type !== 'service') return;
+    
+    setServiceProductModalData({
+      itemIndex,
+      productMappings: item.productMappings || [],
+      serviceName: item.name
+    });
+    setShowServiceProductModal(true);
+  };
+
+  // Add service product usage from modal
+  const handleAddServiceProductUsage = (productId, productName, quantity, unit, percentage, instruction) => {
+    const { itemIndex } = serviceProductModalData;
+    if (itemIndex === null) return;
+    
+    setFormData(prev => {
+      const items = [...prev.items];
+      const current = items[itemIndex];
+      const usages = current.serviceProductUsages || [];
+      items[itemIndex] = {
+        ...current,
+        serviceProductUsages: [...usages, {
+          productId,
+          productName,
+          quantity,
+          unit,
+          percentage,
+          instruction
+        }]
+      };
+      return { ...prev, items };
+    });
+    
+    setShowServiceProductModal(false);
+    toast.success(`Added ${productName} usage`);
   };
 
   // Filter clients based on search (use formData.clientName as primary source)
@@ -1649,7 +1970,7 @@ const BillingModalPOS = ({
       stylistName: appointment?.stylistName || formData.items[0]?.stylistName,
       items: formData.items,
       subtotal: totals.subtotal,
-      discount: parseFloat(formData.discount) || 0, // Store discount amount/percentage (not computed)
+      discount: totals.discount || 0, // Store calculated discount amount
       discountType: formData.discountType,
       promotionCode: appliedPromotion ? promotionCode.trim().toUpperCase() : null,
       promotionId: appliedPromotion?.id || null,
@@ -1845,6 +2166,31 @@ const BillingModalPOS = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      {/* Floating Camera Preview - Upper Right */}
+      {isScanning && (
+        <div className="fixed top-4 right-4 z-[60] bg-black rounded-lg shadow-2xl overflow-hidden border-2 border-green-500">
+          <div className="relative">
+            <div className="w-64 h-64 bg-gray-900 flex items-center justify-center">
+              <div id="qr-reader-float" className="w-full h-full"></div>
+            </div>
+            <div className="absolute top-1 left-1 px-2 py-0.5 bg-green-500 text-white text-xs font-medium rounded flex items-center gap-1">
+              <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+              SCANNING
+            </div>
+            <button
+              type="button"
+              onClick={stopQRScanner}
+              className="absolute top-1 right-1 p-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-lg"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="px-3 py-2 bg-gray-900 text-center border-t border-gray-700">
+            <p className="text-xs text-gray-300">Point camera at product QR code</p>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-lg shadow-xl w-full max-w-[1600px] h-[95vh] flex flex-col overflow-hidden">
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
           {/* Header - Dark Purple like Appointment Form */}
@@ -2198,26 +2544,25 @@ const BillingModalPOS = ({
                   )}
                 </div>
                 
-                {/* QR Code Scanner */}
+                {/* QR Code Scanner - Hidden container for Html5Qrcode (actual view is in floating preview) */}
                 {isScanning && activeTab === 'product' && (
-                  <div className="mb-4 p-4 bg-gray-900 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-white text-sm font-medium">Scan Product QR Code</p>
+                  <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                      <p className="text-green-800 text-sm font-medium">Camera active - see preview in top right corner</p>
                       <button
                         type="button"
                         onClick={stopQRScanner}
-                        className="text-white hover:text-gray-300"
+                        className="ml-auto px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded"
                       >
-                        <X className="w-5 h-5" />
+                        Stop Scanning
                       </button>
                     </div>
-                    <div id="qr-reader" className="w-full"></div>
                     {scannerError && (
-                      <p className="text-red-400 text-xs mt-2">{scannerError}</p>
+                      <p className="text-red-600 text-xs mt-2">{scannerError}</p>
                     )}
-                    <p className="text-gray-400 text-xs mt-2 text-center">
-                      Point camera at product QR code sticker
-                    </p>
+                    {/* Hidden scanner element - actual video shows in floating preview */}
+                    <div id="qr-reader" className="hidden"></div>
                   </div>
                 )}
 
@@ -2432,8 +2777,21 @@ const BillingModalPOS = ({
                                  {/* Display all available OTC batches for inventory visibility */}
                                  {item.allBatches && Array.isArray(item.allBatches) && item.allBatches.length > 0 && (
                                    <div className="mt-2">
-                                     <div className="text-xs font-medium text-gray-600 mb-2">Available Stock Batches:</div>
-                                     <div className="grid grid-cols-3 gap-2">
+                                     <div className="flex items-center justify-between mb-2">
+                                       <div className="text-xs font-medium text-gray-600">
+                                         {item.manualBatchSelection ? '📦 Manual Batch Selection' : '📦 Available Stock Batches (FIFO):'}
+                                       </div>
+                                       {item.manualBatchSelection && (
+                                         <button
+                                           type="button"
+                                           onClick={() => handleClearBatchSelection(index)}
+                                           className="text-xs text-blue-600 hover:text-blue-800 underline"
+                                         >
+                                           Reset to FIFO
+                                         </button>
+                                       )}
+                                     </div>
+                                     <div className="grid grid-cols-2 gap-2">
                                      {/* Sort batches by batch number (FIFO - incremental order) */}
                                      {[...(item.allBatches || [])].sort((a, b) => {
                                        // Sort by batch number for FIFO (lower numbers first)
@@ -2442,10 +2800,13 @@ const BillingModalPOS = ({
                                        // Check if this batch is allocated for current sale
                                        const allocatedBatch = item.batches?.find(b => b.batchId === batch.id);
                                        const allocatedQuantity = allocatedBatch?.quantity || 0;
+                                       const isManuallySelected = item.manualBatchSelection && item.selectedBatchId === batch.id;
+                                       const availableStock = batch.realTimeStock || batch.remainingQuantity || 0;
+                                       const canSelect = availableStock >= (item.quantity || 1);
 
-                                       // Calculate how many units will be taken from this batch for current quantity
+                                       // Calculate how many units will be taken from this batch for current quantity (FIFO)
                                        let willBeAllocated = 0;
-                                       if (item.quantity > 0) {
+                                       if (!item.manualBatchSelection && item.quantity > 0) {
                                          let remainingToAllocate = item.quantity;
                                          // Go through batches in FIFO order (by batch number)
                                          const sortedBatches = [...(item.allBatches || [])].sort((a, b) => {
@@ -2463,43 +2824,65 @@ const BillingModalPOS = ({
                                        }
 
                                        return (
-                                         <div key={idx} className={`text-xs p-1.5 rounded border ${
-                                           allocatedQuantity > 0
-                                             ? 'bg-blue-50 border-blue-200'
-                                             : willBeAllocated > 0
-                                             ? 'bg-green-50 border-green-200'
-                                             : 'bg-gray-50 border-gray-200'
-                                         }`}>
+                                         <div 
+                                           key={idx} 
+                                           className={`text-xs p-2 rounded border cursor-pointer transition-all ${
+                                             isManuallySelected
+                                               ? 'bg-purple-100 border-purple-400 ring-2 ring-purple-300'
+                                               : allocatedQuantity > 0
+                                               ? 'bg-blue-50 border-blue-200'
+                                               : willBeAllocated > 0
+                                               ? 'bg-green-50 border-green-200'
+                                               : canSelect
+                                               ? 'bg-gray-50 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
+                                               : 'bg-gray-100 border-gray-200 opacity-60'
+                                           }`}
+                                           onClick={() => {
+                                             if (canSelect && !isManuallySelected) {
+                                               handleSelectBatch(index, batch.id, batch.batchNumber);
+                                             }
+                                           }}
+                                         >
                                            <div className="space-y-1">
                                              <div className="flex justify-between items-center">
-                                               <div className="flex items-center gap-2">
-                                                 <span className="font-medium text-sm">{batch.batchNumber}</span>
-                                                 {allocatedQuantity > 0 && (
-                                                   <span className="bg-blue-500 text-white text-xs px-1 py-0.5 rounded">
-                                                     {allocatedQuantity}
-                                                   </span>
+                                               <div className="flex items-center gap-1">
+                                                 {isManuallySelected && (
+                                                   <span className="text-purple-600">✓</span>
                                                  )}
+                                                 <span className="font-medium text-sm">{batch.batchNumber}</span>
                                                </div>
-                                               <span className="text-sm font-medium text-gray-700">
-                                                 {batch.realTimeStock || batch.remainingQuantity} units available
+                                               <span className={`text-xs font-medium ${availableStock < (item.quantity || 1) ? 'text-red-500' : 'text-gray-600'}`}>
+                                                 {availableStock} avail
                                                </span>
                                              </div>
 
-                                             {willBeAllocated > 0 && allocatedQuantity === 0 && (
-                                               <div className="text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded border border-green-200">
-                                                 → {willBeAllocated} unit{willBeAllocated !== 1 ? 's' : ''} will be used (FIFO)
+                                             {isManuallySelected && (
+                                               <div className="text-xs font-medium text-purple-700 bg-purple-50 px-2 py-1 rounded border border-purple-200">
+                                                 ✓ Selected ({item.quantity} unit{item.quantity !== 1 ? 's' : ''})
                                                </div>
                                              )}
 
-                                             {allocatedQuantity > 0 && (
-                                               <div className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">
-                                                 → {allocatedQuantity} unit{allocatedQuantity !== 1 ? 's' : ''} allocated for this sale
+                                             {!item.manualBatchSelection && willBeAllocated > 0 && (
+                                               <div className="text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded border border-green-200">
+                                                 → {willBeAllocated} unit{willBeAllocated !== 1 ? 's' : ''} (FIFO)
+                                               </div>
+                                             )}
+
+                                             {!isManuallySelected && canSelect && !willBeAllocated && (
+                                               <div className="text-xs text-gray-500 italic">
+                                                 Click to select
+                                               </div>
+                                             )}
+
+                                             {!canSelect && !isManuallySelected && (
+                                               <div className="text-xs text-red-500">
+                                                 Not enough stock
                                                </div>
                                              )}
 
                                              {batch.expirationDate && (
                                                <div className="text-xs text-orange-600">
-                                                 Expires: {(() => {
+                                                 Exp: {(() => {
                                                    try {
                                                      // Handle Firestore timestamp
                                                      const expDate = batch.expirationDate?.toDate
@@ -2808,21 +3191,10 @@ const BillingModalPOS = ({
                                 <label className="text-xs font-semibold text-gray-700">Service Product Usage</label>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setFormData(prev => {
-                                      const items = [...prev.items];
-                                      const current = items[index];
-                                      const usages = current.serviceProductUsages || [];
-                                      items[index] = {
-                                        ...current,
-                                        serviceProductUsages: [...usages, { productId: '', productName: '', percentage: '', quantity: '', unit: 'ml' }]
-                                      };
-                                      return { ...prev, items };
-                                    });
-                                  }}
+                                  onClick={() => handleOpenServiceProductModal(index)}
                                   className="text-[11px] px-2 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
                                 >
-                                  Add Product
+                                  + Add Product
                                 </button>
                               </div>
 
@@ -2830,147 +3202,36 @@ const BillingModalPOS = ({
                                 <p className="text-[11px] text-gray-500">No usage added for this service.</p>
                               )}
 
-                              {console.log('🔧 Rendering usages for item:', item.name, 'productMappings:', item.productMappings, 'usages:', item.serviceProductUsages)}
-
+                              {/* Display added service product usages */}
                               {(item.serviceProductUsages || []).map((usage, uIdx) => (
-                                <div key={uIdx} className="border border-gray-200 rounded p-2 space-y-2">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                      <div>
-                                        <label className="block text-[11px] font-medium text-gray-700 mb-1">Product</label>
-                                        <select
-                                          value={usage.productId || ''}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            setFormData(prev => {
-                                              const items = [...prev.items];
-                                              const current = items[index];
-                                              const usages = [...(current.serviceProductUsages || [])];
-                                              const mapping = (current.productMappings || []).find(m => m.productId === val);
-                                              const branchProduct = branchProducts.find(bp => bp.id === val);
-                                              const globalProduct = availableProducts.find(p => p.id === val);
-                                              const firstInstr = mapping?.instructions?.[0];
-                                              usages[uIdx] = {
-                                                ...(usages[uIdx] || {}),
-                                                productId: val,
-                                                productName: mapping?.productName || branchProduct?.name || globalProduct?.name || 'Mapped Product',
-                                                percentage: firstInstr?.percentage ?? mapping?.percentage ?? 0,
-                                                quantity: firstInstr?.quantity ?? mapping?.quantity ?? usages[uIdx]?.quantity ?? '',
-                                                unit: mapping?.unit ?? usages[uIdx]?.unit ?? 'ml'
-                                              };
-                                              items[index] = { ...current, serviceProductUsages: usages };
-                                              return { ...prev, items };
-                                            });
-                                          }}
-                                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
-                                      >
-                                        <option value="">Select product</option>
-                                        {(item.productMappings || []).map((m, mapIdx) => (
-                                          <option key={`${m.productId || mapIdx}-mapped`} value={m.productId}>
-                                            {m.productName || 'Mapped Product'}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <div>
-                                        <label className="block text-[11px] font-medium text-gray-700 mb-1">Quantity</label>
-                                        <select
-                                          value={usage.quantity ?? ''}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            setFormData(prev => {
-                                              const items = [...prev.items];
-                                              const current = items[index];
-                                              const usages = [...(current.serviceProductUsages || [])];
-                                              const mapping = (current.productMappings || []).find(m => m.productId === usage.productId);
-                                              const instr = (mapping?.instructions || []).find(ins => `${ins.quantity}` === val);
-                                              usages[uIdx] = {
-                                                ...(usages[uIdx] || {}),
-                                                quantity: val,
-                                                percentage: instr?.percentage ?? usages[uIdx]?.percentage ?? mapping?.percentage ?? 0,
-                                                unit: instr?.unit ?? usages[uIdx]?.unit ?? mapping?.unit ?? 'ml',
-                                                instruction: instr?.instruction ?? usages[uIdx]?.instruction ?? ''
-                                              };
-                                              items[index] = { ...current, serviceProductUsages: usages };
-                                              return { ...prev, items };
-                                            });
-                                          }}
-                                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
-                                        >
-                                          <option value="">Select qty</option>
-                                          {(item.productMappings || [])
-                                            .filter(m => m.productId === usage.productId)
-                                            .flatMap((m, mapIdx) => (m.instructions && m.instructions.length > 0)
-                                              ? m.instructions.map((ins, insIdx) => (
-                                                  <option key={`${m.productId || mapIdx}-ins-${insIdx}`} value={ins.quantity || ''}>
-                                                    {ins.instruction ? `${ins.instruction} (${ins.quantity || ''}${ins.unit || ''})` : (ins.quantity || '')}
-                                                  </option>
-                                                ))
-                                              : [
-                                                  <option key={`${m.productId || mapIdx}-qty`} value={m.quantity || ''}>
-                                                    {m.quantity || ''}
-                                                  </option>
-                                                ]
-                                            )}
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label className="block text-[11px] font-medium text-gray-700 mb-1">Unit</label>
-                                        <input
-                                          type="text"
-                                          value={usage.unit || 'ml'}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            setFormData(prev => {
-                                              const items = [...prev.items];
-                                              const current = items[index];
-                                              const usages = [...(current.serviceProductUsages || [])];
-                                              usages[uIdx] = { ...(usages[uIdx] || {}), unit: val };
-                                              items[index] = { ...current, serviceProductUsages: usages };
-                                              return { ...prev, items };
-                                            });
-                                          }}
-                                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
-                                        />
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
-                                    <div>
-                                      <label className="block text-[11px] font-medium text-gray-700 mb-1">% of product price</label>
-                                      <div className="flex items-center gap-1 text-[11px] text-gray-700">
-                                        <span className="px-2 py-1 bg-gray-100 rounded border border-gray-200 font-semibold min-w-[48px] text-center">
-                                          {usage.percentage ?? 0}
-                                        </span>
-                                        <span className="text-gray-600">%</span>
-                                        <span className="text-gray-400">(auto from {usage.instruction || 'selected qty'})</span>
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Charge (auto)</label>
-                                      <div className="px-2 py-1 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-800">
+                                <div key={uIdx} className="bg-blue-50 border border-blue-200 rounded p-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex-1">
+                                      <p className="text-xs font-medium text-gray-800">{usage.productName}</p>
+                                      <p className="text-[11px] text-gray-600">
+                                        {usage.quantity} {usage.unit} • {usage.percentage}% charge
+                                        {usage.instruction && ` • ${usage.instruction}`}
+                                      </p>
+                                      <p className="text-[11px] font-medium text-blue-700">
                                         ₱{(((productPriceMap[usage.productId] || 0) * ((usage.percentage ?? 0) / 100)) * (item.quantity || 1)).toFixed(2)}
-                                      </div>
+                                      </p>
                                     </div>
-                                    <div className="flex items-end justify-end">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setFormData(prev => {
-                                            const items = [...prev.items];
-                                            const current = items[index];
-                                            const usages = [...(current.serviceProductUsages || [])];
-                                            usages.splice(uIdx, 1);
-                                            items[index] = { ...current, serviceProductUsages: usages };
-                                            return { ...prev, items };
-                                          });
-                                        }}
-                                        className="text-[11px] px-3 py-1 rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
-                                      >
-                                        Remove
-                                      </button>
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFormData(prev => {
+                                          const items = [...prev.items];
+                                          const current = items[index];
+                                          const usages = [...(current.serviceProductUsages || [])];
+                                          usages.splice(uIdx, 1);
+                                          items[index] = { ...current, serviceProductUsages: usages };
+                                          return { ...prev, items };
+                                        });
+                                      }}
+                                      className="text-red-500 hover:text-red-700 ml-2"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </button>
                                   </div>
                                 </div>
                               ))}
@@ -2986,9 +3247,10 @@ const BillingModalPOS = ({
               {/* Fixed Bottom Section */}
               <div className="border-t bg-white p-3 flex-shrink-0">
                 <div className="space-y-2 mb-3">
+                  {/* 3-Column Layout: Promotion | Discount | Loyalty */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    {/* Promotion Code (checkout only) */}
-                    {mode === 'billing' && (
+                    {/* Column 1: Promotion Code */}
+                    {(mode === 'billing' || mode === 'products-only') && (
                       <div className="bg-purple-50 border border-purple-200 rounded-lg p-2 flex flex-col gap-2 h-full">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -2998,38 +3260,39 @@ const BillingModalPOS = ({
                             </label>
                           </div>
                           {appliedPromotion && (
-                            <span className="text-[11px] text-purple-700 font-medium">
-                              Applied: {appliedPromotion.title || appliedPromotion.code}
+                            <span className="text-[11px] text-green-600 font-medium">
+                              ✓ Active
                             </span>
                           )}
                         </div>
                         {!appliedPromotion ? (
-                          <div className="grid grid-cols-[1fr_auto] gap-2">
+                          <div className="flex flex-col gap-2">
                             <input
                               type="text"
                               value={promotionCode}
                               onChange={(e) => setPromotionCode(e.target.value)}
                               className="w-full px-2 py-1 text-sm border border-purple-300 rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent"
-                              placeholder="Enter promotion code"
+                              placeholder="Enter code"
                             />
                             <button
                               type="button"
                               onClick={handleValidatePromotionCode}
                               disabled={validatingPromotion || !promotionCode.trim()}
-                              className="px-3 py-1.5 text-xs bg-[#2D1B4E] text-white rounded hover:bg-[#3d2a5f] disabled:opacity-50"
+                              className="w-full px-3 py-1.5 text-xs bg-[#2D1B4E] text-white rounded hover:bg-[#3d2a5f] disabled:opacity-50"
                             >
-                              {validatingPromotion ? 'Validating…' : 'Apply'}
+                              {validatingPromotion ? 'Validating…' : 'Apply Promo'}
                             </button>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs text-gray-600">Promotion active. Discounts disabled.</p>
+                          <div className="flex flex-col gap-1">
+                            <p className="text-xs font-medium text-purple-700">{appliedPromotion.title || appliedPromotion.code}</p>
+                            <p className="text-xs text-green-600">-₱{promotionDiscount.toFixed(2)} off</p>
                             <button
                               type="button"
                               onClick={handleRemovePromotion}
-                              className="text-xs text-red-600 hover:text-red-800 underline"
+                              className="mt-1 text-xs text-red-600 hover:text-red-800 underline text-left"
                             >
-                              Remove
+                              Remove Promotion
                             </button>
                           </div>
                         )}
@@ -3039,16 +3302,16 @@ const BillingModalPOS = ({
                       </div>
                     )}
 
-                    {/* Discounts (checkout only; hidden when promotion is applied) */}
-                    {mode === 'billing' && !appliedPromotion && (
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 flex flex-col gap-2 h-full">
+                    {/* Column 2: Manual Discount (disabled when promotion is active) */}
+                    {(mode === 'billing' || mode === 'products-only') && (
+                      <div className={`border rounded-lg p-2 flex flex-col gap-2 h-full ${appliedPromotion ? 'bg-gray-100 border-gray-200 opacity-60' : 'bg-blue-50 border-blue-200'}`}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Wallet className="h-4 w-4 text-blue-700" />
-                            <label className="block text-xs font-medium text-gray-700">Discounts</label>
+                            <label className="block text-xs font-medium text-gray-700">Discount</label>
                           </div>
-                          <div className="flex items-center gap-3 text-xs">
-                            <label className="flex items-center gap-1">
+                          <div className="flex items-center gap-2 text-xs">
+                            <label className={`flex items-center gap-1 ${appliedPromotion ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                               <input
                                 type="radio"
                                 name="discountType"
@@ -3056,10 +3319,11 @@ const BillingModalPOS = ({
                                 checked={formData.discountType === 'percent'}
                                 onChange={(e) => setFormData(prev => ({ ...prev, discountType: e.target.value }))}
                                 disabled={!!appliedPromotion}
+                                className="text-blue-600"
                               />
                               <span>%</span>
                             </label>
-                            <label className="flex items-center gap-1">
+                            <label className={`flex items-center gap-1 ${appliedPromotion ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                               <input
                                 type="radio"
                                 name="discountType"
@@ -3067,6 +3331,7 @@ const BillingModalPOS = ({
                                 checked={formData.discountType === 'fixed'}
                                 onChange={(e) => setFormData(prev => ({ ...prev, discountType: e.target.value }))}
                                 disabled={!!appliedPromotion}
+                                className="text-blue-600"
                               />
                               <span>₱</span>
                             </label>
@@ -3079,44 +3344,67 @@ const BillingModalPOS = ({
                           value={formData.discount}
                           onChange={(e) => setFormData(prev => ({ ...prev, discount: e.target.value }))}
                           disabled={!!appliedPromotion}
-                          className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent ${appliedPromotion ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed' : 'border-blue-300'}`}
-                          placeholder={appliedPromotion ? 'Disabled - Promotion Applied' : (formData.discountType === 'percent' ? 'Enter % discount' : 'Enter ₱ discount')}
+                          className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-[#2D1B4E] focus:border-transparent ${appliedPromotion ? 'border-gray-300 bg-gray-50 text-gray-400 cursor-not-allowed' : 'border-blue-300'}`}
+                          placeholder={appliedPromotion ? 'Promo active' : (formData.discountType === 'percent' ? 'Enter %' : 'Enter ₱')}
                         />
                         {appliedPromotion && (
-                          <p className="text-[11px] text-gray-500">Discounts are disabled while a promotion is applied.</p>
+                          <p className="text-[11px] text-gray-500">Disabled while promo is active</p>
+                        )}
+                        {!appliedPromotion && formData.discount && parseFloat(formData.discount) > 0 && (
+                          <p className="text-xs text-blue-600">
+                            Discount: -{formData.discountType === 'percent' ? `${formData.discount}%` : `₱${parseFloat(formData.discount).toFixed(2)}`}
+                          </p>
                         )}
                       </div>
                     )}
 
-                    {/* Loyalty Points (checkout only; available when a client is selected) */}
-                    {(mode === 'billing' || mode === 'products-only') && (appointment?.clientId || formData.clientId) && clientLoyaltyPoints > 0 && (
+                    {/* Column 3: Loyalty Points */}
+                    {(mode === 'billing' || mode === 'products-only') && (
                       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 flex flex-col gap-2 h-full">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Star className="h-4 w-4 text-yellow-600 fill-yellow-600" />
                             <label className="block text-xs font-medium text-gray-700">
-                              Loyalty Points: <span className="font-bold text-yellow-700">{clientLoyaltyPoints}</span>
+                              Loyalty
                             </label>
                           </div>
-                          <span className="text-xs text-gray-500">1 pt = ₱1</span>
+                          <span className="text-xs text-gray-500">1pt = ₱1</span>
                         </div>
-                        <input
-                          type="number"
-                          min="0"
-                          max={clientLoyaltyPoints}
-                          step="1"
-                          value={formData.loyaltyPointsUsed || ''}
-                          onChange={(e) => {
-                            const points = parseInt(e.target.value) || 0;
-                            if (points <= clientLoyaltyPoints) {
-                              setFormData(prev => ({ ...prev, loyaltyPointsUsed: points.toString() }));
-                            }
-                          }}
-                          className="w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent border-yellow-300"
-                          placeholder="Enter points to redeem"
-                        />
-                        {formData.loyaltyPointsUsed && parseInt(formData.loyaltyPointsUsed) > 0 && (
-                          <p className="text-xs text-green-600">Loyalty Applied: ₱{parseInt(formData.loyaltyPointsUsed) || 0}</p>
+                        
+                        {(appointment?.clientId || formData.clientId) && !isGuestCustomer ? (
+                          <>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-gray-600">Avail: <span className="font-bold text-yellow-700">{clientLoyaltyPoints}</span></span>
+                              <span className="text-gray-600">Earn: <span className="font-bold text-green-600">+{Math.floor((totals.total || 0) * 0.01)}</span></span>
+                            </div>
+                            
+                            {clientLoyaltyPoints > 0 ? (
+                              <>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={clientLoyaltyPoints}
+                                  step="1"
+                                  value={formData.loyaltyPointsUsed || ''}
+                                  onChange={(e) => {
+                                    const points = parseInt(e.target.value) || 0;
+                                    if (points <= clientLoyaltyPoints) {
+                                      setFormData(prev => ({ ...prev, loyaltyPointsUsed: points.toString() }));
+                                    }
+                                  }}
+                                  className="w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent border-yellow-300"
+                                  placeholder="Points to use"
+                                />
+                                {formData.loyaltyPointsUsed && parseInt(formData.loyaltyPointsUsed) > 0 && (
+                                  <p className="text-xs text-green-600">-₱{parseInt(formData.loyaltyPointsUsed) || 0}</p>
+                                )}
+                              </>
+                            ) : (
+                              <p className="text-xs text-gray-500">No points yet</p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-xs text-gray-500">{isGuestCustomer ? 'Guest checkout' : 'Select client'}</p>
                         )}
                       </div>
                     )}
@@ -3490,6 +3778,119 @@ const BillingModalPOS = ({
                     Confirm Payment
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service Product Usage Modal */}
+      {showServiceProductModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-[#2D1B4E] to-[#4A3B6B] p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Add Product Usage</h3>
+                  <p className="text-white/70 text-sm">{serviceProductModalData.serviceName}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowServiceProductModal(false)}
+                  className="text-white/70 hover:text-white"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 overflow-y-auto flex-1">
+              {(serviceProductModalData.productMappings || []).length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Package className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                  <p className="text-sm">No products mapped to this service</p>
+                  <p className="text-xs text-gray-400 mt-1">Configure product mappings in service settings</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600 mb-3">Select a product and usage amount:</p>
+                  {(serviceProductModalData.productMappings || []).map((mapping, idx) => (
+                    <div key={idx} className="border border-gray-200 rounded-lg p-3 hover:border-blue-300 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-gray-900">{mapping.productName}</h4>
+                        <span className="text-xs text-gray-500">
+                          ₱{productPriceMap[mapping.productId]?.toFixed(2) || '0.00'}/unit
+                        </span>
+                      </div>
+                      
+                      {/* Instructions/Quantities */}
+                      {mapping.instructions && mapping.instructions.length > 0 ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          {mapping.instructions.map((instr, instrIdx) => {
+                            const charge = ((productPriceMap[mapping.productId] || 0) * (instr.percentage / 100)).toFixed(2);
+                            return (
+                              <button
+                                key={instrIdx}
+                                type="button"
+                                onClick={() => handleAddServiceProductUsage(
+                                  mapping.productId,
+                                  mapping.productName,
+                                  instr.quantity,
+                                  instr.unit || mapping.unit || 'ml',
+                                  instr.percentage,
+                                  instr.instruction
+                                )}
+                                className="text-left p-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+                              >
+                                <p className="text-sm font-medium text-gray-800">
+                                  {instr.instruction || `${instr.quantity} ${instr.unit || mapping.unit || 'ml'}`}
+                                </p>
+                                <p className="text-xs text-gray-600">
+                                  {instr.quantity} {instr.unit || mapping.unit || 'ml'} • {instr.percentage}%
+                                </p>
+                                <p className="text-xs font-medium text-blue-700">+₱{charge}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleAddServiceProductUsage(
+                            mapping.productId,
+                            mapping.productName,
+                            mapping.quantity || 1,
+                            mapping.unit || 'ml',
+                            mapping.percentage || 0,
+                            ''
+                          )}
+                          className="w-full text-left p-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+                        >
+                          <p className="text-sm font-medium text-gray-800">
+                            {mapping.quantity || 1} {mapping.unit || 'ml'}
+                          </p>
+                          <p className="text-xs text-gray-600">{mapping.percentage || 0}% charge</p>
+                          <p className="text-xs font-medium text-blue-700">
+                            +₱{((productPriceMap[mapping.productId] || 0) * ((mapping.percentage || 0) / 100)).toFixed(2)}
+                          </p>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t p-4 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setShowServiceProductModal(false)}
+                className="w-full px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
               </button>
             </div>
           </div>

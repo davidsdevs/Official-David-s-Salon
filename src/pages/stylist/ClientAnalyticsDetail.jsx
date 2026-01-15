@@ -123,8 +123,8 @@ const ClientAnalyticsDetail = () => {
         }
 
         if (stylistItems.length > 0) {
-          if (data.branchId) branchesSet.add(data.branchId);
           if (data.branchName) branchesSet.add(data.branchName);
+          else if (data.branchId) branchesSet.add(data.branchId);
 
           const transactionTotal = stylistItems.reduce((sum, item) => {
             return sum + (item.price || item.adjustedPrice || 0) * (item.quantity || 1);

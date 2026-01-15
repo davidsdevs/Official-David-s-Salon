@@ -1056,6 +1056,11 @@ const ReceptionistAppointments = () => {
     setShowCancelModal(true);
   };
 
+  const handleConfirmAppointment = (appointment) => {
+    setAppointmentToConfirm(appointment);
+    setShowConfirmModal(true);
+  };
+
   const confirmCancel = async () => {
       try {
       setDeleting(true);
@@ -1096,6 +1101,15 @@ const ReceptionistAppointments = () => {
       'no_show': 'No Show'
     };
     return statusMap[status] || status || 'Unknown';
+  };
+
+  // Check if appointment is action required (pending for more than 24 hours)
+  const isActionRequired = (apt) => {
+    if (apt.status !== APPOINTMENT_STATUS.PENDING) return false;
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const createdAt = apt.createdAt?.toDate ? apt.createdAt.toDate() : new Date(apt.createdAt);
+    return createdAt <= twentyFourHoursAgo;
   };
 
   const generateTimeSlots = () => {
@@ -1272,83 +1286,7 @@ const ReceptionistAppointments = () => {
       </div>
 
       {/* Action Required Section - Appointments pending for 24+ hours */}
-      {(() => {
-        const now = new Date();
-        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        
-        const urgentAppointments = appointments.filter(apt => {
-          if (apt.status !== APPOINTMENT_STATUS.PENDING) return false;
-          const createdAt = apt.createdAt?.toDate ? apt.createdAt.toDate() : new Date(apt.createdAt);
-          return createdAt <= twentyFourHoursAgo;
-        });
-
-        if (urgentAppointments.length === 0) return null;
-
-        return (
-          <div className="bg-gradient-to-r from-orange-50 to-red-50 border-2 border-orange-300 rounded-lg p-4 shadow-md">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-orange-500 rounded-full">
-                <AlertTriangle className="w-5 h-5 text-white" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-bold text-orange-900 mb-1">
-                  Action Required - {urgentAppointments.length} Pending Appointment{urgentAppointments.length !== 1 ? 's' : ''}
-                </h3>
-                <p className="text-sm text-orange-700 mb-3">
-                  These appointments have been waiting for confirmation for more than 24 hours. Please confirm or cancel them as soon as possible.
-                </p>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {urgentAppointments.map(apt => {
-                    const createdAt = apt.createdAt?.toDate ? apt.createdAt.toDate() : new Date(apt.createdAt);
-                    const hoursAgo = Math.floor((now - createdAt) / (1000 * 60 * 60));
-                    const aptDate = new Date(apt.appointmentDate);
-                    
-                    return (
-                      <div 
-                        key={apt.id} 
-                        className="bg-white border border-orange-200 rounded-lg p-3 hover:border-orange-400 transition-colors cursor-pointer"
-                        onClick={() => handleViewAppointment(apt)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <p className="font-semibold text-gray-900">{apt.clientName}</p>
-                            <p className="text-sm text-gray-600">
-                              {aptDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {aptDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                            </p>
-                            <p className="text-xs text-orange-600 font-medium mt-1">
-                              Requested {hoursAgo} hours ago
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleConfirmAppointment(apt);
-                              }}
-                              className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
-                            >
-                              Confirm
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCancelAppointment(apt);
-                              }}
-                              className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {/* Removed Action Required Card - now using row highlighting instead */}
 
       {/* Status Tabs */}
       <div className="border-b border-gray-200">
@@ -2983,7 +2921,7 @@ const ReceptionistAppointments = () => {
 
 
                 return (
-                  <tr key={apt.id} className="border-b border-gray-400">
+                  <tr key={apt.id} className={`border-b border-gray-400 ${isActionRequired(apt) ? 'bg-orange-100' : ''}`}>
                     <td className="px-2 py-1.5 text-center text-black">{index + 1}</td>
                     <td className="px-2 py-1.5 text-black">
                       <div className="font-semibold">{dateStr}</div>

@@ -1,5 +1,6 @@
 // Purchase Orders Approval Page for Overall Inventory Controller
-import React, { useState, useEffect, useMemo } from 'react';
+// With pagination, branch filter, date range filter, and reports
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 
 import { Card } from '../../components/ui/Card';
@@ -21,23 +22,48 @@ import {
   Calendar,
   Package,
   TrendingDown,
-  TrendingUp
+  TrendingUp,
+  Building,
+  Download,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  BarChart3
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, orderBy, limit, startAfter } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { inventoryService } from '../../services/inventoryService';
+import { getAllBranches } from '../../services/branchService';
+import { exportToExcel } from '../../utils/excelExport';
+
+const ITEMS_PER_PAGE = 20;
 
 const OverallInventoryControllerPurchaseOrders = () => {
   const { userData } = useAuth();
+  
   // Data states
   const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [totalCount, setTotalCount] = useState(0);
 
-  // UI states
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [lastDoc, setLastDoc] = useState(null);
+  const [pageCache, setPageCache] = useState({}); // Cache for pagination
+
+  // Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [selectedBranch, setSelectedBranch] = useState('all');
+  const [dateRange, setDateRange] = useState('all'); // 'all', '7days', '30days', '90days', 'thisMonth', 'lastMonth', 'custom'
+  const [customDateStart, setCustomDateStart] = useState('');
+  const [customDateEnd, setCustomDateEnd] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  // UI states
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -48,35 +74,142 @@ const OverallInventoryControllerPurchaseOrders = () => {
   const [isConfirmApproveModalOpen, setIsConfirmApproveModalOpen] = useState(false);
   const [isConfirmRejectModalOpen, setIsConfirmRejectModalOpen] = useState(false);
   const [pendingOrderId, setPendingOrderId] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
 
-  // Load purchase orders that need approval (created by Inventory Controller, status = Received)
+  // Stats (calculated from all data, not just current page)
+  const [stats, setStats] = useState({
+    totalOrders: 0,
+    pendingApproval: 0,
+    approvedOrders: 0,
+    rejectedOrders: 0,
+    totalValue: 0
+  });
+
+  // Load branches on mount
   useEffect(() => {
-    loadPurchaseOrders();
+    loadBranches();
   }, []);
 
-  const loadPurchaseOrders = async () => {
+  const loadBranches = async () => {
+    try {
+      const branchesData = await getAllBranches();
+      setBranches(Array.isArray(branchesData) ? branchesData.filter(b => b.isActive !== false) : []);
+    } catch (err) {
+      console.error('Error loading branches:', err);
+      setBranches([]);
+    }
+  };
+
+  // Get date range for filtering
+  const getDateRange = useCallback(() => {
+    const now = new Date();
+    let startDate = null;
+    let endDate = null;
+
+    switch (dateRange) {
+      case '7days':
+        startDate = subDays(now, 7);
+        break;
+      case '30days':
+        startDate = subDays(now, 30);
+        break;
+      case '90days':
+        startDate = subDays(now, 90);
+        break;
+      case 'thisMonth':
+        startDate = startOfMonth(now);
+        endDate = endOfMonth(now);
+        break;
+      case 'lastMonth':
+        const lastMonth = subMonths(now, 1);
+        startDate = startOfMonth(lastMonth);
+        endDate = endOfMonth(lastMonth);
+        break;
+      case 'custom':
+        if (customDateStart) startDate = new Date(customDateStart);
+        if (customDateEnd) endDate = new Date(customDateEnd);
+        break;
+      default:
+        break;
+    }
+
+    return { startDate, endDate };
+  }, [dateRange, customDateStart, customDateEnd]);
+
+  // Load purchase orders with filters and pagination
+  const loadPurchaseOrders = useCallback(async (page = 1, resetCache = false) => {
     try {
       setLoading(true);
       setError(null);
 
+      if (resetCache) {
+        setPageCache({});
+        setLastDoc(null);
+      }
+
+      // Check cache first
+      if (pageCache[page] && !resetCache) {
+        setPurchaseOrders(pageCache[page].orders);
+        setLastDoc(pageCache[page].lastDoc);
+        setCurrentPage(page);
+        setLoading(false);
+        return;
+      }
+
       const purchaseOrdersRef = collection(db, 'purchaseOrders');
-      // Load all orders created by Inventory Controllers (not just Received)
-      const q = query(
-        purchaseOrdersRef,
-        where('createdByRole', '==', 'inventoryController')
-      );
+      const { startDate, endDate } = getDateRange();
+
+      // Build query constraints
+      let constraints = [where('createdByRole', '==', 'inventoryController')];
+
+      // Branch filter
+      if (selectedBranch !== 'all') {
+        constraints.push(where('branchId', '==', selectedBranch));
+      }
+
+      // Status filter
+      if (selectedStatus !== 'all') {
+        constraints.push(where('status', '==', selectedStatus));
+      }
+
+      // Always order by createdAt
+      constraints.push(orderBy('createdAt', 'desc'));
+
+      // Build and execute query
+      let q = query(purchaseOrdersRef, ...constraints);
+
+      // For pagination, we need to get all matching docs first for accurate count
+      // Then slice for current page (client-side pagination for complex filters)
       const snapshot = await getDocs(q);
 
-      const ordersList = [];
+      let ordersList = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : 
+                         (data.createdAt ? new Date(data.createdAt) : new Date());
+
+        // Apply date filter client-side (Firestore doesn't support multiple range queries)
+        if (startDate && createdAt < startDate) return;
+        if (endDate && createdAt > endDate) return;
+
+        // Apply search filter client-side
+        if (searchTerm) {
+          const searchLower = searchTerm.toLowerCase();
+          const matchesSearch = 
+            (data.orderId || '').toLowerCase().includes(searchLower) ||
+            (data.supplierName || '').toLowerCase().includes(searchLower) ||
+            (data.notes || '').toLowerCase().includes(searchLower) ||
+            (data.branchName || '').toLowerCase().includes(searchLower);
+          if (!matchesSearch) return;
+        }
+
         ordersList.push({
           id: doc.id,
           ...data,
           status: data.status ? String(data.status).trim() : data.status,
           orderDate: data.orderDate?.toDate ? data.orderDate.toDate() : new Date(data.orderDate),
           expectedDelivery: data.expectedDelivery?.toDate ? data.expectedDelivery.toDate() : new Date(data.expectedDelivery),
-          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
+          createdAt: createdAt,
           receivedAt: data.receivedAt?.toDate ? data.receivedAt.toDate() : (data.receivedAt ? new Date(data.receivedAt) : null),
           approvedAt: data.approvedAt?.toDate ? data.approvedAt.toDate() : (data.approvedAt ? new Date(data.approvedAt) : null),
           rejectedAt: data.rejectedAt?.toDate ? data.rejectedAt.toDate() : (data.rejectedAt ? new Date(data.rejectedAt) : null),
@@ -85,45 +218,142 @@ const OverallInventoryControllerPurchaseOrders = () => {
       });
 
       // Sort by createdAt descending
-      ordersList.sort((a, b) => {
-        const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
-        const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
-        return dateB.getTime() - dateA.getTime();
-      });
+      ordersList.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-      setPurchaseOrders(ordersList);
+      // Calculate stats from all filtered data
+      const newStats = {
+        totalOrders: ordersList.length,
+        pendingApproval: ordersList.filter(o => o.status === 'Pending').length,
+        approvedOrders: ordersList.filter(o => o.status === 'Approved' || o.status === 'In Transit').length,
+        rejectedOrders: ordersList.filter(o => o.status === 'Rejected').length,
+        totalValue: ordersList.reduce((sum, o) => sum + (o.totalAmount || 0), 0)
+      };
+      setStats(newStats);
+      setTotalCount(ordersList.length);
+
+      // Paginate
+      const startIndex = (page - 1) * ITEMS_PER_PAGE;
+      const endIndex = startIndex + ITEMS_PER_PAGE;
+      const paginatedOrders = ordersList.slice(startIndex, endIndex);
+
+      // Cache the page
+      setPageCache(prev => ({
+        ...prev,
+        [page]: { orders: paginatedOrders, lastDoc: null }
+      }));
+
+      setPurchaseOrders(paginatedOrders);
+      setCurrentPage(page);
     } catch (err) {
       console.error('Error loading purchase orders:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  }, [selectedBranch, selectedStatus, searchTerm, getDateRange, pageCache]);
+
+  // Load on mount and when filters change
+  useEffect(() => {
+    loadPurchaseOrders(1, true);
+  }, [selectedBranch, selectedStatus, dateRange, customDateStart, customDateEnd]);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadPurchaseOrders(1, true);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Pagination handlers
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      loadPurchaseOrders(newPage);
+    }
   };
 
-  // Filter purchase orders
-  const filteredOrders = useMemo(() => {
-    return purchaseOrders.filter(order => {
-      const matchesSearch = 
-        order.orderId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.supplierName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.notes?.toLowerCase().includes(searchTerm.toLowerCase());
+  // Export to Excel
+  const handleExport = async () => {
+    try {
+      setIsExporting(true);
+      
+      // Get all filtered data for export
+      const purchaseOrdersRef = collection(db, 'purchaseOrders');
+      const { startDate, endDate } = getDateRange();
 
-      const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus;
+      let constraints = [where('createdByRole', '==', 'inventoryController')];
+      if (selectedBranch !== 'all') {
+        constraints.push(where('branchId', '==', selectedBranch));
+      }
+      if (selectedStatus !== 'all') {
+        constraints.push(where('status', '==', selectedStatus));
+      }
+      constraints.push(orderBy('createdAt', 'desc'));
 
-      return matchesSearch && matchesStatus;
-    });
-  }, [purchaseOrders, searchTerm, selectedStatus]);
+      const q = query(purchaseOrdersRef, ...constraints);
+      const snapshot = await getDocs(q);
 
-  // Purchase order statistics
-  const orderStats = useMemo(() => {
-    return {
-      totalOrders: purchaseOrders.length,
-      pendingApproval: purchaseOrders.filter(o => o.status === 'Pending').length,
-      approvedOrders: purchaseOrders.filter(o => o.status === 'Approved' || o.status === 'In Transit').length,
-      rejectedOrders: purchaseOrders.filter(o => o.status === 'Rejected').length,
-      totalValue: purchaseOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0)
-    };
-  }, [purchaseOrders]);
+      const exportData = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+
+        if (startDate && createdAt < startDate) return;
+        if (endDate && createdAt > endDate) return;
+
+        if (searchTerm) {
+          const searchLower = searchTerm.toLowerCase();
+          const matchesSearch = 
+            (data.orderId || '').toLowerCase().includes(searchLower) ||
+            (data.supplierName || '').toLowerCase().includes(searchLower);
+          if (!matchesSearch) return;
+        }
+
+        exportData.push({
+          'Order ID': data.orderId || doc.id,
+          'Branch': data.branchName || 'Unknown',
+          'Supplier': data.supplierName || 'Unknown',
+          'Status': data.status || 'Unknown',
+          'Order Date': data.orderDate?.toDate ? format(data.orderDate.toDate(), 'yyyy-MM-dd') : 'N/A',
+          'Expected Delivery': data.expectedDelivery?.toDate ? format(data.expectedDelivery.toDate(), 'yyyy-MM-dd') : 'N/A',
+          'Total Amount': data.totalAmount || 0,
+          'Items Count': data.items?.length || 0,
+          'Created By': data.createdByName || 'Unknown',
+          'Created At': createdAt ? format(createdAt, 'yyyy-MM-dd HH:mm') : 'N/A',
+          'Approved By': data.approvedByName || '',
+          'Approved At': data.approvedAt?.toDate ? format(data.approvedAt.toDate(), 'yyyy-MM-dd HH:mm') : '',
+          'Rejected By': data.rejectedByName || '',
+          'Rejection Note': data.rejectionNote || ''
+        });
+      });
+
+      if (exportData.length === 0) {
+        setError('No data to export');
+        return;
+      }
+
+      const fileName = `PurchaseOrders_${format(new Date(), 'yyyyMMdd_HHmmss')}`;
+      exportToExcel(exportData, fileName, 'Purchase Orders');
+    } catch (err) {
+      console.error('Error exporting:', err);
+      setError('Failed to export data');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Reset filters
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setSelectedStatus('all');
+    setSelectedBranch('all');
+    setDateRange('all');
+    setCustomDateStart('');
+    setCustomDateEnd('');
+    setCurrentPage(1);
+  };
 
   // Get status color
   const getStatusColor = (status) => {
@@ -156,13 +386,12 @@ const OverallInventoryControllerPurchaseOrders = () => {
     }
   };
 
-  // Open approve confirmation modal
+  // Approve/Reject handlers
   const handleOpenApproveModal = (orderId) => {
     setPendingOrderId(orderId);
     setIsConfirmApproveModalOpen(true);
   };
 
-  // Handle approve order (after confirmation)
   const handleApproveOrder = async () => {
     if (!pendingOrderId) return;
     
@@ -179,7 +408,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
         approvedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
-      await loadPurchaseOrders();
+      await loadPurchaseOrders(currentPage, true);
       setIsConfirmApproveModalOpen(false);
       setIsDetailsModalOpen(false);
       setSelectedOrder(null);
@@ -193,14 +422,12 @@ const OverallInventoryControllerPurchaseOrders = () => {
     }
   };
 
-  // Open reject modal
   const handleOpenRejectModal = (order) => {
     setSelectedOrder(order);
     setRejectionNote('');
     setIsRejectModalOpen(true);
   };
 
-  // Handle reject order confirmation (opens confirmation modal after note is entered)
   const handleRejectOrderConfirm = () => {
     if (!selectedOrder || !rejectionNote.trim()) {
       setError('Rejection note is required');
@@ -209,7 +436,6 @@ const OverallInventoryControllerPurchaseOrders = () => {
     setIsConfirmRejectModalOpen(true);
   };
 
-  // Handle reject order with note (after confirmation)
   const handleRejectOrder = async () => {
     if (!selectedOrder || !rejectionNote.trim()) {
       setError('Rejection note is required');
@@ -230,7 +456,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
         rejectionNote: rejectionNote.trim(),
         updatedAt: serverTimestamp()
       });
-      await loadPurchaseOrders();
+      await loadPurchaseOrders(currentPage, true);
       setIsConfirmRejectModalOpen(false);
       setIsRejectModalOpen(false);
       setIsDetailsModalOpen(false);
@@ -244,26 +470,18 @@ const OverallInventoryControllerPurchaseOrders = () => {
     }
   };
 
-  // Check if order can be approved/rejected (Only Pending status - Received orders cannot be approved again)
-  const canApproveOrReject = (order) => {
-    return order.status === 'Pending';
-  };
+  const canApproveOrReject = (order) => order.status === 'Pending';
 
-  // Load branch stocks when viewing order details
+  // Load branch stocks for order details
   const loadBranchStocks = async (branchId) => {
     if (!branchId) {
       setBranchStocks([]);
       return;
     }
-
     try {
       setLoadingStocks(true);
       const result = await inventoryService.getBranchStocks(branchId);
-      if (result.success) {
-        setBranchStocks(result.stocks);
-      } else {
-        setBranchStocks([]);
-      }
+      setBranchStocks(result.success ? result.stocks : []);
     } catch (err) {
       console.error('Error loading branch stocks:', err);
       setBranchStocks([]);
@@ -272,13 +490,11 @@ const OverallInventoryControllerPurchaseOrders = () => {
     }
   };
 
-  // Get current stock for a product
   const getCurrentStock = (productId) => {
     const stock = branchStocks.find(s => s.productId === productId);
     return stock ? stock.currentStock || 0 : null;
   };
 
-  // Get stock status indicator
   const getStockStatus = (productId, orderedQty) => {
     const currentStock = getCurrentStock(productId);
     if (currentStock === null) return { text: 'No stock data', color: 'text-gray-500', icon: null };
@@ -295,13 +511,18 @@ const OverallInventoryControllerPurchaseOrders = () => {
     }
   };
 
-  // Handle open details modal
   const handleOpenDetailsModal = (order) => {
     setSelectedOrder(order);
     setIsDetailsModalOpen(true);
     if (order.branchId) {
       loadBranchStocks(order.branchId);
     }
+  };
+
+  // Get branch name helper
+  const getBranchName = (branchId) => {
+    const branch = branches.find(b => b.id === branchId);
+    return branch?.name || branch?.branchName || 'Unknown Branch';
   };
 
   if (loading && purchaseOrders.length === 0) {
@@ -317,10 +538,28 @@ const OverallInventoryControllerPurchaseOrders = () => {
     <>
     <div className="space-y-4 md:space-y-6 p-4 md:p-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Purchase Orders Approval</h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">Monitor purchase orders processed by Branch Managers</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Purchase Orders</h1>
+          <p className="text-sm md:text-base text-gray-600 mt-1">Monitor and manage purchase orders across all branches</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={isExporting || totalCount === 0}
+            className="flex items-center gap-2"
+          >
+            {isExporting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button
+            onClick={() => loadPurchaseOrders(1, true)}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
         </div>
       </div>
 
@@ -338,100 +577,172 @@ const OverallInventoryControllerPurchaseOrders = () => {
       )}
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
         <Card className="p-3 md:p-4">
           <div className="flex items-center">
-            <ShoppingCart className="h-8 w-8 text-blue-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Total Orders</p>
-              <p className="text-xl font-bold text-gray-900">{orderStats.totalOrders}</p>
+            <ShoppingCart className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+            <div className="ml-2 md:ml-3">
+              <p className="text-xs md:text-sm font-medium text-gray-600">Total Orders</p>
+              <p className="text-lg md:text-xl font-bold text-gray-900">{stats.totalOrders}</p>
             </div>
           </div>
         </Card>
-          
-        <Card className="p-4">
+        <Card className="p-3 md:p-4">
           <div className="flex items-center">
-            <Clock className="h-8 w-8 text-yellow-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Pending Approval</p>
-              <p className="text-xl font-bold text-gray-900">{orderStats.pendingApproval}</p>
+            <Clock className="h-6 w-6 md:h-8 md:w-8 text-yellow-600" />
+            <div className="ml-2 md:ml-3">
+              <p className="text-xs md:text-sm font-medium text-gray-600">Pending</p>
+              <p className="text-lg md:text-xl font-bold text-gray-900">{stats.pendingApproval}</p>
             </div>
           </div>
         </Card>
-          
-        <Card className="p-4">
+        <Card className="p-3 md:p-4">
           <div className="flex items-center">
-            <CheckCircle className="h-8 w-8 text-green-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Approved</p>
-              <p className="text-xl font-bold text-gray-900">{orderStats.approvedOrders}</p>
+            <CheckCircle className="h-6 w-6 md:h-8 md:w-8 text-green-600" />
+            <div className="ml-2 md:ml-3">
+              <p className="text-xs md:text-sm font-medium text-gray-600">Approved</p>
+              <p className="text-lg md:text-xl font-bold text-gray-900">{stats.approvedOrders}</p>
             </div>
           </div>
         </Card>
-          
-        <Card className="p-4">
+        <Card className="p-3 md:p-4">
           <div className="flex items-center">
-            <XCircle className="h-8 w-8 text-red-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Rejected</p>
-              <p className="text-xl font-bold text-gray-900">{orderStats.rejectedOrders}</p>
+            <XCircle className="h-6 w-6 md:h-8 md:w-8 text-red-600" />
+            <div className="ml-2 md:ml-3">
+              <p className="text-xs md:text-sm font-medium text-gray-600">Rejected</p>
+              <p className="text-lg md:text-xl font-bold text-gray-900">{stats.rejectedOrders}</p>
             </div>
           </div>
         </Card>
-          
-        <Card className="p-4">
+        <Card className="p-3 md:p-4 col-span-2 sm:col-span-1">
           <div className="flex items-center">
-            <Banknote className="h-8 w-8 text-purple-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Total Value</p>
-              <p className="text-xl font-bold text-gray-900">₱{orderStats.totalValue.toLocaleString()}</p>
+            <Banknote className="h-6 w-6 md:h-8 md:w-8 text-purple-600" />
+            <div className="ml-2 md:ml-3">
+              <p className="text-xs md:text-sm font-medium text-gray-600">Total Value</p>
+              <p className="text-lg md:text-xl font-bold text-gray-900">₱{stats.totalValue.toLocaleString()}</p>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* Search and Filters */}
+      {/* Filters */}
       <Card className="p-4 md:p-6">
-        <div className="flex flex-col md:flex-row gap-3 md:gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              type="text"
-              placeholder="Search by order ID, supplier, or notes..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 text-sm md:text-base"
-            />
+        <div className="space-y-4">
+          {/* Search and Toggle */}
+          <div className="flex flex-col md:flex-row gap-3">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Search by order ID, supplier, branch..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant={showFilters ? 'default' : 'outline'}
+                onClick={() => setShowFilters(!showFilters)}
+                className="flex items-center gap-2"
+              >
+                <Filter className="h-4 w-4" />
+                Filters
+                {(selectedBranch !== 'all' || selectedStatus !== 'all' || dateRange !== 'all') && (
+                  <span className="ml-1 px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded-full">
+                    {[selectedBranch !== 'all', selectedStatus !== 'all', dateRange !== 'all'].filter(Boolean).length}
+                  </span>
+                )}
+              </Button>
+              <Button variant="outline" onClick={handleResetFilters} className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Reset
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2 md:gap-3">
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="flex-1 md:flex-none px-3 py-2 text-sm md:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-            >
-              <option value="all">All Status</option>
-              <option value="Pending">Pending</option>
-              <option value="Received">Received</option>
-              <option value="Approved">Approved</option>
-              <option value="In Transit">In Transit</option>
-              <option value="Rejected">Rejected</option>
-              <option value="Shipped">Shipped</option>
-              <option value="Delivered">Delivered</option>
-              <option value="Cancelled">Cancelled</option>
-              <option value="Overdue">Overdue</option>
-            </select>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSearchTerm('');
-                setSelectedStatus('all');
-              }}
-              className="flex items-center gap-2 px-3 md:px-4"
-            >
-              <RefreshCw className="h-4 w-4" />
-              <span className="hidden sm:inline">Reset</span>
-            </Button>
-          </div>
+
+          {/* Expanded Filters */}
+          {showFilters && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-4 border-t">
+              {/* Branch Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+                <select
+                  value={selectedBranch}
+                  onChange={(e) => setSelectedBranch(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Branches</option>
+                  {branches.map(branch => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name || branch.branchName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Status</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Received">Received</option>
+                  <option value="Approved">Approved</option>
+                  <option value="In Transit">In Transit</option>
+                  <option value="Rejected">Rejected</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              {/* Date Range Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+                <select
+                  value={dateRange}
+                  onChange={(e) => setDateRange(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Time</option>
+                  <option value="7days">Last 7 Days</option>
+                  <option value="30days">Last 30 Days</option>
+                  <option value="90days">Last 90 Days</option>
+                  <option value="thisMonth">This Month</option>
+                  <option value="lastMonth">Last Month</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+              </div>
+
+              {/* Custom Date Range */}
+              {dateRange === 'custom' && (
+                <div className="sm:col-span-2 lg:col-span-1 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">From</label>
+                    <input
+                      type="date"
+                      value={customDateStart}
+                      onChange={(e) => setCustomDateStart(e.target.value)}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">To</label>
+                    <input
+                      type="date"
+                      value={customDateEnd}
+                      onChange={(e) => setCustomDateEnd(e.target.value)}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Card>
 
@@ -441,100 +752,74 @@ const OverallInventoryControllerPurchaseOrders = () => {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Order ID
-                </th>
-                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Supplier
-                </th>
-                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
-                  Order Date
-                </th>
-                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
-                  Expected Delivery
-                </th>
-                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total Amount
-                </th>
-                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
-                  Created By
-                </th>
-                <th className="px-3 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="px-3 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
+                <th className="px-3 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase">Branch</th>
+                <th className="px-3 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Supplier</th>
+                <th className="px-3 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase hidden lg:table-cell">Order Date</th>
+                <th className="px-3 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-3 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                <th className="px-3 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredOrders.length === 0 ? (
+              {loading ? (
                 <tr>
-                  <td colSpan="8" className="px-4 md:px-6 py-8 text-center text-gray-500">
-                    No purchase orders found
+                  <td colSpan="7" className="px-4 py-8 text-center">
+                    <RefreshCw className="h-6 w-6 animate-spin text-blue-600 mx-auto mb-2" />
+                    <p className="text-gray-500">Loading...</p>
+                  </td>
+                </tr>
+              ) : purchaseOrders.length === 0 ? (
+                <tr>
+                  <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
+                    <ShoppingCart className="h-12 w-12 text-gray-300 mx-auto mb-2" />
+                    <p>No purchase orders found</p>
+                    <p className="text-sm">Try adjusting your filters</p>
                   </td>
                 </tr>
               ) : (
-                filteredOrders.map((order) => (
+                purchaseOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-gray-50">
-                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap">
-                      <div className="text-xs md:text-sm font-medium text-gray-900">{order.orderId || order.id}</div>
+                    <td className="px-3 md:px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{order.orderId || order.id.slice(0, 8)}</div>
                     </td>
-                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap">
-                      <div className="text-xs md:text-sm text-gray-900 truncate max-w-[120px] md:max-w-none">{order.supplierName || 'Unknown'}</div>
+                    <td className="px-3 md:px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <Building className="h-3 w-3 text-gray-400" />
+                        <span className="text-sm text-gray-900 truncate max-w-[100px]">
+                          {order.branchName || getBranchName(order.branchId)}
+                        </span>
+                      </div>
                     </td>
-                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap hidden md:table-cell">
-                      <div className="text-xs md:text-sm text-gray-900">
+                    <td className="px-3 md:px-4 py-3 whitespace-nowrap hidden md:table-cell">
+                      <div className="text-sm text-gray-900 truncate max-w-[150px]">{order.supplierName || 'Unknown'}</div>
+                    </td>
+                    <td className="px-3 md:px-4 py-3 whitespace-nowrap hidden lg:table-cell">
+                      <div className="text-sm text-gray-900">
                         {order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}
                       </div>
                     </td>
-                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap hidden lg:table-cell">
-                      <div className="text-xs md:text-sm text-gray-900">
-                        {order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}
-                      </div>
-                    </td>
-                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2 md:px-3 py-1 rounded-full text-xs md:text-sm font-medium border ${getStatusColor(order.status)}`}>
+                    <td className="px-3 md:px-4 py-3 whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(order.status)}`}>
                         {getStatusIcon(order.status)}
-                        <span className="hidden sm:inline">{order.status}</span>
-                        <span className="sm:hidden">{order.status.split(' ')[0]}</span>
+                        {order.status}
                       </span>
                     </td>
-                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap">
-                      <div className="text-xs md:text-sm font-medium text-gray-900">₱{(order.totalAmount || 0).toLocaleString()}</div>
+                    <td className="px-3 md:px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">₱{(order.totalAmount || 0).toLocaleString()}</div>
                     </td>
-                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap hidden lg:table-cell">
-                      <div className="text-xs md:text-sm text-gray-900">{order.createdByName || 'Unknown'}</div>
-                      <div className="text-xs text-gray-500">Inventory Controller</div>
-                    </td>
-                    <td className="px-3 md:px-6 py-3 md:py-4 whitespace-nowrap text-xs md:text-sm font-medium">
-                      <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleOpenDetailsModal(order)}
-                          className="flex items-center gap-1 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
-                        >
-                          <Eye className="h-3 w-3 md:h-4 md:w-4" />
-                          <span className="hidden sm:inline">View</span>
+                    <td className="px-3 md:px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <Button size="sm" variant="outline" onClick={() => handleOpenDetailsModal(order)} className="px-2 py-1">
+                          <Eye className="h-4 w-4" />
                         </Button>
                         {canApproveOrReject(order) && (
                           <>
-                            <Button
-                              size="sm"
-                              onClick={() => handleOpenApproveModal(order.id)}
-                              disabled={isProcessing}
-                              className="bg-green-600 text-white hover:bg-green-700 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
-                            >
-                              Approve
+                            <Button size="sm" onClick={() => handleOpenApproveModal(order.id)} className="bg-green-600 hover:bg-green-700 text-white px-2 py-1">
+                              <CheckCircle className="h-4 w-4" />
                             </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => handleOpenRejectModal(order)}
-                              disabled={isProcessing}
-                              className="bg-red-600 text-white hover:bg-red-700 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
-                            >
-                              Reject
+                            <Button size="sm" onClick={() => handleOpenRejectModal(order)} className="bg-red-600 hover:bg-red-700 text-white px-2 py-1">
+                              <XCircle className="h-4 w-4" />
                             </Button>
                           </>
                         )}
@@ -546,245 +831,193 @@ const OverallInventoryControllerPurchaseOrders = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="text-sm text-gray-600">
+              Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} of {totalCount} orders
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1 || loading}
+                className="flex items-center gap-1"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Prev
+              </Button>
+              
+              <div className="flex items-center gap-1">
+                {/* Page numbers */}
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={currentPage === pageNum ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handlePageChange(pageNum)}
+                      disabled={loading}
+                      className="w-8 h-8 p-0"
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages || loading}
+                className="flex items-center gap-1"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
 
     {/* Order Details Modal */}
     {isDetailsModalOpen && selectedOrder && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-3 md:p-4">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col transform transition-all duration-300 scale-100">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 md:p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
           {/* Modal Header */}
           <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-4 md:p-6">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
-                <div className="p-1.5 md:p-2 bg-white/20 rounded-lg flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg">
                   <FileText className="h-5 w-5 md:h-6 md:w-6" />
                 </div>
-                <div className="min-w-0">
-                  <h2 className="text-lg md:text-2xl font-bold truncate">Purchase Order Details</h2>
-                  <p className="text-white/80 text-xs md:text-sm mt-1 truncate">{selectedOrder.orderId || selectedOrder.id}</p>
+                <div>
+                  <h2 className="text-lg md:text-xl font-bold">Purchase Order Details</h2>
+                  <p className="text-white/80 text-sm">{selectedOrder.orderId || selectedOrder.id}</p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setIsDetailsModalOpen(false);
-                  setSelectedOrder(null);
-                  setBranchStocks([]);
-                }}
-                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors flex-shrink-0 ml-2"
-              >
+              <Button variant="ghost" onClick={() => { setIsDetailsModalOpen(false); setSelectedOrder(null); setBranchStocks([]); }} className="text-white hover:bg-white/20 rounded-full p-2">
                 <X className="h-5 w-5" />
               </Button>
             </div>
           </div>
 
           {/* Modal Content */}
-          <div className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="space-y-4 md:space-y-6">
-              {/* Order Header */}
-              <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-lg md:text-xl font-bold text-gray-900 truncate">{selectedOrder.supplierName || 'Unknown Supplier'}</h3>
-                  <p className="text-sm md:text-base text-gray-600">Order Date: {selectedOrder.orderDate ? format(new Date(selectedOrder.orderDate), 'MMM dd, yyyy') : 'N/A'}</p>
-                </div>
-                <span className={`inline-flex items-center gap-1 px-2 md:px-3 py-1 rounded-full text-xs md:text-sm font-medium border flex-shrink-0 ${getStatusColor(selectedOrder.status)}`}>
-                  {getStatusIcon(selectedOrder.status)}
-                  {selectedOrder.status}
-                </span>
-              </div>
-
-              {/* Order Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Expected Delivery</label>
-                    <p className="text-gray-900">
-                      {selectedOrder.expectedDelivery ? format(new Date(selectedOrder.expectedDelivery), 'MMM dd, yyyy') : 'Not set'}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Created By</label>
-                    <p className="text-gray-900">{selectedOrder.createdByName || 'Unknown'}</p>
-                    <p className="text-xs text-gray-500">Inventory Controller</p>
-                  </div>
-                  {selectedOrder.receivedByName && (
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Received By</label>
-                      <p className="text-gray-900">{selectedOrder.receivedByName}</p>
-                      {selectedOrder.receivedAt && (
-                        <p className="text-xs text-gray-500">
-                          {format(new Date(selectedOrder.receivedAt), 'MMM dd, yyyy HH:mm')}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {selectedOrder.approvedByName && (
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Approved By</label>
-                      <p className="text-gray-900 text-green-600 font-semibold">{selectedOrder.approvedByName}</p>
-                      {selectedOrder.approvedAt && (
-                        <p className="text-xs text-gray-500">
-                          {format(new Date(selectedOrder.approvedAt), 'MMM dd, yyyy HH:mm')}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {selectedOrder.rejectedByName && (
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Rejected By</label>
-                      <p className="text-gray-900 text-red-600 font-semibold">{selectedOrder.rejectedByName}</p>
-                      {selectedOrder.rejectedAt && (
-                        <p className="text-xs text-gray-500">
-                          {format(new Date(selectedOrder.rejectedAt), 'MMM dd, yyyy HH:mm')}
-                        </p>
-                      )}
-                      {selectedOrder.rejectionNote && (
-                        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                          <p className="text-sm font-medium text-red-800">Rejection Note:</p>
-                          <p className="text-sm text-red-700 mt-1">{selectedOrder.rejectionNote}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Total Amount</label>
-                    <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
-                  </div>
-                  {selectedOrder.notes && (
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Notes</label>
-                      <p className="text-gray-900">{selectedOrder.notes}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Branch Stock Info */}
-              {selectedOrder.branchId && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Package className="h-5 w-5 text-blue-600" />
-                      <h4 className="font-semibold text-blue-900">Branch Current Stock</h4>
-                    </div>
-                    {loadingStocks ? (
-                      <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
-                    ) : (
-                      <span className="text-sm text-blue-700">
-                        {branchStocks.length} products tracked
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-blue-600 mt-1">
-                    Current stock levels help determine if this order is justified
-                  </p>
-                </div>
-              )}
-
-              {/* Order Items */}
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+            {/* Order Header */}
+            <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
               <div>
-                <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-3 md:mb-4">Order Items</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-3 md:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                        <th className="px-3 md:px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Ordered Qty</th>
-                        <th className="px-3 md:px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Current Stock</th>
-                        <th className="px-3 md:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
-                        <th className="px-3 md:px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {selectedOrder.items && selectedOrder.items.length > 0 ? (
-                        selectedOrder.items.map((item, index) => {
-                          const stockStatus = getStockStatus(item.productId, item.quantity);
-                          const currentStock = getCurrentStock(item.productId);
-                            
-                          return (
-                            <tr key={index} className={currentStock !== null && currentStock <= (branchStocks.find(s => s.productId === item.productId)?.minStock || 0) ? 'bg-red-50' : ''}>
-                              <td className="px-3 md:px-4 py-2 md:py-3">
-                                <div className="font-medium text-gray-900 text-sm">{item.productName}</div>
-                                {item.sku && (
-                                  <div className="text-xs text-gray-500">SKU: {item.sku}</div>
-                                )}
-                              </td>
-                              <td className="px-3 md:px-4 py-2 md:py-3 text-center">
-                                <div className="text-gray-900 font-medium text-sm">{item.quantity}</div>
-                              </td>
-                              <td className="px-3 md:px-4 py-2 md:py-3 text-center">
-                                {loadingStocks ? (
-                                  <RefreshCw className="h-4 w-4 animate-spin text-gray-400 mx-auto" />
-                                ) : (
-                                  <div className={`flex items-center justify-center gap-1 ${stockStatus.color}`}>
-                                    {stockStatus.icon}
-                                    <span className="text-xs md:text-sm font-medium">{stockStatus.text}</span>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="px-3 md:px-4 py-2 md:py-3 text-gray-900 text-sm">₱{(item.unitPrice || 0).toLocaleString()}</td>
-                              <td className="px-3 md:px-4 py-2 md:py-3 text-right font-semibold text-gray-900 text-sm">₱{(item.totalPrice || 0).toLocaleString()}</td>
-                            </tr>
-                          );
-                        })
-                      ) : (
-                        <tr>
-                          <td colSpan="5" className="px-3 md:px-4 py-4 text-center text-gray-500">No items</td>
-                        </tr>
-                      )}
-                    </tbody>
-                    {selectedOrder.items && selectedOrder.items.length > 0 && (
-                      <tfoot className="bg-gray-50">
-                        <tr>
-                          <td colSpan="4" className="px-3 md:px-4 py-2 md:py-3 text-right font-semibold text-gray-900 text-sm md:text-base">Total:</td>
-                          <td className="px-3 md:px-4 py-2 md:py-3 text-right font-bold text-[#160B53] text-base md:text-lg">
-                            ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
+                <h3 className="text-lg font-bold text-gray-900">{selectedOrder.supplierName || 'Unknown Supplier'}</h3>
+                <p className="text-sm text-gray-600">Branch: {selectedOrder.branchName || getBranchName(selectedOrder.branchId)}</p>
+                <p className="text-sm text-gray-600">Order Date: {selectedOrder.orderDate ? format(new Date(selectedOrder.orderDate), 'MMM dd, yyyy') : 'N/A'}</p>
+              </div>
+              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(selectedOrder.status)}`}>
+                {getStatusIcon(selectedOrder.status)}
+                {selectedOrder.status}
+              </span>
+            </div>
+
+            {/* Order Info Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <label className="text-xs font-medium text-gray-500">Expected Delivery</label>
+                <p className="text-sm font-semibold text-gray-900">{selectedOrder.expectedDelivery ? format(new Date(selectedOrder.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <label className="text-xs font-medium text-gray-500">Total Amount</label>
+                <p className="text-sm font-bold text-green-600">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <label className="text-xs font-medium text-gray-500">Created By</label>
+                <p className="text-sm font-semibold text-gray-900">{selectedOrder.createdByName || 'Unknown'}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <label className="text-xs font-medium text-gray-500">Items</label>
+                <p className="text-sm font-semibold text-gray-900">{selectedOrder.items?.length || 0} products</p>
+              </div>
+            </div>
+
+            {/* Approval/Rejection Info */}
+            {selectedOrder.approvedByName && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-sm text-green-800"><strong>Approved by:</strong> {selectedOrder.approvedByName}</p>
+                {selectedOrder.approvedAt && <p className="text-xs text-green-600">{format(new Date(selectedOrder.approvedAt), 'MMM dd, yyyy HH:mm')}</p>}
+              </div>
+            )}
+            {selectedOrder.rejectedByName && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-800"><strong>Rejected by:</strong> {selectedOrder.rejectedByName}</p>
+                {selectedOrder.rejectedAt && <p className="text-xs text-red-600">{format(new Date(selectedOrder.rejectedAt), 'MMM dd, yyyy HH:mm')}</p>}
+                {selectedOrder.rejectionNote && <p className="text-sm text-red-700 mt-2 italic">"{selectedOrder.rejectionNote}"</p>}
+              </div>
+            )}
+
+            {/* Order Items Table */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-900 mb-2">Order Items</h4>
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
+                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Qty</th>
+                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Current Stock</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Unit Price</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {selectedOrder.items?.map((item, index) => {
+                      const stockStatus = getStockStatus(item.productId, item.quantity);
+                      return (
+                        <tr key={index}>
+                          <td className="px-3 py-2 font-medium text-gray-900">{item.productName}</td>
+                          <td className="px-3 py-2 text-center">{item.quantity}</td>
+                          <td className="px-3 py-2 text-center">
+                            {loadingStocks ? (
+                              <RefreshCw className="h-3 w-3 animate-spin mx-auto" />
+                            ) : (
+                              <span className={`flex items-center justify-center gap-1 ${stockStatus.color}`}>
+                                {stockStatus.icon}
+                                {stockStatus.text}
+                              </span>
+                            )}
                           </td>
+                          <td className="px-3 py-2 text-right">₱{(item.unitPrice || 0).toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right font-semibold">₱{(item.totalPrice || 0).toLocaleString()}</td>
                         </tr>
-                      </tfoot>
-                    )}
-                  </table>
-                </div>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
 
           {/* Modal Footer */}
-          <div className="border-t border-gray-200 p-4 md:p-6 bg-gray-50">
-            <div className="flex flex-col sm:flex-row justify-end gap-2 md:gap-3">
-              {canApproveOrReject(selectedOrder) && (
-                <>
-                  <Button
-                    onClick={() => handleOpenRejectModal(selectedOrder)}
-                    disabled={isProcessing}
-                    className="bg-red-600 text-white hover:bg-red-700 w-full sm:w-auto"
-                  >
-                    Reject
-                  </Button>
-                  <Button
-                    onClick={() => handleOpenApproveModal(selectedOrder.id)}
-                    disabled={isProcessing}
-                    className="bg-green-600 text-white hover:bg-green-700 w-full sm:w-auto"
-                  >
-                    Approve
-                  </Button>
-                </>
-              )}
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIsDetailsModalOpen(false);
-                  setSelectedOrder(null);
-                  setBranchStocks([]);
-                }}
-                className="border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
-              >
-                Close
-              </Button>
-            </div>
+          <div className="border-t p-4 bg-gray-50 flex justify-end gap-2">
+            {canApproveOrReject(selectedOrder) && (
+              <>
+                <Button onClick={() => handleOpenRejectModal(selectedOrder)} className="bg-red-600 hover:bg-red-700 text-white">Reject</Button>
+                <Button onClick={() => handleOpenApproveModal(selectedOrder.id)} className="bg-green-600 hover:bg-green-700 text-white">Approve</Button>
+              </>
+            )}
+            <Button variant="outline" onClick={() => { setIsDetailsModalOpen(false); setSelectedOrder(null); setBranchStocks([]); }}>Close</Button>
           </div>
         </div>
       </div>
@@ -792,94 +1025,39 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
     {/* Rejection Modal */}
     {isRejectModalOpen && selectedOrder && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-3 md:p-4">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300 scale-100">
-          {/* Modal Header */}
-          <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-4 md:p-6">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+          <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
-                <div className="p-1.5 md:p-2 bg-white/20 rounded-lg flex-shrink-0">
-                  <XCircle className="h-5 w-5 md:h-6 md:w-6" />
-                </div>
-                <div className="min-w-0">
-                  <h2 className="text-lg md:text-2xl font-bold truncate">Reject Purchase Order</h2>
-                  <p className="text-white/80 text-xs md:text-sm mt-1 truncate">{selectedOrder.orderId || selectedOrder.id}</p>
-                </div>
+              <div className="flex items-center gap-3">
+                <XCircle className="h-6 w-6" />
+                <h2 className="text-lg font-bold">Reject Purchase Order</h2>
               </div>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setIsRejectModalOpen(false);
-                  setRejectionNote('');
-                  setError(null);
-                }}
-                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors flex-shrink-0 ml-2"
-              >
+              <Button variant="ghost" onClick={() => { setIsRejectModalOpen(false); setRejectionNote(''); }} className="text-white hover:bg-white/20 rounded-full p-2">
                 <X className="h-5 w-5" />
               </Button>
             </div>
           </div>
-
-          {/* Modal Content */}
-          <div className="p-4 md:p-6">
-            {error && (
-              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0" />
-                <p className="text-red-800 flex-1 text-sm">{error}</p>
-                <Button variant="ghost" size="sm" onClick={() => setError(null)} className="text-red-600 hover:text-red-700 flex-shrink-0">
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-
-            <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="font-semibold text-blue-900">Order: {selectedOrder.orderId || selectedOrder.id}</p>
-                <p className="text-sm text-blue-700">Supplier: {selectedOrder.supplierName || 'Unknown'}</p>
-                <p className="text-sm text-blue-700">Total: ₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Rejection Note <span className="text-red-600">*</span>
-                </label>
-                <textarea
-                  value={rejectionNote}
-                  onChange={(e) => setRejectionNote(e.target.value)}
-                  placeholder="Please provide a reason for rejecting this purchase order..."
-                  rows={5}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">This note will be visible to the Inventory Controller and Branch Manager.</p>
-              </div>
+          <div className="p-4 space-y-4">
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-sm"><strong>Order:</strong> {selectedOrder.orderId || selectedOrder.id}</p>
+              <p className="text-sm"><strong>Supplier:</strong> {selectedOrder.supplierName}</p>
+              <p className="text-sm"><strong>Amount:</strong> ₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Note <span className="text-red-500">*</span></label>
+              <textarea
+                value={rejectionNote}
+                onChange={(e) => setRejectionNote(e.target.value)}
+                placeholder="Please provide a reason for rejection..."
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+              />
             </div>
           </div>
-
-          {/* Modal Footer */}
-          <div className="border-t border-gray-200 p-4 md:p-6 bg-gray-50">
-            <div className="flex flex-col sm:flex-row justify-end gap-2 md:gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIsRejectModalOpen(false);
-                  setRejectionNote('');
-                  setError(null);
-                }}
-                disabled={isProcessing}
-                className="border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleRejectOrderConfirm}
-                disabled={isProcessing || !rejectionNote.trim()}
-                className="bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto justify-center"
-              >
-                <XCircle className="h-4 w-4" />
-                Continue to Confirm
-              </Button>
-            </div>
+          <div className="border-t p-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => { setIsRejectModalOpen(false); setRejectionNote(''); }}>Cancel</Button>
+            <Button onClick={handleRejectOrderConfirm} disabled={!rejectionNote.trim()} className="bg-red-600 hover:bg-red-700 text-white">Continue</Button>
           </div>
         </div>
       </div>
@@ -887,116 +1065,33 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
     {/* Approve Confirmation Modal */}
     {isConfirmApproveModalOpen && pendingOrderId && (() => {
-      const orderToApprove = purchaseOrders.find(o => o.id === pendingOrderId);
-      if (!orderToApprove) return null;
-      
+      const order = purchaseOrders.find(o => o.id === pendingOrderId);
+      if (!order) return null;
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-3 md:p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300 scale-100">
-            {/* Modal Header */}
-            <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-4 md:p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
-                  <div className="p-1.5 md:p-2 bg-white/20 rounded-lg flex-shrink-0">
-                    <CheckCircle className="h-5 w-5 md:h-6 md:w-6" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-lg md:text-2xl font-bold">Confirm Approval</h2>
-                    <p className="text-white/90 text-xs md:text-sm mt-1">Are you sure you want to approve this purchase order?</p>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setIsConfirmApproveModalOpen(false);
-                    setPendingOrderId(null);
-                  }}
-                  className="text-white hover:bg-white/20 rounded-full p-2 transition-colors flex-shrink-0 ml-2"
-                >
-                  <X className="h-5 w-5" />
-                </Button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+            <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-4">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-6 w-6" />
+                <h2 className="text-lg font-bold">Confirm Approval</h2>
               </div>
             </div>
-
-            {/* Modal Content */}
-            <div className="p-4 md:p-6">
-              <div className="space-y-4">
-                {/* Order Summary */}
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Order Summary</h3>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Order ID:</span>
-                      <span className="font-medium text-gray-900">{orderToApprove.orderId || orderToApprove.id}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Supplier:</span>
-                      <span className="font-medium text-gray-900">{orderToApprove.supplierName || 'Unknown'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Order Date:</span>
-                      <span className="font-medium text-gray-900">
-                        {orderToApprove.orderDate ? format(new Date(orderToApprove.orderDate), 'MMM dd, yyyy') : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Expected Delivery:</span>
-                      <span className="font-medium text-gray-900">
-                        {orderToApprove.expectedDelivery ? format(new Date(orderToApprove.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Number of Items:</span>
-                      <span className="font-medium text-gray-900">{orderToApprove.items?.length || 0}</span>
-                    </div>
-                    <div className="flex justify-between pt-2 border-t border-gray-300">
-                      <span className="font-semibold text-gray-900">Total Amount:</span>
-                      <span className="text-lg font-bold text-green-600">₱{(orderToApprove.totalAmount || 0).toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="text-sm text-blue-900">
-                    <strong>Note:</strong> Approving this order will change its status to "In Transit" and notify the Inventory Controller. 
-                    This action cannot be undone.
-                  </p>
-                </div>
+            <div className="p-4 space-y-4">
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+                <p className="text-sm"><strong>Order:</strong> {order.orderId || order.id}</p>
+                <p className="text-sm"><strong>Supplier:</strong> {order.supplierName}</p>
+                <p className="text-sm"><strong>Branch:</strong> {order.branchName || getBranchName(order.branchId)}</p>
+                <p className="text-sm"><strong>Amount:</strong> ₱{(order.totalAmount || 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800">Approving will change status to "In Transit". This action cannot be undone.</p>
               </div>
             </div>
-
-            {/* Modal Footer */}
-            <div className="border-t border-gray-200 p-4 md:p-6 bg-gray-50">
-              <div className="flex flex-col sm:flex-row justify-end gap-2 md:gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsConfirmApproveModalOpen(false);
-                    setPendingOrderId(null);
-                  }}
-                  disabled={isProcessing}
-                  className="border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleApproveOrder}
-                  disabled={isProcessing}
-                  className="bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed justify-center w-full sm:w-auto"
-                >
-                  {isProcessing ? (
-                    <>
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                      Approving...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle className="h-4 w-4" />
-                      Confirm Approval
-                    </>
-                  )}
-                </Button>
-              </div>
+            <div className="border-t p-4 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setIsConfirmApproveModalOpen(false); setPendingOrderId(null); }} disabled={isProcessing}>Cancel</Button>
+              <Button onClick={handleApproveOrder} disabled={isProcessing} className="bg-green-600 hover:bg-green-700 text-white">
+                {isProcessing ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Approving...</> : 'Confirm Approval'}
+              </Button>
             </div>
           </div>
         </div>
@@ -1005,103 +1100,29 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
     {/* Reject Confirmation Modal */}
     {isConfirmRejectModalOpen && selectedOrder && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-3 md:p-4">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300 scale-100">
-          {/* Modal Header */}
-          <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-4 md:p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
-                <div className="p-1.5 md:p-2 bg-white/20 rounded-lg flex-shrink-0">
-                  <XCircle className="h-5 w-5 md:h-6 md:w-6" />
-                </div>
-                <div className="min-w-0">
-                  <h2 className="text-lg md:text-2xl font-bold">Confirm Rejection</h2>
-                  <p className="text-white/90 text-xs md:text-sm mt-1">Are you sure you want to reject this purchase order?</p>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setIsConfirmRejectModalOpen(false);
-                }}
-                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors flex-shrink-0 ml-2"
-              >
-                <X className="h-5 w-5" />
-              </Button>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+          <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-4">
+            <div className="flex items-center gap-3">
+              <XCircle className="h-6 w-6" />
+              <h2 className="text-lg font-bold">Confirm Rejection</h2>
             </div>
           </div>
-
-          {/* Modal Content */}
-          <div className="p-4 md:p-6">
-            <div className="space-y-4">
-              {/* Order Summary */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Order Summary</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Order ID:</span>
-                    <span className="font-medium text-gray-900">{selectedOrder.orderId || selectedOrder.id}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Supplier:</span>
-                    <span className="font-medium text-gray-900">{selectedOrder.supplierName || 'Unknown'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Total Amount:</span>
-                    <span className="font-medium text-gray-900">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Rejection Note Preview */}
-              <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4">
-                <h3 className="font-semibold text-red-900 mb-2">Rejection Reason</h3>
-                <p className="text-sm text-red-800 whitespace-pre-wrap">{rejectionNote}</p>
-                <p className="text-xs text-red-600 mt-2">
-                  <strong>Note:</strong> This rejection reason will be visible to the Inventory Controller and Branch Manager.
-                </p>
-              </div>
-
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-900">
-                  <strong>Warning:</strong> Rejecting this order will change its status to "Rejected" and notify the Inventory Controller. 
-                  This action cannot be undone.
-                </p>
-              </div>
+          <div className="p-4 space-y-4">
+            <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+              <p className="text-sm"><strong>Order:</strong> {selectedOrder.orderId || selectedOrder.id}</p>
+              <p className="text-sm"><strong>Amount:</strong> ₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-sm font-medium text-red-800">Rejection Reason:</p>
+              <p className="text-sm text-red-700 mt-1">{rejectionNote}</p>
             </div>
           </div>
-
-          {/* Modal Footer */}
-          <div className="border-t border-gray-200 p-4 md:p-6 bg-gray-50">
-            <div className="flex flex-col sm:flex-row justify-end gap-2 md:gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIsConfirmRejectModalOpen(false);
-                }}
-                disabled={isProcessing}
-                className="border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleRejectOrder}
-                disabled={isProcessing}
-                className="bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed justify-center w-full sm:w-auto"
-              >
-                {isProcessing ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    Rejecting...
-                  </>
-                ) : (
-                  <>
-                    <XCircle className="h-4 w-4" />
-                    Confirm Rejection
-                  </>
-                )}
-              </Button>
-            </div>
+          <div className="border-t p-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsConfirmRejectModalOpen(false)} disabled={isProcessing}>Cancel</Button>
+            <Button onClick={handleRejectOrder} disabled={isProcessing} className="bg-red-600 hover:bg-red-700 text-white">
+              {isProcessing ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Rejecting...</> : 'Confirm Rejection'}
+            </Button>
           </div>
         </div>
       </div>
@@ -1111,5 +1132,3 @@ const OverallInventoryControllerPurchaseOrders = () => {
 };
 
 export default OverallInventoryControllerPurchaseOrders;
-
-

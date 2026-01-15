@@ -5,18 +5,21 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Eye, History, ChevronUp, ChevronDown, Download, Phone, Mail, User, UserCheck } from 'lucide-react';
+import { Search, Eye, History, ChevronUp, ChevronDown, Download, Phone, Mail, User, UserCheck, Star, Receipt, Calendar, FileText, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getClients, getClientsByBranchWithTransactions, searchClients, getClientProfile, updateClientProfile } from '../../services/clientService';
-import { getLoyaltyPoints, getLoyaltyHistory } from '../../services/loyaltyService';
+import { getLoyaltyPoints, getLoyaltyHistory, getAllBranchLoyaltyPoints } from '../../services/loyaltyService';
 import { getServiceHistory } from '../../services/clientService';
 import { getReferralCode } from '../../services/referralService';
+import { collection, query, where, orderBy, getDocs, limit as firestoreLimit } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Modal from '../../components/ui/Modal';
 import toast from 'react-hot-toast';
+import { format } from 'date-fns';
 
 const ReceptionistClients = () => {
   const { currentUser, userBranch } = useAuth();
@@ -41,12 +44,20 @@ const ReceptionistClients = () => {
   const [selectedClient, setSelectedClient] = useState(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showTransactionsModal, setShowTransactionsModal] = useState(false);
   const [clientProfile, setClientProfile] = useState(null);
   const [loyaltyPoints, setLoyaltyPoints] = useState(0);
+  const [allBranchPoints, setAllBranchPoints] = useState([]);
   const [serviceHistory, setServiceHistory] = useState([]);
   const [loyaltyHistory, setLoyaltyHistory] = useState([]);
+  const [clientTransactions, setClientTransactions] = useState([]);
   const [referralCode, setReferralCode] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [profileTab, setProfileTab] = useState('overview'); // 'overview', 'transactions', 'loyalty'
+  
+  // Transaction filters
+  const [transactionDateFrom, setTransactionDateFrom] = useState('');
+  const [transactionDateTo, setTransactionDateTo] = useState('');
   
   // Client stats cache
   const [clientStatsCache, setClientStatsCache] = useState({});
@@ -242,15 +253,56 @@ const ReceptionistClients = () => {
     toast.success('Clients exported successfully');
   };
 
+  // Fetch client transactions
+  const fetchClientTransactions = async (clientId, dateFrom = null, dateTo = null) => {
+    try {
+      const transactionsRef = collection(db, 'transactions');
+      let q = query(
+        transactionsRef,
+        where('clientId', '==', clientId),
+        where('status', '==', 'paid'),
+        orderBy('createdAt', 'desc'),
+        firestoreLimit(100)
+      );
+      
+      const snapshot = await getDocs(q);
+      let transactions = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate(),
+        completedAt: doc.data().completedAt?.toDate()
+      }));
+      
+      // Filter by date range if provided
+      if (dateFrom) {
+        const fromDate = new Date(dateFrom);
+        fromDate.setHours(0, 0, 0, 0);
+        transactions = transactions.filter(t => t.createdAt >= fromDate);
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        transactions = transactions.filter(t => t.createdAt <= toDate);
+      }
+      
+      return transactions;
+    } catch (error) {
+      console.error('Error fetching client transactions:', error);
+      return [];
+    }
+  };
+
   const handleViewProfile = async (client) => {
     try {
       setLoadingProfile(true);
       setSelectedClient(client);
       setShowProfileModal(true);
+      setProfileTab('overview');
       
       const profile = await getClientProfile(client.id);
       setClientProfile(profile);
       
+      // Fetch loyalty points for current branch
       if (userBranch) {
         const points = await getLoyaltyPoints(client.id, userBranch);
         setLoyaltyPoints(points);
@@ -258,12 +310,23 @@ const ReceptionistClients = () => {
         setLoyaltyPoints(0);
       }
       
+      // Fetch all branch loyalty points
+      const allPoints = await getAllBranchLoyaltyPoints(client.id);
+      setAllBranchPoints(allPoints);
+      
+      // Fetch service history
       const history = await getServiceHistory(client.id, 10, userBranch);
       setServiceHistory(history);
       
-      const loyalty = await getLoyaltyHistory(client.id, userBranch, 10);
+      // Fetch loyalty history
+      const loyalty = await getLoyaltyHistory(client.id, userBranch, 20);
       setLoyaltyHistory(loyalty);
       
+      // Fetch transactions
+      const transactions = await fetchClientTransactions(client.id);
+      setClientTransactions(transactions);
+      
+      // Fetch referral code
       if (userBranch) {
         const code = await getReferralCode(client.id, userBranch);
         setReferralCode(code);
@@ -276,6 +339,136 @@ const ReceptionistClients = () => {
     } finally {
       setLoadingProfile(false);
     }
+  };
+
+  // Filter transactions by date
+  const handleFilterTransactions = async () => {
+    if (!selectedClient) return;
+    setLoadingProfile(true);
+    try {
+      const transactions = await fetchClientTransactions(selectedClient.id, transactionDateFrom, transactionDateTo);
+      setClientTransactions(transactions);
+    } catch (error) {
+      console.error('Error filtering transactions:', error);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  // Export client transactions report
+  const handleExportTransactions = () => {
+    if (!clientTransactions.length) {
+      toast.error('No transactions to export');
+      return;
+    }
+    
+    const headers = ['Date', 'Receipt #', 'Services/Products', 'Stylist', 'Payment Method', 'Subtotal', 'Discount', 'Total'];
+    const rows = clientTransactions.map(t => [
+      t.createdAt ? format(t.createdAt, 'yyyy-MM-dd HH:mm') : '',
+      t.receiptNumber || t.id?.slice(-8) || '',
+      (t.items || []).map(i => i.name || i.serviceName).join('; '),
+      (t.items || []).map(i => i.stylistName).filter(Boolean).join('; ') || '-',
+      t.paymentMethod || '-',
+      `₱${(t.subtotal || 0).toFixed(2)}`,
+      `₱${(t.discountAmount || t.discount || 0).toFixed(2)}`,
+      `₱${(t.total || t.totalAmount || 0).toFixed(2)}`
+    ]);
+    
+    const csvContent = [
+      `Client Transaction Report - ${selectedClient?.firstName} ${selectedClient?.lastName}`,
+      `Generated: ${format(new Date(), 'yyyy-MM-dd HH:mm')}`,
+      '',
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `transactions_${selectedClient?.firstName}_${selectedClient?.lastName}_${format(new Date(), 'yyyyMMdd')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success('Transactions exported successfully');
+  };
+
+  // Print transactions report
+  const handlePrintTransactions = () => {
+    if (!clientTransactions.length) {
+      toast.error('No transactions to print');
+      return;
+    }
+    
+    const printWindow = window.open('', '', 'height=800,width=1000');
+    const totalSpent = clientTransactions.reduce((sum, t) => sum + (t.total || t.totalAmount || 0), 0);
+    const totalDiscount = clientTransactions.reduce((sum, t) => sum + (t.discountAmount || t.discount || 0), 0);
+    
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Transaction Report - ${selectedClient?.firstName} ${selectedClient?.lastName}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            h1 { color: #2D1B4E; margin-bottom: 5px; }
+            .subtitle { color: #666; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; }
+            th { background-color: #2D1B4E; color: white; }
+            tr:nth-child(even) { background-color: #f9f9f9; }
+            .summary { margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 8px; }
+            .summary-row { display: flex; justify-content: space-between; margin: 5px 0; }
+            .total { font-weight: bold; font-size: 16px; color: #2D1B4E; }
+          </style>
+        </head>
+        <body>
+          <h1>Transaction Report</h1>
+          <p class="subtitle">${selectedClient?.firstName} ${selectedClient?.lastName} | Generated: ${format(new Date(), 'MMMM d, yyyy')}</p>
+          
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Receipt #</th>
+                <th>Services/Products</th>
+                <th>Payment</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${clientTransactions.map(t => `
+                <tr>
+                  <td>${t.createdAt ? format(t.createdAt, 'MMM d, yyyy') : '-'}</td>
+                  <td>${t.receiptNumber || t.id?.slice(-8) || '-'}</td>
+                  <td>${(t.items || []).map(i => i.name || i.serviceName).join(', ') || '-'}</td>
+                  <td>${t.paymentMethod || '-'}</td>
+                  <td>₱${(t.total || t.totalAmount || 0).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          
+          <div class="summary">
+            <div class="summary-row">
+              <span>Total Transactions:</span>
+              <span>${clientTransactions.length}</span>
+            </div>
+            <div class="summary-row">
+              <span>Total Discounts:</span>
+              <span>₱${totalDiscount.toFixed(2)}</span>
+            </div>
+            <div class="summary-row total">
+              <span>Total Spent:</span>
+              <span>₱${totalSpent.toFixed(2)}</span>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
   };
 
   const handleViewHistory = async (client) => {
@@ -403,7 +596,7 @@ const ReceptionistClients = () => {
                 <p className="text-xs text-gray-500">With points balance</p>
               </div>
               <div className="p-2 bg-purple-100 rounded-lg">
-                <Phone className="w-5 h-5 text-purple-600" />
+                <Star className="w-5 h-5 text-purple-600" />
               </div>
             </div>
           </div>
@@ -665,95 +858,286 @@ const ReceptionistClients = () => {
         )}
       </Card>
 
-      {/* Client Profile Modal */}
+      {/* Client Profile Modal with Tabs */}
       <Modal
         isOpen={showProfileModal}
         onClose={() => {
           setShowProfileModal(false);
           setSelectedClient(null);
           setClientProfile(null);
+          setProfileTab('overview');
+          setTransactionDateFrom('');
+          setTransactionDateTo('');
         }}
-        title={`Client Profile: ${selectedClient?.firstName} ${selectedClient?.lastName}`}
-        size="lg"
+        title={`${selectedClient?.firstName} ${selectedClient?.lastName}`}
+        size="xl"
       >
-        {loadingProfile ? (
+        {loadingProfile && !clientProfile ? (
           <div className="flex items-center justify-center py-8">
             <LoadingSpinner />
           </div>
-        ) : clientProfile ? (
+        ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Loyalty Points
-                </label>
-                <div className="text-2xl font-bold text-[#2D1B4E]">{loyaltyPoints}</div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Visits
-                </label>
-                <div className="text-2xl font-bold text-gray-900">{clientProfile.visitCount || 0}</div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Spent
-                </label>
-                <div className="text-lg font-semibold text-gray-900">
-                  ₱{clientProfile.totalSpent?.toFixed(2) || '0.00'}
+            {/* Tabs */}
+            <div className="flex border-b">
+              <button
+                onClick={() => setProfileTab('overview')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  profileTab === 'overview'
+                    ? 'border-[#2D1B4E] text-[#2D1B4E]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <User className="w-4 h-4 inline mr-1" />
+                Overview
+              </button>
+              <button
+                onClick={() => setProfileTab('transactions')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  profileTab === 'transactions'
+                    ? 'border-[#2D1B4E] text-[#2D1B4E]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Receipt className="w-4 h-4 inline mr-1" />
+                Transactions ({clientTransactions.length})
+              </button>
+              <button
+                onClick={() => setProfileTab('loyalty')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  profileTab === 'loyalty'
+                    ? 'border-[#2D1B4E] text-[#2D1B4E]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Star className="w-4 h-4 inline mr-1" />
+                Loyalty ({loyaltyPoints} pts)
+              </button>
+            </div>
+
+            {/* Overview Tab */}
+            {profileTab === 'overview' && clientProfile && (
+              <div className="space-y-4">
+                {/* Stats Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-purple-50 rounded-lg p-3 text-center">
+                    <Star className="w-5 h-5 mx-auto text-purple-600 mb-1" />
+                    <div className="text-2xl font-bold text-purple-700">{loyaltyPoints}</div>
+                    <div className="text-xs text-purple-600">Loyalty Points</div>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <History className="w-5 h-5 mx-auto text-blue-600 mb-1" />
+                    <div className="text-2xl font-bold text-blue-700">{clientProfile.visitCount || clientTransactions.length || 0}</div>
+                    <div className="text-xs text-blue-600">Total Visits</div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 text-center">
+                    <Receipt className="w-5 h-5 mx-auto text-green-600 mb-1" />
+                    <div className="text-xl font-bold text-green-700">₱{(clientProfile.totalSpent || clientTransactions.reduce((s, t) => s + (t.total || 0), 0)).toFixed(0)}</div>
+                    <div className="text-xs text-green-600">Total Spent</div>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-3 text-center">
+                    <Calendar className="w-5 h-5 mx-auto text-orange-600 mb-1" />
+                    <div className="text-sm font-bold text-orange-700">
+                      {clientTransactions[0]?.createdAt ? format(clientTransactions[0].createdAt, 'MMM d') : '-'}
+                    </div>
+                    <div className="text-xs text-orange-600">Last Visit</div>
+                  </div>
+                </div>
+
+                {/* Contact Info */}
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Contact Information</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-gray-400" />
+                      <span>{selectedClient?.email || 'No email'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Phone className="w-4 h-4 text-gray-400" />
+                      <span>{selectedClient?.phoneNumber || 'No phone'}</span>
+                    </div>
+                  </div>
+                  {referralCode && (
+                    <div className="mt-2 pt-2 border-t">
+                      <span className="text-xs text-gray-500">Referral Code: </span>
+                      <span className="font-mono text-sm font-medium text-purple-600">{referralCode}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Recent Services */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Recent Services</h4>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {serviceHistory.length === 0 ? (
+                      <p className="text-sm text-gray-500">No service history</p>
+                    ) : (
+                      serviceHistory.slice(0, 5).map((entry) => (
+                        <div key={entry.id} className="flex justify-between items-center p-2 bg-gray-50 rounded text-sm">
+                          <div>
+                            <div className="font-medium">{entry.serviceName}</div>
+                            <div className="text-xs text-gray-500">
+                              {entry.date ? format(entry.date, 'MMM d, yyyy') : '-'} • {entry.stylistName || '-'}
+                            </div>
+                          </div>
+                          <div className="font-semibold">₱{entry.price?.toFixed(2) || '0.00'}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Referral Code {userBranch && <span className="text-xs text-gray-500">(for this branch)</span>}
-                </label>
-                <div className="text-sm font-mono text-gray-900">
-                  {referralCode ? (
-                    referralCode
+            )}
+
+            {/* Transactions Tab */}
+            {profileTab === 'transactions' && (
+              <div className="space-y-4">
+                {/* Filters */}
+                <div className="flex flex-wrap items-end gap-2 bg-gray-50 p-3 rounded-lg">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">From</label>
+                    <input
+                      type="date"
+                      value={transactionDateFrom}
+                      onChange={(e) => setTransactionDateFrom(e.target.value)}
+                      className="px-2 py-1 text-sm border rounded"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">To</label>
+                    <input
+                      type="date"
+                      value={transactionDateTo}
+                      onChange={(e) => setTransactionDateTo(e.target.value)}
+                      className="px-2 py-1 text-sm border rounded"
+                    />
+                  </div>
+                  <Button size="sm" onClick={handleFilterTransactions}>
+                    Filter
+                  </Button>
+                  <div className="flex-1" />
+                  <Button size="sm" variant="outline" onClick={handleExportTransactions}>
+                    <Download className="w-3 h-3 mr-1" />
+                    Export
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handlePrintTransactions}>
+                    <Printer className="w-3 h-3 mr-1" />
+                    Print
+                  </Button>
+                </div>
+
+                {/* Summary */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-blue-50 rounded p-2 text-center">
+                    <div className="text-lg font-bold text-blue-700">{clientTransactions.length}</div>
+                    <div className="text-xs text-blue-600">Transactions</div>
+                  </div>
+                  <div className="bg-green-50 rounded p-2 text-center">
+                    <div className="text-lg font-bold text-green-700">
+                      ₱{clientTransactions.reduce((s, t) => s + (t.total || t.totalAmount || 0), 0).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-green-600">Total Spent</div>
+                  </div>
+                  <div className="bg-orange-50 rounded p-2 text-center">
+                    <div className="text-lg font-bold text-orange-700">
+                      ₱{clientTransactions.reduce((s, t) => s + (t.discountAmount || t.discount || 0), 0).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-orange-600">Total Discounts</div>
+                  </div>
+                </div>
+
+                {/* Transactions List */}
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {loadingProfile ? (
+                    <div className="text-center py-4"><LoadingSpinner /></div>
+                  ) : clientTransactions.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-4">No transactions found</p>
                   ) : (
-                    <span className="text-gray-400 italic">
-                      {userBranch 
-                        ? 'No referral code yet (client must visit this branch first)' 
-                        : 'Branch not specified'}
-                    </span>
+                    clientTransactions.map((t) => (
+                      <div key={t.id} className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <div className="text-sm font-medium">
+                              {t.createdAt ? format(t.createdAt, 'MMM d, yyyy h:mm a') : '-'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              Receipt: {t.receiptNumber || t.id?.slice(-8) || '-'} • {t.paymentMethod || '-'}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-bold text-green-600">₱{(t.total || t.totalAmount || 0).toFixed(2)}</div>
+                            {(t.discountAmount || t.discount) > 0 && (
+                              <div className="text-xs text-orange-600">-₱{(t.discountAmount || t.discount).toFixed(2)} discount</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          {(t.items || []).map((item, idx) => (
+                            <span key={idx}>
+                              {item.name || item.serviceName}
+                              {item.stylistName && ` (${item.stylistName})`}
+                              {idx < t.items.length - 1 && ', '}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
               </div>
-            </div>
-            
-            {clientProfile.allergies && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Allergies/Notes
-                </label>
-                <p className="text-sm text-gray-600">{clientProfile.allergies}</p>
+            )}
+
+            {/* Loyalty Tab */}
+            {profileTab === 'loyalty' && (
+              <div className="space-y-4">
+                {/* Current Points */}
+                <div className="bg-gradient-to-r from-purple-500 to-purple-700 rounded-lg p-4 text-white text-center">
+                  <Star className="w-8 h-8 mx-auto mb-2 fill-yellow-300 text-yellow-300" />
+                  <div className="text-3xl font-bold">{loyaltyPoints}</div>
+                  <div className="text-purple-200">Available Points (This Branch)</div>
+                  <div className="text-xs text-purple-300 mt-1">1 point = ₱1 discount</div>
+                </div>
+
+                {/* All Branch Points */}
+                {allBranchPoints.length > 1 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Points by Branch</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      {allBranchPoints.map((bp, idx) => (
+                        <div key={idx} className={`p-2 rounded text-sm ${bp.branchId === userBranch ? 'bg-purple-100 border border-purple-300' : 'bg-gray-50'}`}>
+                          <div className="font-medium">{bp.branchId === userBranch ? 'This Branch' : `Branch ${idx + 1}`}</div>
+                          <div className="text-lg font-bold text-purple-600">{bp.loyaltyPoints} pts</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Loyalty History */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Points History</h4>
+                  <div className="max-h-48 overflow-y-auto space-y-2">
+                    {loyaltyHistory.length === 0 ? (
+                      <p className="text-sm text-gray-500 text-center py-4">No loyalty history</p>
+                    ) : (
+                      loyaltyHistory.map((entry) => (
+                        <div key={entry.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                          <div>
+                            <div className="text-sm">{entry.description}</div>
+                            <div className="text-xs text-gray-500">
+                              {entry.createdAt ? format(entry.createdAt, 'MMM d, yyyy h:mm a') : '-'}
+                            </div>
+                          </div>
+                          <div className={`text-sm font-bold ${entry.points > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {entry.points > 0 ? '+' : ''}{entry.points} pts
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             )}
-            
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Recent Service History</h3>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {serviceHistory.length === 0 ? (
-                  <p className="text-sm text-gray-500">No service history</p>
-                ) : (
-                  serviceHistory.map((entry) => (
-                    <div key={entry.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                      <div>
-                        <div className="text-sm font-medium">{entry.serviceName}</div>
-                        <div className="text-xs text-gray-500">
-                          {entry.date?.toLocaleDateString()} - {entry.stylistName}
-                        </div>
-                      </div>
-                      <div className="text-sm font-semibold">₱{entry.price?.toFixed(2)}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-8 text-gray-500">
-            Profile not found
           </div>
         )}
       </Modal>

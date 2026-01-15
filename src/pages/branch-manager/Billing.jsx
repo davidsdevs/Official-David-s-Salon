@@ -48,6 +48,7 @@ const BranchManagerBilling = () => {
   const [maxAmountFilter, setMaxAmountFilter] = useState('');
   const [cashierFilter, setCashierFilter] = useState('all');
   const [receiptNumberFilter, setReceiptNumberFilter] = useState('');
+  const [salesTypeFilter, setSalesTypeFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
   const [sortColumn, setSortColumn] = useState('createdAt');
   const [sortDirection, setSortDirection] = useState('desc');
@@ -208,6 +209,11 @@ const BranchManagerBilling = () => {
         return false;
       }
 
+      // Sales type filter
+      if (salesTypeFilter !== 'all' && bill.salesType !== salesTypeFilter) {
+        return false;
+      }
+
       // Date range filters
       if (startDateFilter) {
         const billDate = bill.createdAt ? new Date(bill.createdAt) : new Date();
@@ -235,7 +241,7 @@ const BranchManagerBilling = () => {
 
       return true;
     });
-  }, [bills, searchTerm, statusFilter, paymentMethodFilter, startDateFilter, endDateFilter, minAmountFilter, maxAmountFilter, cashierFilter, receiptNumberFilter]);
+  }, [bills, searchTerm, statusFilter, paymentMethodFilter, startDateFilter, endDateFilter, minAmountFilter, maxAmountFilter, cashierFilter, receiptNumberFilter, salesTypeFilter]);
 
   // Sort bills
   const sortedBills = useMemo(() => {
@@ -281,6 +287,35 @@ const BranchManagerBilling = () => {
     return sorted;
   }, [filteredBills, sortColumn, sortDirection]);
 
+  // Calculate summary from filtered bills
+  const filteredSummary = useMemo(() => {
+    let netRevenue = 0;
+    let grossRevenue = 0;
+    let totalDiscounts = 0;
+    let totalVoided = 0;
+    let paidTransactions = 0;
+
+    filteredBills.forEach(bill => {
+      if (bill.status === 'voided') {
+        totalVoided += bill.total || 0;
+      } else if (bill.status === 'paid') {
+        paidTransactions++;
+        grossRevenue += bill.total || 0;
+        totalDiscounts += bill.discount || 0;
+        netRevenue += (bill.total || 0) - (bill.discount || 0);
+      }
+    });
+
+    return {
+      netRevenue,
+      grossRevenue,
+      totalDiscounts,
+      totalVoided,
+      totalTransactions: paidTransactions,
+      voidedTransactions: filteredBills.filter(b => b.status === 'voided').length
+    };
+  }, [filteredBills]);
+
   // Pagination
   const totalPages = Math.ceil(sortedBills.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -307,12 +342,13 @@ const BranchManagerBilling = () => {
     setMaxAmountFilter('');
     setCashierFilter('all');
     setReceiptNumberFilter('');
+    setSalesTypeFilter('all');
     setCurrentPage(1);
   };
 
   const hasActiveFilters = searchTerm || statusFilter !== 'all' || paymentMethodFilter !== 'all' ||
     startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter ||
-    cashierFilter !== 'all' || receiptNumberFilter;
+    cashierFilter !== 'all' || receiptNumberFilter || salesTypeFilter !== 'all';
 
   const handleExportCSV = () => {
     if (!sortedBills.length) {
@@ -347,6 +383,7 @@ const BranchManagerBilling = () => {
         'Client Phone',
         'Client Email',
         'Payment Method',
+        'Sales Type',
         'Subtotal (₱)',
         'Discount (₱)',
         'Tax (₱)',
@@ -385,6 +422,7 @@ const BranchManagerBilling = () => {
           escapeCSV(bill.clientPhone || ''),
           escapeCSV(bill.client?.email || ''),
           escapeCSV(getPaymentMethodLabel(bill.paymentMethod)),
+          escapeCSV(bill.salesType ? bill.salesType.charAt(0).toUpperCase() + bill.salesType.slice(1) : 'Service'),
           escapeCSV((bill.subtotal || 0).toFixed(2)),
           escapeCSV((bill.discount || 0).toFixed(2)),
           escapeCSV((bill.tax || 0).toFixed(2)),
@@ -431,6 +469,7 @@ const BranchManagerBilling = () => {
       'Client Email',
       'Receipt Number',
       'Payment Method',
+      'Sales Type',
       'Subtotal (₱)',
       'Discount (₱)',
       'Tax (₱)',
@@ -444,6 +483,7 @@ const BranchManagerBilling = () => {
       'john@example.com',
       'REC001',
       'Cash',
+      'Service',
       '500.00',
       '0.00',
       '0.00',
@@ -1189,13 +1229,13 @@ const BranchManagerBilling = () => {
       </div>
 
       {/* Summary Cards */}
-      {dailySummary && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      {filteredSummary && (
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
           <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Net Revenue</p>
-                <p className="text-2xl font-bold text-green-600 mt-1">₱{dailySummary.netRevenue?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl font-bold text-green-600 mt-1">₱{filteredSummary.netRevenue?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-green-100 rounded-lg">
                 <Banknote className="w-6 h-6 text-green-600" />
@@ -1207,7 +1247,7 @@ const BranchManagerBilling = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Transactions</p>
-                <p className="text-2xl font-bold text-blue-600 mt-1">{dailySummary.totalTransactions}</p>
+                <p className="text-2xl font-bold text-blue-600 mt-1">{filteredSummary.totalTransactions}</p>
               </div>
               <div className="p-3 bg-blue-100 rounded-lg">
                 <Receipt className="w-6 h-6 text-blue-600" />
@@ -1219,7 +1259,7 @@ const BranchManagerBilling = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Gross Revenue</p>
-                <p className="text-2xl font-bold text-purple-600 mt-1">₱{dailySummary.totalRevenue?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl font-bold text-purple-600 mt-1">₱{filteredSummary.grossRevenue?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-purple-100 rounded-lg">
                 <Banknote className="w-6 h-6 text-purple-600" />
@@ -1231,10 +1271,22 @@ const BranchManagerBilling = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Discounts</p>
-                <p className="text-2xl font-bold text-yellow-600 mt-1">₱{dailySummary.totalDiscounts?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl font-bold text-yellow-600 mt-1">₱{filteredSummary.totalDiscounts?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-yellow-100 rounded-lg">
                 <Banknote className="w-6 h-6 text-yellow-600" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Total Voided</p>
+                <p className="text-2xl font-bold text-red-600 mt-1">₱{filteredSummary.totalVoided?.toFixed(2) || '0.00'}</p>
+              </div>
+              <div className="p-3 bg-red-100 rounded-lg">
+                <XCircle className="w-6 h-6 text-red-600" />
               </div>
             </div>
           </div>
@@ -1298,7 +1350,7 @@ const BranchManagerBilling = () => {
             onClick={() => setShowFilters(true)}
             className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
               (statusFilter !== 'all' || paymentMethodFilter !== 'all' || startDateFilter || endDateFilter ||
-               minAmountFilter || maxAmountFilter || cashierFilter !== 'all' || receiptNumberFilter)
+               minAmountFilter || maxAmountFilter || cashierFilter !== 'all' || receiptNumberFilter || salesTypeFilter !== 'all')
                 ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
                 : 'border-gray-300 hover:bg-gray-50'
             }`}
@@ -2349,6 +2401,20 @@ const BranchManagerBilling = () => {
                       {cashiers.map(cashier => (
                         <option key={cashier.id} value={cashier.id}>{cashier.name}</option>
                       ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Sales Type</label>
+                    <select
+                      value={salesTypeFilter}
+                      onChange={(e) => setSalesTypeFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="all">All Sales Types</option>
+                      <option value="service">Service Only</option>
+                      <option value="product">Product Only</option>
+                      <option value="mixed">Mixed (Service + Product)</option>
                     </select>
                   </div>
 

@@ -456,15 +456,15 @@ export const toggleUserStatus = async (userId, isActive, currentUser) => {
  */
 export const resetUserPassword = async (email) => {
   try {
-    // Use the new password reset service that updates rolePasswords
-    const { createPasswordResetToken } = await import('./passwordResetService');
-    const result = await createPasswordResetToken(email);
+    // Use the OTP-based password reset service
+    const { sendPasswordResetOTP } = await import('./passwordResetService');
+    const result = await sendPasswordResetOTP(email);
     
     if (result.success) {
-      toast.success('Password reset email sent! Check your inbox.');
+      toast.success('Password reset OTP sent! Check your email.');
     } else {
-      toast.error(result.error || 'Failed to send password reset email');
-      throw new Error(result.error || 'Failed to send password reset email');
+      toast.error(result.error || 'Failed to send password reset OTP');
+      throw new Error(result.error || 'Failed to send password reset OTP');
     }
   } catch (error) {
     console.error('Error sending password reset:', error);

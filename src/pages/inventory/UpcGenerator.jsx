@@ -11,6 +11,7 @@ import { useReactToPrint } from 'react-to-print';
 import html2canvas from 'html2canvas';
 import { productService } from '../../services/productService';
 import { inventoryService } from '../../services/inventoryService';
+import { thermalPrinter } from '../../services/thermalPrinterService';
 import {
   QrCode,
   Search,
@@ -38,7 +39,8 @@ import {
   ClipboardList,
   UserCog,
   PackageCheck,
-  FileText
+  FileText,
+  Bluetooth
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -46,8 +48,11 @@ const UpcGenerator = () => {
   const { userData, userBranch } = useAuth();
   const printRef = useRef();
 
-  
-  
+  // Thermal printer state
+  const [thermalConnected, setThermalConnected] = useState(false);
+  const [thermalPrinting, setThermalPrinting] = useState(false);
+  const [thermalPrinterName, setThermalPrinterName] = useState('');
+
   // Data states
   const [products, setProducts] = useState([]);
   const [productsAll, setProductsAll] = useState([]);
@@ -74,8 +79,6 @@ const UpcGenerator = () => {
   const [currentBatches, setCurrentBatches] = useState([]);
   const [loadingBatches, setLoadingBatches] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [isMassPrintModalOpen, setIsMassPrintModalOpen] = useState(false);
-  const [selectedBatchesForPrint, setSelectedBatchesForPrint] = useState([]);
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -100,6 +103,49 @@ const UpcGenerator = () => {
     content: () => printRef.current,
     documentTitle: 'QR Code Stickers'
   });
+
+  // Thermal printer connect
+  const handleConnectThermal = async () => {
+    try {
+      if (thermalConnected) {
+        thermalPrinter.disconnect();
+        setThermalConnected(false);
+        setThermalPrinterName('');
+        return;
+      }
+      
+      const result = await thermalPrinter.connect();
+      if (result.success) {
+        setThermalConnected(true);
+        setThermalPrinterName(result.printerName || 'Thermal Printer');
+      }
+    } catch (err) {
+      console.error('Thermal printer connection error:', err);
+      setError(`Failed to connect: ${err.message}`);
+    }
+  };
+
+  // Thermal print QR stickers
+  const handleThermalPrint = async () => {
+    if (!thermalConnected || qrCodesToPrint.length === 0) return;
+    
+    try {
+      setThermalPrinting(true);
+      setError(null);
+      
+      const results = await thermalPrinter.printMultipleQRStickers(qrCodesToPrint);
+      const failed = results.filter(r => !r.success);
+      
+      if (failed.length > 0) {
+        setError(`${failed.length} sticker(s) failed to print`);
+      }
+    } catch (err) {
+      console.error('Thermal print error:', err);
+      setError(`Print failed: ${err.message}`);
+    } finally {
+      setThermalPrinting(false);
+    }
+  };
 
   // Load data
   const loadData = async () => {
@@ -424,16 +470,12 @@ const UpcGenerator = () => {
         return;
       }
 
-      // Use batch data from stocks collection
+      // Use batch data from stocks collection - simplified QR data for better scanning
       const qrCodeString = JSON.stringify({
-        productId: batch.productId,
-        productName: batch.productName || selectedProduct?.name,
-        price: selectedProduct?.otcPrice || 0,
-        batchNumber: batch.batchNumber,
-        batchId: batch.batchId || batch.id,
-        expirationDate: batch.expirationDate ? new Date(batch.expirationDate).toISOString() : null,
-        branchId: batch.branchId,
-        timestamp: Date.now()
+        p: batch.productId, // productId
+        b: batch.batchNumber, // batchNumber
+        pr: selectedProduct?.otcPrice || 0, // price
+        br: batch.branchId // branchId
       });
 
       // Create QR code data (in-memory only, no database)
@@ -462,208 +504,170 @@ const UpcGenerator = () => {
     }
   };
 
-  // Save QR code sticker as PNG
+  // Save QR code sticker as PNG - matches the exact display layout
   const handleSaveAsPNG = async (qrCode, index) => {
     try {
-      const stickerElement = document.getElementById(`sticker-${index}`);
-      if (!stickerElement) {
-        setError('Sticker element not found');
-        return;
-      }
+      // 3in x 3in at 96 DPI = 288px, scale up 3x for high quality PNG
+      const scaleFactor = 3;
+      const baseSize = 288; // 3 inches at 96 DPI
+      const targetSize = baseSize * scaleFactor; // 864px
 
-      // Create a larger version of the sticker for PNG download (4x the size for better readability)
-      const scaleFactor = 4;
-      const originalWidth = 192; // 2in at 96 DPI
-      const originalHeight = 192; // 2in at 96 DPI
-      const targetWidth = originalWidth * scaleFactor;
-      const targetHeight = originalHeight * scaleFactor;
-
-      // Create a temporary container with scaled dimensions and new layout (3in x 3in)
+      // Create a temporary container matching the sticker display exactly
       const tempContainer = document.createElement('div');
-      tempContainer.style.width = `${targetWidth}px`;
-      tempContainer.style.height = `${targetHeight}px`;
+      tempContainer.style.width = `${targetSize}px`;
+      tempContainer.style.height = `${targetSize}px`;
       tempContainer.style.position = 'absolute';
       tempContainer.style.left = '-9999px';
       tempContainer.style.top = '-9999px';
       tempContainer.style.background = '#ffffff';
-      tempContainer.style.border = `${4 * scaleFactor}px solid #ef4444`;
-      tempContainer.style.borderRadius = `${12 * scaleFactor}px`;
+      tempContainer.style.border = `${3 * scaleFactor}px solid #ef4444`;
+      tempContainer.style.borderRadius = `${10 * scaleFactor}px`;
       tempContainer.style.display = 'flex';
       tempContainer.style.flexDirection = 'column';
       tempContainer.style.alignItems = 'center';
-      tempContainer.style.padding = `${0.3 * scaleFactor * 16}px`; // Larger padding
+      tempContainer.style.justifyContent = 'space-between';
+      tempContainer.style.padding = `${20 * scaleFactor}px`;
       tempContainer.style.boxSizing = 'border-box';
-      tempContainer.style.gap = `${0.15 * scaleFactor * 16}px`; // Larger gap between elements
-      tempContainer.style.boxShadow = `0 ${10 * scaleFactor}px ${15 * scaleFactor}px -3px rgba(0, 0, 0, 0.1)`;
+      tempContainer.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+      tempContainer.style.overflow = 'hidden';
 
-      // Logo - Top
+      // Logo - Top (load actual logo image)
       const logoDiv = document.createElement('div');
       logoDiv.style.flexShrink = '0';
       logoDiv.style.display = 'flex';
       logoDiv.style.alignItems = 'center';
       logoDiv.style.justifyContent = 'center';
       logoDiv.style.width = '100%';
-
+      
+      // Try to load the logo image
       const logoImg = document.createElement('img');
       logoImg.src = '/logo.jpg';
-      logoImg.alt = 'David\'s Salon Logo';
-      logoImg.style.height = `${24 * scaleFactor}px`; // Scaled logo height
+      logoImg.style.height = `${28 * scaleFactor}px`;
       logoImg.style.width = 'auto';
       logoImg.style.objectFit = 'contain';
-      logoImg.style.maxHeight = `${24 * scaleFactor}px`;
-      logoImg.onload = () => {}; // Handle load
-      logoImg.onerror = () => {
-        // Fallback to text if image fails
-        logoDiv.innerHTML = '';
-        const fallback = document.createElement('div');
-        fallback.style.fontSize = `${40 * scaleFactor}px`;
-        fallback.style.fontWeight = 'bold';
-        fallback.style.color = '#374151';
-        fallback.textContent = "David's Salon";
-        logoDiv.appendChild(fallback);
-      };
       logoDiv.appendChild(logoImg);
       tempContainer.appendChild(logoDiv);
 
-      // QR Code - Bigger
+      // Wait for logo to load (or fail)
+      await new Promise((resolve) => {
+        logoImg.onload = resolve;
+        logoImg.onerror = () => {
+          // Fallback to text if image fails
+          logoDiv.innerHTML = '';
+          const fallback = document.createElement('span');
+          fallback.style.fontSize = `${12 * scaleFactor}px`;
+          fallback.style.fontWeight = 'bold';
+          fallback.style.color = '#1f2937';
+          fallback.textContent = "David's Salon";
+          logoDiv.appendChild(fallback);
+          resolve();
+        };
+        // Timeout fallback after 2 seconds
+        setTimeout(() => {
+          if (!logoImg.complete) {
+            logoDiv.innerHTML = '';
+            const fallback = document.createElement('span');
+            fallback.style.fontSize = `${12 * scaleFactor}px`;
+            fallback.style.fontWeight = 'bold';
+            fallback.style.color = '#1f2937';
+            fallback.textContent = "David's Salon";
+            logoDiv.appendChild(fallback);
+            resolve();
+          }
+        }, 2000);
+      });
+
+      // QR Code Container - BIG for scanning
       const qrContainer = document.createElement('div');
       qrContainer.style.flexShrink = '0';
       qrContainer.style.display = 'flex';
       qrContainer.style.alignItems = 'center';
       qrContainer.style.justifyContent = 'center';
-      qrContainer.style.width = '100%';
-      qrContainer.style.padding = `${8 * scaleFactor}px`;
-      qrContainer.style.backgroundColor = '#f9fafb';
+      qrContainer.style.padding = `${6 * scaleFactor}px`;
+      qrContainer.style.backgroundColor = '#ffffff';
       qrContainer.style.borderRadius = `${4 * scaleFactor}px`;
-      qrContainer.style.border = '1px solid #d1d5db';
+      qrContainer.style.border = `${1 * scaleFactor}px solid #e5e7eb`;
 
-      const qrSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      qrSvg.setAttribute('width', `${120 * scaleFactor}`);
-      qrSvg.setAttribute('height', `${120 * scaleFactor}`);
-      qrSvg.setAttribute('viewBox', '0 0 120 120');
-      qrSvg.style.border = '1px solid #d1d5db';
-      qrSvg.style.borderRadius = `${4 * scaleFactor}px`;
-      qrContainer.appendChild(qrSvg);
-
-      // Generate QR code
+      // Generate QR code to canvas - BIG size for easy scanning
+      const qrCanvas = document.createElement('canvas');
+      const qrSize = 120 * scaleFactor; // Big QR code
       const QRCode = (await import('qrcode')).default;
-      await QRCode.toCanvas(qrSvg, qrCode.qrCodeString, {
-        width: 120 * scaleFactor,
-        margin: 0,
+      await QRCode.toCanvas(qrCanvas, qrCode.qrCodeString, {
+        width: qrSize,
+        margin: 1,
         color: { dark: '#000000', light: '#FFFFFF' }
       });
+      qrCanvas.style.display = 'block';
+      qrContainer.appendChild(qrCanvas);
       tempContainer.appendChild(qrContainer);
 
-      // Batch Number
+      // Bottom info container - compact
+      const bottomContainer = document.createElement('div');
+      bottomContainer.style.display = 'flex';
+      bottomContainer.style.flexDirection = 'column';
+      bottomContainer.style.alignItems = 'center';
+      bottomContainer.style.gap = `${6 * scaleFactor}px`;
+      bottomContainer.style.width = '100%';
+
+      // Batch Number - small
       if (qrCode.batchNumber && qrCode.batchNumber !== 'N/A') {
-        const batchDiv = document.createElement('div');
-        batchDiv.style.display = 'flex';
-        batchDiv.style.alignItems = 'center';
-        batchDiv.style.justifyContent = 'center';
-        batchDiv.style.width = '100%';
-        batchDiv.style.gap = `${0.06 * scaleFactor * 16}px`;
-
-        const packageIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        packageIcon.setAttribute('viewBox', '0 0 24 24');
-        packageIcon.setAttribute('fill', 'none');
-        packageIcon.setAttribute('stroke', 'currentColor');
-        packageIcon.setAttribute('strokeWidth', '2');
-        packageIcon.setAttribute('strokeLinecap', 'round');
-        packageIcon.setAttribute('strokeLinejoin', 'round');
-        packageIcon.classList.add('lucide', 'lucide-package');
-        packageIcon.style.height = `${14 * scaleFactor}px`;
-        packageIcon.style.width = `${14 * scaleFactor}px`;
-        packageIcon.style.color = '#4b5563';
-        packageIcon.style.flexShrink = '0';
-        packageIcon.innerHTML = '<path d="m7.5 4.274 5.73 3.438c.14.084.27.17.4.252.34.204.67.41.99.612l3.73 2.238"/><path d="M17.5 10.274 12 13.5l-5.5-3.226"/><path d="m7.5 19.726 5.73-3.438c.14-.084.27-.17.4-.252.34-.204.67-.41.99-.612l3.73-2.238"/><path d="M17.5 13.726 12 10.5l-5.5 3.226"/><path d="M12 22v-8.5"/><path d="M12 2v8.5"/><path d="M2 13.5h20"/>';
-        batchDiv.appendChild(packageIcon);
-
-        const batchP = document.createElement('p');
-        batchP.style.fontSize = `${44 * scaleFactor}px`;
-        batchP.style.color = '#374151';
-        batchP.style.fontWeight = '500';
-        batchP.style.margin = '0';
-        batchP.textContent = `Batch: ${qrCode.batchNumber}`;
-        batchDiv.appendChild(batchP);
-
-        tempContainer.appendChild(batchDiv);
+        const batchText = document.createElement('span');
+        batchText.style.fontSize = `${8 * scaleFactor}px`;
+        batchText.style.color = '#374151';
+        batchText.style.fontWeight = '500';
+        batchText.textContent = `Batch: ${qrCode.batchNumber}`;
+        bottomContainer.appendChild(batchText);
       }
 
-      // Expiration Date
+      // Expiration Date - small
+      const expDiv = document.createElement('div');
+      expDiv.style.display = 'flex';
+      expDiv.style.alignItems = 'center';
+      expDiv.style.justifyContent = 'center';
+
       if (qrCode.expirationDate) {
-        const expDiv = document.createElement('div');
-        expDiv.style.display = 'flex';
-        expDiv.style.alignItems = 'center';
-        expDiv.style.justifyContent = 'center';
-        expDiv.style.width = '100%';
-        expDiv.style.gap = `${0.06 * scaleFactor * 16}px`;
         expDiv.style.backgroundColor = '#fef2f2';
-        expDiv.style.padding = `${4 * scaleFactor}px ${8 * scaleFactor}px`;
-        expDiv.style.borderRadius = `${4 * scaleFactor}px`;
+        expDiv.style.padding = `${3 * scaleFactor}px ${8 * scaleFactor}px`;
+        expDiv.style.borderRadius = `${3 * scaleFactor}px`;
 
-        const calendarIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        calendarIcon.setAttribute('viewBox', '0 0 24 24');
-        calendarIcon.setAttribute('fill', 'none');
-        calendarIcon.setAttribute('stroke', 'currentColor');
-        calendarIcon.setAttribute('strokeWidth', '2');
-        calendarIcon.setAttribute('strokeLinecap', 'round');
-        calendarIcon.setAttribute('strokeLinejoin', 'round');
-        calendarIcon.classList.add('lucide', 'lucide-calendar');
-        calendarIcon.style.height = `${14 * scaleFactor}px`;
-        calendarIcon.style.width = `${14 * scaleFactor}px`;
-        calendarIcon.style.color = '#dc2626';
-        calendarIcon.style.flexShrink = '0';
-        calendarIcon.innerHTML = '<rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>';
-        expDiv.appendChild(calendarIcon);
-
-        const expP = document.createElement('p');
-        expP.style.fontSize = `${44 * scaleFactor}px`;
-        expP.style.color = '#b91c1c';
-        expP.style.fontWeight = 'semibold';
-        expP.style.margin = '0';
-        expP.textContent = `Exp: ${format(new Date(qrCode.expirationDate), 'MMM dd, yyyy')}`;
-        expDiv.appendChild(expP);
-
-        tempContainer.appendChild(expDiv);
+        const expText = document.createElement('span');
+        expText.style.fontSize = `${8 * scaleFactor}px`;
+        expText.style.color = '#b91c1c';
+        expText.style.fontWeight = '600';
+        expText.textContent = `Exp: ${format(new Date(qrCode.expirationDate), 'MMM dd, yyyy')}`;
+        expDiv.appendChild(expText);
       } else {
-        const noExpP = document.createElement('p');
-        noExpP.style.fontSize = `${44 * scaleFactor}px`;
-        noExpP.style.color = '#9ca3af';
-        noExpP.style.fontStyle = 'italic';
-        noExpP.style.margin = '0';
-        noExpP.textContent = 'No expiration date';
-        tempContainer.appendChild(noExpP);
+        const noExpText = document.createElement('span');
+        noExpText.style.fontSize = `${8 * scaleFactor}px`;
+        noExpText.style.color = '#9ca3af';
+        noExpText.style.fontStyle = 'italic';
+        noExpText.textContent = 'No expiration date';
+        expDiv.appendChild(noExpText);
       }
+      bottomContainer.appendChild(expDiv);
 
-      // OTC Price
-      const priceDiv = document.createElement('div');
-      priceDiv.style.display = 'flex';
-      priceDiv.style.alignItems = 'center';
-      priceDiv.style.justifyContent = 'center';
-      priceDiv.style.width = '100%';
+      // OTC Price - slightly bigger than other text
+      const priceText = document.createElement('span');
+      priceText.style.fontSize = `${10 * scaleFactor}px`;
+      priceText.style.fontWeight = 'bold';
+      priceText.style.color = '#2563eb';
+      priceText.textContent = `₱${qrCode.price?.toFixed(2) || '0.00'}`;
+      bottomContainer.appendChild(priceText);
 
-      const priceP = document.createElement('p');
-      priceP.style.fontSize = `${48 * scaleFactor}px`;
-      priceP.style.fontWeight = 'bold';
-      priceP.style.color = '#2563eb';
-      priceP.style.margin = '0';
-      priceP.textContent = `₱${qrCode.price?.toFixed(2) || '0.00'}`;
-      priceDiv.appendChild(priceP);
-
-      tempContainer.appendChild(priceDiv);
+      tempContainer.appendChild(bottomContainer);
 
       // Add to body temporarily
       document.body.appendChild(tempContainer);
 
-      // Use html2canvas on the scaled container
+      // Use html2canvas to capture the container
       const canvas = await html2canvas(tempContainer, {
         backgroundColor: '#ffffff',
-        scale: 1, // Don't double-scale since we're already creating at target size
+        scale: 1,
         logging: false,
         useCORS: true,
         allowTaint: true,
-        width: targetWidth,
-        height: targetHeight
+        width: targetSize,
+        height: targetSize
       });
 
       // Remove temporary container
@@ -678,7 +682,7 @@ const UpcGenerator = () => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `${qrCode.productName.replace(/[^a-z0-9]/gi, '_')}_QR_${Date.now()}.png`;
+        link.download = `${(qrCode.productName || 'QRCode').replace(/[^a-z0-9]/gi, '_')}_${qrCode.batchNumber || 'batch'}_${Date.now()}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -725,15 +729,12 @@ const UpcGenerator = () => {
         if (quantity <= 0) continue;
 
         for (let i = 0; i < quantity; i++) {
+          // Use compact format for QR string to reduce density and improve scanning
           const qrCodeString = JSON.stringify({
-            productId: batch.productId,
-            productName: batch.productName || product.name,
-            price: product.otcPrice || 0,
-            batchNumber: batch.batchNumber,
-            batchId: batch.batchId || batch.id,
-            expirationDate: batch.expirationDate ? new Date(batch.expirationDate).toISOString() : null,
-            branchId: batch.branchId || userBranch,
-            timestamp: Date.now()
+            p: batch.productId,
+            b: batch.batchNumber,
+            pr: product.otcPrice || 0,
+            br: batch.branchId || userBranch
           });
 
           const qrCode = {
@@ -965,16 +966,12 @@ const UpcGenerator = () => {
       // Generate QR codes directly from batch data (no database storage - cache-based)
       const qrCodes = [];
       for (let i = 0; i < generateForm.quantity; i++) {
-        // Use batch data from stocks collection
+        // Use compact format for QR string to reduce density and improve scanning
         const qrCodeString = JSON.stringify({
-          productId: batch.productId,
-          productName: batch.productName || selectedProduct?.name,
-          price: selectedProduct?.otcPrice || 0,
-          batchNumber: batch.batchNumber,
-          batchId: batch.batchId || batch.id,
-          expirationDate: batch.expirationDate ? new Date(batch.expirationDate).toISOString() : null,
-          branchId: batch.branchId,
-          timestamp: Date.now()
+          p: batch.productId,
+          b: batch.batchNumber,
+          pr: selectedProduct?.otcPrice || 0,
+          br: batch.branchId
         });
 
         // Create QR code data (in-memory only, no database)
@@ -1144,325 +1141,6 @@ const UpcGenerator = () => {
             >
               <Download className="w-5 h-5" />
             </Button>
-            {/* Print Button */}
-            <Button
-              variant="outline"
-              onClick={async () => {
-              // Mass print all products with batches
-              try {
-                setLoading(true);
-                const allQRCodes = [];
-
-                for (const product of productsAll) {
-                  if (!product.id || !userBranch) continue;
-
-                  try {
-                    const batches = await loadBatches(product.id, userBranch);
-                    if (batches.length === 0) continue;
-
-                    for (const batch of batches) {
-                      const quantity = batch.remainingQuantity || 0;
-                      if (quantity <= 0) continue;
-
-                      for (let i = 0; i < quantity; i++) {
-                        const qrCodeString = JSON.stringify({
-                          productId: batch.productId,
-                          productName: batch.productName || product.name,
-                          price: product.otcPrice || 0,
-                          batchNumber: batch.batchNumber,
-                          batchId: batch.batchId || batch.id,
-                          expirationDate: batch.expirationDate ? new Date(batch.expirationDate).toISOString() : null,
-                          branchId: batch.branchId || userBranch,
-                          timestamp: Date.now()
-                        });
-
-                        const qrCode = {
-                          id: `qr-${batch.id}-${i}-${Date.now()}-${Math.random()}`,
-                          qrCodeString: qrCodeString,
-                          batchNumber: batch.batchNumber,
-                          productName: batch.productName || product.name,
-                          productId: batch.productId,
-                          price: product.otcPrice || 0,
-                          expirationDate: batch.expirationDate ? new Date(batch.expirationDate) : null,
-                          branchId: batch.branchId || userBranch,
-                          createdAt: new Date()
-                        };
-
-                        allQRCodes.push(qrCode);
-                      }
-                    }
-                  } catch (error) {
-                    console.warn(`Error loading batches for product ${product.name}:`, error);
-                  }
-                }
-
-                if (allQRCodes.length === 0) {
-                  setError('No QR codes to print - no products with active batches found');
-                  setLoading(false);
-                  return;
-                }
-
-                // Generate PDF with all stickers
-                const jsPDF = (await import('jspdf')).default;
-                const doc = new jsPDF({ unit: 'in', format: 'letter' });
-
-                // Create temporary elements for rendering
-                const tempContainer = document.createElement('div');
-                tempContainer.style.position = 'absolute';
-                tempContainer.style.left = '-9999px';
-                tempContainer.style.top = '-9999px';
-                document.body.appendChild(tempContainer);
-
-                // A4 dimensions in mm: 210mm x 297mm for the PDF
-                const pageWidth = 210;
-                const pageHeight = 297;
-
-                // Calculate optimal sticker layout for A4 (3in x 3in stickers)
-                // 2 columns x 2 rows = 4 stickers per page (since stickers are now 3in x 3in)
-                const stickersPerRow = 2;
-                const stickersPerColumn = 2;
-                const totalStickersPerPage = stickersPerRow * stickersPerColumn;
-
-                // Add margins (15mm on each side for better print margins)
-                const marginLeft = 15;
-                const marginRight = 15;
-                const marginTop = 15;
-                const marginBottom = 15;
-
-                // Available space after margins
-                const availableWidth = pageWidth - marginLeft - marginRight;
-                const availableHeight = pageHeight - marginTop - marginBottom;
-
-                // Space per sticker (distribute evenly)
-                const stickerWidth = availableWidth / stickersPerRow;
-                const stickerHeight = availableHeight / stickersPerColumn;
-
-                // Gap between stickers (5mm for better separation with larger stickers)
-                const gap = 5;
-                const actualStickerWidth = stickerWidth - gap;
-                const actualStickerHeight = stickerHeight - gap;
-
-                for (let i = 0; i < allQRCodes.length; i++) {
-                  const qrCode = allQRCodes[i];
-
-                  // Create temporary sticker element with new layout (3in x 3in)
-                  const stickerDiv = document.createElement('div');
-                  stickerDiv.style.width = '3in';
-                  stickerDiv.style.height = '3in';
-                  stickerDiv.style.boxSizing = 'border-box';
-                  stickerDiv.style.padding = '0.3in';
-                  stickerDiv.style.background = '#ffffff';
-                  stickerDiv.style.border = '4px solid #ef4444';
-                  stickerDiv.style.borderRadius = '12px';
-                  stickerDiv.style.display = 'flex';
-                  stickerDiv.style.flexDirection = 'column';
-                  stickerDiv.style.alignItems = 'center';
-                  stickerDiv.style.gap = '0.15in';
-                  stickerDiv.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1)';
-
-                  // Logo - Top
-                  const logoDiv = document.createElement('div');
-                  logoDiv.style.flexShrink = '0';
-                  logoDiv.style.display = 'flex';
-                  logoDiv.style.alignItems = 'center';
-                  logoDiv.style.justifyContent = 'center';
-                  logoDiv.style.width = '100%';
-
-                  const logoImg = document.createElement('img');
-                  logoImg.src = '/logo.jpg';
-                  logoImg.alt = 'David\'s Salon Logo';
-                  logoImg.style.height = '24px';
-                  logoImg.style.width = 'auto';
-                  logoImg.style.objectFit = 'contain';
-                  logoImg.style.maxHeight = '24px';
-                  logoImg.onload = () => {};
-                  logoImg.onerror = () => {
-                    // Fallback to text if image fails
-                    logoDiv.innerHTML = '';
-                    const fallback = document.createElement('div');
-                    fallback.style.fontSize = '10px';
-                    fallback.style.fontWeight = 'bold';
-                    fallback.style.color = '#374151';
-                    fallback.textContent = "David's Salon";
-                    logoDiv.appendChild(fallback);
-                  };
-                  logoDiv.appendChild(logoImg);
-                  stickerDiv.appendChild(logoDiv);
-
-                  // QR Code - Bigger
-                  const qrContainer = document.createElement('div');
-                  qrContainer.style.flexShrink = '0';
-                  qrContainer.style.display = 'flex';
-                  qrContainer.style.alignItems = 'center';
-                  qrContainer.style.justifyContent = 'center';
-                  qrContainer.style.width = '100%';
-                  qrContainer.style.padding = '8px';
-                  qrContainer.style.backgroundColor = '#f9fafb';
-                  qrContainer.style.borderRadius = '4px';
-                  qrContainer.style.border = '1px solid #d1d5db';
-
-                  const qrSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                  qrSvg.setAttribute('width', '120');
-                  qrSvg.setAttribute('height', '120');
-                  qrSvg.setAttribute('viewBox', '0 0 120 120');
-                  qrSvg.style.border = '1px solid #d1d5db';
-                  qrSvg.style.borderRadius = '4px';
-                  qrContainer.appendChild(qrSvg);
-
-                  // Generate QR code
-                  const QRCode = (await import('qrcode')).default;
-                  await QRCode.toCanvas(qrSvg, qrCode.qrCodeString, {
-                    width: 120,
-                    margin: 0,
-                    color: { dark: '#000000', light: '#FFFFFF' }
-                  });
-                  stickerDiv.appendChild(qrContainer);
-
-                  // Batch Number
-                  if (qrCode.batchNumber && qrCode.batchNumber !== 'N/A') {
-                    const batchDiv = document.createElement('div');
-                    batchDiv.style.display = 'flex';
-                    batchDiv.style.alignItems = 'center';
-                    batchDiv.style.justifyContent = 'center';
-                    batchDiv.style.width = '100%';
-                    batchDiv.style.gap = '0.06in';
-
-                    const packageIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                    packageIcon.setAttribute('viewBox', '0 0 24 24');
-                    packageIcon.setAttribute('fill', 'none');
-                    packageIcon.setAttribute('stroke', 'currentColor');
-                    packageIcon.setAttribute('strokeWidth', '2');
-                    packageIcon.setAttribute('strokeLinecap', 'round');
-                    packageIcon.setAttribute('strokeLinejoin', 'round');
-                    packageIcon.classList.add('lucide', 'lucide-package');
-                    packageIcon.style.height = '14px';
-                    packageIcon.style.width = '14px';
-                    packageIcon.style.color = '#4b5563';
-                    packageIcon.style.flexShrink = '0';
-                    packageIcon.innerHTML = '<path d="m7.5 4.274 5.73 3.438c.14.084.27.17.4.252.34.204.67.41.99.612l3.73 2.238"/><path d="M17.5 10.274 12 13.5l-5.5-3.226"/><path d="m7.5 19.726 5.73-3.438c.14-.084.27-.17.4-.252.34-.204.67-.41.99-.612l3.73-2.238"/><path d="M17.5 13.726 12 10.5l-5.5 3.226"/><path d="M12 22v-8.5"/><path d="M12 2v8.5"/><path d="M2 13.5h20"/>';
-                    batchDiv.appendChild(packageIcon);
-
-                    const batchP = document.createElement('p');
-                    batchP.style.fontSize = '11px';
-                    batchP.style.color = '#374151';
-                    batchP.style.fontWeight = '500';
-                    batchP.style.margin = '0';
-                    batchP.textContent = `Batch: ${qrCode.batchNumber}`;
-                    batchDiv.appendChild(batchP);
-
-                    stickerDiv.appendChild(batchDiv);
-                  }
-
-                  // Expiration Date
-                  if (qrCode.expirationDate) {
-                    const expDiv = document.createElement('div');
-                    expDiv.style.display = 'flex';
-                    expDiv.style.alignItems = 'center';
-                    expDiv.style.justifyContent = 'center';
-                    expDiv.style.width = '100%';
-                    expDiv.style.gap = '0.06in';
-                    expDiv.style.backgroundColor = '#fef2f2';
-                    expDiv.style.padding = '4px 8px';
-                    expDiv.style.borderRadius = '4px';
-
-                    const calendarIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                    calendarIcon.setAttribute('viewBox', '0 0 24 24');
-                    calendarIcon.setAttribute('fill', 'none');
-                    calendarIcon.setAttribute('stroke', 'currentColor');
-                    calendarIcon.setAttribute('strokeWidth', '2');
-                    calendarIcon.setAttribute('strokeLinecap', 'round');
-                    calendarIcon.setAttribute('strokeLinejoin', 'round');
-                    calendarIcon.classList.add('lucide', 'lucide-calendar');
-                    calendarIcon.style.height = '14px';
-                    calendarIcon.style.width = '14px';
-                    calendarIcon.style.color = '#dc2626';
-                    calendarIcon.style.flexShrink = '0';
-                    calendarIcon.innerHTML = '<rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>';
-                    expDiv.appendChild(calendarIcon);
-
-                    const expP = document.createElement('p');
-                    expP.style.fontSize = '11px';
-                    expP.style.color = '#b91c1c';
-                    expP.style.fontWeight = 'semibold';
-                    expP.style.margin = '0';
-                    expP.textContent = `Exp: ${format(new Date(qrCode.expirationDate), 'MMM dd, yyyy')}`;
-                    expDiv.appendChild(expP);
-
-                    stickerDiv.appendChild(expDiv);
-                  } else {
-                    const noExpP = document.createElement('p');
-                    noExpP.style.fontSize = '11px';
-                    noExpP.style.color = '#9ca3af';
-                    noExpP.style.fontStyle = 'italic';
-                    noExpP.style.margin = '0';
-                    noExpP.textContent = 'No expiration date';
-                    stickerDiv.appendChild(noExpP);
-                  }
-
-                  // OTC Price
-                  const priceDiv = document.createElement('div');
-                  priceDiv.style.display = 'flex';
-                  priceDiv.style.alignItems = 'center';
-                  priceDiv.style.justifyContent = 'center';
-                  priceDiv.style.width = '100%';
-
-                  const priceP = document.createElement('p');
-                  priceP.style.fontSize = '14px';
-                  priceP.style.fontWeight = 'bold';
-                  priceP.style.color = '#2563eb';
-                  priceP.style.margin = '0';
-                  priceP.textContent = `₱${qrCode.price?.toFixed(2) || '0.00'}`;
-                  priceDiv.appendChild(priceP);
-
-                  stickerDiv.appendChild(priceDiv);
-
-                  // Add to temp container and capture
-                  tempContainer.appendChild(stickerDiv);
-
-                  const canvas = await html2canvas(stickerDiv, {
-                    backgroundColor: '#ffffff',
-                    scale: 2,
-                    useCORS: true,
-                    allowTaint: true
-                  });
-
-                  const imgData = canvas.toDataURL('image/png');
-
-                  const positionOnPage = i % perPage;
-                  const col = positionOnPage % 2;
-                  const row = Math.floor(positionOnPage / 2);
-                  const x = col * stickerWidth;
-                  const y = row * stickerHeight;
-
-                  doc.addImage(imgData, 'PNG', x, y, stickerWidth, stickerHeight);
-
-                  if ((i + 1) % perPage === 0 && i + 1 < allQRCodes.length) {
-                    doc.addPage();
-                  }
-
-                  // Clean up
-                  tempContainer.removeChild(stickerDiv);
-                }
-
-                document.body.removeChild(tempContainer);
-
-                const productCount = new Set(allQRCodes.map(q => q.productId)).size;
-                const batchCount = new Set(allQRCodes.map(q => q.batchId)).size;
-                doc.save(`mass_print_all_products_${productCount}_products_${batchCount}_batches_${Date.now()}.pdf`);
-
-                setLoading(false);
-              } catch (error) {
-                console.error('Error in mass print:', error);
-                setError('Failed to generate mass print PDF: ' + error.message);
-                setLoading(false);
-              }
-              }}
-              className="flex items-center gap-2"
-              title="Print all QR codes"
-              disabled={loading}
-            >
-              <Printer className="w-5 h-5" />
-            </Button>
         </div>
 
         {/* Products Table */}
@@ -1596,101 +1274,6 @@ const UpcGenerator = () => {
             </p>
           </div>
         )}
-
-        {/* Current Batches/Products Display */}
-        <Card className="p-3 md:p-4 lg:p-6">
-          <div className="flex items-center justify-between mb-3 md:mb-4">
-            <h2 className="text-base md:text-lg font-semibold text-gray-900">Current Batches/Products</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadCurrentBatches}
-              disabled={loadingBatches}
-              className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 md:h-4 md:w-4 ${loadingBatches ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Refresh</span>
-            </Button>
-          </div>
-          
-          {loadingBatches ? (
-            <div className="flex items-center justify-center py-8">
-              <RefreshCw className="h-6 w-6 animate-spin text-blue-600" />
-              <span className="ml-2 text-gray-600">Loading batches...</span>
-            </div>
-          ) : currentBatches.length === 0 ? (
-            <div className="text-center py-8 bg-gray-50 rounded-lg">
-              <Package className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-              <p className="text-gray-600">No active batches found</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto max-w-full">
-              <table className="w-full table-fixed">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="w-[30%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                    <th className="w-[20%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Batch Number</th>
-                    <th className="w-[15%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase hidden lg:table-cell">Quantity</th>
-                    <th className="w-[20%] px-2 md:px-3 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiration</th>
-                    <th className="w-[15%] px-2 md:px-3 py-2 md:py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {currentBatches.map((batch) => {
-                    const product = products.find(p => p.id === batch.productId);
-                    const isExpired = batch.expirationDate && new Date(batch.expirationDate) < new Date();
-                    const isExpiringSoon = batch.expirationDate && 
-                      new Date(batch.expirationDate) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) &&
-                      new Date(batch.expirationDate) > new Date();
-                    
-                    return (
-                      <tr key={batch.id} className="hover:bg-gray-50">
-                        <td className="px-2 md:px-3 py-2 md:py-3">
-                          <div className="text-xs md:text-sm font-medium text-gray-900 truncate">{batch.productName}</div>
-                          {product && (
-                            <div className="text-xs text-gray-500 truncate">{product.brand || ''}</div>
-                          )}
-                        </td>
-                        <td className="px-2 md:px-3 py-2 md:py-3 hidden md:table-cell">
-                          <span className="text-xs md:text-sm text-gray-900 font-mono truncate block">{batch.batchNumber}</span>
-                        </td>
-                        <td className="px-2 md:px-3 py-2 md:py-3 hidden lg:table-cell">
-                          <span className="text-xs md:text-sm text-gray-900">{batch.remainingQuantity}</span>
-                        </td>
-                        <td className="px-2 md:px-3 py-2 md:py-3">
-                          {batch.expirationDate ? (
-                            <span className={`text-xs ${isExpired ? 'text-red-600 font-semibold' : isExpiringSoon ? 'text-orange-600 font-semibold' : 'text-gray-900'}`}>
-                              {format(new Date(batch.expirationDate), 'MMM dd, yy')}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-gray-400">None</span>
-                          )}
-                        </td>
-                        <td className="px-2 md:px-3 py-2 md:py-3 text-center">
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              if (product) {
-                                handleGenerateQRCode(product);
-                                // Auto-select this batch
-                                setTimeout(() => {
-                                  setGenerateForm(prev => ({ ...prev, batchId: batch.id }));
-                                }, 100);
-                              }
-                            }}
-                            className="p-1.5 md:p-2 bg-blue-600 hover:bg-blue-700 text-white"
-                          >
-                            <QrCode className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
 
         {/* Product Details Modal */}
         {isDetailsModalOpen && selectedProduct && (
@@ -1853,19 +1436,6 @@ const UpcGenerator = () => {
                     required
                   />
                 </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Size</label>
-                  <select
-                    value={generateForm.size}
-                    onChange={(e) => setGenerateForm(prev => ({ ...prev, size: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="small">Small</option>
-                    <option value="medium">Medium</option>
-                    <option value="large">Large</option>
-                  </select>
-                </div>
               </div>
               
               <div className="flex justify-end gap-3 pt-4">
@@ -1952,18 +1522,8 @@ const UpcGenerator = () => {
                       )}
                     </div>
                     
-                    {/* Buttons in 1 row, 5 columns */}
-                    <div className="grid grid-cols-5 gap-2">
-                      <button
-                        onClick={handlePrint}
-                        className="flex flex-col items-center justify-center gap-1 p-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] rounded shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Print Stickers"
-                        disabled={qrCodesToPrint.length === 0}
-                      >
-                        <Printer className="h-3 w-3" />
-                        <span>Print</span>
-                      </button>
-                      
+                    {/* Action Buttons */}
+                    <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={() => qrCodesToPrint.length > 0 && handleSaveAsPNG(qrCodesToPrint[0], 0)}
                         className="flex flex-col items-center justify-center gap-1 p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-[10px] rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1989,37 +1549,23 @@ const UpcGenerator = () => {
                           <span>All PNG</span>
                         </button>
                       )}
-
-                      <button
-                        onClick={() => qrCodesToPrint.length > 0 && handleSaveAsPDF && handleSaveAsPDF()}
-                        className="flex flex-col items-center justify-center gap-1 p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-[10px] rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Save as PDF"
-                        disabled={qrCodesToPrint.length === 0 || !handleSaveAsPDF}
-                      >
-                        <FileText className="h-3 w-3" />
-                        <span>PDF</span>
-                      </button>
-                      
-                      <button
-                        onClick={() => {
-                          setIsPrintModalOpen(false);
-                          setQrCodesToPrint([]);
-                        }}
-                        className="flex flex-col items-center justify-center gap-1 p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-[10px] rounded transition-colors"
-                        title="Close"
-                      >
-                        <XCircle className="h-3 w-3" />
-                        <span>Close</span>
-                      </button>
                     </div>
                   </div>
 
                   {/* Preview Info */}
                   <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded-lg flex-shrink-0">
-                    <p className="text-xs text-blue-800 flex items-center gap-1.5">
-                      <CheckCircle className="h-3 w-3" />
-                      Preview your stickers below. Click print when ready.
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-blue-800 flex items-center gap-1.5">
+                        <CheckCircle className="h-3 w-3" />
+                        Preview your stickers below. Click print when ready.
+                      </p>
+                      {thermalConnected && (
+                        <span className="text-xs text-green-700 flex items-center gap-1">
+                          <Bluetooth className="h-3 w-3" />
+                          {thermalPrinterName}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Printable QR Code Stickers - Centered */}
@@ -2036,7 +1582,7 @@ const UpcGenerator = () => {
                         <div
                           key={index}
                           id={`sticker-${index}`}
-                          className="bg-white border-4 border-red-500 rounded-xl flex flex-col items-center justify-start shadow-xl"
+                          className="bg-white border-[3px] border-red-500 rounded-lg flex flex-col items-center shadow-xl"
                           style={{
                             width: '3in',
                             height: '3in',
@@ -2047,55 +1593,48 @@ const UpcGenerator = () => {
                             boxSizing: 'border-box',
                             pageBreakInside: 'avoid',
                             position: 'relative',
-                            padding: '0.3in',
+                            padding: '0.2in',
                             display: 'flex',
                             flexDirection: 'column',
-                            justifyContent: 'flex-start',
+                            justifyContent: 'space-between',
                             alignItems: 'center',
-                            gap: '0.15in',
                             background: '#ffffff',
-                            border: '4px solid #ef4444',
-                            borderRadius: '12px',
-                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
                             overflow: 'hidden'
                           }}
                         >
-                          {/* Cutting guide lines */}
-                          <div className="absolute inset-0 pointer-events-none" style={{
-                            border: '1px dashed #ccc',
-                            borderRadius: '4px'
-                          }}></div>
-
                           {/* Logo - Top */}
-                          <div className="flex-shrink-0 flex items-center justify-center w-full mb-1">
-                            <span className="text-xs font-bold text-gray-800">David's Salon Logo</span>
+                          <div className="flex-shrink-0 flex items-center justify-center w-full">
+                            <img src="/logo.jpg" alt="David's Salon" className="h-7 w-auto object-contain" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+                            <span className="text-xs font-bold text-gray-800 hidden">David's Salon</span>
                           </div>
 
-                          {/* QR Code - Bigger */}
-                          <div className="flex-shrink-0 flex items-center justify-center w-full mb-2">
-                            <div className="w-24 h-24 bg-gray-100 border-2 border-gray-300 rounded flex items-center justify-center">
-                              <span className="text-xs text-gray-600">[QR CODE]</span>
+                          {/* QR Code - BIG for scanning */}
+                          <div className="flex-shrink-0 flex items-center justify-center">
+                            <div className="p-1.5 bg-white border border-gray-200 rounded">
+                              <QRCodeSVG 
+                                value={qrCode.qrCodeString} 
+                                size={120}
+                                level="M"
+                                includeMargin={false}
+                              />
                             </div>
                           </div>
 
-                          {/* Batch Number */}
-                          <div className="flex items-center justify-center w-full mb-1" style={{ gap: '4px' }}>
-                            <Package className="h-3 w-3 text-gray-600 flex-shrink-0" />
-                            <span className="text-xs text-gray-700 font-medium">Batch: {qrCode.batchNumber || 'PO-KYI-01-SUP-001'}</span>
-                          </div>
+                          {/* Bottom info - compact */}
+                          <div className="flex flex-col items-center gap-1">
+                            {/* Batch Number */}
+                            <span className="text-[8px] text-gray-700 font-medium truncate">Batch: {qrCode.batchNumber || 'N/A'}</span>
 
-                          {/* Expiration Date */}
-                          <div className="flex items-center justify-center w-full mb-1" style={{ gap: '4px' }}>
-                            <Calendar className="h-3 w-3 text-red-600 flex-shrink-0" />
-                            <span className="text-xs text-red-700 font-semibold">
-                              Exp: {qrCode.expirationDate ? format(new Date(qrCode.expirationDate), 'MMM dd, yyyy') : 'Jan 11, 2029'}
-                            </span>
-                          </div>
+                            {/* Expiration Date */}
+                            <div className="px-2 py-0.5 bg-red-50 rounded">
+                              <span className="text-[8px] text-red-700 font-semibold">
+                                Exp: {qrCode.expirationDate ? format(new Date(qrCode.expirationDate), 'MMM dd, yyyy') : 'No expiry'}
+                              </span>
+                            </div>
 
-                          {/* OTC Price */}
-                          <div className="flex items-center justify-center w-full">
-                            <span className="text-sm font-bold text-blue-600">
-                              ₱{qrCode.price?.toFixed(2) || '120.00'}
+                            {/* OTC Price */}
+                            <span className="text-[10px] font-bold text-blue-600">
+                              ₱{qrCode.price?.toFixed(2) || '0.00'}
                             </span>
                           </div>
                         </div>
@@ -2369,125 +1908,6 @@ const UpcGenerator = () => {
               </div>
             </div>
           </Modal>
-        )}
-
-        {/* Mass Print Modal with Cutting Layout */}
-        {isMassPrintModalOpen && (
-          <div className="fixed inset-0 z-50 overflow-y-auto">
-            <div className="flex min-h-screen items-center justify-center p-4">
-              <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm" onClick={() => setIsMassPrintModalOpen(false)} />
-              
-              <div className="relative w-full max-w-6xl transform overflow-hidden rounded-xl bg-white shadow-2xl">
-                <div className="bg-gradient-to-r from-[#160B53] to-[#2D1B69] px-6 py-5 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xl font-bold">Mass Print - Cutting Layout</h3>
-                      <p className="text-sm text-blue-100 mt-0.5">Select batches to print in grid layout</p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={() => setIsMassPrintModalOpen(false)}
-                      className="text-white border-white/30 hover:bg-white/20"
-                    >
-                      <XCircle className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="p-6">
-                  <div className="mb-4">
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Select Batches to Print</h4>
-                    <div className="max-h-64 overflow-y-auto border rounded-lg p-2">
-                      {currentBatches.length === 0 ? (
-                        <p className="text-sm text-gray-500 text-center py-4">No batches available</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {currentBatches.map(batch => {
-                            const product = products.find(p => p.id === batch.productId);
-                            const isSelected = selectedBatchesForPrint.some(b => 
-                              b.productId === batch.productId && b.batchNumber === batch.batchNumber
-                            );
-                            
-                            return (
-                              <label key={batch.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      const qrCode = {
-                                        id: `qr-${batch.id}-${Date.now()}`,
-                                        qrCodeString: JSON.stringify({
-                                          productId: batch.productId,
-                                          productName: batch.productName,
-                                          price: product?.otcPrice || 0,
-                                          batchNumber: batch.batchNumber,
-                                          batchId: batch.id,
-                                          expirationDate: batch.expirationDate ? new Date(batch.expirationDate).toISOString() : null,
-                                          branchId: userBranch,
-                                          timestamp: Date.now()
-                                        }),
-                                        batchNumber: batch.batchNumber,
-                                        productName: batch.productName,
-                                        productId: batch.productId,
-                                        price: product?.otcPrice || 0,
-                                        expirationDate: batch.expirationDate ? new Date(batch.expirationDate) : null,
-                                        branchId: userBranch,
-                                        createdAt: new Date()
-                                      };
-                                      setSelectedBatchesForPrint(prev => [...prev, qrCode]);
-                                    } else {
-                                      setSelectedBatchesForPrint(prev => prev.filter(b => 
-                                        !(b.productId === batch.productId && b.batchNumber === batch.batchNumber)
-                                      ));
-                                    }
-                                  }}
-                                  className="rounded"
-                                />
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-900">{batch.productName}</div>
-                                  <div className="text-xs text-gray-500">Batch: {batch.batchNumber} | Qty: {batch.remainingQuantity}</div>
-                                </div>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {selectedBatchesForPrint.length > 0 && (
-                    <div className="mt-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-sm text-gray-700">
-                          {selectedBatchesForPrint.length} batch(es) selected
-                        </span>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            onClick={() => setSelectedBatchesForPrint([])}
-                          >
-                            Clear All
-                          </Button>
-                          <Button
-                            onClick={() => {
-                              setQrCodesToPrint(selectedBatchesForPrint);
-                              setIsMassPrintModalOpen(false);
-                              setIsPrintModalOpen(true);
-                            }}
-                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
-                          >
-                            <Printer className="h-4 w-4" />
-                            Print Selected ({selectedBatchesForPrint.length})
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
         )}
       </div>
     </div>

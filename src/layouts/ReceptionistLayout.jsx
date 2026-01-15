@@ -14,6 +14,8 @@ import {
   preloadNotificationSound,
   playNotificationSound
 } from '../services/notificationSoundService';
+// Import expoPushService to register debug functions on window
+import '../services/expoPushService';
 import toast from 'react-hot-toast';
 
 const ReceptionistLayout = () => {
@@ -120,14 +122,18 @@ const ReceptionistLayout = () => {
 
   const menuItems = [
     { path: ROUTES.RECEPTIONIST_DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
-    { section: 'Operations' },
+    
+    { section: 'Appointments & Clients' },
     { path: ROUTES.RECEPTIONIST_APPOINTMENTS, label: 'Appointments', icon: Calendar, badge: pendingCount > 0 ? pendingCount : null },
     { path: ROUTES.RECEPTIONIST_ARRIVALS, label: 'Arrivals & Check-ins', icon: CheckCircle },
     { path: ROUTES.RECEPTIONIST_CLIENTS, label: 'Clients', icon: Users },
+    
+    { section: 'Transactions' },
     { path: ROUTES.RECEPTIONIST_BILLING, label: 'Billing', icon: Receipt },
     { path: ROUTES.RECEPTIONIST_SALES_REPORT, label: 'Sales Report', icon: BarChart3 },
+    
+    { section: 'Resources' },
     { path: ROUTES.RECEPTIONIST_STAFF_SCHEDULE, label: 'Staff Schedule', icon: Clock },
-    { section: 'Catalog' },
     { path: ROUTES.RECEPTIONIST_SERVICES, label: 'Services', icon: Scissors },
     { path: ROUTES.RECEPTIONIST_PRODUCTS, label: 'Products', icon: Package },
   ];

@@ -172,9 +172,19 @@ class BranchContentService {
    * @param {Object} contentData - Content data to save
    * @returns {Promise<Object>} - Success status
    */
-  async saveContent(contentId, type, contentData) {
+  async saveContent(contentId, typeOrContentData, contentDataArg) {
     try {
       const contentRef = doc(db, this.collection, contentId);
+
+      const hasExplicitType = typeof typeOrContentData === 'string';
+      const type = hasExplicitType
+        ? typeOrContentData
+        : contentId === 'main'
+        ? 'homepage'
+        : contentId === 'about'
+        ? 'about'
+        : typeOrContentData?.type || 'branch';
+      const contentData = hasExplicitType ? contentDataArg : typeOrContentData;
       
       await setDoc(contentRef, {
         ...contentData,
@@ -187,6 +197,46 @@ class BranchContentService {
       return { success: true };
     } catch (error) {
       console.error('Error saving content:', error);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  async updateContent(contentId, type, contentData) {
+    const contentRef = doc(db, this.collection, contentId);
+
+    try {
+      await updateDoc(contentRef, {
+        ...contentData,
+        type,
+        contentId,
+        updatedAt: serverTimestamp(),
+        updatedBy: contentData.updatedBy || null
+      });
+      return { success: true };
+    } catch (error) {
+      if (error?.code === 'not-found') {
+        try {
+          await setDoc(contentRef, {
+            ...contentData,
+            type,
+            contentId,
+            updatedAt: serverTimestamp(),
+            updatedBy: contentData.updatedBy || null
+          }, { merge: true });
+          return { success: true };
+        } catch (innerError) {
+          console.error('Error updating content:', innerError);
+          return {
+            success: false,
+            message: innerError.message
+          };
+        }
+      }
+
+      console.error('Error updating content:', error);
       return {
         success: false,
         message: error.message
@@ -299,6 +349,12 @@ class BranchContentService {
       type: 'branch',
       contentId: branchId,
       branchId,
+      theme: {
+        primaryColor: '#160B53',
+        heroOverlayBottomColor: '#160B53',
+        heroOverlayBottomOpacity: 0.7,
+        ctaBackgroundColor: '#160B53'
+      },
       hero: {
         title: "David's Salon Branch",
         subtitle: "Choose your preferred branch to discover our specialized services and exclusive offers tailored just for you. Each location offers unique experiences designed for our local community.",

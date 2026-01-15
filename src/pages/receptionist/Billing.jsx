@@ -19,10 +19,12 @@ import { USER_ROLES, APPOINTMENT_STATUS, ROUTES } from '../../utils/constants';
 import BillingModalPOS from '../../components/billing/BillingModalPOS';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ReceiptComponent from '../../components/billing/Receipt';
+import { thermalPrinter } from '../../services/thermalPrinterService';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 import { 
   Banknote, UserPlus, Bell, Filter, Search, Eye, Printer, X, CheckCircle, AlertCircle,
   ArrowUpDown, ArrowUp, ArrowDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight,
-  Receipt
+  Receipt, XCircle
 } from 'lucide-react';
 
 const ReceptionistBilling = () => {
@@ -178,6 +180,8 @@ const ReceptionistBilling = () => {
   const [clients, setClients] = useState([]);
   const [showPendingList, setShowPendingList] = useState(false);
   const [isButtonMinimized, setIsButtonMinimized] = useState(false);
+  const [showReprintConfirm, setShowReprintConfirm] = useState(false);
+  const [reprintingReceipt, setReprintingReceipt] = useState(false);
   const minimizeTimeoutRef = useRef(null);
 
   // Tax and service charge rates (can be configured)
@@ -227,6 +231,49 @@ const ReceptionistBilling = () => {
       };
     }
   }, [completedAppointments.length]);
+
+  // Handle reprint receipt via Bluetooth thermal printer
+  const handleReprintReceipt = async () => {
+    if (!completedBill) return;
+    
+    try {
+      setReprintingReceipt(true);
+      
+      // Check if printer is connected
+      if (!thermalPrinter.isConnected) {
+        toast.error('Printer not connected. Please pair your printer first.');
+        setShowReprintConfirm(false);
+        return;
+      }
+      
+      // Prepare bill data for printing
+      const billData = {
+        ...completedBill,
+        receiptNumber: completedBill.receiptNumber || 'N/A',
+        createdAt: completedBill.createdAt,
+        createdByName: completedBill.createdByName || userData?.firstName || 'Staff',
+        clientName: completedBill.clientName || 'Guest',
+        items: completedBill.items || [],
+        subtotal: completedBill.subtotal || 0,
+        discount: completedBill.discount || 0,
+        promotionDiscount: completedBill.promotionDiscount || 0,
+        loyaltyDiscount: completedBill.loyaltyDiscount || 0,
+        total: completedBill.total || completedBill.grandTotal || 0,
+        paymentMethod: completedBill.paymentMethod || 'cash',
+        amountReceived: completedBill.amountReceived || 0,
+        change: completedBill.change || 0
+      };
+      
+      await thermalPrinter.printReceipt(billData, branchData);
+      toast.success('Receipt printed successfully!');
+      setShowReprintConfirm(false);
+    } catch (error) {
+      console.error('Error reprinting receipt:', error);
+      toast.error('Failed to print receipt: ' + error.message);
+    } finally {
+      setReprintingReceipt(false);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -555,59 +602,73 @@ const ReceptionistBilling = () => {
         </div>
       </div>
 
-      {/* Daily Summary Cards */}
-      {dailySummary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Today's Revenue</p>
-                <p className="text-2xl font-bold text-green-600 mt-1">₱{dailySummary.netRevenue?.toFixed(2) || '0.00'}</p>
-              </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <Banknote className="w-6 h-6 text-green-600" />
-              </div>
+      {/* Daily Summary Cards - Based on Filtered Bills */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Today's Revenue</p>
+              <p className="text-2xl font-bold text-green-600 mt-1">
+                ₱{filteredBills
+                  .filter(b => b.status === BILL_STATUS.PAID)
+                  .reduce((sum, b) => sum + (b.total || 0), 0)
+                  .toFixed(2)}
+              </p>
             </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Transactions</p>
-                <p className="text-2xl font-bold text-blue-600 mt-1">{dailySummary.totalTransactions}</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <Receipt className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Discounts Given</p>
-                <p className="text-2xl font-bold text-yellow-600 mt-1">₱{dailySummary.totalDiscounts?.toFixed(2) || '0.00'}</p>
-              </div>
-              <div className="p-3 bg-yellow-100 rounded-lg">
-                <Banknote className="w-6 h-6 text-yellow-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Refunds</p>
-                <p className="text-2xl font-bold text-red-600 mt-1">₱{dailySummary.totalRefunds?.toFixed(2) || '0.00'}</p>
-              </div>
-              <div className="p-3 bg-red-100 rounded-lg">
-                <Banknote className="w-6 h-6 text-red-600" />
-              </div>
+            <div className="p-3 bg-green-100 rounded-lg">
+              <Banknote className="w-6 h-6 text-green-600" />
             </div>
           </div>
         </div>
-      )}
 
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Transactions</p>
+              <p className="text-2xl font-bold text-blue-600 mt-1">
+                {filteredBills.filter(b => b.status === BILL_STATUS.PAID).length}
+              </p>
+            </div>
+            <div className="p-3 bg-blue-100 rounded-lg">
+              <Receipt className="w-6 h-6 text-blue-600" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Discounts Given</p>
+              <p className="text-2xl font-bold text-yellow-600 mt-1">
+                ₱{filteredBills
+                  .filter(b => b.status === BILL_STATUS.PAID)
+                  .reduce((sum, b) => sum + (b.discount || 0), 0)
+                  .toFixed(2)}
+              </p>
+            </div>
+            <div className="p-3 bg-yellow-100 rounded-lg">
+              <Banknote className="w-6 h-6 text-yellow-600" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Total Voided</p>
+              <p className="text-2xl font-bold text-red-600 mt-1">
+                ₱{filteredBills
+                  .filter(b => b.status === BILL_STATUS.VOIDED)
+                  .reduce((sum, b) => sum + (b.total || 0), 0)
+                  .toFixed(2)}
+              </p>
+            </div>
+            <div className="p-3 bg-red-100 rounded-lg">
+              <XCircle className="w-6 h-6 text-red-600" />
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Search and Filter Button */}
       <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
@@ -1521,10 +1582,12 @@ const ReceptionistBilling = () => {
                           padding-bottom: 2mm;
                           border-bottom: 1px dashed #000;
                         }
-                        .salon-name {
-                          font-size: 11pt;
-                          font-weight: bold;
-                          margin-bottom: 1mm;
+                        .salon-logo {
+                          width: 35mm;
+                          height: auto;
+                          margin: 0 auto 2mm auto;
+                          display: block;
+                          filter: grayscale(100%) contrast(1.2);
                         }
                         .branch-name {
                           font-size: 9pt;
@@ -1671,7 +1734,7 @@ const ReceptionistBilling = () => {
                     <body>
                       <div class="receipt">
                         <div class="header">
-                          <div class="salon-name">DAVID'S SALON</div>
+                          <img src="/logo.jpg" alt="David's Salon" class="salon-logo" />
                           <div class="branch-name">${branch?.name || branch?.branchName || bill.branchName || 'Branch'}</div>
                           ${branch?.address ? `<div class="branch-address">${branch.address}</div>` : ''}
                           <div class="receipt-title">OFFICIAL RECEIPT</div>
@@ -1807,7 +1870,22 @@ const ReceptionistBilling = () => {
                   printWindow.document.close();
                   setTimeout(() => { printWindow.print(); }, 250);
                 }}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors flex items-center justify-center gap-2"
+                title="Open print preview (for PDF/other printers)"
+              >
+                <Eye className="w-4 h-4" />
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReprintConfirm(true)}
+                disabled={!thermalPrinter.isConnected}
+                className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                  thermalPrinter.isConnected 
+                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+                title={thermalPrinter.isConnected ? 'Print via Bluetooth' : 'Printer not connected'}
               >
                 <Printer className="w-4 h-4" />
                 Print Receipt
@@ -2022,6 +2100,19 @@ const ReceptionistBilling = () => {
           )}
         </>
       )}
+
+      {/* Reprint Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showReprintConfirm}
+        onClose={() => setShowReprintConfirm(false)}
+        onConfirm={handleReprintReceipt}
+        title="Reprint Receipt"
+        message="Are you sure you want to print this receipt again?"
+        confirmText={reprintingReceipt ? "Printing..." : "Yes, Print"}
+        cancelText="Cancel"
+        type="info"
+        loading={reprintingReceipt}
+      />
     </div>
   );
 };

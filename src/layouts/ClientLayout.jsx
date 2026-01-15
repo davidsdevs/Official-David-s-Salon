@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Calendar, ShoppingBag, Gift, User } from 'lucide-react';
+import { LayoutDashboard, Calendar, ShoppingBag, Gift, User, Receipt } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -13,6 +13,7 @@ const ClientLayout = () => {
     { section: 'Services' },
     { path: '/client/appointments', label: 'Appointments', icon: Calendar },
     { path: '/client/products', label: 'Products', icon: ShoppingBag },
+    { path: ROUTES.CLIENT_TRANSACTIONS, label: 'Transactions', icon: Receipt },
     { path: '/client/rewards', label: 'Rewards', icon: Gift },
   ];
 

@@ -4,9 +4,10 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Calendar, Clock, AlertCircle } from 'lucide-react';
+import { X, Calendar, Clock, AlertCircle, AlertTriangle } from 'lucide-react';
 import { APPOINTMENT_STATUS, getAvailableTimeSlots } from '../../services/appointmentService';
 import { isBranchClosedOnDate } from '../../services/branchCloseUtils';
+import { getBranchCalendar } from '../../services/branchCalendarService';
 import { formatTime } from '../../utils/helpers';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Modal from '../ui/Modal';
@@ -42,8 +43,9 @@ const AppointmentFormModal = ({
   
   const [availableSlots, setAvailableSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
-    const [showClosedModal, setShowClosedModal] = useState(false);
-    const [closedReason, setClosedReason] = useState('');
+  const [showClosedModal, setShowClosedModal] = useState(false);
+  const [closedReason, setClosedReason] = useState('');
+  const [branchCalendar, setBranchCalendar] = useState([]);
   const [unavailableMessage, setUnavailableMessage] = useState(null);
   const [isGuestMode, setIsGuestMode] = useState(isGuest || false);
   const [clientSearchTerm, setClientSearchTerm] = useState('');
@@ -78,6 +80,22 @@ const AppointmentFormModal = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showClientDropdown]);
+
+  // Load branch calendar when branch is selected
+  useEffect(() => {
+    const loadBranchCalendar = async () => {
+      if (formData.branchId) {
+        try {
+          const calendar = await getBranchCalendar(formData.branchId);
+          setBranchCalendar(calendar || []);
+        } catch (error) {
+          console.error('Error loading branch calendar:', error);
+          setBranchCalendar([]);
+        }
+      }
+    };
+    loadBranchCalendar();
+  }, [formData.branchId]);
 
   useEffect(() => {
     if (appointment) {
@@ -138,6 +156,28 @@ const AppointmentFormModal = ({
     appointment.status !== APPOINTMENT_STATUS.COMPLETED &&
     !(appointment.paymentStatus === true || appointment.paid === true || appointment.isPaid === true || (typeof appointment.paymentStatus === 'string' && appointment.paymentStatus.toLowerCase() === 'paid'))
   );
+
+  // Check if a date is closed (holiday, special closure, etc.)
+  const isDateClosed = (dateString) => {
+    if (!dateString || !branchCalendar.length) return { closed: false, reason: '' };
+
+    const dayEvents = branchCalendar.filter(entry => {
+      const entryDate = entry.date instanceof Date ? entry.date : new Date(entry.date);
+      const entryDateString = entryDate.toISOString().split('T')[0];
+      return entryDateString === dateString;
+    });
+
+    for (const event of dayEvents) {
+      if (event.type === 'holiday' || event.type === 'special_closure') {
+        return {
+          closed: true,
+          reason: event.title || event.reason || 'Branch is closed on this date'
+        };
+      }
+    }
+
+    return { closed: false, reason: '' };
+  };
 
   // Fetch available time slots when date, services, and branch are selected
   useEffect(() => {
@@ -994,13 +1034,21 @@ const AppointmentFormModal = ({
                   // Immediately block booking if branch has an approved branch_close on this date
                   if (formData.branchId && dateValue) {
                     try {
+                      // Check branch_close entries
                       const closeCheck = await isBranchClosedOnDate(formData.branchId, dateValue);
                       if (closeCheck.closed) {
                         const reason = closeCheck.entry?.title || closeCheck.entry?.description || 'Branch closed on this date.';
                         setClosedReason(reason);
                         setShowClosedModal(true);
-                        setFormData({ ...formData, appointmentDate: '', timeSlot: null });
-                        return;
+                        return; // Don't set the date
+                      }
+
+                      // Check branch calendar (holidays, special closures)
+                      const calendarCheck = isDateClosed(dateValue);
+                      if (calendarCheck.closed) {
+                        setClosedReason(calendarCheck.reason);
+                        setShowClosedModal(true);
+                        return; // Don't set the date
                       }
                     } catch (err) {
                       console.error('Error checking branch close:', err);
@@ -1148,21 +1196,44 @@ const AppointmentFormModal = ({
 
           </div>
         </form>
-        {/* Closed Date Modal */}
-        {showClosedModal && (
-          <Modal isOpen={showClosedModal} onClose={() => setShowClosedModal(false)} title="Branch Temporarily Closed">
-            <div className="space-y-3 text-center p-4">
-              <p className="text-lg font-semibold text-red-600">You cannot book for this day.</p>
-              <p className="text-gray-700">The branch is temporarily closed for this date.</p>
-              <p className="text-sm text-gray-500">Reason: <span className="font-semibold">{closedReason}</span></p>
-              <div className="mt-4 flex gap-3 justify-center">
-                <button onClick={() => setShowClosedModal(false)} className="px-4 py-2 border rounded-lg">Close</button>
-                <button onClick={() => { setShowClosedModal(false); setFormData({ ...formData, appointmentDate: '', timeSlot: null }); }} className="px-4 py-2 bg-[#2D1B4E] text-white rounded-lg">Choose Another Date</button>
+      </div>
+
+      {/* Blocking Modal for Closed Date */}
+      {showClosedModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 animate-bounce-in">
+            <div className="bg-gradient-to-r from-red-600 to-red-700 p-6 rounded-t-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">Branch is Closed</h3>
+                  <p className="text-red-100 text-sm mt-1">Cannot book on this date</p>
+                </div>
               </div>
             </div>
-          </Modal>
-        )}
-      </div>
+            
+            <div className="p-6">
+              <p className="text-gray-700 text-base leading-relaxed mb-4">
+                {closedReason}
+              </p>
+              <p className="text-sm text-gray-600">
+                Please select a different date when the branch is open.
+              </p>
+              
+              <div className="mt-6">
+                <button
+                  onClick={() => setShowClosedModal(false)}
+                  className="w-full px-5 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 transition-all font-semibold shadow-md hover:shadow-lg"
+                >
+                  OK, I'll Choose Another Date
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

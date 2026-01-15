@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Building2, BarChart3, TrendingUp, Activity, Users, Package, ShoppingCart, Wallet, Banknote, Calendar, Tag } from 'lucide-react';
+import { LayoutDashboard, Building2, BarChart3, TrendingUp, Activity, Users, Wallet, Banknote, Calendar, Tag } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -14,13 +14,12 @@ const OperationalManagerLayout = () => {
     { path: ROUTES.OPERATIONAL_MANAGER_USERS, label: 'Users', icon: Users },
     { path: ROUTES.OPERATIONAL_MANAGER_BRANCHES, label: 'Branches', icon: Building2 },
     { section: 'Operations' },
-    { path: '/operational-manager/inventory', label: 'Inventory', icon: Package },
-    { path: '/operational-manager/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
     { path: '/operational-manager/deposits', label: 'Deposits', icon: Wallet },
     { path: ROUTES.OPERATIONAL_MANAGER_CALENDAR, label: 'Calendar', icon: Calendar },
     { path: '/operational-manager/leave-management', label: 'Leave Management', icon: Calendar },
     { section: 'Analytics' },
     { path: ROUTES.OPERATIONAL_MANAGER_PRICE_HISTORY, label: 'Price History Analytics', icon: Banknote },
+    { path: ROUTES.OPERATIONAL_MANAGER_BRANCH_PERFORMANCE, label: 'Branch Performance', icon: BarChart3 },
     { section: 'Marketing' },
     { path: '/operational-manager/promotions', label: 'System-Wide Promotions', icon: Tag },
     { section: 'System' },

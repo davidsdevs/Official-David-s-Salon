@@ -20,6 +20,10 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import {
+  sendPortfolioApprovedNotification,
+  sendPortfolioRejectedNotification
+} from "../../services/expoPushService";
+import {
   Home,
   Calendar,
   Users,
@@ -348,6 +352,13 @@ const StylistPortfolios = () => {
           createdAt: serverTimestamp(),
           isRead: false,
         });
+        
+        // Send push notification
+        await sendPortfolioApprovedNotification(
+          { id: portfolioId, title: portfolioData.title },
+          portfolioData.stylistId
+        );
+        console.log('📱 Push notification sent for portfolio approval');
       } catch (notifError) {
         console.error("Error creating notification:", notifError);
       }
@@ -424,6 +435,14 @@ const StylistPortfolios = () => {
           createdAt: serverTimestamp(),
           isRead: false,
         });
+        
+        // Send push notification
+        await sendPortfolioRejectedNotification(
+          { id: portfolioToReject, title: portfolioData.title },
+          portfolioData.stylistId,
+          rejectionRemark.trim()
+        );
+        console.log('📱 Push notification sent for portfolio rejection');
       } catch (notifError) {
         console.error("Error creating notification:", notifError);
       }

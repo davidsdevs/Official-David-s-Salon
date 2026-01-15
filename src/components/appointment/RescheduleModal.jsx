@@ -1,20 +1,100 @@
 /**
  * Simple Reschedule Modal
  * Only allows changing date and time, keeps services/branch the same
+ * Includes all booking validations: operating hours, closed days, holidays, special closures, existing appointments
  */
 
-import { useState } from 'react';
-import { X, Calendar, Clock, MapPin, Scissors, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Calendar, Clock, MapPin, Scissors, RefreshCw, AlertTriangle } from 'lucide-react';
 import { formatTime12Hour } from '../../utils/helpers';
+import { getBranchCalendar } from '../../services/branchCalendarService';
+import { isBranchClosedOnDate } from '../../services/branchCloseUtils';
+import { APPOINTMENT_STATUS } from '../../utils/constants';
 import LoadingSpinner from '../ui/LoadingSpinner';
 
-const RescheduleModal = ({ isOpen, onClose, appointment, onSubmit, loading }) => {
+const RescheduleModal = ({ isOpen, onClose, appointment, onSubmit, loading, existingAppointments = [] }) => {
   const [newDate, setNewDate] = useState('');
   const [newTimeSlot, setNewTimeSlot] = useState(null);
+  const [branchCalendar, setBranchCalendar] = useState([]);
+  const [loadingCalendar, setLoadingCalendar] = useState(false);
+  const [closedReason, setClosedReason] = useState('');
+  const [existingAppointmentError, setExistingAppointmentError] = useState('');
+  const [showBlockingModal, setShowBlockingModal] = useState(false);
+  const [blockingMessage, setBlockingMessage] = useState({ title: '', message: '' });
+
+  // Load branch calendar when modal opens
+  useEffect(() => {
+    if (isOpen && appointment?.branchId) {
+      loadBranchCalendar();
+    }
+  }, [isOpen, appointment?.branchId]);
+
+  const loadBranchCalendar = async () => {
+    try {
+      setLoadingCalendar(true);
+      const calendar = await getBranchCalendar(appointment.branchId);
+      setBranchCalendar(calendar || []);
+    } catch (error) {
+      console.error('Error loading branch calendar:', error);
+      setBranchCalendar([]);
+    } finally {
+      setLoadingCalendar(false);
+    }
+  };
+
+  // Check if a date is closed (holiday, special closure, etc.)
+  const isDateClosed = (dateString) => {
+    if (!dateString || !branchCalendar.length) return { closed: false, reason: '' };
+
+    const dayEvents = branchCalendar.filter(entry => {
+      const entryDate = entry.date instanceof Date ? entry.date : new Date(entry.date);
+      const entryDateString = entryDate.toISOString().split('T')[0];
+      return entryDateString === dateString;
+    });
+
+    for (const event of dayEvents) {
+      if (event.type === 'holiday' || event.type === 'special_closure') {
+        return {
+          closed: true,
+          reason: event.title || event.reason || 'Branch is closed on this date'
+        };
+      }
+    }
+
+    return { closed: false, reason: '' };
+  };
+
+  // Check if client already has an appointment on the selected date (excluding current appointment)
+  const checkExistingAppointment = (dateString) => {
+    if (!dateString || !existingAppointments || existingAppointments.length === 0) {
+      return false;
+    }
+
+    const selectedDate = new Date(dateString + 'T00:00:00');
+    const startOfDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+    const endOfDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 23, 59, 59);
+    
+    const conflictingAppointments = existingAppointments.filter(apt => {
+      // Skip the current appointment being rescheduled
+      if (apt.id === appointment?.id) return false;
+      
+      const aptDate = new Date(apt.appointmentDate);
+      return aptDate >= startOfDay && 
+             aptDate <= endOfDay && 
+             apt.status !== APPOINTMENT_STATUS.CANCELLED && 
+             apt.status !== APPOINTMENT_STATUS.COMPLETED;
+    });
+
+    return conflictingAppointments.length > 0;
+  };
 
   if (!isOpen || !appointment) return null;
 
   const selectedBranch = appointment.branch || {};
+  
+  // Check if selected date is closed (holiday/special closure)
+  const dateClosureCheck = newDate ? isDateClosed(newDate) : { closed: false, reason: '' };
+  const isSpecialClosure = dateClosureCheck.closed;
   
   // Get operating hours for selected date
   let openTime = '09:00', closeTime = '18:00', isBranchOpen = true;
@@ -56,10 +136,23 @@ const RescheduleModal = ({ isOpen, onClose, appointment, onSubmit, loading }) =>
     return boxes;
   };
 
-  const timeBoxes = (newDate && isBranchOpen) ? getTimeBoxes(openTime, closeTime, minTime) : [];
+  const timeBoxes = (newDate && isBranchOpen && !isSpecialClosure) ? getTimeBoxes(openTime, closeTime, minTime) : [];
 
   const handleSubmit = () => {
     if (newDate && newTimeSlot) {
+      // Final validation before submit
+      const closureCheck = isDateClosed(newDate);
+      if (closureCheck.closed) {
+        setClosedReason(closureCheck.reason);
+        return;
+      }
+
+      // Check for existing appointments on the new date
+      if (checkExistingAppointment(newDate)) {
+        setExistingAppointmentError('You already have an appointment on this date. Please choose a different date.');
+        return;
+      }
+
       onSubmit(newDate, newTimeSlot);
     }
   };
@@ -67,6 +160,8 @@ const RescheduleModal = ({ isOpen, onClose, appointment, onSubmit, loading }) =>
   const handleClose = () => {
     setNewDate('');
     setNewTimeSlot(null);
+    setClosedReason('');
+    setExistingAppointmentError('');
     onClose();
   };
 
@@ -159,9 +254,52 @@ const RescheduleModal = ({ isOpen, onClose, appointment, onSubmit, loading }) =>
               <input
                 type="date"
                 value={newDate}
-                onChange={(e) => {
-                  setNewDate(e.target.value);
+                onChange={async (e) => {
+                  const selectedDate = e.target.value;
+                  
+                  // Check branch_close entries (date ranges)
+                  if (appointment?.branchId) {
+                    try {
+                      const branchCloseCheck = await isBranchClosedOnDate(appointment.branchId, selectedDate);
+                      if (branchCloseCheck.closed) {
+                        setShowBlockingModal(true);
+                        setBlockingMessage({
+                          title: 'Branch is Closed',
+                          message: branchCloseCheck.entry?.title || branchCloseCheck.entry?.description || 'Branch is closed on this date'
+                        });
+                        return; // Don't set the date
+                      }
+                    } catch (error) {
+                      console.error('Error checking branch close:', error);
+                    }
+                  }
+                  
+                  // Check branch calendar (holidays, special closures)
+                  const closureCheck = isDateClosed(selectedDate);
+                  if (closureCheck.closed) {
+                    setShowBlockingModal(true);
+                    setBlockingMessage({
+                      title: 'Branch is Closed',
+                      message: closureCheck.reason
+                    });
+                    return; // Don't set the date
+                  }
+                  
+                  // Check if client has existing appointment
+                  if (checkExistingAppointment(selectedDate)) {
+                    setShowBlockingModal(true);
+                    setBlockingMessage({
+                      title: 'Existing Appointment',
+                      message: 'You already have an appointment on this date. You can only have one appointment per day. Please choose a different date.'
+                    });
+                    return; // Don't set the date
+                  }
+                  
+                  // Date is valid, proceed
+                  setNewDate(selectedDate);
                   setNewTimeSlot(null);
+                  setExistingAppointmentError('');
+                  setClosedReason('');
                 }}
                 min={getMinDate()}
                 className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base transition-colors bg-white"
@@ -181,13 +319,20 @@ const RescheduleModal = ({ isOpen, onClose, appointment, onSubmit, loading }) =>
                 <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600 text-center">
                   Please select a date first
                 </div>
+              ) : isSpecialClosure ? (
+                <div className="bg-gradient-to-br from-red-50 to-red-100 border-2 border-red-300 rounded-xl p-6 text-center shadow-sm">
+                  <p className="text-base text-red-900 font-semibold mb-2">Branch is Closed</p>
+                  <p className="text-sm text-red-800">{dateClosureCheck.reason}</p>
+                </div>
               ) : !isBranchOpen ? (
                 <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl p-6 text-center shadow-sm">
                   <p className="text-base text-amber-900 font-semibold">Branch is closed on this day</p>
+                  <p className="text-sm text-amber-800 mt-1">This day is not in the branch's operating schedule</p>
                 </div>
               ) : timeBoxes.length === 0 ? (
                 <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl p-6 text-center shadow-sm">
                   <p className="text-base text-amber-900 font-semibold">No available times for this day</p>
+                  <p className="text-sm text-amber-800 mt-1">All time slots are fully booked or outside operating hours</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-64 overflow-y-auto p-2 border border-gray-200 rounded-lg">
@@ -211,6 +356,27 @@ const RescheduleModal = ({ isOpen, onClose, appointment, onSubmit, loading }) =>
                 Open hours: {formatTime12Hour(openTime)} - {formatTime12Hour(closeTime)}
               </p>
             </div>
+
+            {/* Show error if trying to book on closed date */}
+            {closedReason && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 shadow-sm">
+                <p className="text-sm text-red-900 font-semibold">❌ {closedReason}</p>
+                <p className="text-xs text-red-800 mt-1">Please select a different date.</p>
+              </div>
+            )}
+
+            {/* Show error if client already has an appointment on this date */}
+            {existingAppointmentError && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 shadow-sm">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm text-red-900 font-semibold">{existingAppointmentError}</p>
+                    <p className="text-xs text-red-800 mt-1">You can only have one appointment per day.</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Reschedule Disclaimer */}
             <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl p-4 shadow-sm">
@@ -257,6 +423,40 @@ const RescheduleModal = ({ isOpen, onClose, appointment, onSubmit, loading }) =>
           </button>
         </div>
       </div>
+
+      {/* Blocking Modal for Invalid Date Selection */}
+      {showBlockingModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 animate-bounce-in">
+            <div className="bg-gradient-to-r from-red-600 to-red-700 p-6 rounded-t-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">{blockingMessage.title}</h3>
+                  <p className="text-red-100 text-sm mt-1">Cannot select this date</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <p className="text-gray-700 text-base leading-relaxed">
+                {blockingMessage.message}
+              </p>
+              
+              <div className="mt-6">
+                <button
+                  onClick={() => setShowBlockingModal(false)}
+                  className="w-full px-5 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 transition-all font-semibold shadow-md hover:shadow-lg"
+                >
+                  OK, I'll Choose Another Date
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

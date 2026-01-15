@@ -1,15 +1,115 @@
 import Button from "../ui/Button"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useState, useEffect } from "react"
+import { marketingContentService } from "../../services/marketingContentService"
+import { useAuth } from "../../context/AuthContext"
+import { USER_ROLES } from "../../utils/constants"
+import InlineEditable from "../cms/InlineEditable"
+import FloatingSaveButton from "../cms/FloatingSaveButton"
 
-export default function Navigation() {
+export default function Navigation({ embedded = false, cmsEditMode } = {}) {
+  const { userData, userRoles } = useAuth()
+  const isSystemAdmin =
+    userRoles?.includes(USER_ROLES.SYSTEM_ADMIN) ||
+    userRoles?.includes('system_admin') ||
+    userData?.role === USER_ROLES.SYSTEM_ADMIN ||
+    userData?.role === 'system_admin'
+  const effectiveEditMode = typeof cmsEditMode === 'boolean' ? cmsEditMode : true
+
   const location = useLocation()
   const navigate = useNavigate()
   const [isBranchActive, setIsBranchActive] = useState(false)
 
+  const [content, setContent] = useState(null)
+  const [localContent, setLocalContent] = useState(null)
+  const [hasChanges, setHasChanges] = useState(false)
+  const [saving, setSaving] = useState(false)
+
   const isActive = (path) => {
     return location.pathname === path
   }
+
+  useEffect(() => {
+    const loadContent = async () => {
+      try {
+        const result = await marketingContentService.getLayoutContent()
+        if (result.success && result.content) {
+          setContent(result.content)
+          if (!hasChanges) {
+            setLocalContent(result.content)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading layout content:', error)
+      }
+    }
+
+    const unsubscribe = marketingContentService.subscribeToContent('layout', 'layout', (result) => {
+      if (result.success && result.content) {
+        setContent(result.content)
+        if (!hasChanges) {
+          setLocalContent(result.content)
+        }
+      }
+    })
+
+    loadContent()
+    return () => unsubscribe()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (content && !localContent) {
+      setLocalContent(content)
+    }
+  }, [content, localContent])
+
+  const handleContentUpdate = (fieldPath, value) => {
+    if (!localContent) return
+
+    const keys = fieldPath.split('.')
+    const newContent = { ...localContent }
+    let current = newContent
+
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (!current[keys[i]]) {
+        current[keys[i]] = {}
+      }
+      current = current[keys[i]]
+    }
+
+    current[keys[keys.length - 1]] = value
+    setLocalContent(newContent)
+    setHasChanges(true)
+  }
+
+  const handleSave = async () => {
+    if (!localContent || !userData) return
+
+    try {
+      setSaving(true)
+      const payload = {
+        navigation: (localContent?.navigation || {})
+      }
+      const result = await marketingContentService.updateContent('layout', 'layout', {
+        ...payload,
+        updatedBy: userData.uid
+      })
+      if (result.success) {
+        setContent(localContent)
+        setHasChanges(false)
+      }
+    } catch (error) {
+      console.error('Error saving layout content:', error)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const displayContent = hasChanges ? localContent : content
+  const nav = displayContent?.navigation || {}
+  const links = nav.links || {}
+  const buttons = nav.buttons || {}
 
   // Check if branches section is in view
   useEffect(() => {
@@ -75,7 +175,19 @@ export default function Navigation() {
 
 
   return (
-    <nav className="w-full bg-white fixed top-0 z-50" style={{ height: '122px', minHeight: '122px', boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
+    <>
+      {isSystemAdmin && embedded && (
+        <FloatingSaveButton
+          onSave={handleSave}
+          saving={saving}
+          hasChanges={hasChanges}
+        />
+      )}
+
+      <nav
+        className={`w-full bg-white ${embedded ? '' : 'fixed top-0 z-50'}`}
+        style={{ height: '122px', minHeight: '122px', boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}
+      >
         <div className="max-w-[1440px] mx-auto h-full flex items-center justify-between px-2 sm:px-4">
         <div className="flex items-center">
           <Link to="/">
@@ -96,7 +208,13 @@ export default function Navigation() {
                 : 'text-gray-700 hover:text-[#160B53]'
             }`}
           >
-            HOME
+            <InlineEditable
+              value={links.home || 'HOME'}
+              onSave={handleContentUpdate}
+              fieldPath="navigation.links.home"
+              enabled={isSystemAdmin && effectiveEditMode}
+              className="font-poppins font-medium text-base"
+            />
           </Link>
           <a 
             href="#branches" 
@@ -107,7 +225,13 @@ export default function Navigation() {
                 : 'text-gray-700 hover:text-[#160B53]'
             }`}
           >
-            BRANCH
+            <InlineEditable
+              value={links.branch || 'BRANCH'}
+              onSave={handleContentUpdate}
+              fieldPath="navigation.links.branch"
+              enabled={isSystemAdmin && effectiveEditMode}
+              className="font-poppins font-medium text-base"
+            />
           </a>
           <Link 
             to="/about" 
@@ -117,7 +241,13 @@ export default function Navigation() {
                 : 'text-gray-700 hover:text-[#160B53]'
             }`}
           >
-            ABOUT
+            <InlineEditable
+              value={links.about || 'ABOUT'}
+              onSave={handleContentUpdate}
+              fieldPath="navigation.links.about"
+              enabled={isSystemAdmin && effectiveEditMode}
+              className="font-poppins font-medium text-base"
+            />
           </Link>
           <Link 
             to="/products" 
@@ -127,7 +257,13 @@ export default function Navigation() {
                 : 'text-gray-700 hover:text-[#160B53]'
             }`}
           >
-            PRODUCTS
+            <InlineEditable
+              value={links.products || 'PRODUCTS'}
+              onSave={handleContentUpdate}
+              fieldPath="navigation.links.products"
+              enabled={isSystemAdmin && effectiveEditMode}
+              className="font-poppins font-medium text-base"
+            />
           </Link>
         </div>
 
@@ -137,19 +273,32 @@ export default function Navigation() {
               variant="outline"
               className="bg-white border-[#160B53] text-[#160B53] hover:bg-[#160B53] hover:text-white font-poppins font-semibold"
             >
-              REGISTER
+              <InlineEditable
+                value={buttons.register || 'REGISTER'}
+                onSave={handleContentUpdate}
+                fieldPath="navigation.buttons.register"
+                enabled={isSystemAdmin && effectiveEditMode}
+                className="font-poppins font-semibold"
+              />
             </Button>
           </Link>
           <Link to="/login">
             <Button 
               className="bg-[#160B53] hover:bg-[#160B53]/90 text-white font-poppins font-semibold"
             >
-              LOGIN
+              <InlineEditable
+                value={buttons.login || 'LOGIN'}
+                onSave={handleContentUpdate}
+                fieldPath="navigation.buttons.login"
+                enabled={isSystemAdmin && effectiveEditMode}
+                className="font-poppins font-semibold"
+              />
             </Button>
           </Link>
         </div>
       </div>
     </nav>
+    </>
   )
 }
 

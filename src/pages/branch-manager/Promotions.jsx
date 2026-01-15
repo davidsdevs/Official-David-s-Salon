@@ -70,6 +70,8 @@ const Promotions = () => {
   const [selectedPromotion, setSelectedPromotion] = useState(null);
   const [selectedClients, setSelectedClients] = useState(new Set());
   const [isSending, setIsSending] = useState(false);
+  const [isEmailPreviewOpen, setIsEmailPreviewOpen] = useState(false);
+  const [emailPreviewHtml, setEmailPreviewHtml] = useState('');
   
   // Report states
   const [promotionReports, setPromotionReports] = useState([]);
@@ -78,6 +80,11 @@ const Promotions = () => {
   // AI Insights for Promotions
   const [promotionRecommendations, setPromotionRecommendations] = useState(null);
   const [loadingPromotionAI, setLoadingPromotionAI] = useState(false);
+  
+  // Image upload states
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   // Form states
   const [formData, setFormData] = useState({
@@ -95,7 +102,8 @@ const Promotions = () => {
     startDate: '',
     endDate: '',
     isActive: true,
-    emailToClients: false // Checkbox to email clients when creating
+    emailToClients: false, // Checkbox to email clients when creating
+    imageUrl: '' // Promotion banner image
   });
 
   // Load promotions
@@ -135,6 +143,7 @@ const Promotions = () => {
           usedBy: data.usedBy || [], // Array of client IDs who used it (for one-time use)
           usageCount: data.usageCount || 0, // Total usage count (for repeating)
           sentTo: data.sentTo || [],
+          imageUrl: data.imageUrl || '', // Promotion banner image
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
           updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.updatedAt ? new Date(data.updatedAt) : new Date())
         });
@@ -295,6 +304,136 @@ const Promotions = () => {
       console.error('Error checking code uniqueness:', err);
       return false;
     }
+  };
+
+  // Handle image file selection
+  const handleImageSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image size must be less than 5MB');
+      return;
+    }
+
+    setImageFile(file);
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Upload image to Cloudinary
+  const uploadPromotionImage = async (file) => {
+    if (!file) return null;
+    
+    try {
+      setUploadingImage(true);
+      const { cloudinaryService } = await import('../../services/cloudinaryService');
+      
+      const result = await cloudinaryService.uploadImage(file, 'promotions');
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to upload image');
+      }
+      
+      return result.url;
+    } catch (err) {
+      console.error('Error uploading image:', err);
+      throw new Error('Failed to upload image');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // Generate email preview HTML
+  const generateEmailPreview = (promotion) => {
+    const discountText = promotion.discountType === 'percentage' 
+      ? `${promotion.discountValue}% OFF`
+      : `₱${promotion.discountValue} OFF`;
+
+    const startDate = promotion.startDate instanceof Date 
+      ? promotion.startDate 
+      : new Date(promotion.startDate);
+    const endDate = promotion.endDate instanceof Date 
+      ? promotion.endDate 
+      : new Date(promotion.endDate);
+
+    const startDateFormatted = format(startDate, 'MMMM d, yyyy');
+    const endDateFormatted = format(endDate, 'MMMM d, yyyy');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #160B53, #12094A); color: white; padding: 30px; text-align: center; }
+          .content { padding: 30px; background: white; }
+          .promotion-image { width: 100%; max-height: 300px; object-fit: cover; }
+          .promotion-box { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
+          .discount { font-size: 32px; font-weight: bold; color: #28a745; margin: 15px 0; }
+          .code-box { background: #160B53; color: white; padding: 15px 25px; border-radius: 8px; display: inline-block; font-size: 20px; font-weight: bold; letter-spacing: 2px; margin: 15px 0; }
+          .validity { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; background: #f8f9fa; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0; font-size: 28px;">🎉 Special Promotion</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">David's Salon</p>
+          </div>
+          ${promotion.imageUrl ? `<img src="${promotion.imageUrl}" alt="Promotion" class="promotion-image" />` : ''}
+          <div class="content">
+            <h2 style="color: #160B53; margin-top: 0; text-align: center;">Hello [Client Name],</h2>
+            <p style="text-align: center;">We have an exciting promotion just for you!</p>
+            
+            <div class="promotion-box">
+              <h3 style="color: #160B53; margin-top: 0; font-size: 24px;">${promotion.title || 'Promotion Title'}</h3>
+              <p style="font-size: 16px;">${promotion.description || 'Promotion description goes here.'}</p>
+              <div class="discount">${discountText}</div>
+              ${promotion.promotionCode ? `<div class="code-box">${promotion.promotionCode}</div>` : ''}
+            </div>
+            
+            <div class="validity">
+              <h4 style="margin-top: 0; color: #856404;">📅 Validity Period</h4>
+              <p style="margin: 0; color: #856404;">
+                <strong>From:</strong> ${startDateFormatted}<br>
+                <strong>Until:</strong> ${endDateFormatted}
+              </p>
+            </div>
+            
+            <p style="text-align: center; font-size: 16px;">Don't miss out on this amazing offer!<br>Visit us soon to take advantage of this promotion.</p>
+            
+            <p style="text-align: center;">We look forward to seeing you! 💜</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated email from David's Salon.<br>Please do not reply to this email.</p>
+            <p>© ${new Date().getFullYear()} David's Salon. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  };
+
+  // Show email preview
+  const handleShowEmailPreview = (promotion) => {
+    const previewHtml = generateEmailPreview(promotion || formData);
+    setEmailPreviewHtml(previewHtml);
+    setIsEmailPreviewOpen(true);
   };
 
   // Load data on mount
@@ -478,7 +617,16 @@ const Promotions = () => {
         }
       }
 
-      const promotionData = {
+      // Upload image if selected
+      let imageUrl = formData.imageUrl || '';
+      if (imageFile) {
+        try {
+          imageUrl = await uploadPromotionImage(imageFile);
+        } catch (uploadErr) {
+          setError('Failed to upload image. Please try again.');
+          return;
+        }
+      }      const promotionData = {
         branchId: userData.branchId,
         title: formData.title.trim(),
         description: formData.description.trim(),
@@ -495,6 +643,7 @@ const Promotions = () => {
         startDate: startDate,
         endDate: endDate,
         isActive: formData.isActive,
+        imageUrl: imageUrl, // Promotion banner image (uploaded)
         sentTo: [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -618,8 +767,11 @@ const Promotions = () => {
         startDate: '',
         endDate: '',
         isActive: true,
-        emailToClients: false
+        emailToClients: false,
+        imageUrl: ''
       });
+      setImageFile(null);
+      setImagePreview('');
       
       await loadPromotions();
     } catch (err) {
@@ -1407,6 +1559,60 @@ const Promotions = () => {
               />
             </div>
 
+            {/* Promotion Image */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Promotion Banner Image (Optional)
+              </label>
+              <div className="flex items-start gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 cursor-pointer transition-colors">
+                      <ImageIcon className="h-4 w-4" />
+                      <span className="text-sm">{imageFile ? 'Change Image' : 'Upload Image'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageSelect}
+                        className="hidden"
+                      />
+                    </label>
+                    {(imagePreview || formData.imageUrl) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImageFile(null);
+                          setImagePreview('');
+                          setFormData(prev => ({ ...prev, imageUrl: '' }));
+                        }}
+                        className="text-sm text-red-600 hover:text-red-700"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Recommended: 600x300px, Max 5MB. This image will appear in the email.
+                  </p>
+                </div>
+                {(imagePreview || formData.imageUrl) && (
+                  <div className="w-40 h-20 rounded-lg overflow-hidden border border-gray-200">
+                    <img 
+                      src={imagePreview || formData.imageUrl} 
+                      alt="Preview" 
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+              </div>
+              {uploadingImage && (
+                <div className="flex items-center gap-2 mt-2 text-sm text-blue-600">
+                  <Loader2Icon className="h-4 w-4 animate-spin" />
+                  Uploading image...
+                </div>
+              )}
+            </div>
+
             {/* Discount Type and Value */}
             <div className="grid grid-cols-2 gap-6">
               <div>
@@ -1664,40 +1870,73 @@ const Promotions = () => {
               </div>
             </div>
             {formData.emailToClients && (
-              <p className="text-xs text-gray-600">
-                All clients with email addresses will receive this promotion via email when you create it.
-              </p>
+              <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs text-gray-600">
+                  All clients with email addresses will receive this promotion via email when you create it.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleShowEmailPreview({
+                    ...formData,
+                    imageUrl: imagePreview || formData.imageUrl
+                  })}
+                  className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                >
+                  <Eye className="h-4 w-4" />
+                  Preview Email
+                </button>
+              </div>
             )}
 
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-              <Button
+            <div className="flex justify-between gap-3 pt-4 border-t border-gray-200">
+              <button
                 type="button"
-                variant="outline"
-                onClick={() => {
-                  setIsCreateModalOpen(false);
-                  setFormData({
-                    title: '',
-                    description: '',
-                    promotionCode: '',
-                    autoGenerateCode: true,
-                    discountType: 'percentage',
-                    discountValue: '',
-                    applicableTo: 'all',
-                    specificServices: [],
-                    specificProducts: [],
-                    usageType: 'one-time',
-                    maxUses: '',
-                    startDate: '',
-                    endDate: '',
-                    isActive: true
-                  });
-                }}
+                onClick={() => handleShowEmailPreview({
+                  ...formData,
+                  imageUrl: imagePreview || formData.imageUrl
+                })}
+                className="text-sm text-gray-600 hover:text-gray-700 flex items-center gap-1"
               >
-                Cancel
-              </Button>
-              <Button type="submit" className="bg-[#160B53] text-white hover:bg-[#12094A]">
-                Create Promotion
-              </Button>
+                <Eye className="h-4 w-4" />
+                Preview Email
+              </button>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsCreateModalOpen(false);
+                    setFormData({
+                      title: '',
+                      description: '',
+                      promotionCode: '',
+                      autoGenerateCode: true,
+                      discountType: 'percentage',
+                      discountValue: '',
+                      applicableTo: 'all',
+                      specificServices: [],
+                      specificProducts: [],
+                      usageType: 'one-time',
+                      maxUses: '',
+                      startDate: '',
+                      endDate: '',
+                      isActive: true,
+                      imageUrl: ''
+                    });
+                    setImageFile(null);
+                    setImagePreview('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit" 
+                  className="bg-[#160B53] text-white hover:bg-[#12094A]"
+                  disabled={uploadingImage}
+                >
+                  {uploadingImage ? 'Uploading...' : 'Create Promotion'}
+                </Button>
+              </div>
             </div>
           </form>
         </Modal>
@@ -1715,6 +1954,17 @@ const Promotions = () => {
           size="lg"
         >
           <div className="space-y-6">
+            {/* Promotion Image */}
+            {selectedPromotion.imageUrl && (
+              <div className="w-full rounded-lg overflow-hidden">
+                <img
+                  src={selectedPromotion.imageUrl}
+                  alt={selectedPromotion.title}
+                  className="w-full h-48 object-cover"
+                />
+              </div>
+            )}
+
             <div>
               <h2 className="text-xl font-bold text-gray-900 mb-2">{selectedPromotion.title}</h2>
               <p className="text-gray-600">{selectedPromotion.description}</p>
@@ -1974,6 +2224,46 @@ const Promotions = () => {
                 className="bg-[#160B53] text-white hover:bg-[#12094A]"
               >
                 Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Email Preview Modal */}
+      {isEmailPreviewOpen && (
+        <Modal
+          isOpen={isEmailPreviewOpen}
+          onClose={() => setIsEmailPreviewOpen(false)}
+          title="Email Preview"
+          size="2xl"
+        >
+          <div className="space-y-4">
+            <div className="bg-gray-100 p-2 rounded-lg">
+              <p className="text-sm text-gray-600">
+                <strong>From:</strong> David's Salon &lt;noreply@davidsalon.com&gt;
+              </p>
+              <p className="text-sm text-gray-600">
+                <strong>Subject:</strong> 🎉 Special Promotion: {formData.title || selectedPromotion?.title || 'Promotion Title'}
+              </p>
+            </div>
+            <div className="border border-gray-200 rounded-lg overflow-hidden max-h-[60vh] overflow-y-auto">
+              <iframe
+                srcDoc={emailPreviewHtml}
+                title="Email Preview"
+                className="w-full h-[500px] border-0"
+                sandbox="allow-same-origin"
+              />
+            </div>
+            <p className="text-xs text-gray-500 text-center">
+              This is a preview of how the email will appear to clients. Emails are sent via Brevo (Sendinblue).
+            </p>
+            <div className="flex justify-end pt-2">
+              <Button
+                onClick={() => setIsEmailPreviewOpen(false)}
+                className="bg-[#160B53] text-white hover:bg-[#12094A]"
+              >
+                Close Preview
               </Button>
             </div>
           </div>

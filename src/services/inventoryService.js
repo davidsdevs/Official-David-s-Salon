@@ -21,7 +21,7 @@ import { db } from '../config/firebase';
 
 class InventoryService {
   constructor() {
-    this.stocksCollection = 'branch_stocks';
+    this.stocksCollection = 'stocks'; // Changed from 'branch_stocks' to 'stocks' to match actual data
     this.inventoryMovementsCollection = 'inventory_movements';
     this.productBatchesCollection = 'product_batches';
   }

@@ -39,11 +39,14 @@ const BranchManagerDashboard = () => {
     monthlyRevenue: 0,
     expiringCount: 0,
     pendingTransfers: 0,
-    pendingDeliveries: 0
+    pendingDeliveries: 0,
+    voidedCount: 0,
+    voidedAmount: 0
   });
   const [upcomingAppointments, setUpcomingAppointments] = useState([]);
   const [expiringItems, setExpiringItems] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
+  const [voidedServices, setVoidedServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -78,7 +81,8 @@ const BranchManagerDashboard = () => {
         fetchMonthlyRevenue(),
         fetchExpiringItems(),
         fetchRecentActivity(),
-        fetchPendingTransfersAndDeliveries()
+        fetchPendingTransfersAndDeliveries(),
+        fetchVoidedServices()
       ]);
       
     } catch (error) {
@@ -256,6 +260,62 @@ const BranchManagerDashboard = () => {
       }));
     } catch (error) {
       console.error('Error fetching pending transfers/deliveries:', error);
+    }
+  };
+
+  const fetchVoidedServices = async () => {
+    try {
+      // Get voided arrivals for this month
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      const arrivalsRef = collection(db, 'arrivals');
+      const voidedQuery = query(
+        arrivalsRef,
+        where('branchId', '==', userBranch),
+        where('status', '==', 'voided'),
+        orderBy('voidedAt', 'desc'),
+        limit(10)
+      );
+      
+      const voidedSnapshot = await getDocs(voidedQuery);
+      
+      let voidedCount = 0;
+      let voidedAmount = 0;
+      const voidedList = [];
+      
+      voidedSnapshot.forEach(doc => {
+        const data = doc.data();
+        voidedCount++;
+        
+        // Calculate estimated amount from services
+        let serviceTotal = 0;
+        if (data.services && data.services.length > 0) {
+          serviceTotal = data.services.reduce((sum, svc) => sum + (svc.price || 0), 0);
+        } else if (data.servicePrice) {
+          serviceTotal = data.servicePrice;
+        }
+        voidedAmount += serviceTotal;
+        
+        voidedList.push({
+          id: doc.id,
+          clientName: data.clientName || 'Unknown',
+          voidedAt: data.voidedAt?.toDate?.() || new Date(),
+          voidedByName: data.voidedByName || 'Staff',
+          voidReason: data.voidReason || 'No reason provided',
+          estimatedAmount: serviceTotal,
+          services: data.services || []
+        });
+      });
+      
+      setVoidedServices(voidedList);
+      setStats(prev => ({
+        ...prev,
+        voidedCount,
+        voidedAmount
+      }));
+    } catch (error) {
+      console.error('Error fetching voided services:', error);
     }
   };
 
@@ -481,6 +541,24 @@ const BranchManagerDashboard = () => {
           <p className="text-gray-600 text-xs font-medium">Monthly Revenue</p>
           <p className="text-xl font-bold text-gray-900">₱{stats.monthlyRevenue.toLocaleString()}</p>
         </div>
+
+        {/* Voided Services Card */}
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className={`${stats.voidedCount > 0 ? 'bg-red-500' : 'bg-gray-400'} p-2 rounded-lg`}>
+              <AlertCircle className="w-5 h-5 text-white" />
+            </div>
+          </div>
+          <p className="text-gray-600 text-xs font-medium">Voided Services</p>
+          <p className={`text-2xl font-bold ${stats.voidedCount > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+            {stats.voidedCount}
+          </p>
+          {stats.voidedAmount > 0 && (
+            <p className="text-xs text-red-500 mt-1">
+              Est. ₱{stats.voidedAmount.toLocaleString()} lost
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Alert Cards */}
@@ -630,6 +708,56 @@ const BranchManagerDashboard = () => {
             </div>
           )}
         </div>
+
+        {/* Voided Services */}
+        {stats.voidedCount > 0 && (
+          <div className="bg-white rounded-lg shadow border border-red-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-red-500" />
+                <h3 className="text-lg font-semibold text-gray-900">Recent Voided Services</h3>
+              </div>
+              <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full">
+                {stats.voidedCount} this month
+              </span>
+            </div>
+            
+            <div className="space-y-3">
+              {voidedServices.slice(0, 5).map((voided) => (
+                <div key={voided.id} className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                    <AlertCircle className="w-4 h-4 text-red-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-gray-900">{voided.clientName}</p>
+                      <span className="text-xs text-red-600 font-medium">
+                        Est. ₱{voided.estimatedAmount.toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Voided by {voided.voidedByName} • {format(voided.voidedAt, 'MMM dd, h:mm a')}
+                    </p>
+                    <p className="text-xs text-red-600 mt-1 italic">
+                      Reason: {voided.voidReason}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {stats.voidedAmount > 0 && (
+              <div className="mt-4 pt-4 border-t border-red-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Total Estimated Loss</span>
+                  <span className="text-lg font-bold text-red-600">
+                    ₱{stats.voidedAmount.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Quick Actions */}
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">

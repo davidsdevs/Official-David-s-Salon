@@ -908,104 +908,96 @@ export const updateAppointment = async (appointmentId, updates, currentUser) => 
 };
 
 /**
- * Automatically cancel appointments based on criteria (optimized for minimal reads)
+ * Automatically cancel/update appointments based on criteria (optimized for minimal reads)
+ * - Confirmed appointments that passed without check-in → NO_SHOW
+ * - Pending appointments where appointment date passed → CANCELLED
  * @param {string} branchId - Branch ID
- * @returns {Promise<Array>} - Array of cancelled appointments
+ * @returns {Promise<Array>} - Array of updated appointments
  */
 export const autoCancelAppointments = async (branchId) => {
   try {
     const now = new Date();
-    const cancelledAppointments = [];
+    const updatedAppointments = [];
 
-    // Strategy: Only check appointments that are likely to need cancellation
-    // 1. Appointments from yesterday or earlier (past due)
-    // 2. Appointments created more than 7 days ago
+    // Strategy: Only check appointments that are likely to need updates
+    // 1. Past confirmed appointments (should be marked as no-show)
+    // 2. Past pending appointments (should be cancelled)
 
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    const weekAgo = new Date(now);
-    weekAgo.setDate(weekAgo.getDate() - 7);
+    console.log(`🔍 Checking for auto-update appointments for branch ${branchId}`);
 
-    console.log(`🔍 Checking for auto-cancellable appointments for branch ${branchId}`);
+    // Query 1: Past CONFIRMED appointments (appointment date <= yesterday, not checked in)
+    const pastConfirmedQuery = query(
+      collection(db, APPOINTMENTS_COLLECTION),
+      where('branchId', '==', branchId),
+      where('status', '==', APPOINTMENT_STATUS.CONFIRMED),
+      where('appointmentDate', '<=', Timestamp.fromDate(yesterday)),
+      firestoreLimit(10)
+    );
 
-    // Query 1: Past due appointments (appointment date <= yesterday)
-    const pastDueQuery = query(
+    const pastConfirmedSnapshot = await getDocs(pastConfirmedQuery);
+    console.log(`📅 Found ${pastConfirmedSnapshot.size} past confirmed appointments`);
+
+    // Query 2: Past PENDING appointments (appointment date <= yesterday)
+    const pastPendingQuery = query(
       collection(db, APPOINTMENTS_COLLECTION),
       where('branchId', '==', branchId),
       where('status', '==', APPOINTMENT_STATUS.PENDING),
       where('appointmentDate', '<=', Timestamp.fromDate(yesterday)),
-      firestoreLimit(10) // Limit to avoid too many reads
+      firestoreLimit(10)
     );
 
-    const pastDueSnapshot = await getDocs(pastDueQuery);
-    console.log(`📅 Found ${pastDueSnapshot.size} potentially past-due appointments`);
+    const pastPendingSnapshot = await getDocs(pastPendingQuery);
+    console.log(`⏰ Found ${pastPendingSnapshot.size} past pending appointments`);
 
-    // Query 2: Old pending appointments (created > 7 days ago)
-    const oldPendingQuery = query(
-      collection(db, APPOINTMENTS_COLLECTION),
-      where('branchId', '==', branchId),
-      where('status', '==', APPOINTMENT_STATUS.PENDING),
-      where('createdAt', '<=', Timestamp.fromDate(weekAgo)),
-      firestoreLimit(10) // Limit to avoid too many reads
-    );
+    // Process confirmed appointments - mark as NO_SHOW
+    for (const doc of pastConfirmedSnapshot.docs.slice(0, 5)) {
+      const appointment = { id: doc.id, ...doc.data() };
+      
+      // Skip if already checked in
+      if (appointment.isCheckedIn) continue;
 
-    const oldPendingSnapshot = await getDocs(oldPendingQuery);
-    console.log(`⏰ Found ${oldPendingSnapshot.size} old pending appointments`);
+      const appointmentDate = appointment.appointmentDate?.toDate ? appointment.appointmentDate.toDate() : new Date(appointment.appointmentDate);
+      const hoursAgo = (now - appointmentDate) / (1000 * 60 * 60);
 
-    // Combine and deduplicate appointments to check
-    const appointmentsToCheck = new Map();
-
-    // Add past due appointments
-    pastDueSnapshot.docs.forEach(doc => {
-      appointmentsToCheck.set(doc.id, { id: doc.id, ...doc.data() });
-    });
-
-    // Add old pending appointments (will overwrite if duplicate)
-    oldPendingSnapshot.docs.forEach(doc => {
-      appointmentsToCheck.set(doc.id, { id: doc.id, ...doc.data() });
-    });
-
-    const uniqueAppointments = Array.from(appointmentsToCheck.values());
-    console.log(`🎯 Checking ${uniqueAppointments.length} unique appointments for cancellation`);
-
-    // Process each appointment (limited to avoid overwhelming the system)
-    for (const appointment of uniqueAppointments.slice(0, 5)) { // Max 5 cancellations per run
-      let shouldCancel = false;
-      let cancelReason = '';
-
-      // Check if appointment date has passed (with buffer)
-      if (appointment.appointmentDate) {
-        const appointmentDate = appointment.appointmentDate.toDate ? appointment.appointmentDate.toDate() : new Date(appointment.appointmentDate);
-        const hoursAgo = (now - appointmentDate) / (1000 * 60 * 60);
-
-        // Cancel if more than 2 hours past appointment time
-        if (hoursAgo > 2) {
-          shouldCancel = true;
-          cancelReason = 'Auto-cancelled: Appointment time has passed';
-        }
-      }
-
-      // Check if created too long ago
-      if (!shouldCancel && appointment.createdAt) {
-        const createdDate = appointment.createdAt.toDate ? appointment.createdAt.toDate() : new Date(appointment.createdAt);
-        const daysOld = (now - createdDate) / (1000 * 60 * 60 * 24);
-
-        if (daysOld > 7) {
-          shouldCancel = true;
-          cancelReason = 'Auto-cancelled: Pending booking expired';
-        }
-      }
-
-      if (shouldCancel) {
-        console.log(`🚫 Auto-cancelling appointment ${appointment.id}: ${cancelReason}`);
+      // Mark as no-show if more than 2 hours past appointment time
+      if (hoursAgo > 2) {
+        console.log(`🚫 Marking appointment ${appointment.id} as NO_SHOW: Client did not show up`);
 
         try {
-          await updateAppointmentStatus(appointment.id, APPOINTMENT_STATUS.CANCELLED, 'system', cancelReason);
-          cancelledAppointments.push({
+          await updateAppointmentStatus(appointment.id, APPOINTMENT_STATUS.NO_SHOW, 'system', 'Auto-marked: Client did not show up for confirmed appointment');
+          updatedAppointments.push({
             id: appointment.id,
             clientName: appointment.clientName,
-            reason: cancelReason
+            reason: 'No-show: Client did not show up',
+            newStatus: 'no_show'
+          });
+        } catch (error) {
+          console.error(`❌ Failed to mark appointment ${appointment.id} as no-show:`, error);
+        }
+      }
+    }
+
+    // Process pending appointments - cancel them
+    for (const doc of pastPendingSnapshot.docs.slice(0, 5)) {
+      const appointment = { id: doc.id, ...doc.data() };
+
+      const appointmentDate = appointment.appointmentDate?.toDate ? appointment.appointmentDate.toDate() : new Date(appointment.appointmentDate);
+      const hoursAgo = (now - appointmentDate) / (1000 * 60 * 60);
+
+      // Cancel if more than 2 hours past appointment time
+      if (hoursAgo > 2) {
+        console.log(`🚫 Auto-cancelling pending appointment ${appointment.id}: Appointment time has passed`);
+
+        try {
+          await updateAppointmentStatus(appointment.id, APPOINTMENT_STATUS.CANCELLED, 'system', 'Auto-cancelled: Pending appointment time has passed without confirmation');
+          updatedAppointments.push({
+            id: appointment.id,
+            clientName: appointment.clientName,
+            reason: 'Auto-cancelled: Appointment time passed',
+            newStatus: 'cancelled'
           });
         } catch (error) {
           console.error(`❌ Failed to cancel appointment ${appointment.id}:`, error);
@@ -1013,11 +1005,11 @@ export const autoCancelAppointments = async (branchId) => {
       }
     }
 
-    console.log(`✅ Auto-cancelled ${cancelledAppointments.length} appointments (limited processing)`);
-    return cancelledAppointments;
+    console.log(`✅ Auto-updated ${updatedAppointments.length} appointments (limited processing)`);
+    return updatedAppointments;
 
   } catch (error) {
-    console.error('❌ Error in optimized auto-cancel appointments:', error);
+    console.error('❌ Error in auto-update appointments:', error);
     throw error;
   }
 };
@@ -1203,6 +1195,9 @@ export const updateAppointmentStatus = async (appointmentId, status, currentUser
     // Add history to updates
     updates.history = [...(currentAppointment.history || []), historyEntry];
     
+    // Store the previous status before updating
+    const previousStatus = currentAppointment.status;
+    
     await updateDoc(appointmentRef, updates);
     
     // Get updated appointment for notifications
@@ -1220,7 +1215,9 @@ export const updateAppointmentStatus = async (appointmentId, status, currentUser
           await storeAppointmentConfirmed(appointmentForNotification);
           break;
         case APPOINTMENT_STATUS.CANCELLED:
-          await storeAppointmentCancelled(appointmentForNotification);
+          // Pass wasPending flag - if previous status was 'pending', don't notify stylists
+          const wasPending = previousStatus === APPOINTMENT_STATUS.PENDING;
+          await storeAppointmentCancelled(appointmentForNotification, wasPending);
           break;
         case APPOINTMENT_STATUS.IN_SERVICE:
           await storeAppointmentInService(appointmentForNotification);

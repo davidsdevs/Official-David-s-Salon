@@ -1,7 +1,7 @@
 /**
  * Password Reset Service
- * Handles password reset tokens and role password updates (not Firebase Auth)
- * Stores reset tokens in Firestore and updates rolePasswords field
+ * Handles password reset using Brevo OTP
+ * Updates rolePasswords in Firestore (not Firebase Auth)
  */
 
 import { 
@@ -13,46 +13,48 @@ import {
   query, 
   where, 
   getDocs,
-  Timestamp 
+  Timestamp,
+  updateDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { hashPassword } from './rolePasswordService';
-import { sendEmail } from './emailService';
 import { logActivity } from './activityService';
-import toast from 'react-hot-toast';
 
-const RESET_TOKENS_COLLECTION = 'password_reset_tokens';
-const TOKEN_EXPIRY_HOURS = 1; // Token expires in 1 hour
+const OTP_COLLECTION = 'password_reset_otps';
+const OTP_EXPIRY_MINUTES = 10; // OTP expires in 10 minutes
 
 /**
- * Generate a secure random token
- * @returns {string} Random token string
+ * Generate a random 6-digit OTP
+ * @returns {string} 6-digit OTP
  */
-const generateToken = () => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let token = '';
-  for (let i = 0; i < 64; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
 /**
- * Create a password reset token for a user
+ * Send password reset OTP via Brevo email
  * @param {string} email - User email
- * @returns {Promise<{success: boolean, token?: string, error?: string}>}
+ * @returns {Promise<{success: boolean, error?: string}>}
  */
-export const createPasswordResetToken = async (email) => {
+export const sendPasswordResetOTP = async (email) => {
+  console.log('🔐 [Password Reset] Starting OTP send process...');
+  console.log('🔐 [Password Reset] Email:', email);
+  
   try {
-    // Normalize email (trim and lowercase) for consistency
+    // Normalize email
     const normalizedEmail = email.trim().toLowerCase();
+    console.log('🔐 [Password Reset] Normalized email:', normalizedEmail);
     
     // Find user by email
+    console.log('🔐 [Password Reset] Searching for user in Firestore...');
     const usersRef = collection(db, 'users');
     const q = query(usersRef, where('email', '==', normalizedEmail));
     const snapshot = await getDocs(q);
     
+    console.log('🔐 [Password Reset] User search result:', snapshot.size, 'users found');
+    
     if (snapshot.empty) {
+      console.error('❌ [Password Reset] No user found with email:', normalizedEmail);
       return {
         success: false,
         error: 'No account found with this email address'
@@ -63,160 +65,104 @@ export const createPasswordResetToken = async (email) => {
     const userData = userDoc.data();
     const userId = userDoc.id;
     
+    console.log('✅ [Password Reset] User found:', {
+      userId,
+      email: userData.email,
+      name: userData.firstName || userData.displayName,
+      isActive: userData.isActive
+    });
+    
     // Check if user is active
     if (userData.isActive === false) {
+      console.error('❌ [Password Reset] User account is deactivated');
       return {
         success: false,
         error: 'Account is deactivated. Please contact administrator.'
       };
     }
     
-    // Generate token
-    const token = generateToken();
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + TOKEN_EXPIRY_HOURS);
+    // Generate OTP
+    const otp = generateOTP();
+    console.log('🔑 [Password Reset] Generated OTP:', otp);
     
-    // Store token in Firestore
-    const tokenRef = doc(db, RESET_TOKENS_COLLECTION, token);
-    await setDoc(tokenRef, {
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + OTP_EXPIRY_MINUTES);
+    console.log('⏰ [Password Reset] OTP expires at:', expiresAt.toISOString());
+    
+    // Store OTP in Firestore
+    console.log('💾 [Password Reset] Storing OTP in Firestore...');
+    const otpRef = doc(db, OTP_COLLECTION, normalizedEmail);
+    await setDoc(otpRef, {
       userId,
       email: normalizedEmail,
+      otp,
       createdAt: Timestamp.now(),
       expiresAt: Timestamp.fromDate(expiresAt),
-      used: false
+      used: false,
+      attempts: 0
     });
+    console.log('✅ [Password Reset] OTP stored in Firestore');
     
-    // Get base URL for reset link
-    const baseUrl = window.location.origin;
-    const resetLink = `${baseUrl}/reset-password?token=${token}`;
+    // Send OTP via Brevo
+    console.log('📧 [Password Reset] Sending OTP email via Brevo...');
+    const emailResult = await sendPasswordResetOTPEmail(normalizedEmail, userData.firstName || userData.displayName || 'User', otp);
     
-    // Send email with reset link (use normalized email for consistency)
-    const emailResult = await sendPasswordResetEmail(normalizedEmail, userData.firstName || userData.displayName || 'User', resetLink);
+    console.log('📧 [Password Reset] Email send result:', emailResult);
     
     if (!emailResult.success) {
-      // Delete token if email failed
-      await deleteDoc(tokenRef);
+      console.error('❌ [Password Reset] Failed to send email, deleting OTP...');
+      // Delete OTP if email failed
+      await deleteDoc(otpRef);
       return {
         success: false,
-        error: emailResult.error || 'Failed to send reset email'
+        error: emailResult.error || 'Failed to send OTP email'
       };
     }
+    
+    console.log('✅ [Password Reset] OTP email sent successfully!');
     
     // Log activity
     try {
       await logActivity({
-        action: 'password_reset_requested',
+        action: 'password_reset_otp_sent',
         performedBy: userId,
         targetUser: userId,
         metadata: {
           email: normalizedEmail,
-          method: 'email'
+          method: 'brevo_otp'
         }
       });
+      console.log('✅ [Password Reset] Activity logged');
     } catch (logError) {
-      console.error('Error logging password reset activity:', logError);
+      console.error('⚠️ [Password Reset] Error logging OTP activity:', logError);
     }
     
+    console.log('🎉 [Password Reset] OTP send process completed successfully!');
     return {
-      success: true,
-      token // Return token for testing purposes (not sent to user)
+      success: true
     };
   } catch (error) {
-    console.error('Error creating password reset token:', error);
+    console.error('❌ [Password Reset] Error sending password reset OTP:', error);
+    console.error('❌ [Password Reset] Error stack:', error.stack);
     return {
       success: false,
-      error: error.message || 'Failed to create reset token'
+      error: error.message || 'Failed to send OTP'
     };
   }
 };
 
 /**
- * Verify and get reset token data
- * @param {string} token - Reset token
- * @returns {Promise<{valid: boolean, userId?: string, email?: string, error?: string}>}
- */
-export const verifyResetToken = async (token) => {
-  try {
-    if (!token) {
-      return {
-        valid: false,
-        error: 'Reset token is required'
-      };
-    }
-    
-    const tokenRef = doc(db, RESET_TOKENS_COLLECTION, token);
-    const tokenDoc = await getDoc(tokenRef);
-    
-    if (!tokenDoc.exists()) {
-      return {
-        valid: false,
-        error: 'Invalid or expired reset token'
-      };
-    }
-    
-    const tokenData = tokenDoc.data();
-    
-    // Check if token is already used
-    if (tokenData.used === true) {
-      return {
-        valid: false,
-        error: 'This reset link has already been used'
-      };
-    }
-    
-    // Check if token is expired
-    const expiresAt = tokenData.expiresAt?.toDate();
-    if (!expiresAt || expiresAt < new Date()) {
-      // Delete expired token
-      await deleteDoc(tokenRef);
-      return {
-        valid: false,
-        error: 'Reset link has expired. Please request a new one.'
-      };
-    }
-    
-    // Verify user still exists and is active
-    const userRef = doc(db, 'users', tokenData.userId);
-    const userDoc = await getDoc(userRef);
-    
-    if (!userDoc.exists()) {
-      await deleteDoc(tokenRef);
-      return {
-        valid: false,
-        error: 'User account not found'
-      };
-    }
-    
-    const userData = userDoc.data();
-    if (userData.isActive === false) {
-      return {
-        valid: false,
-        error: 'Account is deactivated. Please contact administrator.'
-      };
-    }
-    
-    return {
-      valid: true,
-      userId: tokenData.userId,
-      email: tokenData.email
-    };
-  } catch (error) {
-    console.error('Error verifying reset token:', error);
-    return {
-      valid: false,
-      error: error.message || 'Failed to verify reset token'
-    };
-  }
-};
-
-/**
- * Reset password using token (updates rolePasswords for all user roles)
- * @param {string} token - Reset token
- * @param {string} newPassword - New password (plain text)
+ * Verify OTP and reset password
+ * @param {string} email - User email
+ * @param {string} otp - OTP code
+ * @param {string} newPassword - New password
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-export const resetPasswordWithToken = async (token, newPassword) => {
+export const verifyPasswordResetOTP = async (email, otp, newPassword) => {
   try {
+    // Normalize email
+    const normalizedEmail = email.trim().toLowerCase();
+    
     // Validate password
     if (!newPassword || newPassword.length < 8) {
       return {
@@ -239,22 +185,66 @@ export const resetPasswordWithToken = async (token, newPassword) => {
       };
     }
     
-    // Verify token
-    const tokenVerification = await verifyResetToken(token);
-    if (!tokenVerification.valid) {
+    // Get OTP record
+    const otpRef = doc(db, OTP_COLLECTION, normalizedEmail);
+    const otpDoc = await getDoc(otpRef);
+    
+    if (!otpDoc.exists()) {
       return {
         success: false,
-        error: tokenVerification.error || 'Invalid reset token'
+        error: 'No OTP found for this email. Please request a new one.'
       };
     }
     
-    const { userId } = tokenVerification;
+    const otpData = otpDoc.data();
     
-    // Get user data to get all roles
-    const userRef = doc(db, 'users', userId);
+    // Check if OTP is already used
+    if (otpData.used === true) {
+      return {
+        success: false,
+        error: 'This OTP has already been used'
+      };
+    }
+    
+    // Check if OTP is expired
+    const expiresAt = otpData.expiresAt?.toDate();
+    if (!expiresAt || expiresAt < new Date()) {
+      await deleteDoc(otpRef);
+      return {
+        success: false,
+        error: 'OTP has expired. Please request a new one.'
+      };
+    }
+    
+    // Check OTP value
+    if (otpData.otp !== otp) {
+      // Increment attempts
+      const newAttempts = (otpData.attempts || 0) + 1;
+      if (newAttempts >= 5) {
+        // Delete OTP after 5 failed attempts
+        await deleteDoc(otpRef);
+        return {
+          success: false,
+          error: 'Too many failed attempts. Please request a new OTP.'
+        };
+      }
+      
+      await updateDoc(otpRef, {
+        attempts: newAttempts
+      });
+      
+      return {
+        success: false,
+        error: `Invalid OTP. ${5 - newAttempts} attempts remaining.`
+      };
+    }
+    
+    // Get user
+    const userRef = doc(db, 'users', otpData.userId);
     const userDoc = await getDoc(userRef);
     
     if (!userDoc.exists()) {
+      await deleteDoc(otpRef);
       return {
         success: false,
         error: 'User not found'
@@ -271,11 +261,9 @@ export const resetPasswordWithToken = async (token, newPassword) => {
       };
     }
     
-    // Update all role passwords with the new password
-    // Hash separately for each role to ensure unique hashes (better security)
+    // Update all role passwords
     const rolePasswords = userData.rolePasswords || {};
     
-    // Hash password separately for each role (ensures unique hashes)
     for (const role of userRoles) {
       rolePasswords[role] = await hashPassword(newPassword);
     }
@@ -283,27 +271,26 @@ export const resetPasswordWithToken = async (token, newPassword) => {
     await updateDoc(userRef, {
       rolePasswords,
       updatedAt: Timestamp.now(),
-      updatedBy: userId
+      updatedBy: otpData.userId
     });
     
-    // Mark token as used
-    const tokenRef = doc(db, RESET_TOKENS_COLLECTION, token);
-    await setDoc(tokenRef, {
+    // Mark OTP as used
+    await updateDoc(otpRef, {
       used: true,
       usedAt: Timestamp.now()
-    }, { merge: true });
+    });
     
-    // Delete token after use (cleanup)
-    await deleteDoc(tokenRef);
+    // Delete OTP after use
+    await deleteDoc(otpRef);
     
     // Log activity
     try {
       await logActivity({
         action: 'password_reset_completed',
-        performedBy: userId,
-        targetUser: userId,
+        performedBy: otpData.userId,
+        targetUser: otpData.userId,
         metadata: {
-          method: 'email_token',
+          method: 'brevo_otp',
           rolesUpdated: userRoles
         }
       });
@@ -315,121 +302,191 @@ export const resetPasswordWithToken = async (token, newPassword) => {
       success: true
     };
   } catch (error) {
-    console.error('Error resetting password:', error);
+    console.error('Error verifying OTP:', error);
     return {
       success: false,
-      error: error.message || 'Failed to reset password'
+      error: error.message || 'Failed to verify OTP'
     };
   }
 };
 
 /**
- * Send password reset email with reset link
+ * Send password reset OTP email via Brevo
  * @param {string} email - User email
  * @param {string} displayName - User display name
- * @param {string} resetLink - Password reset link
+ * @param {string} otp - OTP code
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-const sendPasswordResetEmail = async (email, displayName, resetLink) => {
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #160B53; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { padding: 30px; background-color: #f9fafb; border-radius: 0 0 8px 8px; }
-        .button { display: inline-block; padding: 12px 30px; background-color: #160B53; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0; }
-        .button:hover { background-color: #12094A; }
-        .info { background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; }
-        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
-        .link { word-break: break-all; color: #160B53; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>Reset Your Password</h1>
-        </div>
-        <div class="content">
-          <p>Dear ${displayName || 'User'},</p>
-          
-          <p>We received a request to reset your password for your David's Salon Management System account.</p>
-          
-          <p>Click the button below to reset your password:</p>
-          
-          <div style="text-align: center;">
-            <a href="${resetLink}" class="button">Reset Password</a>
-          </div>
-          
-          <p>Or copy and paste this link into your browser:</p>
-          <p class="link">${resetLink}</p>
-          
-          <div class="info">
-            <p><strong>Important:</strong></p>
-            <ul>
-              <li>This link will expire in ${TOKEN_EXPIRY_HOURS} hour(s)</li>
-              <li>This link can only be used once</li>
-              <li>If you did not request this password reset, please ignore this email</li>
-            </ul>
-          </div>
-          
-          <p>For security reasons, if you did not request this password reset, please contact our support team immediately.</p>
-          
-          <p>Best regards,<br>
-          <strong>The David's Salon Team</strong></p>
-        </div>
-        <div class="footer">
-          <p>This is an automated email. Please do not reply directly to this message.</p>
-          <p>&copy; ${new Date().getFullYear()} David's Salon. All rights reserved.</p>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
+const sendPasswordResetOTPEmail = async (email, displayName, otp) => {
+  console.log('📧 [OTP Email] Starting to send OTP email...');
+  console.log('📧 [OTP Email] Recipient:', email);
+  console.log('📧 [OTP Email] Display Name:', displayName);
+  console.log('📧 [OTP Email] OTP Code:', otp);
+  
+  try {
+    const brevoApiKey = import.meta.env.VITE_BREVO_API_KEY;
+    const senderEmail = import.meta.env.VITE_SENDER_EMAIL || 'chicorlcruz@gmail.com';
+    const senderName = import.meta.env.VITE_SENDER_NAME || 'David\'s Salon';
+    
+    console.log('📧 [OTP Email] Sender Email:', senderEmail);
+    console.log('📧 [OTP Email] Sender Name:', senderName);
+    
+    if (!brevoApiKey) {
+      console.error('❌ [OTP Email] Brevo API key not configured');
+      return {
+        success: false,
+        error: 'Email service not configured'
+      };
+    }
+    
+    console.log('📧 [OTP Email] API Key configured:', brevoApiKey.substring(0, 15) + '...');
 
-  const textContent = `
-    Reset Your Password - David's Salon Management System
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #160B53; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { padding: 30px; background-color: #f9fafb; border-radius: 0 0 8px 8px; }
+          .otp-box { background-color: #160B53; color: white; padding: 20px; text-align: center; border-radius: 6px; margin: 20px 0; font-size: 32px; font-weight: bold; letter-spacing: 5px; }
+          .info { background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Password Reset OTP</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${displayName || 'User'},</p>
+            
+            <p>We received a request to reset your password for your David's Salon Management System account.</p>
+            
+            <p>Your One-Time Password (OTP) is:</p>
+            
+            <div class="otp-box">${otp}</div>
+            
+            <p>Enter this code in the password reset form to proceed.</p>
+            
+            <div class="info">
+              <p><strong>Important:</strong></p>
+              <ul>
+                <li>This OTP will expire in ${OTP_EXPIRY_MINUTES} minutes</li>
+                <li>Do not share this OTP with anyone</li>
+                <li>If you did not request this password reset, please ignore this email</li>
+              </ul>
+            </div>
+            
+            <p>For security reasons, if you did not request this password reset, please contact our support team immediately.</p>
+            
+            <p>Best regards,<br>
+            <strong>The David's Salon Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated email. Please do not reply directly to this message.</p>
+            <p>&copy; ${new Date().getFullYear()} David's Salon. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
     
-    Dear ${displayName || 'User'},
-    
-    We received a request to reset your password for your David's Salon Management System account.
-    
-    Click the link below to reset your password:
-    ${resetLink}
-    
-    Important:
-    - This link will expire in ${TOKEN_EXPIRY_HOURS} hour(s)
-    - This link can only be used once
-    - If you did not request this password reset, please ignore this email
-    
-    For security reasons, if you did not request this password reset, please contact our support team immediately.
-    
-    Best regards,
-    The David's Salon Team
-    
-    ---
-    This is an automated email. Please do not reply directly to this message.
-    © ${new Date().getFullYear()} David's Salon. All rights reserved.
-  `;
+    const textContent = `
+      Password Reset OTP - David's Salon
+      
+      Dear ${displayName || 'User'},
+      
+      We received a request to reset your password for your David's Salon Management System account.
+      
+      Your One-Time Password (OTP) is: ${otp}
+      
+      Enter this code in the password reset form to proceed.
+      
+      Important:
+      - This OTP will expire in ${OTP_EXPIRY_MINUTES} minutes
+      - Do not share this OTP with anyone
+      - If you did not request this password reset, please ignore this email
+      
+      For security reasons, if you did not request this password reset, please contact our support team immediately.
+      
+      Best regards,
+      The David's Salon Team
+      
+      ---
+      This is an automated email. Please do not reply directly to this message.
+      © ${new Date().getFullYear()} David's Salon. All rights reserved.
+    `;
 
-  return await sendEmail({
-    to: email,
-    subject: 'Reset Your Password - David\'s Salon',
-    text: textContent,
-    html: htmlContent
-  });
+    const requestBody = {
+      sender: {
+        name: senderName,
+        email: senderEmail
+      },
+      to: [
+        {
+          email: email,
+          name: displayName || 'User'
+        }
+      ],
+      subject: 'Your Password Reset OTP - David\'s Salon',
+      htmlContent: htmlContent,
+      textContent: textContent
+    };
+    
+    console.log('📧 [OTP Email] Request body prepared:', JSON.stringify(requestBody, null, 2));
+    console.log('📧 [OTP Email] Sending request to Brevo API...');
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': brevoApiKey,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    });
+    
+    console.log('📧 [OTP Email] Response status:', response.status);
+    console.log('📧 [OTP Email] Response status text:', response.statusText);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('❌ [OTP Email] Brevo API error:', JSON.stringify(errorData, null, 2));
+      return {
+        success: false,
+        error: `Failed to send email via Brevo: ${errorData.message || response.statusText}`
+      };
+    }
+    
+    const responseData = await response.json();
+    console.log('✅ [OTP Email] SUCCESS! Response data:', JSON.stringify(responseData, null, 2));
+    console.log('✅ [OTP Email] Message ID:', responseData.messageId);
+
+    return {
+      success: true,
+      messageId: responseData.messageId
+    };
+  } catch (error) {
+    console.error('❌ [OTP Email] Error sending OTP email:', error);
+    console.error('❌ [OTP Email] Error stack:', error.stack);
+    return {
+      success: false,
+      error: error.message || 'Failed to send email'
+    };
+  }
 };
 
 /**
- * Clean up expired tokens (can be called periodically)
- * @returns {Promise<number>} Number of tokens deleted
+ * Clean up expired OTPs (can be called periodically)
+ * @returns {Promise<number>} Number of OTPs deleted
  */
-export const cleanupExpiredTokens = async () => {
+export const cleanupExpiredOTPs = async () => {
   try {
-    const tokensRef = collection(db, RESET_TOKENS_COLLECTION);
-    const snapshot = await getDocs(tokensRef);
+    const otpsRef = collection(db, OTP_COLLECTION);
+    const snapshot = await getDocs(otpsRef);
     const now = new Date();
     let deletedCount = 0;
     
@@ -447,8 +504,7 @@ export const cleanupExpiredTokens = async () => {
     await Promise.all(deletePromises);
     return deletedCount;
   } catch (error) {
-    console.error('Error cleaning up expired tokens:', error);
+    console.error('Error cleaning up expired OTPs:', error);
     return 0;
   }
 };
-

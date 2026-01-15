@@ -20,6 +20,7 @@ const OperationalManagerCalendar = () => {
   const [entries, setEntries] = useState([]);
   const [branches, setBranches] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('approved'); // 'all', 'pending', 'approved', 'rejected'
   const [loading, setLoading] = useState(true);
   const [currentMonth, setCurrentMonth] = useState(() => {
     const date = new Date();
@@ -39,7 +40,7 @@ const OperationalManagerCalendar = () => {
     if (!loading) {
       fetchCalendar();
     }
-  }, [branches, selectedBranch, loading]);
+  }, [branches, selectedBranch, statusFilter, loading]);
 
   useEffect(() => {
     const year = currentMonth.getFullYear();
@@ -85,18 +86,42 @@ const OperationalManagerCalendar = () => {
         // Fetch entries for all branches
         const entriesPromises = branchIds.map(async (branchId) => {
           try {
-            const branchQuery = query(
-              calendarRef,
-              where('branchId', '==', branchId)
-            );
+            // Build query with status filter
+            let branchQuery;
+            if (statusFilter === 'all') {
+              branchQuery = query(
+                calendarRef,
+                where('branchId', '==', branchId)
+              );
+            } else {
+              branchQuery = query(
+                calendarRef,
+                where('branchId', '==', branchId),
+                where('status', '==', statusFilter)
+              );
+            }
+            
             const snapshot = await getDocs(branchQuery);
-            return snapshot.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data(),
-              date: doc.data().date?.toDate(),
-              branchId,
-              branchName: branches.find(b => b.id === branchId)?.name || branches.find(b => b.id === branchId)?.branchName || 'Unknown Branch'
-            }));
+            return snapshot.docs.map(doc => {
+              const data = doc.data();
+              // Handle both single date and date range
+              let entryDate = null;
+              if (data.date) {
+                entryDate = data.date.toDate();
+              } else if (data.startDate) {
+                entryDate = data.startDate.toDate();
+              }
+              
+              return {
+                id: doc.id,
+                ...data,
+                date: entryDate,
+                startDate: data.startDate?.toDate(),
+                endDate: data.endDate?.toDate(),
+                branchId,
+                branchName: branches.find(b => b.id === branchId)?.name || branches.find(b => b.id === branchId)?.branchName || 'Unknown Branch'
+              };
+            });
           } catch (error) {
             console.error(`Error fetching calendar for branch ${branchId}:`, error);
             return [];
@@ -107,19 +132,42 @@ const OperationalManagerCalendar = () => {
         allEntries = entriesArrays.flat();
       } else {
         // Fetch entries for selected branch only
-        const branchQuery = query(
-          calendarRef,
-          where('branchId', '==', selectedBranch)
-        );
+        let branchQuery;
+        if (statusFilter === 'all') {
+          branchQuery = query(
+            calendarRef,
+            where('branchId', '==', selectedBranch)
+          );
+        } else {
+          branchQuery = query(
+            calendarRef,
+            where('branchId', '==', selectedBranch),
+            where('status', '==', statusFilter)
+          );
+        }
+        
         const snapshot = await getDocs(branchQuery);
         const selectedBranchData = branches.find(b => b.id === selectedBranch);
-        allEntries = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          date: doc.data().date?.toDate(),
-          branchId: selectedBranch,
-          branchName: selectedBranchData?.name || selectedBranchData?.branchName || 'Unknown Branch'
-        }));
+        allEntries = snapshot.docs.map(doc => {
+          const data = doc.data();
+          // Handle both single date and date range
+          let entryDate = null;
+          if (data.date) {
+            entryDate = data.date.toDate();
+          } else if (data.startDate) {
+            entryDate = data.startDate.toDate();
+          }
+          
+          return {
+            id: doc.id,
+            ...data,
+            date: entryDate,
+            startDate: data.startDate?.toDate(),
+            endDate: data.endDate?.toDate(),
+            branchId: selectedBranch,
+            branchName: selectedBranchData?.name || selectedBranchData?.branchName || 'Unknown Branch'
+          };
+        });
       }
       
       // Sort by date
@@ -128,6 +176,7 @@ const OperationalManagerCalendar = () => {
         return a.date.getTime() - b.date.getTime();
       });
       
+      console.log('📅 Calendar entries loaded:', allEntries.length, 'Status filter:', statusFilter);
       setEntries(allEntries);
     } catch (error) {
       console.error('Error fetching calendar:', error);
@@ -195,12 +244,27 @@ const OperationalManagerCalendar = () => {
   const entriesByDate = useMemo(() => {
     const map = {};
     entries.forEach(entry => {
-      if (!entry.date) return;
-      const key = formatDateKey(entry.date);
-      if (!map[key]) {
-        map[key] = [];
+      // Handle date ranges (startDate to endDate)
+      if (entry.startDate && entry.endDate) {
+        const start = new Date(entry.startDate);
+        const end = new Date(entry.endDate);
+        
+        // Add entry to all dates in the range
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const key = formatDateKey(d);
+          if (!map[key]) {
+            map[key] = [];
+          }
+          map[key].push(entry);
+        }
+      } else if (entry.date) {
+        // Handle single date entries
+        const key = formatDateKey(entry.date);
+        if (!map[key]) {
+          map[key] = [];
+        }
+        map[key].push(entry);
       }
-      map[key].push(entry);
     });
     return map;
   }, [entries]);
@@ -273,6 +337,18 @@ const OperationalManagerCalendar = () => {
                   {branch.name || branch.branchName}
                 </option>
               ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
+            >
+              <option value="all">All Status</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+              <option value="rejected">Rejected</option>
             </select>
           </div>
         </div>

@@ -246,8 +246,13 @@ class ThermalPrinterService {
 
       const width = 32; // 58mm paper is typically 32 characters
 
-      // Header - Branch Name
-      await this.printLine(branchData?.name || branchData?.branchName || "David's Salon", { center: true, bold: true, doubleSize: true });
+      // Header - Salon Name with styling
+      await this.printLine("DAVID'S SALON", { center: true, bold: true, doubleSize: true });
+      
+      // Branch Name
+      if (branchData?.name || branchData?.branchName) {
+        await this.printLine(branchData.name || branchData.branchName, { center: true, bold: true });
+      }
       await this.feedPaper(1);
       
       // Branch Address (if available)
@@ -426,6 +431,365 @@ class ThermalPrinterService {
       printerName: this.printerName,
       isSupported: this.isSupported()
     };
+  }
+
+  /**
+   * Print QR Code using ESC/POS commands - Native printer QR generation
+   * This is MORE RELIABLE than raster images on thermal printers
+   * @param {string} data - The data to encode in the QR code
+   * @param {number} size - QR code module size (1-16, default 10)
+   */
+  async printQRCode(data, size = 10) {
+    if (!this.isConnected || !this.characteristic) {
+      throw new Error('Printer not connected');
+    }
+
+    console.log('📱 Printing QR with ESC/POS native, data:', data);
+    console.log('📱 Data length:', data.length, 'Module size:', size);
+    
+    // Build all commands first, then send
+    const allBytes = [];
+    
+    // QR Code: Select model (Model 2 - most compatible)
+    allBytes.push(GS, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);
+    
+    // QR Code: Set module size (1-16)
+    const moduleSize = Math.min(16, Math.max(1, size));
+    allBytes.push(GS, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, moduleSize);
+    
+    // QR Code: Set error correction level - M (Medium) is best for thermal
+    // L=48, M=49, Q=50, H=51
+    allBytes.push(GS, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x31); // M level (49 = 0x31)
+    
+    // QR Code: Store data
+    const dataBytes = this.textToBytes(data);
+    const dataLen = dataBytes.length + 3;
+    const pL = dataLen % 256;
+    const pH = Math.floor(dataLen / 256);
+    allBytes.push(GS, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30);
+    allBytes.push(...dataBytes);
+    
+    // QR Code: Print the stored QR code
+    allBytes.push(GS, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30);
+    
+    // Send all at once
+    await this.sendBytes(allBytes);
+    
+    console.log('✅ ESC/POS QR command sent:', allBytes.length, 'bytes');
+  }
+
+  /**
+   * Print image using GS v 0 raster command (widely supported)
+   * @param {ImageData} imageData - Canvas image data
+   * @param {number} width - Image width
+   * @param {number} height - Image height
+   */
+  async printRasterImage(imageData, width, height) {
+    const bytesPerLine = Math.ceil(width / 8);
+    
+    console.log(`🖼️ Raster image: ${width}x${height}px, ${bytesPerLine} bytes/line`);
+    
+    // BUILD COMPLETE IMAGE DATA FIRST
+    const imageBytes = [];
+    
+    // Add header: GS v 0 m xL xH yL yH
+    imageBytes.push(GS, 0x76, 0x30, 0x00);
+    imageBytes.push(bytesPerLine % 256, Math.floor(bytesPerLine / 256)); // xL, xH
+    imageBytes.push(height % 256, Math.floor(height / 256)); // yL, yH
+    
+    // Convert pixels to bytes (1 bit per pixel, MSB first)
+    for (let y = 0; y < height; y++) {
+      for (let byteX = 0; byteX < bytesPerLine; byteX++) {
+        let byte = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const x = byteX * 8 + bit;
+          if (x < width) {
+            const idx = (y * width + x) * 4;
+            const r = imageData.data[idx];
+            const g = imageData.data[idx + 1];
+            const b = imageData.data[idx + 2];
+            const gray = (r * 0.299 + g * 0.587 + b * 0.114);
+            if (gray < 128) {
+              byte |= (0x80 >> bit); // Black pixel
+            }
+          }
+        }
+        imageBytes.push(byte);
+      }
+    }
+    
+    console.log(`📦 Built complete image: ${imageBytes.length} bytes (header + data)`);
+    
+    // SEND ALL AT ONCE - continuous stream, no interruptions
+    // Use moderate chunk size for smooth transmission
+    const chunkSize = 128;
+    const totalChunks = Math.ceil(imageBytes.length / chunkSize);
+    
+    console.log(`📤 Sending in ${totalChunks} chunks...`);
+    
+    for (let i = 0; i < imageBytes.length; i += chunkSize) {
+      const chunk = imageBytes.slice(i, i + chunkSize);
+      const data = new Uint8Array(chunk);
+      
+      // Retry logic for GATT errors
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          if (this.characteristic.properties.writeWithoutResponse) {
+            await this.characteristic.writeValueWithoutResponse(data);
+          } else {
+            await this.characteristic.writeValue(data);
+          }
+          break;
+        } catch (writeError) {
+          retries--;
+          if (retries === 0) throw writeError;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+      
+      // Small delay - just enough to not overwhelm BLE
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    
+    console.log(`✅ Raster image sent successfully`);
+  }
+
+  /**
+   * Print image using ESC * bit image command (alternative method) - SLOW for reliability
+   * @param {ImageData} imageData - Canvas image data
+   * @param {number} width - Image width
+   * @param {number} height - Image height
+   */
+  async printBitImage(imageData, width, height) {
+    const bytesPerLine = Math.ceil(width / 8);
+    
+    console.log(`🖼️ Bit image: ${width}x${height}px, ${bytesPerLine} bytes/line`);
+    
+    // ESC * m nL nH d1...dk - Select bit-image mode
+    // m = 0: 8-dot single density, 1: 8-dot double density, 32: 24-dot single, 33: 24-dot double
+    
+    const totalRows = Math.ceil(height / 8);
+    
+    // Process 8 rows at a time (8-dot mode)
+    for (let y = 0; y < height; y += 8) {
+      const lineBytes = [ESC, 0x2A, 0x00, width % 256, Math.floor(width / 256)]; // ESC * 0 nL nH
+      
+      for (let x = 0; x < width; x++) {
+        let byte = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const row = y + bit;
+          if (row < height) {
+            const idx = (row * width + x) * 4;
+            const r = imageData.data[idx];
+            const g = imageData.data[idx + 1];
+            const b = imageData.data[idx + 2];
+            const gray = (r * 0.299 + g * 0.587 + b * 0.114);
+            if (gray < 128) {
+              byte |= (0x80 >> bit); // Black pixel
+            }
+          }
+        }
+        lineBytes.push(byte);
+      }
+      
+      lineBytes.push(LF); // Line feed after each row
+      
+      await this.sendBytes(lineBytes);
+      // SLOW - 80ms delay per row to let printer process
+      await new Promise(resolve => setTimeout(resolve, 80));
+      
+      // Log progress
+      const rowNum = Math.floor(y / 8) + 1;
+      if (rowNum % Math.ceil(totalRows / 5) === 0) {
+        console.log(`📤 Bit image progress: ${Math.round((rowNum / totalRows) * 100)}%`);
+      }
+    }
+    
+    // Wait for printer to finish
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    console.log(`✅ Bit image sent`);
+  }
+
+  /**
+   * Print QR Code as raster image - Medium size for reliable printing
+   * 250px is a good balance - scannable but not too big for BLE
+   * @param {string} data - The data to encode in the QR code
+   * @param {number} size - QR code size in pixels (default 250)
+   */
+  async printQRCodeAsImage(data, size = 250) {
+    if (!this.isConnected || !this.characteristic) {
+      throw new Error('Printer not connected');
+    }
+
+    console.log('📱 Printing QR as image, data:', data);
+    console.log('📱 Data length:', data.length);
+
+    try {
+      // Dynamically import qrcode library
+      const QRCode = (await import('qrcode')).default;
+      
+      // 250px - good balance between scannable and reliable transmission
+      const qrSize = size;
+      
+      const canvas = document.createElement('canvas');
+      await QRCode.toCanvas(canvas, data, {
+        width: qrSize,
+        margin: 2, // Small margin
+        errorCorrectionLevel: 'M', // Medium error correction - good balance
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      const imageData = ctx.getImageData(0, 0, width, height);
+      
+      console.log(`📷 QR code generated: ${width}x${height}px`);
+      
+      // Use raster method - image is pre-built then sent continuously
+      await this.printRasterImage(imageData, width, height);
+      console.log('✅ QR code printed successfully');
+      
+    } catch (error) {
+      console.error('Error printing QR code as image:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Print a QR code sticker for product/batch
+   * @param {Object} qrData - QR code data object with qrCodeString property
+   */
+  async printQRSticker(qrData) {
+    if (!this.isConnected) {
+      throw new Error('Printer not connected. Please connect first.');
+    }
+
+    // Get the QR code string data - use compact format for smaller QR
+    let qrString = qrData.qrCodeString || qrData.data;
+    
+    // If no pre-built string, create a compact one
+    if (!qrString) {
+      // Use compact JSON to reduce QR code density
+      qrString = JSON.stringify({
+        p: qrData.productId,
+        b: qrData.batchNumber,
+        pr: qrData.price,
+        br: qrData.branchId
+      });
+    }
+
+    console.log('🏷️ ========== PRINTING QR STICKER ==========');
+    console.log('🏷️ QR String:', qrString);
+    console.log('🏷️ QR String Length:', qrString.length);
+    console.log('🏷️ Batch:', qrData.batchNumber);
+    console.log('🏷️ Price:', qrData.price);
+
+    try {
+      // Initialize printer with longer delay
+      await this.sendBytes(COMMANDS.INIT);
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Header - David's Salon
+      await this.printLine("DAVID'S SALON", { center: true, bold: true });
+      await new Promise(resolve => setTimeout(resolve, 50));
+      await this.feedPaper(1);
+      
+      // Center align for QR code
+      await this.sendBytes(COMMANDS.ALIGN_CENTER);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Print QR Code - 250px for reliable printing
+      let qrPrinted = false;
+      
+      // USE ESC/POS NATIVE QR COMMAND FIRST - more reliable on thermal printers
+      try {
+        console.log('🔲 Printing QR with ESC/POS native command (size 10)...');
+        await this.printQRCode(qrString, 10); // Size 10 = good balance
+        await new Promise(resolve => setTimeout(resolve, 200)); // Wait for printer
+        await this.feedPaper(1);
+        qrPrinted = true;
+        console.log('✅ ESC/POS QR code printed');
+      } catch (qrError) {
+        console.log('⚠️ ESC/POS method failed:', qrError.message);
+        
+        // Fallback to raster image
+        try {
+          console.log('🔲 Fallback: Raster QR code (200px)...');
+          await this.printQRCodeAsImage(qrString, 200);
+          await this.feedPaper(1);
+          qrPrinted = true;
+          console.log('✅ Raster QR code printed');
+        } catch (imgError) {
+          console.error('❌ Raster QR failed:', imgError.message);
+        }
+      }
+      
+      if (!qrPrinted) {
+        console.error('❌ All QR methods failed!');
+        await this.printLine('[QR CODE FAILED]', { center: true });
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Batch Number
+      if (qrData.batchNumber && qrData.batchNumber !== 'N/A') {
+        await this.printLine(`Batch: ${qrData.batchNumber}`, { center: true });
+      }
+      
+      // Product Name (if available)
+      if (qrData.productName) {
+        const nameLines = this.wrapText(qrData.productName, 28);
+        for (const line of nameLines) {
+          await this.printLine(line, { center: true });
+        }
+      }
+      
+      // Price (prominent)
+      await this.feedPaper(1);
+      await this.printLine(`P${(qrData.price || 0).toFixed(2)}`, { center: true, bold: true, doubleSize: true });
+      
+      // Reset alignment
+      await this.sendBytes(COMMANDS.ALIGN_LEFT);
+      
+      // Feed and cut
+      await this.feedPaper(3);
+      await this.cutPaper();
+      
+      console.log('🏷️ ========== STICKER COMPLETE ==========');
+      return { success: true };
+    } catch (error) {
+      console.error('❌ QR Sticker print error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Print multiple QR code stickers
+   * @param {Array} qrDataArray - Array of QR code data objects
+   */
+  async printMultipleQRStickers(qrDataArray) {
+    if (!this.isConnected) {
+      throw new Error('Printer not connected. Please connect first.');
+    }
+
+    const results = [];
+    for (let i = 0; i < qrDataArray.length; i++) {
+      try {
+        await this.printQRSticker(qrDataArray[i]);
+        results.push({ index: i, success: true });
+        // Small delay between prints
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (error) {
+        results.push({ index: i, success: false, error: error.message });
+      }
+    }
+    return results;
   }
 }
 

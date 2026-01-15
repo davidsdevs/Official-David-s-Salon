@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail, ArrowLeft } from 'lucide-react';
-import { createPasswordResetToken } from '../../services/passwordResetService';
+import { sendPasswordResetOTP } from '../../services/passwordResetService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 
@@ -20,7 +20,7 @@ const ForgotPassword = () => {
     setLoading(true);
 
     try {
-      const result = await createPasswordResetToken(email);
+      const result = await sendPasswordResetOTP(email);
       
       if (result.success) {
         setEmailSent(true);

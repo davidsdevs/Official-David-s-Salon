@@ -2,10 +2,7 @@
      * Notification Service
      * Module: M03 - Appointment Management
      * Stores notification data in Firestore for mobile app consumption
-     * 
-     * This service ONLY stores notification data in the database.
-     * It does NOT send actual notifications (no push, no email, no SMS).
-     * The mobile app team will fetch these notifications from the database.
+     * AND sends push notifications via Expo Push API
      */
 
     import { 
@@ -23,6 +20,17 @@
     import { db } from '../config/firebase';
     import { getBranchById } from './branchService';
     import { getUserById } from './userService';
+    import {
+    sendAppointmentConfirmedNotification,
+    sendAppointmentCancelledNotification,
+    sendAppointmentRescheduledNotification,
+    sendNewAppointmentToStylistNotification,
+    sendClientArrivedNotification,
+    sendInServiceNotification,
+    sendCancellationNotification,
+    sendPortfolioApprovedNotification,
+    sendPortfolioRejectedNotification
+    } from './expoPushService';
 
     const NOTIFICATIONS_COLLECTION = 'notifications';
 
@@ -396,40 +404,89 @@
      * Store appointment created notification
      */
     export const storeAppointmentCreated = async (appointmentData) => {
-    return await storeNotificationForAllParticipants(
+    // Store in Firestore
+    const result = await storeNotificationForAllParticipants(
         NOTIFICATION_TYPES.APPOINTMENT_CREATED,
         appointmentData
     );
+    
+    // Send push notification to stylist(s) about new appointment
+    try {
+        await sendNewAppointmentToStylistNotification(appointmentData);
+        console.log('📱 Push notification sent to stylist for new appointment');
+    } catch (error) {
+        console.error('Error sending push notification to stylist:', error);
+    }
+    
+    return result;
     };
 
     /**
      * Store appointment confirmed notification
      */
     export const storeAppointmentConfirmed = async (appointmentData) => {
-    return await storeNotificationForAllParticipants(
+    // Store in Firestore for mobile app to fetch
+    const result = await storeNotificationForAllParticipants(
         NOTIFICATION_TYPES.APPOINTMENT_CONFIRMED,
         appointmentData
     );
+    
+    // Send push notification via Expo
+    try {
+        await sendAppointmentConfirmedNotification(appointmentData);
+        console.log('📱 Push notification sent for appointment confirmation');
+    } catch (error) {
+        console.error('Error sending push notification:', error);
+        // Don't fail if push notification fails
+    }
+    
+    return result;
     };
 
     /**
      * Store appointment cancelled notification
+     * @param {Object} appointmentData - Appointment data
+     * @param {boolean} wasPending - Whether the appointment was in pending status (don't notify stylists)
      */
-    export const storeAppointmentCancelled = async (appointmentData) => {
-    return await storeNotificationForAllParticipants(
+    export const storeAppointmentCancelled = async (appointmentData, wasPending = false) => {
+    // Store in Firestore
+    const result = await storeNotificationForAllParticipants(
         NOTIFICATION_TYPES.APPOINTMENT_CANCELLED,
         appointmentData
     );
+    
+    // Send push notification via Expo
+    // If appointment was pending, only notify client (not stylists)
+    try {
+        const reason = appointmentData.cancelReason || appointmentData.cancellationReason || '';
+        await sendCancellationNotification(appointmentData, reason, wasPending);
+        console.log('📱 Push notification sent for appointment cancellation (wasPending:', wasPending, ')');
+    } catch (error) {
+        console.error('Error sending push notification:', error);
+    }
+    
+    return result;
     };
 
     /**
      * Store appointment rescheduled notification
      */
     export const storeAppointmentRescheduled = async (appointmentData) => {
-    return await storeNotificationForAllParticipants(
+    // Store in Firestore
+    const result = await storeNotificationForAllParticipants(
         NOTIFICATION_TYPES.APPOINTMENT_RESCHEDULED,
         appointmentData
     );
+    
+    // Send push notification via Expo
+    try {
+        await sendAppointmentRescheduledNotification(appointmentData);
+        console.log('📱 Push notification sent for appointment reschedule');
+    } catch (error) {
+        console.error('Error sending push notification:', error);
+    }
+    
+    return result;
     };
 
     /**
@@ -446,10 +503,100 @@
      * Store appointment in service notification
      */
     export const storeAppointmentInService = async (appointmentData) => {
-    return await storeNotificationForAllParticipants(
+    const result = await storeNotificationForAllParticipants(
         NOTIFICATION_TYPES.APPOINTMENT_IN_SERVICE,
         appointmentData
     );
+    
+    // Send push notification to client
+    try {
+        await sendInServiceNotification(appointmentData);
+        console.log('📱 Push notification sent for in-service status');
+    } catch (error) {
+        console.error('Error sending push notification:', error);
+    }
+    
+    return result;
+    };
+
+    /**
+     * Store client arrived notification and send push to stylist
+     */
+    export const storeClientArrived = async (appointmentData) => {
+    const result = await storeNotificationForAllParticipants(
+        NOTIFICATION_TYPES.CHECK_IN_ARRIVED,
+        appointmentData
+    );
+    
+    // Send push notification to stylist(s)
+    try {
+        await sendClientArrivedNotification(appointmentData);
+        console.log('📱 Push notification sent for client arrival');
+    } catch (error) {
+        console.error('Error sending push notification:', error);
+    }
+    
+    return result;
+    };
+
+    /**
+     * Store portfolio approved notification and send push to stylist
+     */
+    export const storePortfolioApproved = async (portfolio, stylistId) => {
+    try {
+        // Create notification in Firestore
+        const notification = {
+        type: 'portfolio_approved',
+        title: 'Portfolio Approved',
+        message: portfolio.title 
+            ? `Your portfolio "${portfolio.title}" has been approved.`
+            : 'Your portfolio submission has been approved.',
+        recipientId: stylistId,
+        recipientRole: 'stylist',
+        portfolioId: portfolio.id
+        };
+        
+        const notificationId = await createNotification(notification);
+        
+        // Send push notification
+        await sendPortfolioApprovedNotification(portfolio, stylistId);
+        console.log('📱 Push notification sent for portfolio approval');
+        
+        return notificationId;
+    } catch (error) {
+        console.error('Error storing portfolio approved notification:', error);
+        throw error;
+    }
+    };
+
+    /**
+     * Store portfolio rejected notification and send push to stylist
+     */
+    export const storePortfolioRejected = async (portfolio, stylistId, reason = '') => {
+    try {
+        // Create notification in Firestore
+        const notification = {
+        type: 'portfolio_rejected',
+        title: 'Portfolio Rejected',
+        message: reason 
+            ? `Your portfolio was rejected. Reason: ${reason}`
+            : 'Your portfolio submission was rejected.',
+        recipientId: stylistId,
+        recipientRole: 'stylist',
+        portfolioId: portfolio.id
+        };
+        
+        const notificationId = await createNotification(notification);
+        
+        // Send push notification
+        await sendPortfolioRejectedNotification(portfolio, stylistId, reason);
+        console.log('📱 Push notification sent for portfolio rejection');
+        
+        return notificationId;
+    } catch (error) {
+        console.error('Error storing portfolio rejected notification:', error);
+        throw error;
+    }
     };
 
     /**
