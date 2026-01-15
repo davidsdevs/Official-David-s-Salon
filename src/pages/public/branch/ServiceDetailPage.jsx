@@ -1,53 +1,171 @@
 import Button from "../../../components/ui/Button"
 import { Clock, Banknote, ArrowLeft, Check, ChevronDown, ChevronUp } from "lucide-react"
 import { useParams, Link } from "react-router-dom"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '../../../config/firebase'
 import { getServiceById } from '../../../services/branchServicesService'
 import BranchNavigation from "../../../components/landing/BranchNavigation"
 import BranchFooter from "../../../components/landing/BranchFooter"
+import { marketingContentService } from "../../../services/marketingContentService"
+import { useAuth } from "../../../context/AuthContext"
+import { USER_ROLES } from "../../../utils/constants"
+import InlineEditable from "../../../components/cms/InlineEditable"
+import FloatingSaveButton from "../../../components/cms/FloatingSaveButton"
 
-export default function ServiceDetailPage() {
-  const { slug, serviceId } = useParams()
-  const branchName = slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
+const slugify = (value) => {
+  if (!value) return ''
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+}
+
+export default function ServiceDetailPage({
+  embedded = false,
+  cmsEditMode,
+  cmsBranchId = null,
+  cmsBranchName = '',
+  cmsBranchSlug = '',
+  cmsServiceId = null,
+  onBack
+}) {
+  const { userData, userRoles } = useAuth()
+  const params = useParams()
+  const slug = cmsBranchSlug || params.slug
+  const serviceId = cmsServiceId || params.serviceId
+  const computedBranchName = slug ? slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()) : ''
+  const branchName = cmsBranchName || computedBranchName
+
+  const effectiveEditMode = typeof cmsEditMode === 'boolean' ? cmsEditMode : true
+  const isSystemAdmin =
+    userRoles?.includes(USER_ROLES.SYSTEM_ADMIN) ||
+    userRoles?.includes('system_admin') ||
+    userData?.role === USER_ROLES.SYSTEM_ADMIN ||
+    userData?.role === 'system_admin'
+
+  const blockInteractions = embedded && isSystemAdmin && effectiveEditMode
   
   const [isVisible, setIsVisible] = useState(false)
   const [openFAQ, setOpenFAQ] = useState(null)
-  const [branchId, setBranchId] = useState(null)
+  const [branchId, setBranchId] = useState(cmsBranchId)
   const [service, setService] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notAvailable, setNotAvailable] = useState(false)
+
+  const [content, setContent] = useState(null)
+  const [localContent, setLocalContent] = useState(null)
+  const [hasChanges, setHasChanges] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const hasChangesRef = useRef(false)
+  const localContentRef = useRef(null)
+  const editRevisionRef = useRef(0)
 
   useEffect(() => {
     setIsVisible(true)
   }, [])
 
+  const marketingContentId = cmsBranchId
+    ? `branch_${cmsBranchId}`
+    : branchId
+      ? `branch_${branchId}`
+      : slug
+        ? `branch_${slug}`
+        : null
+
+  useEffect(() => {
+    hasChangesRef.current = hasChanges
+  }, [hasChanges])
+
+  useEffect(() => {
+    localContentRef.current = localContent
+  }, [localContent])
+
+  useEffect(() => {
+    editRevisionRef.current = 0
+    setHasChanges(false)
+    setLocalContent(null)
+    setContent(null)
+  }, [marketingContentId])
+
+  useEffect(() => {
+    if (!marketingContentId) return
+
+    const unsubscribe = marketingContentService.subscribeToContent(marketingContentId, 'branch', (result) => {
+      if (result.success && result.content) {
+        setContent(result.content)
+        if (!hasChangesRef.current) {
+          setLocalContent(result.content)
+        }
+      }
+    })
+
+    return () => unsubscribe()
+  }, [marketingContentId])
+
+  useEffect(() => {
+    if (content && !localContent) {
+      setLocalContent(content)
+    }
+  }, [content, localContent])
+
   // Resolve branchId by slug
   useEffect(() => {
+    if (cmsBranchId) {
+      setBranchId(cmsBranchId)
+      return
+    }
+
     const findBranch = async () => {
       try {
         const branchesRef = collection(db, 'branches')
-        const q = query(branchesRef, where('slug', '==', slug))
-        const querySnapshot = await getDocs(q)
-
-        if (!querySnapshot.empty) {
-          setBranchId(querySnapshot.docs[0].id)
-        } else {
-          setBranchId(slug)
+        const slugQuery = query(branchesRef, where('slug', '==', slug))
+        const slugSnapshot = await getDocs(slugQuery)
+        if (!slugSnapshot.empty) {
+          setBranchId(slugSnapshot.docs[0].id)
+          return
         }
+
+        const slugNormalized = slugify(slug)
+        const slugAlt = slugNormalized.endsWith('-branch')
+          ? slugNormalized.replace(/-branch$/, '')
+          : `${slugNormalized}-branch`
+
+        const allSnapshot = await getDocs(branchesRef)
+        const match = allSnapshot.docs.find((d) => {
+          const data = d.data() || {}
+          const candidates = [
+            slugify(data.slug),
+            slugify(data.name),
+            slugify(data.branchName)
+          ].filter(Boolean)
+          return candidates.includes(slugNormalized) || candidates.includes(slugAlt)
+        })
+
+        if (match) {
+          setBranchId(match.id)
+          return
+        }
+
+        setBranchId(null)
       } catch (err) {
         console.error('Error finding branch by slug', err)
-        setBranchId(slug)
+        setBranchId(null)
       }
     }
 
-    findBranch()
-  }, [slug])
+    if (slug) {
+      findBranch()
+    }
+  }, [slug, cmsBranchId])
 
   // Load service details and check branch availability
   useEffect(() => {
     if (!branchId) return
+    if (!serviceId) return
 
     const loadService = async () => {
       setLoading(true)
@@ -61,7 +179,18 @@ export default function ServiceDetailPage() {
         } else {
           // include branch-specific price for display convenience
           const price = s.branchPricing[branchId]
-          setService({ id: s.id, ...s, price })
+          const normalized = {
+            ...s,
+            name: s.name || s.serviceName || 'Service',
+            serviceName: s.serviceName || s.name || 'Service',
+            description: s.description || s.shortDescription || '',
+            longDescription: s.longDescription || s.description || s.shortDescription || '',
+            image: s.imageURL || s.imageUrl || s.image || s.media?.[0]?.url || '/logo.jpg',
+            category: s.category || s.serviceType || 'Uncategorized',
+            tag: s.tag || s.tagLabel || '',
+            duration: s.duration ?? s.time ?? null
+          }
+          setService({ id: s.id, ...normalized, price })
           setNotAvailable(false)
         }
       } catch (err) {
@@ -75,6 +204,61 @@ export default function ServiceDetailPage() {
 
     loadService()
   }, [branchId, serviceId])
+
+  const displayContent = hasChanges ? localContent : content
+  const servicesDetailPage = displayContent?.servicesDetailPage || {}
+  const buttonsContent = servicesDetailPage.buttons || {}
+
+  const backButtonText = buttonsContent.backButtonText || 'Back'
+  const backToServicesButtonText = buttonsContent.backToServicesButtonText || 'Back to services'
+  const bookThisServiceButtonText = buttonsContent.bookThisServiceButtonText || 'Book This Service'
+  const viewRecommendedStylistsButtonText =
+    buttonsContent.viewRecommendedStylistsButtonText || 'View Recommended Stylists'
+  const viewProfileButtonText = buttonsContent.viewProfileButtonText || 'View Profile'
+
+  const handleContentUpdate = (fieldPath, value) => {
+    if (!localContent) return
+
+    const keys = fieldPath.split('.')
+    const newContent = { ...localContent }
+    let current = newContent
+
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (!current[keys[i]]) {
+        current[keys[i]] = {}
+      }
+      current = current[keys[i]]
+    }
+
+    current[keys[keys.length - 1]] = value
+    setLocalContent(newContent)
+    editRevisionRef.current += 1
+    setHasChanges(true)
+  }
+
+  const handleSave = async () => {
+    const contentToSave = localContentRef.current
+    if (!marketingContentId || !contentToSave || !userData?.uid) return
+    try {
+      const saveRevision = editRevisionRef.current
+      setSaving(true)
+      const { id, ...payload } = contentToSave
+      const result = await marketingContentService.updateContent(marketingContentId, 'branch', {
+        ...payload,
+        branchId,
+        slug,
+        updatedBy: userData.uid
+      })
+      if (result.success) {
+        setContent(contentToSave)
+        if (editRevisionRef.current === saveRevision) {
+          setHasChanges(false)
+        }
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // NOTE: the service data is now loaded from Firestore and validated for the current branch
 
@@ -169,52 +353,123 @@ export default function ServiceDetailPage() {
   ]
 
   const toggleFAQ = (index) => {
+    if (blockInteractions) return
     setOpenFAQ(openFAQ === index ? null : index)
+  }
+
+  const handleEmbeddedClickCapture = (e) => {
+    if (!blockInteractions) return
+    const target = e?.target
+    if (!target || typeof target.closest !== 'function') return
+    if (target.closest('[data-cms-allow-interaction="true"]')) return
+    e.preventDefault()
+    e.stopPropagation()
   }
 
   // Render different states: loading, not available, or show service details
   if (loading) {
     return (
-      <>
-        <BranchNavigation branchName={`${branchName} Branch`} />
+      <div onClickCapture={handleEmbeddedClickCapture}>
+        {!embedded && <BranchNavigation branchName={`${branchName} Branch`} />}
         <div className="py-40 text-center text-gray-500">Loading service details…</div>
-        <BranchFooter branchName={`${branchName} Branch`} branchPhone="+63 930 222 9659" branchAddress={`${branchName}, Philippines`} branchSlug={slug} />
-      </>
+        {!embedded && (
+          <BranchFooter
+            branchName={`${branchName} Branch`}
+            branchPhone="+63 930 222 9659"
+            branchAddress={`${branchName}, Philippines`}
+            branchSlug={slug}
+          />
+        )}
+      </div>
     )
   }
 
   if (notAvailable) {
     return (
-      <>
-        <BranchNavigation branchName={`${branchName} Branch`} />
+      <div onClickCapture={handleEmbeddedClickCapture}>
+        {!embedded && <BranchNavigation branchName={`${branchName} Branch`} />}
         <section className="py-40 px-6 text-center">
           <div className="max-w-3xl mx-auto">
             <h2 className="text-3xl font-poppins font-bold text-[#160B53] mb-4">Service not available</h2>
             <p className="text-gray-600 mb-6">The service you requested is not offered at the {branchName} branch.</p>
-            <Link to={`/branch/${slug}/services`} className="inline-flex items-center gap-2 px-6 py-3 bg-[#160B53] text-white rounded-lg">Back to services</Link>
+            {typeof onBack === 'function' || embedded ? (
+              <button
+                type="button"
+                onClick={blockInteractions ? undefined : onBack}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-[#160B53] text-white rounded-lg"
+              >
+                <InlineEditable
+                  value={backToServicesButtonText}
+                  onSave={handleContentUpdate}
+                  fieldPath="servicesDetailPage.buttons.backToServicesButtonText"
+                  enabled={isSystemAdmin && effectiveEditMode}
+                  className="text-white"
+                />
+              </button>
+            ) : (
+              <Link to={`/branch/${slug}/services`} className="inline-flex items-center gap-2 px-6 py-3 bg-[#160B53] text-white rounded-lg">
+                <InlineEditable
+                  value={backToServicesButtonText}
+                  onSave={handleContentUpdate}
+                  fieldPath="servicesDetailPage.buttons.backToServicesButtonText"
+                  enabled={isSystemAdmin && effectiveEditMode}
+                  className="text-white"
+                />
+              </Link>
+            )}
           </div>
         </section>
-        <BranchFooter branchName={`${branchName} Branch`} branchPhone="+63 930 222 9659" branchAddress={`${branchName}, Philippines`} branchSlug={slug} />
-      </>
+        {!embedded && (
+          <BranchFooter
+            branchName={`${branchName} Branch`}
+            branchPhone="+63 930 222 9659"
+            branchAddress={`${branchName}, Philippines`}
+            branchSlug={slug}
+          />
+        )}
+      </div>
     )
   }
 
   return (
-    <>
-      <BranchNavigation branchName={`${branchName} Branch`} />
+    <div onClickCapture={handleEmbeddedClickCapture}>
+      {!embedded && <BranchNavigation branchName={`${branchName} Branch`} />}
       
       {/* Hero Section */}
-      <section className="relative py-16 px-6 bg-gray-50" style={{ paddingTop: '138px' }}>
+      <section className="relative py-16 px-6 bg-gray-50" style={{ paddingTop: embedded ? undefined : '138px' }}>
         <div className="max-w-6xl mx-auto">
           {/* Back Button */}
           <div className="mb-6">
-            <Link 
-              to={`/branch/${slug}/services`}
-              className="inline-flex items-center gap-2 text-[#160B53] hover:text-[#160B53]/80 font-poppins font-medium transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Link>
+            {typeof onBack === 'function' || embedded ? (
+              <button
+                type="button"
+                onClick={blockInteractions ? undefined : onBack}
+                className="inline-flex items-center gap-2 text-[#160B53] hover:text-[#160B53]/80 font-poppins font-medium transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <InlineEditable
+                  value={backButtonText}
+                  onSave={handleContentUpdate}
+                  fieldPath="servicesDetailPage.buttons.backButtonText"
+                  enabled={isSystemAdmin && effectiveEditMode}
+                  className="text-[#160B53]"
+                />
+              </button>
+            ) : (
+              <Link 
+                to={`/branch/${slug}/services`}
+                className="inline-flex items-center gap-2 text-[#160B53] hover:text-[#160B53]/80 font-poppins font-medium transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <InlineEditable
+                  value={backButtonText}
+                  onSave={handleContentUpdate}
+                  fieldPath="servicesDetailPage.buttons.backButtonText"
+                  enabled={isSystemAdmin && effectiveEditMode}
+                  className="text-[#160B53]"
+                />
+              </Link>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
@@ -224,14 +479,20 @@ export default function ServiceDetailPage() {
                 src={service.image}
                 alt={service.name}
                 className="w-full h-80 object-cover rounded-lg shadow-lg"
+                onError={(e) => {
+                  e.currentTarget.onerror = null
+                  e.currentTarget.src = '/logo.jpg'
+                }}
               />
               <div className="absolute top-4 left-4 flex gap-2">
                 <span className="bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-sm font-poppins font-medium text-gray-700">
                   {service.category}
                 </span>
-                <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm font-poppins font-medium">
-                  {service.tag}
-                </span>
+                {!!service.tag && (
+                  <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm font-poppins font-medium">
+                    {service.tag}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -244,7 +505,9 @@ export default function ServiceDetailPage() {
               <div className="flex items-center gap-6 mb-8">
                 <div className="flex items-center gap-2 text-gray-600">
                   <Clock className="w-5 h-5" />
-                  <span className="font-poppins font-medium">{service.duration}</span>
+                  <span className="font-poppins font-medium">
+                    {service.duration == null ? '—' : (typeof service.duration === 'number' ? `${service.duration} mins` : service.duration)}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Banknote className="w-5 h-5 text-gray-600" />
@@ -254,11 +517,30 @@ export default function ServiceDetailPage() {
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row gap-4">
-                <Button size="lg" className="bg-[#160B53] hover:bg-[#160B53]/90 text-white font-poppins font-semibold">
-                  Book This Service
+                <Button
+                  size="lg"
+                  className="bg-[#160B53] hover:bg-[#160B53]/90 text-white font-poppins font-semibold"
+                >
+                  <InlineEditable
+                    value={bookThisServiceButtonText}
+                    onSave={handleContentUpdate}
+                    fieldPath="servicesDetailPage.buttons.bookThisServiceButtonText"
+                    enabled={isSystemAdmin && effectiveEditMode}
+                    className="text-white"
+                  />
                 </Button>
-                <Button size="lg" variant="outline" className="border-[#160B53] text-[#160B53] hover:bg-[#160B53] hover:text-white font-poppins font-semibold">
-                  View Recommended Stylists
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="border-[#160B53] text-[#160B53] hover:bg-[#160B53] hover:text-white font-poppins font-semibold"
+                >
+                  <InlineEditable
+                    value={viewRecommendedStylistsButtonText}
+                    onSave={handleContentUpdate}
+                    fieldPath="servicesDetailPage.buttons.viewRecommendedStylistsButtonText"
+                    enabled={isSystemAdmin && effectiveEditMode}
+                    className="text-[#160B53]"
+                  />
                 </Button>
               </div>
             </div>
@@ -303,7 +585,13 @@ export default function ServiceDetailPage() {
                       <span className="font-poppins font-medium text-gray-900">{stylist.name}</span>
                     </div>
                     <Button size="sm" variant="outline" className="border-[#160B53] text-[#160B53] hover:bg-[#160B53] hover:text-white">
-                      View Profile
+                      <InlineEditable
+                        value={viewProfileButtonText}
+                        onSave={handleContentUpdate}
+                        fieldPath="servicesDetailPage.buttons.viewProfileButtonText"
+                        enabled={isSystemAdmin && effectiveEditMode}
+                        className="text-[#160B53]"
+                      />
                     </Button>
                   </div>
                 ))}
@@ -396,13 +684,19 @@ export default function ServiceDetailPage() {
         </div>
       </section>
       
-      <BranchFooter 
-        branchName={`${branchName} Branch`}
-        branchPhone="+63 930 222 9659"
-        branchAddress={`${branchName}, Philippines`}
-        branchSlug={slug}
-      />
-    </>
+      {!embedded && (
+        <BranchFooter 
+          branchName={`${branchName} Branch`}
+          branchPhone="+63 930 222 9659"
+          branchAddress={`${branchName}, Philippines`}
+          branchSlug={slug}
+        />
+      )}
+
+      {isSystemAdmin && effectiveEditMode && hasChanges && (
+        <FloatingSaveButton onSave={handleSave} saving={saving} hasChanges={hasChanges} />
+      )}
+    </div>
   )
 }
 

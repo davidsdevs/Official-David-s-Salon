@@ -82,6 +82,7 @@ export const saveService = async (serviceData, currentUser) => {
       description: serviceData.description || '',
       category: serviceData.category || 'General',
       duration: serviceData.duration || 30, // in minutes
+      commissionPercentage: typeof serviceData.commissionPercentage === 'number' ? serviceData.commissionPercentage : 5,
       imageURL: serviceData.imageURL || '',
       isChemical: serviceData.isChemical || false,
       isActive: serviceData.isActive !== undefined ? serviceData.isActive : true,

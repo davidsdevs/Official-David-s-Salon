@@ -5,20 +5,174 @@ import { useParams, Link } from "react-router-dom"
 import { useState, useEffect } from "react"
 import BranchNavigation from "../../../components/landing/BranchNavigation"
 import BranchFooter from "../../../components/landing/BranchFooter"
+import { getUserById } from "../../../services/userService"
+import { getAllBranches } from "../../../services/branchService"
+import { USER_ROLES } from "../../../utils/constants"
+import { getFullName } from "../../../utils/helpers"
 
 export default function StylistProfilePage() {
-  const { slug } = useParams()
-  const branchName = slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
-  
+  const { slug, stylistId } = useParams()
+
+  const slugify = (value) => {
+    if (!value) return ''
+    return String(value)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+  }
+
+  const computedBranchName = slug
+    ? slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
+    : ''
+
   const [isVisible, setIsVisible] = useState(false)
   const [currentPortfolioPage, setCurrentPortfolioPage] = useState(1)
+
+  const [branches, setBranches] = useState([])
+  const [selectedBranch, setSelectedBranch] = useState(null)
+  const [stylistUser, setStylistUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
 
   useEffect(() => {
     setIsVisible(true)
   }, [])
 
+  useEffect(() => {
+    const loadBranches = async () => {
+      try {
+        const branchesData = await getAllBranches()
+        const normalized = (Array.isArray(branchesData) ? branchesData : []).map((b) => {
+          const name = b?.branchName || b?.name || 'Branch'
+          const resolvedSlug = b?.slug || slugify(name)
+          return { ...b, id: b.id, __name: name, __slug: resolvedSlug }
+        })
+        setBranches(normalized)
+      } catch (e) {
+        console.error('Error loading branches:', e)
+      }
+    }
+
+    loadBranches()
+  }, [])
+
+  useEffect(() => {
+    if (!slug || branches.length === 0) return
+
+    const slugNormalized = slugify(slug)
+    const slugAlt = slugNormalized.endsWith('-branch')
+      ? slugNormalized.replace(/-branch$/, '')
+      : `${slugNormalized}-branch`
+
+    const match = branches.find((b) => {
+      const candidates = [slugify(b?.slug), slugify(b?.__slug), slugify(b?.__name), slugify(b?.name), slugify(b?.branchName)]
+        .filter(Boolean)
+      return candidates.includes(slugNormalized) || candidates.includes(slugAlt)
+    })
+
+    if (match) {
+      setSelectedBranch(match)
+      return
+    }
+
+    setSelectedBranch(null)
+  }, [slug, branches])
+
+  useEffect(() => {
+    const loadStylist = async () => {
+      if (!stylistId) return
+      try {
+        setLoading(true)
+        setNotFound(false)
+
+        const user = await getUserById(stylistId)
+        if (!user) {
+          setStylistUser(null)
+          setNotFound(true)
+          return
+        }
+
+        const roles = user.roles || (user.role ? [user.role] : [])
+        if (!Array.isArray(roles) || !roles.includes(USER_ROLES.STYLIST)) {
+          setStylistUser(null)
+          setNotFound(true)
+          return
+        }
+
+        if (selectedBranch?.id && user.branchId && user.branchId !== selectedBranch.id) {
+          setStylistUser(null)
+          setNotFound(true)
+          return
+        }
+
+        setStylistUser(user)
+      } catch (e) {
+        console.error('Error loading stylist:', e)
+        setStylistUser(null)
+        setNotFound(true)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadStylist()
+  }, [stylistId, selectedBranch?.id])
+
+  const branchName = selectedBranch?.__name || computedBranchName
+  const branchPhone = selectedBranch?.contact || "+63 930 222 9659"
+  const branchAddress = selectedBranch?.address || `${branchName}, Philippines`
+
+  if (loading) {
+    return (
+      <>
+        <BranchNavigation branchName={`${branchName} Branch`} branchSlug={slug} />
+        <section className="py-12 px-6 bg-gray-50 mt-[122px]">
+          <div className="max-w-6xl mx-auto text-center">
+            <h1 className="text-3xl font-poppins font-bold text-[#160B53]">Loading stylist...</h1>
+          </div>
+        </section>
+        <BranchFooter
+          branchName={`${branchName} Branch`}
+          branchPhone={branchPhone}
+          branchAddress={branchAddress}
+          branchSlug={slug}
+        />
+      </>
+    )
+  }
+
+  if (notFound) {
+    return (
+      <>
+        <BranchNavigation branchName={`${branchName} Branch`} branchSlug={slug} />
+        <section className="py-12 px-6 bg-gray-50 mt-[122px]">
+          <div className="max-w-6xl mx-auto text-center">
+            <h1 className="text-3xl font-poppins font-bold text-[#160B53]">Stylist not found</h1>
+            <div className="mt-6">
+              <Link
+                to={`/branch/${slug}/stylists`}
+                className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 font-poppins font-medium transition-colors rounded-lg"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to Stylists
+              </Link>
+            </div>
+          </div>
+        </section>
+        <BranchFooter
+          branchName={`${branchName} Branch`}
+          branchPhone={branchPhone}
+          branchAddress={branchAddress}
+          branchSlug={slug}
+        />
+      </>
+    )
+  }
+
   // Mock stylist data - in real app, this would come from API/database
-  const stylist = {
+  const stylistFallback = {
     id: 1,
     name: "Maria Santos",
     specialty: "Color Specialist",
@@ -33,6 +187,24 @@ export default function StylistProfilePage() {
       { name: "Balayage Specialist", icon: <Sparkles className="w-5 h-5 text-[#160B53]" /> }
     ]
   }
+
+  const years = stylistUser?.yearsExperience || stylistUser?.experienceYears || stylistUser?.experience
+  const experienceText =
+    typeof years === 'number'
+      ? `${years} years experience`
+      : (typeof years === 'string' ? years : stylistFallback.experience)
+
+  const stylist = stylistUser
+    ? {
+        ...stylistFallback,
+        id: stylistUser.id,
+        name: getFullName(stylistUser),
+        specialty: stylistUser.specialty || stylistUser.primarySpecialty || stylistFallback.specialty,
+        experience: experienceText,
+        image: stylistUser.photoURL || stylistUser.photoUrl || stylistUser.avatarUrl || stylistUser.profileImageUrl || stylistFallback.image,
+        description: stylistUser.bio || stylistUser.description || stylistFallback.description
+      }
+    : stylistFallback
 
   const specialtyServices = [
     {
@@ -140,7 +312,7 @@ export default function StylistProfilePage() {
 
   return (
     <>
-      <BranchNavigation branchName={`${branchName} Branch`} />
+      <BranchNavigation branchName={`${branchName} Branch`} branchSlug={slug} />
       
       {/* Hero Section */}
       <section className="relative py-16 px-6 bg-[#160B53] text-white" style={{ paddingTop: '180px' }}>
@@ -355,8 +527,8 @@ export default function StylistProfilePage() {
       
       <BranchFooter 
         branchName={`${branchName} Branch`}
-        branchPhone="+63 930 222 9659"
-        branchAddress={`${branchName}, Philippines`}
+        branchPhone={branchPhone}
+        branchAddress={branchAddress}
         branchSlug={slug}
       />
     </>

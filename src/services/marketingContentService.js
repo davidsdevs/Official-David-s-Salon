@@ -1,33 +1,25 @@
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  setDoc, 
+import {
+  doc,
+  getDoc,
+  setDoc,
   updateDoc,
   serverTimestamp,
   onSnapshot
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
-class BranchContentService {
+class MarketingContentService {
   constructor() {
-    this.collection = 'contents';
+    this.collection = 'marketingContents';
   }
 
-  /**
-   * Get content by type (main homepage or branch-specific)
-   * @param {string} contentId - Content ID ('main' for homepage, branchId for branch pages)
-   * @param {string} type - Content type ('homepage' or 'branch')
-   * @returns {Promise<Object>} - Content data
-   */
-  async getContent(contentId, type = 'branch') {
+  async getContent(contentId, type) {
     try {
       const contentRef = doc(db, this.collection, contentId);
       const contentDoc = await getDoc(contentRef);
-      
+
       if (contentDoc.exists()) {
         const data = contentDoc.data();
-        // Only return if type matches
         if (data.type === type) {
           return {
             success: true,
@@ -38,154 +30,103 @@ class BranchContentService {
           };
         }
       }
-      
-      // Return default content structure
+
       return {
         success: true,
-        content: type === 'homepage' 
-          ? this.getDefaultHomepageContent() 
+        content: type === 'homepage'
+          ? this.getDefaultHomepageContent()
           : type === 'about'
           ? this.getDefaultAboutPageContent()
+          : type === 'products'
+          ? this.getDefaultProductsPageContent()
           : this.getDefaultBranchContent(contentId)
       };
     } catch (error) {
-      console.error('Error getting content:', error);
+      console.error('Error getting marketing content:', error);
       return {
         success: false,
         message: error.message,
-        content: type === 'homepage' 
-          ? this.getDefaultHomepageContent() 
+        content: type === 'homepage'
+          ? this.getDefaultHomepageContent()
           : type === 'about'
           ? this.getDefaultAboutPageContent()
+          : type === 'products'
+          ? this.getDefaultProductsPageContent()
           : this.getDefaultBranchContent(contentId)
       };
     }
   }
 
-  /**
-   * Get branch content (landing page content) - backward compatibility
-   * @param {string} branchId - Branch ID
-   * @returns {Promise<Object>} - Branch content data
-   */
-  async getBranchContent(branchId) {
-    return this.getContent(branchId, 'branch');
-  }
-
-  /**
-   * Get homepage content
-   * @returns {Promise<Object>} - Homepage content data
-   */
   async getHomepageContent() {
     return this.getContent('main', 'homepage');
   }
 
-  /**
-   * Get about page content
-   * @returns {Promise<Object>} - About page content data
-   */
   async getAboutPageContent() {
     return this.getContent('about', 'about');
   }
 
-  /**
-   * Save about page content
-   * @param {Object} contentData - Content data to save
-   * @returns {Promise<Object>} - Success status
-   */
-  async saveAboutPageContent(contentData) {
-    return this.saveContent('about', 'about', {
-      ...contentData,
-      updatedBy: contentData.updatedBy || null
-    });
+  async getProductsPageContent() {
+    return this.getContent('products', 'products');
   }
 
-  /**
-   * Subscribe to real-time updates of content
-   * @param {string} contentId - Content ID
-   * @param {string} type - Content type ('homepage' or 'branch')
-   * @param {Function} callback - Callback function to handle updates
-   * @returns {Function} - Unsubscribe function
-   */
   subscribeToContent(contentId, type, callback) {
     const contentRef = doc(db, this.collection, contentId);
-    
-    return onSnapshot(contentRef, (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
+
+    return onSnapshot(contentRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
         if (data.type === type) {
           callback({
             success: true,
             content: {
-              id: doc.id,
+              id: snapshot.id,
               ...data
             }
           });
         } else {
-          // Type mismatch, return default
           callback({
             success: true,
-            content: type === 'homepage' 
-              ? this.getDefaultHomepageContent() 
+            content: type === 'homepage'
+              ? this.getDefaultHomepageContent()
               : type === 'about'
               ? this.getDefaultAboutPageContent()
+              : type === 'products'
+              ? this.getDefaultProductsPageContent()
               : this.getDefaultBranchContent(contentId)
           });
         }
       } else {
         callback({
           success: true,
-          content: type === 'homepage' 
-            ? this.getDefaultHomepageContent() 
+          content: type === 'homepage'
+            ? this.getDefaultHomepageContent()
             : type === 'about'
             ? this.getDefaultAboutPageContent()
+            : type === 'products'
+            ? this.getDefaultProductsPageContent()
             : this.getDefaultBranchContent(contentId)
         });
       }
     }, (error) => {
-      console.error('Error in content subscription:', error);
+      console.error('Error in marketing content subscription:', error);
       callback({
         success: false,
         message: error.message,
-        content: type === 'homepage' 
-          ? this.getDefaultHomepageContent() 
+        content: type === 'homepage'
+          ? this.getDefaultHomepageContent()
           : type === 'about'
           ? this.getDefaultAboutPageContent()
+          : type === 'products'
+          ? this.getDefaultProductsPageContent()
           : this.getDefaultBranchContent(contentId)
       });
     });
   }
 
-  /**
-   * Subscribe to real-time updates of branch content - backward compatibility
-   * @param {string} branchId - Branch ID
-   * @param {Function} callback - Callback function to handle updates
-   * @returns {Function} - Unsubscribe function
-   */
-  subscribeToBranchContent(branchId, callback) {
-    return this.subscribeToContent(branchId, 'branch', callback);
-  }
-
-  /**
-   * Save content
-   * @param {string} contentId - Content ID
-   * @param {string} type - Content type ('homepage' or 'branch')
-   * @param {Object} contentData - Content data to save
-   * @returns {Promise<Object>} - Success status
-   */
-  async saveContent(contentId, typeOrContentData, contentDataArg) {
+  async saveContent(contentId, type, contentData) {
     try {
       const contentRef = doc(db, this.collection, contentId);
 
-      const hasExplicitType = typeof typeOrContentData === 'string';
-      const type = hasExplicitType
-        ? typeOrContentData
-        : contentId === 'main'
-        ? 'homepage'
-        : contentId === 'about'
-        ? 'about'
-        : typeOrContentData?.type || 'branch';
-      const contentData = hasExplicitType ? contentDataArg : typeOrContentData;
-      
       await setDoc(contentRef, {
         ...contentData,
         type,
@@ -193,14 +134,11 @@ class BranchContentService {
         updatedAt: serverTimestamp(),
         updatedBy: contentData.updatedBy || null
       }, { merge: true });
-      
+
       return { success: true };
     } catch (error) {
-      console.error('Error saving content:', error);
-      return {
-        success: false,
-        message: error.message
-      };
+      console.error('Error saving marketing content:', error);
+      return { success: false, message: error.message };
     }
   }
 
@@ -228,71 +166,29 @@ class BranchContentService {
           }, { merge: true });
           return { success: true };
         } catch (innerError) {
-          console.error('Error updating content:', innerError);
-          return {
-            success: false,
-            message: innerError.message
-          };
+          console.error('Error updating marketing content:', innerError);
+          return { success: false, message: innerError.message };
         }
       }
 
-      console.error('Error updating content:', error);
-      return {
-        success: false,
-        message: error.message
-      };
+      console.error('Error updating marketing content:', error);
+      return { success: false, message: error.message };
     }
   }
 
-  /**
-   * Save branch content - backward compatibility
-   * @param {string} branchId - Branch ID
-   * @param {Object} contentData - Content data to save
-   * @returns {Promise<Object>} - Success status
-   */
-  async saveBranchContent(branchId, contentData) {
-    return this.saveContent(branchId, 'branch', {
-      ...contentData,
-      branchId
-    });
-  }
-
-  /**
-   * Update specific section of branch content
-   * @param {string} branchId - Branch ID
-   * @param {string} section - Section name (hero, testimonials, cta, etc.)
-   * @param {Object} sectionData - Section data to update
-   * @param {string} userId - User ID who made the update
-   * @returns {Promise<Object>} - Success status
-   */
-  async updateSection(branchId, section, sectionData, userId) {
-    try {
-      const contentRef = doc(db, this.collection, branchId);
-      
-      await updateDoc(contentRef, {
-        [section]: sectionData,
-        updatedAt: serverTimestamp(),
-        updatedBy: userId
-      });
-      
-      return { success: true };
-    } catch (error) {
-      console.error('Error updating section:', error);
-      return {
-        success: false,
-        message: error.message
-      };
-    }
-  }
-
-  /**
-   * Get default homepage content structure
-   * @returns {Object} - Default homepage content structure
-   */
   getDefaultHomepageContent() {
     return {
       type: 'homepage',
       contentId: 'main',
+      theme: {
+        primaryColor: '#160B53',
+        heroOverlayBottomColor: '#160B53',
+        heroOverlayBottomOpacity: 0.7,
+        ctaBackgroundColor: '#160B53'
+      },
+      stats: {
+        yearsExperience: '15+'
+      },
       hero: {
         title: "Welcome to David's Salon",
         subtitle: "Experience premium hair and beauty services at our Harbor Point Ayala location. Discover our specialized services and exclusive offers tailored just for you.",
@@ -339,105 +235,32 @@ class BranchContentService {
     };
   }
 
-  /**
-   * Get default branch content structure
-   * @param {string} branchId - Branch ID
-   * @returns {Object} - Default branch content structure
-   */
-  getDefaultBranchContent(branchId) {
+  getDefaultProductsPageContent() {
     return {
-      type: 'branch',
-      contentId: branchId,
-      branchId,
+      type: 'products',
+      contentId: 'products',
       theme: {
-        primaryColor: '#160B53',
-        heroOverlayBottomColor: '#160B53',
-        heroOverlayBottomOpacity: 0.7,
-        ctaBackgroundColor: '#160B53'
+        primaryColor: '#160B53'
       },
-      hero: {
-        title: "David's Salon Branch",
-        subtitle: "Choose your preferred branch to discover our specialized services and exclusive offers tailored just for you. Each location offers unique experiences designed for our local community.",
-        buttonText: "Choose another branch",
-        backgroundImage: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image%201-gwMUdJmDY3pIDaLqR4DsNsL8vwz2Fd.png",
-        overlayOpacity: 0.6,
-        statistics: {
-          branches: 7,
-          clients: "50K+",
-          years: "15+"
-        }
-      },
-      services: {
-        title: "Explore Our Services",
-        subtitle: "Discover what makes this branch special",
-        items: []
-      },
-      popularServices: {
-        title: "Popular Services",
-        subtitle: "Our most requested treatments",
-        items: []
-      },
-      stylists: {
-        title: "Meet Our Top Stylists",
-        subtitle: "Expert professionals ready to transform your look",
-        items: []
-      },
-      gallery: {
-        title: "Our Work",
-        subtitle: "See our work and salon atmosphere",
-        items: []
-      },
-      testimonials: {
-        title: "What Our Clients Say",
-        subtitle: "Real stories from our satisfied customers",
-        items: [
-          {
-            name: "Maria Gonzales",
-            branch: "Makati Branch",
-            rating: 5,
-            text: "I've been a loyal customer for over 10 years, and the service quality and professionalism across all branches is remarkable. David's Salon truly understands Filipino beauty."
-          },
-          {
-            name: "Jennifer Santos",
-            branch: "BGC Branch",
-            rating: 5,
-            text: "The staff was not just skilled, they're artists. The transformation was beyond my expectations. The European techniques combined with Filipino hospitality is unmatched!"
-          },
-          {
-            name: "Carlos Mendoza",
-            branch: "Cebu Branch",
-            rating: 5,
-            text: "As someone who travels frequently, I can confidently say that David's Salon offers world-class. The quality is consistent everywhere, and the prices are very reasonable."
-          }
-        ]
-      },
-      visitBranch: {
-        title: "Visit Branch",
-        subtitle: "Find us and get in touch",
-        location: "Ayala Center, Makati",
-        phone: "+63 930 222 9699",
-        hours: "Mon-Sun: 10:00 AM - 9:00 PM"
-      },
-      contactInfo: {
-        title: "Visit Us",
-        subtitle: "Get in touch with our team",
-        address: "Ground Floor Harbor Point Subic, Subic, Philippines",
-        phone: "0992 586 5758",
-        hours: "Monday - Sunday: 10:00 AM - 9:00 PM"
+      header: {
+        title: 'Products Catalog',
+        subtitle: 'Browse our professional salon products',
+        searchPlaceholder: 'Search products, brands...'
       },
       createdAt: null,
       updatedAt: null
     };
   }
 
-  /**
-   * Get default about page content structure
-   * @returns {Object} - Default about page content structure
-   */
   getDefaultAboutPageContent() {
     return {
       type: 'about',
       contentId: 'about',
+      theme: {
+        primaryColor: '#160B53',
+        heroOverlayColor: '#160B53',
+        heroOverlayOpacity: 0.7
+      },
       hero: {
         title: "Our Story",
         subtitle: "From humble beginnings to becoming the Philippines' most trusted salon chain. Managed by industry experts with over 35 years of combined experience, we've built a legacy of excellence that spans generations and continues to set the standard for beauty and style.",
@@ -545,8 +368,150 @@ class BranchContentService {
       updatedAt: null
     };
   }
+
+  getDefaultBranchContent(contentId) {
+    return {
+      type: 'branch',
+      contentId,
+      navigation: {
+        bookNowText: 'BOOK NOW',
+        links: {
+          home: 'HOME',
+          services: 'SERVICES',
+          stylists: 'STYLISTS',
+          gallery: 'GALLERY',
+          products: 'PRODUCTS'
+        }
+      },
+      footer: {
+        description: "Premium hair and beauty services at {branchName}. We offer specialized services tailored to our local community with professional stylists and modern facilities.",
+        linksTitle: 'Branch Links',
+        contactTitle: 'Contact Info',
+        links: {
+          home: 'Branch Home',
+          services: 'Our Services',
+          stylists: 'Our Stylists',
+          gallery: 'Gallery',
+          products: 'Products'
+        },
+        copyright: "© 2025 David's Salon - {branchName}. All Rights Reserved."
+      },
+      servicesPage: {
+        header: {
+          title: 'Services',
+          subtitle: 'Professional hair and beauty services tailored to your needs'
+        },
+        cta: {
+          title: 'Ready to Transform Your Look?',
+          subtitle: 'Book your appointment today and experience our professional services',
+          primaryButtonText: 'Book Appointment',
+          secondaryButtonText: 'Call Us Now'
+        }
+      },
+      productsPage: {
+        header: {
+          title: 'Products Catalog',
+          subtitle: 'Professional hair care products available at {branchName} Branch'
+        },
+        searchPlaceholder: 'Search products, brands...'
+      },
+      stylistsPage: {
+        header: {
+          title: 'Stylists',
+          subtitle: 'Meet our team of expert stylists ready to transform your look'
+        },
+        filters: {
+          allLabel: 'All'
+        },
+        emptyState: {
+          title: 'No stylists found',
+          subtitle: 'Try selecting a different category'
+        },
+        buttons: {
+          viewProfileText: 'View Profile'
+        },
+        cta: {
+          title: 'Ready to Book with Our Experts?',
+          subtitle: 'Choose your preferred stylist and schedule your appointment today',
+          primaryButtonText: 'Book Appointment',
+          secondaryButtonText: 'Call Us Now'
+        }
+      },
+      theme: {
+        primaryColor: '#160B53',
+        heroOverlayBottomColor: '#160B53',
+        heroOverlayBottomOpacity: 0.7,
+        ctaBackgroundColor: '#160B53'
+      },
+      hero: {
+        title: "David's Salon Branch",
+        subtitle: "Choose your preferred branch to discover our specialized services and exclusive offers tailored just for you. Each location offers unique experiences designed for our local community.",
+        buttonText: 'Choose another branch',
+        backgroundImage: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image%201-gwMUdJmDY3pIDaLqR4DsNsL8vwz2Fd.png',
+        overlayOpacity: 0.6,
+        statistics: {
+          branches: 7,
+          clients: '50K+',
+          years: '15+'
+        }
+      },
+      services: {
+        title: 'Explore Our Services',
+        subtitle: 'Discover what makes this branch special',
+        categoryCardButtonText: 'View More',
+        items: []
+      },
+      popularServices: {
+        title: 'Popular Services',
+        subtitle: 'Our most requested treatments',
+        items: []
+      },
+      stylists: {
+        title: 'Meet Our Top Stylists',
+        subtitle: 'Expert professionals ready to transform your look',
+        items: []
+      },
+      gallery: {
+        title: 'Our Work',
+        subtitle: 'See our work and salon atmosphere',
+        items: []
+      },
+      testimonials: {
+        title: 'What Our Clients Say',
+        subtitle: 'Real stories from our satisfied customers',
+        items: []
+      },
+      visitBranch: {
+        title: 'Visit Branch',
+        subtitle: 'Find us and get in touch',
+        locationLabel: 'Location',
+        phoneLabel: 'Contact',
+        hoursLabel: 'Hours',
+        location: '',
+        phone: '',
+        hours: ''
+      },
+      contactInfo: {
+        title: 'Visit Us',
+        subtitle: 'Get in touch with our team',
+        addressLabel: 'Address',
+        phoneLabel: 'Phone',
+        hoursLabel: 'Hours',
+        address: '',
+        phone: '',
+        hours: '',
+        bookingCta: {
+          title: 'Ready to Book?',
+          subtitle: 'Call us now to schedule your appointment',
+          callButtonPrefix: 'Call',
+          footerText: 'Or visit us at our location'
+        }
+      },
+      createdAt: null,
+      updatedAt: null
+    };
+  }
 }
 
-export const branchContentService = new BranchContentService();
-export default branchContentService;
-
+export const marketingContentService = new MarketingContentService();
+export default marketingContentService;

@@ -47,10 +47,10 @@ const ConfirmModal = ({
   const style = typeStyles[type] || typeStyles.default;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full my-4 max-h-[90vh] overflow-hidden flex flex-col min-h-0">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className={`${style.iconBg} p-2 rounded-lg`}>
               <AlertTriangle className={`w-5 h-5 ${style.icon}`} />
@@ -67,13 +67,13 @@ const ConfirmModal = ({
         </div>
 
         {/* Content */}
-        <div className="px-6 py-4">
+        <div className="px-6 py-4 overflow-y-auto flex-1 min-h-0">
           <p className="text-gray-700">{message}</p>
           {children}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 bg-gray-50 border-t border-gray-200">
+        <div className="flex items-center justify-end gap-3 px-6 py-4 bg-gray-50 border-t border-gray-200 flex-shrink-0">
           <button
             onClick={onClose}
             disabled={loading}

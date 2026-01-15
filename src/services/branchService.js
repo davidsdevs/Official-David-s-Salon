@@ -33,13 +33,18 @@ export const getAllBranches = async () => {
     // Try with orderBy first, fallback to simple query if it fails
     let snapshot;
     try {
-      // Try ordering by branchName first (actual field name), then fallback to name
-      const q = query(branchesRef, orderBy('branchName', 'asc'));
+      // Prefer ordering by 'name' (current Firestore schema)
+      const q = query(branchesRef, orderBy('name', 'asc'));
       snapshot = await getDocs(q);
     } catch (orderByError) {
-      // If orderBy fails (e.g., missing index or field), try without it
-      console.warn('orderBy failed, fetching without order:', orderByError.message);
-      snapshot = await getDocs(branchesRef);
+      // If orderBy fails (e.g., missing index or field), try branchName, then without any order
+      try {
+        const q2 = query(branchesRef, orderBy('branchName', 'asc'));
+        snapshot = await getDocs(q2);
+      } catch (orderByError2) {
+        console.warn('orderBy failed, fetching without order:', orderByError2.message);
+        snapshot = await getDocs(branchesRef);
+      }
     }
     
     const branches = snapshot.docs.map(doc => ({

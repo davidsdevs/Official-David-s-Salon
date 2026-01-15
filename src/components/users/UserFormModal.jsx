@@ -4,12 +4,13 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { Edit, Plus, XCircle } from 'lucide-react';
 import { createUser, updateUser } from '../../services/userService';
 import { useAuth } from '../../context/AuthContext';
 import { USER_ROLES, ROLE_LABELS } from '../../utils/constants';
 import { getUserRoles, canHaveMultipleRoles, generateDefaultPassword } from '../../utils/helpers';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import Button from '../ui/Button';
 import toast from 'react-hot-toast';
 
 const UserFormModal = ({ user, branches = [], onClose, onSave }) => {
@@ -171,31 +172,40 @@ const UserFormModal = ({ user, branches = [], onClose, onSave }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
-        <form onSubmit={handleSubmit} className="flex flex-col h-full">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-lg w-full mx-4 max-h-[90vh] flex flex-col overflow-hidden max-w-2xl min-h-0">
+        <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 flex-shrink-0">
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-gray-900">
-                {user ? 'Edit User' : 'Add New User'}
-              </h2>
-              <p className="text-xs sm:text-sm text-gray-600 mt-1">
-                {user ? 'Update user information and roles' : 'Create a new system user account'}
-              </p>
+          <div className="bg-[#160B53] text-white p-6 flex-shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                {user ? (
+                  <Edit className="h-5 w-5 text-white" />
+                ) : (
+                  <Plus className="h-5 w-5 text-white" />
+                )}
+                <h2 className="text-xl font-semibold text-white">
+                  {user ? 'Edit User' : 'Add New User'}
+                </h2>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onClose}
+                disabled={loading}
+                className="text-white border-white hover:bg-white hover:text-[#160B53]"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+          <div className="p-8 overflow-y-auto flex-1 min-h-0 space-y-4 sm:space-y-6">
+            <p className="text-sm text-gray-600">
+              {user ? 'Update user information and roles' : 'Create a new system user account'}
+            </p>
             {/* Personal Information Section */}
             <div>
               <h3 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
@@ -418,26 +428,27 @@ const UserFormModal = ({ user, branches = [], onClose, onSave }) => {
                 <strong>Note:</strong> {user ? 'User will be notified of profile updates via email.' : 'User will receive a verification email after account creation.'}
               </p>
             </div>
-          </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-4 sm:p-6 bg-gray-50 border-t border-gray-200 flex-shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="px-4 sm:px-6 py-2 text-sm sm:text-base border border-gray-300 text-gray-700 bg-white rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 sm:px-6 py-2 text-sm sm:text-base bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {loading && <LoadingSpinner size="sm" />}
-              {user ? 'Update User' : 'Create User'}
-            </button>
+            {/* Footer */}
+            <div className="flex justify-end space-x-4 pt-8 border-t-2 border-gray-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={loading}
+                className="px-6 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 font-medium"
+              >
+                {loading && <LoadingSpinner size="sm" />}
+                {user ? 'Update User' : 'Create User'}
+              </Button>
+            </div>
           </div>
         </form>
       </div>

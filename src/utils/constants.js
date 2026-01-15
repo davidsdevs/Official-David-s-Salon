@@ -56,7 +56,6 @@ export const ROUTES = {
   ADMIN_DASHBOARD: '/admin',
   ADMIN_USERS: '/admin/users',
   ADMIN_BRANCHES: '/admin/branches',
-  ADMIN_SETTINGS: '/admin/settings',
   
   // Operational Manager
   OPERATIONAL_MANAGER_DASHBOARD: '/operational-manager',

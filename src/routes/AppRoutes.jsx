@@ -25,6 +25,7 @@ import Register from '../pages/public/Register';
 import ForgotPassword from '../pages/public/ForgotPassword';
 import HomePage from '../pages/public/HomePage';
 import AboutPage from '../pages/public/AboutPage';
+import PublicProducts from '../pages/public/Products';
 import BranchPage from '../pages/public/BranchPage';
 import BranchGalleryPage from '../pages/public/branch/BranchGalleryPage';
 import BranchServicesPage from '../pages/public/branch/BranchServicesPage';
@@ -40,7 +41,10 @@ import SystemAdminActivityLogs from '../pages/system-admin/ActivityLogs';
 import Promotions from '../pages/system-admin/Promotions';
 import Suppliers from '../pages/system-admin/Suppliers';
 import ContentManagement from '../pages/system-admin/ContentManagement';
-import HomepageContentManagement from '../pages/system-admin/HomepageContentManagement';
+import BranchContentManagement from '../pages/system-admin/BranchContentManagement';
+import StylistsContentManagement from '../pages/system-admin/StylistsContentManagement';
+import StylistPortfolioContentManagement from '../pages/system-admin/StylistPortfolioContentManagement';
+import DatabaseBackup from '../pages/system-admin/DatabaseBackup';
 import MasterProducts from '../pages/system-admin/MasterProducts';
 import SeedServices from '../pages/admin/SeedServices';
 import SeedData from '../pages/admin/SeedData';
@@ -155,6 +159,7 @@ const AppRoutes = () => {
       {/* Public landing pages - no auth required */}
       <Route path="/" element={<HomePage />} />
       <Route path="/about" element={<AboutPage />} />
+      <Route path="/products" element={<PublicProducts />} />
       <Route path="/branch/:slug" element={<BranchPage />} />
       <Route path="/branch/:slug/gallery" element={<BranchGalleryPage />} />
       <Route path="/branch/:slug/services" element={<BranchServicesPage />} />
@@ -226,9 +231,11 @@ const AppRoutes = () => {
               <Route path="promotions" element={<Promotions />} />
               <Route path="suppliers" element={<Suppliers />} />
               <Route path="content-management" element={<ContentManagement />} />
-              <Route path="homepage-content" element={<HomepageContentManagement />} />
+              <Route path="branch-content" element={<BranchContentManagement />} />
+              <Route path="stylists-content" element={<StylistsContentManagement />} />
+              <Route path="stylist-portfolio-content" element={<StylistPortfolioContentManagement />} />
+              <Route path="database-backup" element={<DatabaseBackup />} />
               <Route path="master-products" element={<MasterProducts />} />
-              <Route path="settings" element={<div className="p-6">Settings - Coming Soon</div>} />
         <Route path="profile" element={<Profile />} />
       </Route>
 

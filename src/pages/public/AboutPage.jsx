@@ -4,16 +4,23 @@ import { useReactToPrint } from "react-to-print"
 import PromotionPopup from "../../components/landing/PromotionPopup"
 import Navigation from "../../components/landing/Navigation"
 import Footer from "../../components/landing/Footer"
-import { branchContentService } from "../../services/branchContentService"
+import { marketingContentService } from "../../services/marketingContentService"
 import { useAuth } from "../../context/AuthContext"
 import { USER_ROLES } from "../../utils/constants"
 import InlineEditable from "../../components/cms/InlineEditable"
 import FloatingSaveButton from "../../components/cms/FloatingSaveButton"
 import Button from "../../components/ui/Button"
+import EditableImage from "../../components/cms/EditableImage"
+import InlineColorPicker from "../../components/cms/InlineColorPicker"
 
-export default function AboutPage({ embedded = false }) {
-  const { userData } = useAuth()
-  const isSystemAdmin = userData?.roles?.[0] === USER_ROLES.SYSTEM_ADMIN
+export default function AboutPage({ embedded = false, cmsEditMode }) {
+  const { userData, userRoles } = useAuth()
+  const isSystemAdmin =
+    userRoles?.includes(USER_ROLES.SYSTEM_ADMIN) ||
+    userRoles?.includes('system_admin') ||
+    userData?.role === USER_ROLES.SYSTEM_ADMIN ||
+    userData?.role === 'system_admin'
+  const effectiveEditMode = typeof cmsEditMode === 'boolean' ? cmsEditMode : true
   
   const [isExpanded, setIsExpanded] = useState(false)
   const [content, setContent] = useState(null)
@@ -21,6 +28,10 @@ export default function AboutPage({ embedded = false }) {
   const [hasChanges, setHasChanges] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  const hasChangesRef = useRef(false)
+  const localContentRef = useRef(null)
+  const editRevisionRef = useRef(0)
   
   // Print functionality
   const printRef = useRef()
@@ -33,7 +44,7 @@ export default function AboutPage({ embedded = false }) {
   useEffect(() => {
     const loadContent = async () => {
       try {
-        const result = await branchContentService.getAboutPageContent()
+        const result = await marketingContentService.getAboutPageContent()
         if (result.success && result.content) {
           setContent(result.content)
           setLocalContent(result.content)
@@ -46,10 +57,10 @@ export default function AboutPage({ embedded = false }) {
     }
 
     // Subscribe to real-time updates
-    const unsubscribe = branchContentService.subscribeToContent('about', 'about', (result) => {
+    const unsubscribe = marketingContentService.subscribeToContent('about', 'about', (result) => {
       if (result.success && result.content) {
         setContent(result.content)
-        if (!hasChanges) {
+        if (!hasChangesRef.current) {
           setLocalContent(result.content)
         }
         setLoading(false)
@@ -59,7 +70,15 @@ export default function AboutPage({ embedded = false }) {
     loadContent()
 
     return () => unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    hasChangesRef.current = hasChanges
   }, [hasChanges])
+
+  useEffect(() => {
+    localContentRef.current = localContent
+  }, [localContent])
 
   // Initialize local content when content loads
   useEffect(() => {
@@ -85,8 +104,10 @@ export default function AboutPage({ embedded = false }) {
     
     current[keys[keys.length - 1]] = value
     setLocalContent(newContent)
+    editRevisionRef.current += 1
     setHasChanges(true)
   }
+
 
   // Handle array updates (for stats, paragraphs, etc.)
   const handleArrayUpdate = (fieldPath, index, value) => {
@@ -102,41 +123,61 @@ export default function AboutPage({ embedded = false }) {
       }
       current = current[keys[i]]
     }
-    
-    if (!Array.isArray(current)) {
-      current = []
-    }
-    
-    current[index] = { ...current[index], ...value }
+
+    const arrayKey = keys[keys.length - 1]
+    const targetArray = Array.isArray(current[arrayKey]) ? [...current[arrayKey]] : []
+    targetArray[index] = { ...(targetArray[index] || {}), ...value }
+    current[arrayKey] = targetArray
     
     setLocalContent(newContent)
+    editRevisionRef.current += 1
     setHasChanges(true)
   }
 
   // Save changes
   const handleSave = async () => {
-    if (!localContent || !userData) return
+    const contentToSave = localContentRef.current
+    if (!contentToSave || !userData) return
     
     try {
+      const saveRevision = editRevisionRef.current
       setSaving(true)
-      const result = await branchContentService.saveAboutPageContent({
-        ...localContent,
+      const { id, ...payload } = contentToSave
+      const result = await marketingContentService.updateContent('about', 'about', {
+        ...payload,
         updatedBy: userData.uid
       })
       
       if (result.success) {
-        setContent(localContent)
-        setHasChanges(false)
-        setSaving(false)
+        setContent(contentToSave)
+        if (editRevisionRef.current === saveRevision) {
+          setHasChanges(false)
+        }
       }
     } catch (error) {
       console.error('Error saving content:', error)
+    } finally {
       setSaving(false)
     }
   }
 
   // Use local content if editing, otherwise use saved content
   const displayContent = hasChanges ? localContent : content
+
+  const theme = displayContent?.theme || {}
+  const primaryColor = theme.primaryColor || '#160B53'
+  const heroOverlayColor = theme.heroOverlayColor || primaryColor
+  const heroOverlayOpacity = typeof theme.heroOverlayOpacity === 'number' ? theme.heroOverlayOpacity : 0.7
+
+  const hexToRgba = (hex, opacity = 1) => {
+    if (typeof hex !== 'string') return `rgba(0, 0, 0, ${opacity})`
+    const normalized = hex.replace('#', '').trim()
+    if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(0, 0, 0, ${opacity})`
+    const r = parseInt(normalized.slice(0, 2), 16)
+    const g = parseInt(normalized.slice(2, 4), 16)
+    const b = parseInt(normalized.slice(4, 6), 16)
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`
+  }
 
   const stats = displayContent?.stats || [
     { number: "200+", label: "Branches Nationwide" },
@@ -258,8 +299,8 @@ export default function AboutPage({ embedded = false }) {
 
   return (
     <>
-      <Navigation />
-      <div className="min-h-screen bg-white">
+      {!embedded && <Navigation />}
+      <div className="min-h-screen bg-white" style={{ '--marketing-primary': primaryColor }}>
         {/* Promotion Popup - Only show when not embedded */}
         {!embedded && <PromotionPopup />}
       
@@ -277,7 +318,7 @@ export default function AboutPage({ embedded = false }) {
         <div className="fixed bottom-6 right-6 z-40">
           <Button
             onClick={handlePrint}
-            className="bg-[#160B53] hover:bg-[#160B53]/90 text-white shadow-lg"
+            className="bg-[var(--marketing-primary)] hover:opacity-90 text-white shadow-lg"
             size="lg"
           >
             <Printer className="h-5 w-5 mr-2" />
@@ -290,44 +331,80 @@ export default function AboutPage({ embedded = false }) {
       <div ref={printRef} className="print-content">
       
       {/* Hero Section */}
-      <section
-        className={`relative h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[122px]'}`}
-        style={{
-          backgroundImage: `linear-gradient(rgba(22, 11, 83, 0.7), rgba(22, 11, 83, 0.7)), url('${heroContent.backgroundImage}')`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
+      <EditableImage
+        enabled={isSystemAdmin && effectiveEditMode}
+        mode="background"
+        onChange={(url) => handleContentUpdate('hero.backgroundImage', url)}
       >
-        <div className="max-w-4xl px-6">
-          {isSystemAdmin ? (
-            <h1 className="font-bold mb-6 text-balance" style={{ fontSize: '50px' }}>
-              <InlineEditable
-                value={heroContent.title}
-                onSave={(path, value) => handleContentUpdate('hero.title', value)}
-                fieldPath="hero.title"
-                className="text-white"
+        <section
+          className={`relative h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[122px]'}`}
+          style={{
+            backgroundImage: `linear-gradient(${hexToRgba(heroOverlayColor, heroOverlayOpacity)}, ${hexToRgba(heroOverlayColor, heroOverlayOpacity)}), url('${heroContent.backgroundImage}')`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        >
+          {isSystemAdmin && effectiveEditMode && (
+            <div className="absolute top-4 left-4 z-10 bg-white/95 text-gray-900 rounded-lg border border-gray-200 shadow p-3 space-y-2">
+              <div className="text-xs font-semibold text-gray-700">Theme</div>
+              <InlineColorPicker
+                label="Primary"
+                value={primaryColor}
+                onChange={(value) => handleContentUpdate('theme.primaryColor', value)}
               />
-            </h1>
-          ) : (
-            <h1 className="font-bold mb-6 text-balance" style={{ fontSize: '50px' }}>{heroContent.title}</h1>
-          )}
-          {isSystemAdmin ? (
-            <p className="text-xl leading-relaxed text-pretty">
-              <InlineEditable
-                value={heroContent.subtitle}
-                onSave={(path, value) => handleContentUpdate('hero.subtitle', value)}
-                fieldPath="hero.subtitle"
-                multiline={true}
-                className="text-white"
+              <InlineColorPicker
+                label="Hero Overlay"
+                value={heroOverlayColor}
+                onChange={(value) => handleContentUpdate('theme.heroOverlayColor', value)}
               />
-            </p>
-          ) : (
-            <p className="text-xl leading-relaxed text-pretty">
-              {heroContent.subtitle}
-            </p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-700 whitespace-nowrap">Overlay Opacity</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={heroOverlayOpacity}
+                  onChange={(e) => handleContentUpdate('theme.heroOverlayOpacity', parseFloat(e.target.value))}
+                  className="w-32"
+                />
+                <span className="text-xs font-mono text-gray-600">{heroOverlayOpacity.toFixed(2)}</span>
+              </div>
+            </div>
           )}
-        </div>
-      </section>
+          <div className="max-w-4xl px-6">
+            {isSystemAdmin ? (
+              <h1 className="font-bold mb-6 text-balance" style={{ fontSize: '50px' }}>
+                <InlineEditable
+                  enabled={effectiveEditMode}
+                  value={heroContent.title}
+                  onSave={(path, value) => handleContentUpdate('hero.title', value)}
+                  fieldPath="hero.title"
+                  className="text-white"
+                />
+              </h1>
+            ) : (
+              <h1 className="font-bold mb-6 text-balance" style={{ fontSize: '50px' }}>{heroContent.title}</h1>
+            )}
+            {isSystemAdmin ? (
+              <p className="text-xl leading-relaxed text-pretty">
+                <InlineEditable
+                  enabled={effectiveEditMode}
+                  value={heroContent.subtitle}
+                  onSave={(path, value) => handleContentUpdate('hero.subtitle', value)}
+                  fieldPath="hero.subtitle"
+                  multiline={true}
+                  className="text-white"
+                />
+              </p>
+            ) : (
+              <p className="text-xl leading-relaxed text-pretty">
+                {heroContent.subtitle}
+              </p>
+            )}
+          </div>
+        </section>
+      </EditableImage>
 
       {/* Statistics Section */}
       <section className="py-16 px-6 bg-white">
@@ -336,20 +413,22 @@ export default function AboutPage({ embedded = false }) {
             {stats.map((stat, index) => (
               <div key={index}>
                 {isSystemAdmin ? (
-                  <div className="text-4xl md:text-5xl font-bold text-[#160B53] mb-2">
+                  <div className="text-4xl md:text-5xl font-bold text-[var(--marketing-primary)] mb-2">
                     <InlineEditable
+                      enabled={effectiveEditMode}
                       value={stat.number}
                       onSave={(path, value) => handleArrayUpdate('stats', index, { number: value, label: stat.label })}
                       fieldPath={`stats.${index}.number`}
-                      className="text-[#160B53]"
+                      className="text-[var(--marketing-primary)]"
                     />
                   </div>
                 ) : (
-                  <div className="text-4xl md:text-5xl font-bold text-[#160B53] mb-2">{stat.number}</div>
+                  <div className="text-4xl md:text-5xl font-bold text-[var(--marketing-primary)] mb-2">{stat.number}</div>
                 )}
                 {isSystemAdmin ? (
                   <div className="text-gray-600 font-medium">
                     <InlineEditable
+                      enabled={effectiveEditMode}
                       value={stat.label}
                       onSave={(path, value) => handleArrayUpdate('stats', index, { number: stat.number, label: value })}
                       fieldPath={`stats.${index}.label`}
@@ -369,11 +448,11 @@ export default function AboutPage({ embedded = false }) {
       <section className="py-16 px-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
           {isSystemAdmin ? (
-            <h2 className="font-bold text-center text-[#160B53] mb-4" style={{ fontSize: '50px' }}>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>
               Meet Our Founder
             </h2>
           ) : (
-            <h2 className="font-bold text-center text-[#160B53] mb-4" style={{ fontSize: '50px' }}>Meet Our Founder</h2>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>Meet Our Founder</h2>
           )}
           <p className="text-center text-gray-600 mb-12">
             The visionary behind the integrated male grooming salon brand
@@ -382,20 +461,22 @@ export default function AboutPage({ embedded = false }) {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="order-2 lg:order-1">
               {isSystemAdmin ? (
-                <h3 className="text-3xl font-bold text-[#160B53] mb-4">
+                <h3 className="text-3xl font-bold text-[var(--marketing-primary)] mb-4">
                   <InlineEditable
+                    enabled={effectiveEditMode}
                     value={founderContent.name}
                     onSave={(path, value) => handleContentUpdate('founder.name', value)}
                     fieldPath="founder.name"
-                    className="text-[#160B53]"
+                    className="text-[var(--marketing-primary)]"
                   />
                 </h3>
               ) : (
-                <h3 className="text-3xl font-bold text-[#160B53] mb-4">{founderContent.name}</h3>
+                <h3 className="text-3xl font-bold text-[var(--marketing-primary)] mb-4">{founderContent.name}</h3>
               )}
               {isSystemAdmin ? (
                 <p className="text-lg text-gray-600 mb-4">
                   <InlineEditable
+                    enabled={effectiveEditMode}
                     value={founderContent.role}
                     onSave={(path, value) => handleContentUpdate('founder.role', value)}
                     fieldPath="founder.role"
@@ -411,6 +492,7 @@ export default function AboutPage({ embedded = false }) {
                   isSystemAdmin ? (
                     <p key={index} className="text-justify">
                       <InlineEditable
+                        enabled={effectiveEditMode}
                         value={para}
                         onSave={(path, value) => {
                           const newDesc = [...founderContent.description]
@@ -428,22 +510,24 @@ export default function AboutPage({ embedded = false }) {
                 ))}
               </div>
 
-              <div className="mt-8 p-4 bg-white rounded-lg border-l-4 border-[#160B53]">
+              <div className="mt-8 p-4 bg-white rounded-lg border-l-4 border-[var(--marketing-primary)]">
                 {isSystemAdmin ? (
-                  <p className="text-[#160B53] font-semibold mb-2">
+                  <p className="text-[var(--marketing-primary)] font-semibold mb-2">
                     <InlineEditable
+                      enabled={effectiveEditMode}
                       value={founderContent.quote.title}
                       onSave={(path, value) => handleContentUpdate('founder.quote.title', value)}
                       fieldPath="founder.quote.title"
-                      className="text-[#160B53]"
+                      className="text-[var(--marketing-primary)]"
                     />
                   </p>
                 ) : (
-                  <p className="text-[#160B53] font-semibold mb-2">{founderContent.quote.title}</p>
+                  <p className="text-[var(--marketing-primary)] font-semibold mb-2">{founderContent.quote.title}</p>
                 )}
                 {isSystemAdmin ? (
                   <p className="text-sm text-gray-600">
                     "<InlineEditable
+                      enabled={effectiveEditMode}
                       value={founderContent.quote.text}
                       onSave={(path, value) => handleContentUpdate('founder.quote.text', value)}
                       fieldPath="founder.quote.text"
@@ -460,10 +544,13 @@ export default function AboutPage({ embedded = false }) {
             </div>
 
             <div className="order-1 lg:order-2">
-              <img
+              <EditableImage
+                enabled={isSystemAdmin && effectiveEditMode}
                 src={founderContent.image}
                 alt="David Charlton, Founder and CEO"
                 className="w-full max-w-md mx-auto rounded-lg shadow-lg"
+                wrapperClassName="w-full"
+                onChange={(url) => handleContentUpdate('founder.image', url)}
               />
             </div>
           </div>
@@ -471,11 +558,12 @@ export default function AboutPage({ embedded = false }) {
       </section>
 
       {/* Company Story Section */}
-      <section className="py-16 px-6 bg-[#160B53] text-white">
+      <section className="py-16 px-6 bg-[var(--marketing-primary)] text-white">
         <div className="max-w-6xl mx-auto">
           {isSystemAdmin ? (
             <h2 className="text-3xl font-bold mb-8 whitespace-nowrap">
               <InlineEditable
+                enabled={effectiveEditMode}
                 value={companyStoryContent.title}
                 onSave={(path, value) => handleContentUpdate('companyStory.title', value)}
                 fieldPath="companyStory.title"
@@ -493,6 +581,7 @@ export default function AboutPage({ embedded = false }) {
               isSystemAdmin ? (
                 <p key={index} className="text-justify">
                   <InlineEditable
+                    enabled={effectiveEditMode}
                     value={para}
                     onSave={(path, value) => {
                       const newParas = [...companyStoryContent.paragraphs]
@@ -519,6 +608,7 @@ export default function AboutPage({ embedded = false }) {
                   isSystemAdmin ? (
                     <p key={index + 2} className="text-justify">
                       <InlineEditable
+                        enabled={effectiveEditMode}
                         value={para}
                         onSave={(path, value) => {
                           const newParas = [...companyStoryContent.paragraphs]
@@ -562,29 +652,34 @@ export default function AboutPage({ embedded = false }) {
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
-              <img
+              <EditableImage
+                enabled={isSystemAdmin && effectiveEditMode}
                 src={ceoContent.image}
                 alt="Laura Charlton, CEO and President"
                 className="w-full max-w-md mx-auto rounded-lg shadow-lg"
+                wrapperClassName="w-full"
+                onChange={(url) => handleContentUpdate('ceo.image', url)}
               />
             </div>
 
             <div>
               {isSystemAdmin ? (
-                <h3 className="text-3xl font-bold text-[#160B53] mb-4">
+                <h3 className="text-3xl font-bold text-[var(--marketing-primary)] mb-4">
                   <InlineEditable
+                    enabled={effectiveEditMode}
                     value={ceoContent.name}
                     onSave={(path, value) => handleContentUpdate('ceo.name', value)}
                     fieldPath="ceo.name"
-                    className="text-[#160B53]"
+                    className="text-[var(--marketing-primary)]"
                   />
                 </h3>
               ) : (
-                <h3 className="text-3xl font-bold text-[#160B53] mb-4">{ceoContent.name}</h3>
+                <h3 className="text-3xl font-bold text-[var(--marketing-primary)] mb-4">{ceoContent.name}</h3>
               )}
               {isSystemAdmin ? (
                 <p className="text-lg text-gray-600 mb-4">
                   <InlineEditable
+                    enabled={effectiveEditMode}
                     value={ceoContent.role}
                     onSave={(path, value) => handleContentUpdate('ceo.role', value)}
                     fieldPath="ceo.role"
@@ -600,6 +695,7 @@ export default function AboutPage({ embedded = false }) {
                   isSystemAdmin ? (
                     <p key={index} className="text-justify">
                       <InlineEditable
+                        enabled={effectiveEditMode}
                         value={para}
                         onSave={(path, value) => {
                           const newDesc = [...ceoContent.description]
@@ -625,16 +721,17 @@ export default function AboutPage({ embedded = false }) {
       <section className="py-16 px-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
           {isSystemAdmin ? (
-            <h2 className="font-bold text-center text-[#160B53] mb-12" style={{ fontSize: '50px' }}>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-12" style={{ fontSize: '50px' }}>
               <InlineEditable
+                enabled={effectiveEditMode}
                 value={teamContent.title}
                 onSave={(path, value) => handleContentUpdate('team.title', value)}
                 fieldPath="team.title"
-                className="text-[#160B53]"
+                className="text-[var(--marketing-primary)]"
               />
             </h2>
           ) : (
-            <h2 className="font-bold text-center text-[#160B53] mb-12" style={{ fontSize: '50px' }}>{teamContent.title}</h2>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-12" style={{ fontSize: '50px' }}>{teamContent.title}</h2>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 max-w-3xl mx-auto">
@@ -680,11 +777,12 @@ export default function AboutPage({ embedded = false }) {
       </section>
 
       {/* Why Choose David's Salon Section */}
-      <section className="py-16 px-6 bg-[#160B53] text-white">
+      <section className="py-16 px-6 bg-[var(--marketing-primary)] text-white">
         <div className="max-w-6xl mx-auto">
           {isSystemAdmin ? (
             <h2 className="font-bold text-center mb-4" style={{ fontSize: '50px' }}>
               <InlineEditable
+                enabled={effectiveEditMode}
                 value={whyChooseContent.title}
                 onSave={(path, value) => handleContentUpdate('whyChoose.title', value)}
                 fieldPath="whyChoose.title"
@@ -697,6 +795,7 @@ export default function AboutPage({ embedded = false }) {
           {isSystemAdmin ? (
             <p className="text-center text-xl mb-12 text-pretty">
               <InlineEditable
+                enabled={effectiveEditMode}
                 value={whyChooseContent.subtitle}
                 onSave={(path, value) => handleContentUpdate('whyChoose.subtitle', value)}
                 fieldPath="whyChoose.subtitle"
@@ -715,12 +814,13 @@ export default function AboutPage({ embedded = false }) {
               <div key={index} className="text-center">
                 <div className="flex justify-center mb-4">
                   <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center">
-                    <div className="text-[#160B53]">{iconMap[benefit.icon] || <Award className="w-8 h-8" />}</div>
+                    <div className="text-[var(--marketing-primary)]">{iconMap[benefit.icon] || <Award className="w-8 h-8" />}</div>
                   </div>
                 </div>
                 {isSystemAdmin ? (
                   <h3 className="text-xl font-bold mb-3">
                     <InlineEditable
+                      enabled={effectiveEditMode}
                       value={benefit.title}
                       onSave={(path, value) => {
                         const newBenefits = [...whyChooseContent.benefits]
@@ -737,6 +837,7 @@ export default function AboutPage({ embedded = false }) {
                 {isSystemAdmin ? (
                   <p className="text-gray-200 leading-relaxed">
                     <InlineEditable
+                      enabled={effectiveEditMode}
                       value={benefit.description}
                       onSave={(path, value) => {
                         const newBenefits = [...whyChooseContent.benefits]
@@ -784,7 +885,7 @@ export default function AboutPage({ embedded = false }) {
       `}</style>
         </div>
       </div>
-      <Footer />
+      {!embedded && <Footer />}
     </>
   )
 }

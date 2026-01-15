@@ -4,10 +4,11 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Upload } from 'lucide-react';
+import { Edit, Plus, X, Upload, XCircle } from 'lucide-react';
 import { getServiceCategories } from '../../services/serviceManagementService';
 import { uploadToCloudinary, validateImageFile } from '../../services/imageService';
 import toast from 'react-hot-toast';
+import Button from '../ui/Button';
 
 const ServiceModal = ({
   isOpen,
@@ -21,6 +22,7 @@ const ServiceModal = ({
     description: '',
     category: 'Haircut and Blowdry',
     duration: 30,
+    commissionPercentage: 5,
     imageURL: '',
     isChemical: false,
     isActive: true
@@ -36,6 +38,7 @@ const ServiceModal = ({
         description: service.description || '',
         category: service.category || 'Haircut and Blowdry',
         duration: service.duration || 30,
+        commissionPercentage: typeof service.commissionPercentage === 'number' ? service.commissionPercentage : 5,
         imageURL: service.imageURL || '',
         isChemical: service.isChemical || false,
         isActive: service.isActive !== undefined ? service.isActive : true
@@ -47,6 +50,7 @@ const ServiceModal = ({
         description: '',
         category: 'Haircut and Blowdry',
         duration: 30,
+        commissionPercentage: 5,
         imageURL: '',
         isChemical: false,
         isActive: true
@@ -88,8 +92,11 @@ const ServiceModal = ({
         setUploading(false);
       }
       
+      const commissionValue = Number(formData.commissionPercentage);
+
       onSubmit({
         ...formData,
+        commissionPercentage: Number.isFinite(commissionValue) ? commissionValue : 5,
         imageURL,
         id: service?.id
       });
@@ -104,26 +111,37 @@ const ServiceModal = ({
   const categories = getServiceCategories();
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <form onSubmit={handleSubmit}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-lg w-full mx-4 max-h-[90vh] flex flex-col overflow-hidden max-w-2xl min-h-0">
+        <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0">
           {/* Header */}
-          <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-gray-900">
-              {service ? 'Edit Service' : 'Create Service'}
-            </h2>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="p-1 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
+          <div className="bg-[#160B53] text-white p-6 flex-shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                {service ? (
+                  <Edit className="h-5 w-5 text-white" />
+                ) : (
+                  <Plus className="h-5 w-5 text-white" />
+                )}
+                <h2 className="text-xl font-semibold text-white">
+                  {service ? 'Edit Service' : 'Create Service'}
+                </h2>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onClose}
+                disabled={loading}
+                className="text-white border-white hover:bg-white hover:text-[#160B53]"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           {/* Content */}
-          <div className="p-6 space-y-4">
+          <div className="p-8 overflow-y-auto flex-1 min-h-0 space-y-4">
             {/* Info Banner */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <p className="text-sm text-blue-800">
@@ -196,6 +214,24 @@ const ServiceModal = ({
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder="30"
                 />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Commission (%) *</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={formData.commissionPercentage}
+                  onChange={(e) => setFormData({ ...formData, commissionPercentage: e.target.value === '' ? '' : Number(e.target.value) })}
+                  className="w-full px-4 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder="5"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">%</span>
               </div>
             </div>
 
@@ -273,35 +309,36 @@ const ServiceModal = ({
                 </div>
               </label>
             </div>
-          </div>
 
-          {/* Footer */}
-          <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || uploading}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {(loading || uploading) ? (
-                <>
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  {uploading ? 'Uploading...' : 'Saving...'}
-                </>
-              ) : (
-                service ? 'Update Service' : 'Create Service'
-              )}
-            </button>
+            {/* Footer */}
+            <div className="flex justify-end space-x-4 pt-8 border-t-2 border-gray-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={loading}
+                className="px-6 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </Button>
+              <button
+                type="submit"
+                disabled={loading || uploading}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {(loading || uploading) ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    {uploading ? 'Uploading...' : 'Saving...'}
+                  </>
+                ) : (
+                  service ? 'Update Service' : 'Create Service'
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>

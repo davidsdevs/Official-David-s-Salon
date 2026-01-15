@@ -80,15 +80,33 @@ class ProductService {
       console.log(`🔍 Fetching products for branch: ${branchId}`);
       const productsRef = collection(db, this.collectionName);
 
-      // Query products where branches array contains the branchId
-      const q = query(productsRef, where('branches', 'array-contains', branchId));
-      const querySnapshot = await getDocs(q);
+      // NOTE: We intentionally fetch all products and filter client-side.
+      // Reason: many product documents are "global" and do not have a `branches` field.
+      // A Firestore `array-contains` query would exclude those global products.
+      let querySnapshot;
+      try {
+        const q = query(productsRef, orderBy('createdAt', 'desc'));
+        querySnapshot = await getDocs(q);
+      } catch (orderError) {
+        console.warn('Could not order by createdAt, fetching without order:', orderError.message);
+        querySnapshot = await getDocs(productsRef);
+      }
 
       const products = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const branches = Array.isArray(data.branches) ? data.branches : null;
+        const isGlobal = !branches || branches.length === 0;
+        const matchesBranch = isGlobal || branches.includes(branchId);
+
+        // Only show Active products publicly
+        const status = String(data.status || '').toLowerCase();
+        const isActive = status === '' || status === 'active';
+
+        if (!matchesBranch || !isActive) return;
+
         products.push({
-          id: doc.id,
+          id: docSnap.id,
           ...data,
           // Handle createdAt - could be Timestamp, Date, or string
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() :

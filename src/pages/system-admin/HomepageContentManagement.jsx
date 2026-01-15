@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Card, CardContent } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { branchContentService } from '../../services/branchContentService';
+import { marketingContentService } from '../../services/marketingContentService';
 import { cloudinaryService } from '../../services/cloudinaryService';
 import {
   Edit,
@@ -18,6 +18,16 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { SearchInput } from '../../components/ui/SearchInput';
+
+const hexToRgba = (hex, opacity = 1) => {
+  if (typeof hex !== 'string') return `rgba(0, 0, 0, ${opacity})`;
+  const normalized = hex.replace('#', '').trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(0, 0, 0, ${opacity})`;
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+};
 
 const HomepageContentManagement = () => {
   const { userData } = useAuth();
@@ -35,7 +45,7 @@ const HomepageContentManagement = () => {
     loadContent();
     
     // Subscribe to real-time updates
-    const unsubscribe = branchContentService.subscribeToContent('main', 'homepage', (result) => {
+    const unsubscribe = marketingContentService.subscribeToContent('main', 'homepage', (result) => {
       if (result.success && result.content) {
         setContent(result.content);
         setLoading(false);
@@ -48,7 +58,7 @@ const HomepageContentManagement = () => {
   const loadContent = async () => {
     try {
       setLoading(true);
-      const result = await branchContentService.getHomepageContent();
+      const result = await marketingContentService.getHomepageContent();
       if (result.success) {
         setContent(result.content);
       } else {
@@ -70,7 +80,7 @@ const HomepageContentManagement = () => {
       setError(null);
       setSuccess(null);
 
-      const result = await branchContentService.saveContent(
+      const result = await marketingContentService.saveContent(
         'main',
         'homepage',
         {
@@ -99,6 +109,16 @@ const HomepageContentManagement = () => {
       ...prev,
       [section]: {
         ...prev[section],
+        [field]: value
+      }
+    }));
+  };
+
+  const handleThemeUpdate = (field, value) => {
+    setContent(prev => ({
+      ...prev,
+      theme: {
+        ...(prev.theme || {}),
         [field]: value
       }
     }));
@@ -189,7 +209,7 @@ const HomepageContentManagement = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Homepage Content Management</h1>
-          <p className="text-gray-600">Manage the main landing page content in real-time</p>
+          <p className="text-gray-600">Manage the main landing page content</p>
         </div>
         <div className="flex items-center gap-3">
           <Button
@@ -260,6 +280,58 @@ const HomepageContentManagement = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Editor Panel */}
         <div className="space-y-6">
+          {/* Theme Colors Editor */}
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Theme Colors</h2>
+              <div className="text-xs text-gray-500">Applies to buttons, headings, overlays</div>
+            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Primary Color</label>
+                  <input
+                    type="color"
+                    className="h-10 w-full rounded-lg border border-gray-300 bg-white"
+                    value={(content.theme?.primaryColor || '#160B53').toUpperCase()}
+                    onChange={(e) => handleThemeUpdate('primaryColor', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">CTA Background</label>
+                  <input
+                    type="color"
+                    className="h-10 w-full rounded-lg border border-gray-300 bg-white"
+                    value={(content.theme?.ctaBackgroundColor || content.theme?.primaryColor || '#160B53').toUpperCase()}
+                    onChange={(e) => handleThemeUpdate('ctaBackgroundColor', e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Hero Overlay Bottom Color</label>
+                  <input
+                    type="color"
+                    className="h-10 w-full rounded-lg border border-gray-300 bg-white"
+                    value={(content.theme?.heroOverlayBottomColor || content.theme?.primaryColor || '#160B53').toUpperCase()}
+                    onChange={(e) => handleThemeUpdate('heroOverlayBottomColor', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Hero Overlay Bottom Opacity (0-1)</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={typeof content.theme?.heroOverlayBottomOpacity === 'number' ? content.theme.heroOverlayBottomOpacity : 0.7}
+                    onChange={(e) => handleThemeUpdate('heroOverlayBottomOpacity', parseFloat(e.target.value))}
+                  />
+                </div>
+              </div>
+            </div>
+          </Card>
+
           {/* Hero Section Editor */}
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
@@ -526,15 +598,20 @@ const HomepageContentManagement = () => {
           <Card className="p-6 sticky top-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Live Preview</h2>
-              <span className="text-xs text-gray-500">Updates in real-time</span>
+              <span className="text-xs text-gray-500">Updates as you edit</span>
             </div>
             
             <div className="border border-gray-200 rounded-lg overflow-hidden bg-white" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
               {/* Hero Section Preview */}
+              {(() => {
+                const primaryColor = content.theme?.primaryColor || '#160B53';
+                const overlayBottomColor = content.theme?.heroOverlayBottomColor || primaryColor;
+                const overlayBottomOpacity = typeof content.theme?.heroOverlayBottomOpacity === 'number' ? content.theme.heroOverlayBottomOpacity : 0.7;
+                return (
               <section
                 className="relative h-[400px] flex items-center justify-center text-center text-white"
                 style={{
-                  backgroundImage: `linear-gradient(rgba(0, 0, 0, ${content.hero?.overlayOpacity || 0.6}), rgba(22, 11, 83, 0.7)), url('${content.hero?.backgroundImage || ''}')`,
+                  backgroundImage: `linear-gradient(rgba(0, 0, 0, ${content.hero?.overlayOpacity || 0.6}), ${hexToRgba(overlayBottomColor, overlayBottomOpacity)}), url('${content.hero?.backgroundImage || ''}')`,
                   backgroundSize: "cover",
                   backgroundPosition: "center",
                 }}
@@ -548,17 +625,20 @@ const HomepageContentManagement = () => {
                   </p>
                   <Button 
                     size="lg" 
-                    className="bg-white text-[#160B53] hover:bg-gray-100 font-semibold px-8 py-3"
+                    className="bg-white hover:bg-gray-100 font-semibold px-8 py-3"
+                    style={{ color: primaryColor }}
                   >
                     {content.hero?.buttonText || "View Our Services"}
                   </Button>
                 </div>
               </section>
+                );
+              })()}
 
               {/* Branches Section Preview */}
               <section className="py-8 px-4 bg-white">
                 <div className="max-w-7xl mx-auto">
-                  <h2 className="font-bold text-center text-[#160B53] mb-4" style={{ fontSize: '40px' }}>
+                  <h2 className="font-bold text-center mb-4" style={{ fontSize: '40px', color: (content.theme?.primaryColor || '#160B53') }}>
                     {content.branches?.title || "Choose Your Branch"}
                   </h2>
                   {content.branches?.subtitle && (
@@ -579,7 +659,7 @@ const HomepageContentManagement = () => {
               {/* Testimonials Section Preview */}
               <section className="py-8 px-4 bg-gray-50">
                 <div className="max-w-6xl mx-auto">
-                  <h2 className="font-bold text-center text-[#160B53] mb-4" style={{ fontSize: '40px' }}>
+                  <h2 className="font-bold text-center mb-4" style={{ fontSize: '40px', color: (content.theme?.primaryColor || '#160B53') }}>
                     {content.testimonials?.title || "What Our Clients Say"}
                   </h2>
                   {content.testimonials?.subtitle && (
@@ -589,13 +669,13 @@ const HomepageContentManagement = () => {
                     {content.testimonials?.items?.slice(0, 3).map((testimonial, index) => (
                       <Card key={index} className="p-4 border-0" style={{ boxShadow: '0 2px 15px 0 rgba(0, 0, 0, 0.25)' }}>
                         <CardContent className="p-0">
-                          <div className="text-4xl text-[#160B53] mb-3">"</div>
+                          <div className="text-4xl mb-3" style={{ color: (content.theme?.primaryColor || '#160B53') }}>"</div>
                           <p className="text-gray-700 mb-4 leading-relaxed text-sm">
                             {testimonial.text || "Testimonial text..."}
                           </p>
                           <div className="flex items-center justify-between">
                             <div>
-                              <div className="font-semibold text-[#160B53] text-sm">
+                              <div className="font-semibold text-sm" style={{ color: (content.theme?.primaryColor || '#160B53') }}>
                                 {testimonial.name || "Client Name"}
                               </div>
                               <div className="text-xs text-gray-500">

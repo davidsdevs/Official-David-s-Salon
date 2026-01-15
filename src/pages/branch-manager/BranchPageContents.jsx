@@ -10,7 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
-import { branchContentService } from '../../services/branchContentService';
+import { marketingBranchService } from '../../services/marketingBranchService';
 import { logActivity } from '../../services/activityService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
@@ -38,7 +38,7 @@ const BranchPageContents = () => {
         return;
       }
 
-      const result = await branchContentService.getContent(userBranch, 'branch');
+      const result = await marketingBranchService.getContent(userBranch, 'branch');
       if (result.success && result.content) {
         setContent(result.content);
         setLocalContent(result.content);
@@ -73,13 +73,15 @@ const BranchPageContents = () => {
   };
 
   const handleSave = async () => {
-    if (!localContent || !userBranch) return;
+    if (!localContent || !userData) return;
 
     try {
       setSaving(true);
-      const result = await branchContentService.saveContent(userBranch, 'branch', {
-        ...localContent,
-        updatedBy: currentUser?.uid || userData?.uid
+      const { id, ...payload } = localContent;
+      const result = await marketingBranchService.saveContent(userBranch, 'branch', {
+        ...payload,
+        branchId: userBranch,
+        updatedBy: userData.uid
       });
 
       if (result.success) {

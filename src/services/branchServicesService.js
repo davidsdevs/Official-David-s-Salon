@@ -59,6 +59,9 @@ export const getBranchServices = async (branchId) => {
           // Ensure serviceName field exists for compatibility (use name if serviceName doesn't exist)
           serviceName: data.serviceName || data.name || 'Service',
           name: data.name || data.serviceName || 'Service',
+          // Normalize image fields (Firestore uses imageURL)
+          imageURL: data.imageURL || data.imageUrl || data.image || data.media?.[0]?.url || null,
+          image: data.imageURL || data.imageUrl || data.image || data.media?.[0]?.url || '/logo.jpg',
           // Include branch-specific price at top level for convenience
           price: data.branchPricing[branchId],
           // Ensure enabled field exists (based on isActive and branchPricing)

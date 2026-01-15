@@ -31,6 +31,8 @@ const ServiceTemplates = () => {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [showArchived, setShowArchived] = useState(false);
 
+  const DEFAULT_COMMISSION_PERCENT = 5;
+
   // Set page title with role prefix
   useEffect(() => {
     document.title = 'System Admin - Service Catalog | DSMS';
@@ -371,6 +373,9 @@ const ServiceTemplates = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
                   Duration
                 </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
+                  Commission
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
                   Status
                 </th>
@@ -382,7 +387,7 @@ const ServiceTemplates = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {paginatedServices.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-12 text-center">
+                  <td colSpan="6" className="px-6 py-12 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <Scissors className="h-12 w-12 text-gray-400 mb-4" />
                       <h3 className="text-lg font-medium text-gray-900 mb-2">No services found</h3>
@@ -447,6 +452,11 @@ const ServiceTemplates = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <div className="break-words">{service.duration} min</div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      <div className="text-center">
+                        <span className="font-semibold text-purple-600">{(typeof service.commissionPercentage === 'number' ? service.commissionPercentage : DEFAULT_COMMISSION_PERCENT)}%</span>
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                     <button

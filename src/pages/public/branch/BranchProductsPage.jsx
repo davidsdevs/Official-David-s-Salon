@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Filter } from "lucide-react"
 import { SearchInput } from "../../../components/ui/SearchInput"
 import { ConsistentCard, ConsistentCardContent } from "../../../components/ui/ConsistentCard"
@@ -6,105 +6,256 @@ import Button from "../../../components/ui/Button"
 import { useParams } from "react-router-dom"
 import BranchNavigation from "../../../components/landing/BranchNavigation"
 import BranchFooter from "../../../components/landing/BranchFooter"
+import { collection, query, where, getDocs } from "firebase/firestore"
+import { db } from "../../../config/firebase"
+import { productService } from "../../../services/productService"
+import { marketingContentService } from "../../../services/marketingContentService"
+import { useAuth } from "../../../context/AuthContext"
+import { USER_ROLES } from "../../../utils/constants"
+import InlineEditable from "../../../components/cms/InlineEditable"
+import FloatingSaveButton from "../../../components/cms/FloatingSaveButton"
+import InlineColorPicker from "../../../components/cms/InlineColorPicker"
 
-export default function BranchProductsPage() {
-  const { slug } = useParams()
-  const branchName = slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
-  
+export default function BranchProductsPage({ embedded = false, cmsEditMode, cmsBranchId = null, cmsBranchName = '', cmsBranchSlug = '' } = {}) {
+  const { userData, userRoles } = useAuth()
+  const params = useParams()
+  const slug = cmsBranchSlug || params.slug
+
+  const computedBranchName = slug ? slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()) : ''
+  const branchName = cmsBranchName || computedBranchName
+
+  const effectiveEditMode = typeof cmsEditMode === 'boolean' ? cmsEditMode : true
+  const isSystemAdmin =
+    userRoles?.includes(USER_ROLES.SYSTEM_ADMIN) ||
+    userRoles?.includes('system_admin') ||
+    userData?.role === USER_ROLES.SYSTEM_ADMIN ||
+    userData?.role === 'system_admin'
+
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
   const [isVisible, setIsVisible] = useState(false)
+
+  const [branchId, setBranchId] = useState(null)
+  const [products, setProducts] = useState([])
+  const [loadingProducts, setLoadingProducts] = useState(true)
+  const [productsError, setProductsError] = useState(null)
+
+  const [content, setContent] = useState(null)
+  const [localContent, setLocalContent] = useState(null)
+  const [hasChanges, setHasChanges] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const hasChangesRef = useRef(false)
+  const localContentRef = useRef(null)
+  const editRevisionRef = useRef(0)
 
   useEffect(() => {
     setIsVisible(true)
   }, [])
 
-  // Branch-specific products - these would be available at this specific branch
-  const products = [
-    {
-      id: 1,
-      category: "Hair Care",
-      brand: "L'OREAL PROFESSIONAL",
-      name: "L'Oreal Professional Serie Expert Absolut Repair Shampoo",
-      description: "Reconstructing shampoo for damaged hair - Available at this branch",
-      price: "₱1,250",
-      originalPrice: "₱1,600",
-      branchExclusive: true
-    },
-    {
-      id: 2,
-      category: "Styling Products",
-      brand: "WELLA PROFESSIONALS",
-      name: "Wella Professionals EIMI Dynamic Fix Hair Spray",
-      description: "45-second crafting spray for flexible hold - Branch favorite",
-      price: "₱890",
-      branchExclusive: false
-    },
-    {
-      id: 3,
-      category: "Hair Color",
-      brand: "MATRIX",
-      name: "Matrix SoColor Beauty Hair Color",
-      description: "Professional permanent hair color - Special branch pricing",
-      price: "₱650",
-      originalPrice: "₱750",
-      branchExclusive: false
-    },
-    {
-      id: 4,
-      category: "Treatments",
-      brand: "SCHWARZKOPF",
-      name: "Schwarzkopf BC Bonacure Repair Rescue Treatment",
-      description: "Deep nourishing treatment for damaged hair - Branch exclusive",
-      price: "₱1,450",
-      branchExclusive: true
-    },
-    {
-      id: 5,
-      category: "Hair Care",
-      brand: "BIOMOD",
-      name: "Biomod Hair Care Treatment Booster",
-      description: "Professional hair treatment booster - Available only at this branch",
-      price: "₱2,490",
-      branchExclusive: true
-    },
-    {
-      id: 6,
-      category: "Styling Products",
-      brand: "L'OREAL PROFESSIONAL",
-      name: "L'Oreal Professional Tecni Art Pli Shaping Spray",
-      description: "Professional shaping spray for precision styling",
-      price: "₱1,150",
-      branchExclusive: false
-    },
-    {
-      id: 7,
-      category: "Hair Color",
-      brand: "WELLA PROFESSIONALS",
-      name: "Wella Professionals Color Touch Plus",
-      description: "Semi-permanent hair color with enhanced shine",
-      price: "₱1,200",
-      branchExclusive: false
-    },
-    {
-      id: 8,
-      category: "Treatments",
-      brand: "MATRIX",
-      name: "Matrix Biolage Advanced Fiberstrong Treatment",
-      description: "Advanced treatment for strengthening damaged hair",
-      price: "₱1,800",
-      branchExclusive: true
-    }
-  ]
+  useEffect(() => {
+    hasChangesRef.current = hasChanges
+  }, [hasChanges])
 
-  const getCategoryColor = (category) => {
-    const colors = {
-      "Hair Care": "bg-[#160B53]",
-      "Styling Products": "bg-[#160B53]",
-      "Hair Color": "bg-[#160B53]",
-      Treatments: "bg-[#160B53]",
+  useEffect(() => {
+    localContentRef.current = localContent
+  }, [localContent])
+
+  const slugify = (value) => {
+    if (!value) return ""
+    return String(value)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+  }
+
+  const formatPrice = (value) => {
+    const num = Number(value)
+    if (!Number.isFinite(num)) return ""
+    return `₱${num.toLocaleString("en-PH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+  }
+
+  // Resolve branchId by slug (matches BranchPage/BranchServicesPage behavior)
+  useEffect(() => {
+    const findBranch = async () => {
+      try {
+        const branchesRef = collection(db, "branches")
+
+        const slugQuery = query(branchesRef, where("slug", "==", slug))
+        const slugSnapshot = await getDocs(slugQuery)
+        if (!slugSnapshot.empty) {
+          setBranchId(slugSnapshot.docs[0].id)
+          return
+        }
+
+        const slugNormalized = slugify(slug)
+        const slugAlt = slugNormalized.endsWith("-branch")
+          ? slugNormalized.replace(/-branch$/, "")
+          : `${slugNormalized}-branch`
+
+        const allSnapshot = await getDocs(branchesRef)
+        const match = allSnapshot.docs.find((d) => {
+          const data = d.data() || {}
+          const candidates = [slugify(data.slug), slugify(data.name), slugify(data.branchName)].filter(Boolean)
+          return candidates.includes(slugNormalized) || candidates.includes(slugAlt)
+        })
+
+        setBranchId(match ? match.id : null)
+      } catch (error) {
+        console.error("Error finding branch by slug:", error)
+        setBranchId(null)
+      }
     }
-    return colors[category] || "bg-[#160B53]"
+
+    if (slug) {
+      findBranch()
+    }
+  }, [slug])
+
+  const marketingContentId = cmsBranchId
+    ? `branch_${cmsBranchId}`
+    : branchId
+      ? `branch_${branchId}`
+      : slug
+        ? `branch_${slug}`
+        : null
+
+  useEffect(() => {
+    editRevisionRef.current = 0
+    setHasChanges(false)
+    setLocalContent(null)
+    setContent(null)
+  }, [marketingContentId])
+
+  useEffect(() => {
+    if (!marketingContentId) return
+
+    const unsubscribe = marketingContentService.subscribeToContent(marketingContentId, 'branch', (result) => {
+      if (result.success && result.content) {
+        setContent(result.content)
+        if (!hasChangesRef.current) {
+          setLocalContent(result.content)
+        }
+      }
+    })
+
+    return () => unsubscribe()
+  }, [marketingContentId])
+
+  useEffect(() => {
+    if (content && !localContent) {
+      setLocalContent(content)
+    }
+  }, [content, localContent])
+
+  // Fetch products for resolved branchId
+  useEffect(() => {
+    const loadProducts = async () => {
+      if (!branchId) {
+        setProducts([])
+        setLoadingProducts(false)
+        return
+      }
+
+      try {
+        setLoadingProducts(true)
+        setProductsError(null)
+        const result = await productService.getBranchProducts(branchId)
+        if (!result?.success) {
+          setProducts([])
+          setProductsError(result?.message || "Failed to load products")
+          return
+        }
+
+        const mapped = (Array.isArray(result.products) ? result.products : []).map((p) => {
+          const priceValue = p.otcPrice ?? p.price ?? p.salonUsePrice
+          return {
+            id: p.id,
+            category: p.category || "Other",
+            brand: p.brand || "",
+            name: p.name || "",
+            description: p.description || "",
+            price: formatPrice(priceValue) || "",
+            originalPrice: "",
+            branchExclusive: Array.isArray(p.branches) ? p.branches.length === 1 && p.branches.includes(branchId) : false,
+            image: p.imageUrl || p.thumbnailUrl || p.image || ""
+          }
+        })
+
+        setProducts(mapped)
+      } catch (error) {
+        console.error("Error loading branch products:", error)
+        setProducts([])
+        setProductsError(error?.message || "Failed to load products")
+      } finally {
+        setLoadingProducts(false)
+      }
+    }
+
+    loadProducts()
+  }, [branchId])
+
+  const displayContent = hasChanges ? localContent : content
+  const productsPage = displayContent?.productsPage || {}
+  const headerContent = productsPage.header || {}
+  const theme = displayContent?.theme || {}
+  const primaryColor = theme.primaryColor || '#160B53'
+
+  const headerTitle = headerContent.title || 'Products Catalog'
+  const headerSubtitle = headerContent.subtitle || `Professional hair care products available at ${branchName} Branch`
+  const searchPlaceholder = productsPage.searchPlaceholder || 'Search products, brands...'
+
+  const renderTemplate = (value) => {
+    if (typeof value !== 'string') return value
+    return value.replace(/\{branchName\}/g, branchName)
+  }
+
+  const handleContentUpdate = (fieldPath, value) => {
+    if (!localContent) return
+
+    const keys = fieldPath.split('.')
+    const newContent = { ...localContent }
+    let current = newContent
+
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (!current[keys[i]]) {
+        current[keys[i]] = {}
+      }
+      current = current[keys[i]]
+    }
+
+    current[keys[keys.length - 1]] = value
+    setLocalContent(newContent)
+    editRevisionRef.current += 1
+    setHasChanges(true)
+  }
+
+  const handleSave = async () => {
+    const contentToSave = localContentRef.current
+    if (!contentToSave || !userData || !marketingContentId) return
+
+    try {
+      const saveRevision = editRevisionRef.current
+      setSaving(true)
+      const { id, ...payload } = contentToSave
+      const result = await marketingContentService.updateContent(marketingContentId, 'branch', {
+        ...payload,
+        updatedBy: userData.uid
+      })
+
+      if (result.success) {
+        setContent(contentToSave)
+        if (editRevisionRef.current === saveRevision) {
+          setHasChanges(false)
+        }
+      }
+    } catch (error) {
+      console.error('Error saving branch products content:', error)
+    } finally {
+      setSaving(false)
+    }
   }
 
   // Filter products based on search term and category
@@ -121,14 +272,52 @@ export default function BranchProductsPage() {
   return (
     <>
       {/* Branch Navigation */}
-      <BranchNavigation branchName={`${branchName} Branch`} />
+      {!embedded && <BranchNavigation branchName={`${branchName} Branch`} />}
+
+      {/* Floating Save Button for System Admin */}
+      {isSystemAdmin && (
+        <FloatingSaveButton
+          onSave={handleSave}
+          saving={saving}
+          hasChanges={hasChanges}
+        />
+      )}
       
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 mt-[122px]">
+      <main className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${embedded ? '' : 'mt-[122px]'}`}>
         {/* Page Header */}
         <div className={`text-center mb-8 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-          <h1 className="font-poppins font-bold text-[#160B53] mb-6 animate-pulse-slow" style={{ fontSize: '50px' }}>Products Catalog</h1>
-          <p className="text-lg text-gray-600 mb-6">Professional hair care products available at {branchName} Branch</p>
+          {isSystemAdmin && effectiveEditMode && (
+            <div className="inline-flex items-center gap-3 mb-4 bg-white/95 text-gray-900 rounded-lg border border-gray-200 shadow p-3" data-cms-allow-interaction="true">
+              <div className="text-xs font-semibold text-gray-700">Theme</div>
+              <InlineColorPicker
+                label="Primary"
+                value={primaryColor}
+                onChange={(value) => handleContentUpdate('theme.primaryColor', value)}
+              />
+            </div>
+          )}
+
+          <h1 className="font-poppins font-bold mb-6 animate-pulse-slow" style={{ fontSize: '50px', color: primaryColor }}>
+            <InlineEditable
+              value={headerTitle}
+              onSave={handleContentUpdate}
+              fieldPath="productsPage.header.title"
+              enabled={isSystemAdmin && effectiveEditMode}
+              className="font-poppins font-bold"
+            />
+          </h1>
+
+          <p className="text-lg text-gray-600 mb-6">
+            <InlineEditable
+              value={renderTemplate(headerSubtitle)}
+              onSave={handleContentUpdate}
+              fieldPath="productsPage.header.subtitle"
+              enabled={isSystemAdmin && effectiveEditMode}
+              multiline
+              className="text-lg"
+            />
+          </p>
           
           {/* Category Filter Pills */}
           <div className="flex flex-wrap justify-center gap-2 mb-6">
@@ -136,9 +325,10 @@ export default function BranchProductsPage() {
               <button
                 key={category}
                 onClick={() => setSelectedCategory(category)}
+                style={selectedCategory === category ? { backgroundColor: primaryColor } : undefined}
                 className={`px-4 py-2 rounded-full text-sm font-poppins font-medium transition-all duration-300 ${
                   selectedCategory === category
-                    ? 'bg-[#160B53] text-white scale-105'
+                    ? 'text-white scale-105'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:scale-105'
                 }`}
               >
@@ -150,23 +340,34 @@ export default function BranchProductsPage() {
           {/* Search and Filter */}
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
             <p className="text-gray-600">
-              Showing {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''}
-              {searchTerm && ` for "${searchTerm}"`}
+              {loadingProducts
+                ? 'Loading products...'
+                : `Showing ${filteredProducts.length} product${filteredProducts.length !== 1 ? 's' : ''}`}
+              {!loadingProducts && searchTerm && ` for "${searchTerm}"`}
             </p>
             <div className="flex items-center gap-4">
               <SearchInput
-                placeholder="Search products, brands..."
+                placeholder={searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-80 font-poppins"
               />
-              <button className="bg-[#160B53] text-white px-4 py-2 rounded-lg font-poppins font-medium hover:bg-[#160B53]/90 transition-all duration-300 hover:scale-105 flex items-center gap-2">
+              <button
+                style={{ backgroundColor: primaryColor }}
+                className="text-white px-4 py-2 rounded-lg font-poppins font-medium transition-all duration-300 hover:scale-105 flex items-center gap-2"
+              >
                 <Filter className="h-4 w-4" />
                 Filter
               </button>
             </div>
           </div>
         </div>
+
+        {productsError && (
+          <div className="text-center py-8">
+            <p className="text-red-600 font-poppins">{productsError}</p>
+          </div>
+        )}
 
       {/* Products Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -185,7 +386,8 @@ export default function BranchProductsPage() {
                   />
                 {/* Category Tag */}
                 <div
-                  className={`absolute top-3 left-3 text-white px-3 py-1 rounded-full text-sm font-poppins font-medium ${getCategoryColor(product.category)}`}
+                  style={{ backgroundColor: primaryColor }}
+                  className="absolute top-3 left-3 text-white px-3 py-1 rounded-full text-sm font-poppins font-medium"
                 >
                   {product.category}
                 </div>
@@ -211,7 +413,7 @@ export default function BranchProductsPage() {
 
                   {/* Price */}
                 <div className="flex items-center gap-2">
-                      <span className="text-lg font-poppins font-bold text-[#160B53]">
+                      <span className="text-lg font-poppins font-bold" style={{ color: primaryColor }}>
                         {product.price}
                       </span>
                       {product.originalPrice && (
@@ -224,7 +426,7 @@ export default function BranchProductsPage() {
           </div>
 
           {/* Empty State */}
-          {filteredProducts.length === 0 && (
+          {!loadingProducts && filteredProducts.length === 0 && (
             <div className="text-center py-16">
               <div className="text-6xl mb-4">🛍️</div>
               <h3 className="text-xl font-poppins font-semibold text-gray-600 mb-2">No products found</h3>
@@ -267,12 +469,14 @@ export default function BranchProductsPage() {
         </main>
         
         {/* Footer */}
-        <BranchFooter 
-          branchName={`${branchName} Branch`}
-          branchPhone="+63 930 222 9659"
-          branchAddress={`${branchName}, Philippines`}
-          branchSlug={slug}
-        />
+        {!embedded && (
+          <BranchFooter 
+            branchName={`${branchName} Branch`}
+            branchPhone="+63 930 222 9659"
+            branchAddress={`${branchName}, Philippines`}
+            branchSlug={slug}
+          />
+        )}
       </>
     )
 }

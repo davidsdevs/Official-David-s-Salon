@@ -10,7 +10,9 @@
     "lint": "eslint src --ext js,jsx",
     "firebase:emulators": "firebase emulators:start",
     "firebase:deploy": "firebase deploy",
-    "create-users": "node scripts/createTestUsers.js"
+    "create-users": "node scripts/createTestUsers.js",
+    "seed:contents": "node scripts/seedContents.js",
+    "seed:marketing": "node scripts/seedContents.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

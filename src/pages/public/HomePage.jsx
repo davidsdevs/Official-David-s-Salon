@@ -1,21 +1,31 @@
 import Button from "../../components/ui/Button"
 import { Card, CardContent } from "../../components/ui/Card"
 import { SearchInput } from "../../components/ui/SearchInput"
-import { MapPin, Phone, Search } from "lucide-react"
+import { MapPin, Phone, Search, MessageCircle, Send, X } from "lucide-react"
 import { Link } from "react-router-dom"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import { collection, getCountFromServer, query, where } from "firebase/firestore"
 import PromotionPopup from "../../components/landing/PromotionPopup"
 import Navigation from "../../components/landing/Navigation"
 import Footer from "../../components/landing/Footer"
-import { branchContentService } from "../../services/branchContentService"
+import { marketingContentService } from "../../services/marketingContentService"
+import { getAllBranches } from "../../services/branchService"
 import { useAuth } from "../../context/AuthContext"
 import { USER_ROLES } from "../../utils/constants"
+import { db } from "../../config/firebase"
 import InlineEditable from "../../components/cms/InlineEditable"
 import FloatingSaveButton from "../../components/cms/FloatingSaveButton"
+import EditableImage from "../../components/cms/EditableImage"
+import InlineColorPicker from "../../components/cms/InlineColorPicker"
 
-export default function HomePage({ embedded = false }) {
-  const { userData } = useAuth()
-  const isSystemAdmin = userData?.roles?.[0] === USER_ROLES.SYSTEM_ADMIN
+export default function HomePage({ embedded = false, cmsEditMode }) {
+  const { userData, userRoles } = useAuth()
+  const isSystemAdmin =
+    userRoles?.includes(USER_ROLES.SYSTEM_ADMIN) ||
+    userRoles?.includes('system_admin') ||
+    userData?.role === USER_ROLES.SYSTEM_ADMIN ||
+    userData?.role === 'system_admin'
+  const effectiveEditMode = typeof cmsEditMode === 'boolean' ? cmsEditMode : true
   
   const [searchTerm, setSearchTerm] = useState("")
   const [isVisible, setIsVisible] = useState(false)
@@ -26,12 +36,41 @@ export default function HomePage({ embedded = false }) {
   const [localContent, setLocalContent] = useState(null)
   const [hasChanges, setHasChanges] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [branchesData, setBranchesData] = useState([])
+  const [branchCount, setBranchCount] = useState(null)
+  const [clientCount, setClientCount] = useState(null)
+
+  const [marketingAssistantOpen, setMarketingAssistantOpen] = useState(false)
+  const [assistantMessages, setAssistantMessages] = useState([
+    {
+      role: 'assistant',
+      content: "Hi! I'm your Marketing Assistant. Ask me for promo ideas, captions, or service descriptions for David's Salon."
+    }
+  ])
+  const [assistantInput, setAssistantInput] = useState('')
+  const [assistantSending, setAssistantSending] = useState(false)
+  const [assistantError, setAssistantError] = useState(null)
+  const assistantEndRef = useRef(null)
+
+  const hasChangesRef = useRef(false)
+  const localContentRef = useRef(null)
+  const editRevisionRef = useRef(0)
+
+  const slugify = (value) => {
+    if (!value) return ""
+    return String(value)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+  }
 
   // Load content from Firestore
   useEffect(() => {
     const loadContent = async () => {
       try {
-        const result = await branchContentService.getHomepageContent()
+        const result = await marketingContentService.getHomepageContent()
         if (result.success && result.content) {
           setContent(result.content)
         }
@@ -43,10 +82,10 @@ export default function HomePage({ embedded = false }) {
     }
 
     // Subscribe to real-time updates
-    const unsubscribe = branchContentService.subscribeToContent('main', 'homepage', (result) => {
+    const unsubscribe = marketingContentService.subscribeToContent('main', 'homepage', (result) => {
       if (result.success && result.content) {
         setContent(result.content)
-        if (!hasChanges) {
+        if (!hasChangesRef.current) {
           setLocalContent(result.content)
         }
         setLoading(false)
@@ -56,7 +95,20 @@ export default function HomePage({ embedded = false }) {
     loadContent()
 
     return () => unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    if (!marketingAssistantOpen) return
+    assistantEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [assistantMessages, marketingAssistantOpen])
+
+  useEffect(() => {
+    hasChangesRef.current = hasChanges
   }, [hasChanges])
+
+  useEffect(() => {
+    localContentRef.current = localContent
+  }, [localContent])
 
   // Initialize local content when content loads
   useEffect(() => {
@@ -70,19 +122,118 @@ export default function HomePage({ embedded = false }) {
     setIsVisible(true)
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    const loadStats = async () => {
+      try {
+        const branchesCountSnapshot = await getCountFromServer(collection(db, 'branches'))
+        if (!cancelled) {
+          setBranchCount(branchesCountSnapshot.data().count)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setBranchCount(null)
+        }
+      }
+
+      try {
+        try {
+          const q = query(
+            collection(db, 'users'),
+            where('roles', 'array-contains', USER_ROLES.CLIENT)
+          )
+          const clientsCountSnapshot = await getCountFromServer(q)
+          if (!cancelled) {
+            setClientCount(clientsCountSnapshot.data().count)
+          }
+          return
+        } catch (e) {
+          const q = query(
+            collection(db, 'users'),
+            where('role', '==', USER_ROLES.CLIENT)
+          )
+          const clientsCountSnapshot = await getCountFromServer(q)
+          if (!cancelled) {
+            setClientCount(clientsCountSnapshot.data().count)
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setClientCount(null)
+        }
+      }
+    }
+
+    loadStats()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadBranches = async () => {
+      try {
+        const results = await getAllBranches()
+        if (cancelled) return
+
+        const mapped = (results || [])
+          .filter((b) => b?.isActive === true)
+          .map((b) => {
+            const name = b?.branchName || b?.name || "Branch"
+            const slug = b?.slug || slugify(name)
+            return {
+              id: b.id,
+              name,
+              slug,
+              location: b?.address || "",
+              phone: b?.contact || "",
+              email: b?.email || "",
+              operatingHours: b?.operatingHours || null,
+              isActive: b?.isActive === true,
+              image: b?.image || b?.photoUrl || b?.bannerImage || "/logo.jpg",
+            }
+          })
+
+        setBranchesData(mapped)
+        setCurrentPage(1)
+      } catch (e) {
+        if (cancelled) return
+        setBranchesData([])
+      }
+    }
+
+    loadBranches()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Fallback branches data
-  const defaultBranches = [
-    {
-      name: "Harbor Point Ayala",
-      slug: "harbor-point-ayala",
-      location: "Ground Floor Harbor Point Subic, Subic, Philippines",
-      phone: "0992 586 5758",
-      image: "/images/branches/harbor-point-ayala/harborpoint.png",
-    },
-  ]
+  const defaultBranches = []
 
   // Use local content if editing, otherwise use saved content
   const displayContent = hasChanges ? localContent : content
+
+  const theme = displayContent?.theme || {}
+  const primaryColor = theme.primaryColor || '#160B53'
+  const ctaBackgroundColor = theme.ctaBackgroundColor || primaryColor
+  const heroOverlayBottomColor = theme.heroOverlayBottomColor || primaryColor
+  const heroOverlayBottomOpacity = typeof theme.heroOverlayBottomOpacity === 'number' ? theme.heroOverlayBottomOpacity : 0.7
+
+  const hexToRgba = (hex, opacity = 1) => {
+    if (typeof hex !== 'string') return `rgba(0, 0, 0, ${opacity})`
+    const normalized = hex.replace('#', '').trim()
+    if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(0, 0, 0, ${opacity})`
+    const r = parseInt(normalized.slice(0, 2), 16)
+    const g = parseInt(normalized.slice(2, 4), 16)
+    const b = parseInt(normalized.slice(4, 6), 16)
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`
+  }
 
   // Use content from Firestore or fallback
   const heroContent = displayContent?.hero || {
@@ -130,7 +281,11 @@ export default function HomePage({ embedded = false }) {
     buttonText: "View Our Services"
   }
 
-  const branches = defaultBranches
+  const statsContent = displayContent?.stats || {
+    yearsExperience: '15+'
+  }
+
+  const branches = branchesData.length ? branchesData : defaultBranches
   const testimonials = testimonialsContent.items || []
 
   // Handle inline editing
@@ -150,6 +305,7 @@ export default function HomePage({ embedded = false }) {
     
     current[keys[keys.length - 1]] = value
     setLocalContent(newContent)
+    editRevisionRef.current += 1
     setHasChanges(true)
   }
 
@@ -171,27 +327,33 @@ export default function HomePage({ embedded = false }) {
     }
     
     setLocalContent(newContent)
+    editRevisionRef.current += 1
     setHasChanges(true)
   }
 
   // Save changes
   const handleSave = async () => {
-    if (!localContent || !userData) return
+    const contentToSave = localContentRef.current
+    if (!contentToSave || !userData) return
     
     try {
+      const saveRevision = editRevisionRef.current
       setSaving(true)
-      const result = await branchContentService.saveContent('main', 'homepage', {
-        ...localContent,
+      const { id, ...payload } = contentToSave
+      const result = await marketingContentService.updateContent('main', 'homepage', {
+        ...payload,
         updatedBy: userData.uid
       })
       
       if (result.success) {
-        setContent(localContent)
-        setHasChanges(false)
-        setSaving(false)
+        setContent(contentToSave)
+        if (editRevisionRef.current === saveRevision) {
+          setHasChanges(false)
+        }
       }
     } catch (error) {
       console.error('Error saving content:', error)
+    } finally {
       setSaving(false)
     }
   }
@@ -212,11 +374,84 @@ export default function HomePage({ embedded = false }) {
     setCurrentPage(page)
   }
 
+  const callOllama = async (messages) => {
+    const baseUrl = import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434'
+    const model = import.meta.env.VITE_OLLAMA_MODEL || 'llama3.2'
+
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        messages
+      })
+    })
+
+    if (!response.ok) {
+      let detail = ''
+      try {
+        const json = await response.json()
+        detail = json?.error ? ` (${json.error})` : ''
+      } catch (e) {
+        detail = ''
+      }
+      throw new Error(`AI request failed${detail}`)
+    }
+
+    const json = await response.json()
+    const content = json?.message?.content
+    if (!content) {
+      throw new Error('AI returned an empty response')
+    }
+    return content
+  }
+
+  const handleSendAssistantMessage = async () => {
+    const text = assistantInput.trim()
+    if (!text || assistantSending) return
+
+    setAssistantError(null)
+    setAssistantInput('')
+    setAssistantSending(true)
+
+    const nextMessages = [...assistantMessages, { role: 'user', content: text }]
+    setAssistantMessages(nextMessages)
+
+    try {
+      const systemPrompt = {
+        role: 'system',
+        content:
+          "You are a marketing assistant for David's Salon. Provide concise, practical marketing copy: promo ideas, captions, hashtags, service descriptions, and FAQs. Avoid medical claims."
+      }
+
+      const aiText = await callOllama([systemPrompt, ...nextMessages])
+      setAssistantMessages((prev) => [...prev, { role: 'assistant', content: aiText }])
+    } catch (e) {
+      const message =
+        e?.message ||
+        'AI is not available. If you want this to work for free, install and run Ollama locally (ollama.com), then run a model like llama3.2.'
+      setAssistantError(message)
+      setAssistantMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content:
+            "I can't reach the free AI right now. To enable this Marketing Assistant for free, please run Ollama locally (ollama.com) and start a model (e.g. `ollama run llama3.2`)."
+        }
+      ])
+    } finally {
+      setAssistantSending(false)
+    }
+  }
+
   return (
-    <>
+    <div style={{ '--marketing-primary': primaryColor, '--marketing-cta-bg': ctaBackgroundColor }}>
       {/* Promotion Popup - Only show when not embedded */}
       {!embedded && <PromotionPopup />}
-      <Navigation />
+      {!embedded && <Navigation />}
       
       {/* Floating Save Button for System Admin */}
       {isSystemAdmin && (
@@ -226,109 +461,286 @@ export default function HomePage({ embedded = false }) {
           hasChanges={hasChanges}
         />
       )}
+
+      {!embedded && (
+        <>
+          <button
+            type="button"
+            onClick={() => setMarketingAssistantOpen((prev) => !prev)}
+            className="fixed bottom-6 right-6 z-40 rounded-full shadow-lg px-4 py-3 text-white flex items-center gap-2"
+            style={{ backgroundColor: primaryColor }}
+          >
+            <MessageCircle className="h-5 w-5" />
+            <span className="font-poppins font-medium">Marketing Assistant</span>
+          </button>
+
+          {marketingAssistantOpen && (
+            <div className="fixed inset-0 z-50" onClick={() => setMarketingAssistantOpen(false)}>
+              <div
+                className="fixed bottom-24 right-6 w-[360px] max-w-[calc(100vw-3rem)] h-[520px] max-h-[calc(100vh-8rem)] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col"
+                role="dialog"
+                aria-label="Marketing Assistant"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="h-9 w-9 rounded-full flex items-center justify-center text-white"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <MessageCircle className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-gray-900 leading-tight">Marketing Assistant</div>
+                      <div className="text-[11px] text-gray-500 leading-tight">Free local AI via Ollama</div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setMarketingAssistantOpen(false)}
+                    className="p-2 rounded-md hover:bg-gray-100"
+                    aria-label="Close"
+                  >
+                    <X className="h-5 w-5 text-gray-700" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
+                  {assistantMessages.map((m, idx) => {
+                    const isUser = m.role === 'user'
+                    return (
+                      <div key={idx} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                        <div
+                          className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow ${isUser ? 'text-white' : 'bg-gray-100 text-gray-900'}`}
+                          style={isUser ? { backgroundColor: primaryColor } : undefined}
+                        >
+                          {m.content}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <div ref={assistantEndRef} />
+                </div>
+
+                <div className="border-t border-gray-200 p-3 bg-white">
+                  {assistantError && (
+                    <div className="mb-2 text-[11px] text-red-600">{assistantError}</div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={assistantInput}
+                      onChange={(e) => setAssistantInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleSendAssistantMessage()
+                        }
+                      }}
+                      placeholder="Type a message..."
+                      className="flex-1 h-10 rounded-xl border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--marketing-primary)]"
+                      disabled={assistantSending}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSendAssistantMessage}
+                      className="h-10 w-10 rounded-xl text-white flex items-center justify-center"
+                      style={{ backgroundColor: primaryColor, opacity: assistantSending ? 0.7 : 1 }}
+                      disabled={assistantSending}
+                      aria-label="Send"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
       
       {/* Hero Section */}
-      <section
-        className={`relative h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[122px]'}`}
-        style={{
-          backgroundImage: `linear-gradient(rgba(0, 0, 0, ${heroContent.overlayOpacity || 0.6}), rgba(22, 11, 83, 0.7)), url('${heroContent.backgroundImage}')`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
+      <EditableImage
+        enabled={isSystemAdmin && effectiveEditMode}
+        mode="background"
+        onChange={(url) => handleContentUpdate('hero.backgroundImage', url)}
+        wrapperClassName=""
       >
-        <div className={`max-w-4xl px-2 sm:px-4 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-          {isSystemAdmin ? (
-            <h1 className="font-bold mb-6 text-balance animate-pulse-slow" style={{ fontSize: '50px' }}>
-              <InlineEditable
-                value={heroContent.title}
-                onSave={(path, value) => handleContentUpdate('hero.title', value)}
-                fieldPath="hero.title"
-                className="text-white"
+        <section
+          className={`relative h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[122px]'}`}
+          style={{
+            backgroundImage: `linear-gradient(rgba(0, 0, 0, ${heroContent.overlayOpacity || 0.6}), ${hexToRgba(heroOverlayBottomColor, heroOverlayBottomOpacity)}), url('${heroContent.backgroundImage}')`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        >
+          {isSystemAdmin && effectiveEditMode && (
+            <div className="absolute top-4 left-4 z-10 bg-white/95 text-gray-900 rounded-lg border border-gray-200 shadow p-3 space-y-2">
+              <div className="text-xs font-semibold text-gray-700">Theme</div>
+              <InlineColorPicker
+                label="Primary"
+                value={primaryColor}
+                onChange={(value) => handleContentUpdate('theme.primaryColor', value)}
               />
-            </h1>
-          ) : (
-            <h1 className="font-bold mb-6 text-balance animate-pulse-slow" style={{ fontSize: '50px' }}>{heroContent.title}</h1>
-          )}
-          {isSystemAdmin ? (
-            <p className="text-xl mb-8 text-pretty leading-relaxed">
-              <InlineEditable
-                value={heroContent.subtitle}
-                onSave={(path, value) => handleContentUpdate('hero.subtitle', value)}
-                fieldPath="hero.subtitle"
-                multiline={true}
-                className="text-white"
+              <InlineColorPicker
+                label="Hero Overlay"
+                value={heroOverlayBottomColor}
+                onChange={(value) => handleContentUpdate('theme.heroOverlayBottomColor', value)}
               />
-            </p>
-          ) : (
-            <p className="text-xl mb-8 text-pretty leading-relaxed">
-              {heroContent.subtitle}
-            </p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-700 whitespace-nowrap">Overlay Opacity</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={heroOverlayBottomOpacity}
+                  onChange={(e) => handleContentUpdate('theme.heroOverlayBottomOpacity', parseFloat(e.target.value))}
+                  className="w-32"
+                />
+                <span className="text-xs font-mono text-gray-600">{heroOverlayBottomOpacity.toFixed(2)}</span>
+              </div>
+              <InlineColorPicker
+                label="CTA BG"
+                value={ctaBackgroundColor}
+                onChange={(value) => handleContentUpdate('theme.ctaBackgroundColor', value)}
+              />
+            </div>
           )}
-          <Button 
-            size="md" 
-            variant="ghost"
-            className="bg-white text-[#160B53] hover:bg-gray-100 font-semibold px-6 py-2"
-            onClick={() => {
-              const branchesSection = document.getElementById('branches')
-              if (branchesSection) {
-                const targetPosition = branchesSection.offsetTop - 20 // Add some offset from top
-                const startPosition = window.pageYOffset
-                const distance = targetPosition - startPosition
-                const duration = 1000 // 1 second for smooth scroll
-                let start = null
-
-                const animation = (currentTime) => {
-                  if (start === null) start = currentTime
-                  const timeElapsed = currentTime - start
-                  const run = easeInOutQuad(timeElapsed, startPosition, distance, duration)
-                  window.scrollTo(0, run)
-                  if (timeElapsed < duration) requestAnimationFrame(animation)
-                }
-
-                const easeInOutQuad = (t, b, c, d) => {
-                  t /= d / 2
-                  if (t < 1) return c / 2 * t * t + b
-                  t--
-                  return -c / 2 * (t * (t - 2) - 1) + b
-                }
-
-                requestAnimationFrame(animation)
-              }
-            }}
-          >
+          <div className={`max-w-4xl px-2 sm:px-4 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             {isSystemAdmin ? (
-              <InlineEditable
-                value={heroContent.buttonText}
-                onSave={(path, value) => handleContentUpdate('hero.buttonText', value)}
-                fieldPath="hero.buttonText"
-                className="text-[#160B53]"
-              />
+              <h1 className="font-bold mb-6 text-balance animate-pulse-slow" style={{ fontSize: '50px' }}>
+                <InlineEditable
+                  enabled={effectiveEditMode}
+                  value={heroContent.title}
+                  onSave={(path, value) => handleContentUpdate('hero.title', value)}
+                  fieldPath="hero.title"
+                  className="text-white"
+                />
+              </h1>
             ) : (
-              heroContent.buttonText
+              <h1 className="font-bold mb-6 text-balance animate-pulse-slow" style={{ fontSize: '50px' }}>{heroContent.title}</h1>
             )}
-          </Button>
-        </div>
-      </section>
+            {isSystemAdmin ? (
+              <p className="text-xl mb-8 text-pretty leading-relaxed">
+                <InlineEditable
+                  enabled={effectiveEditMode}
+                  value={heroContent.subtitle}
+                  onSave={(path, value) => handleContentUpdate('hero.subtitle', value)}
+                  fieldPath="hero.subtitle"
+                  multiline={true}
+                  className="text-white"
+                />
+              </p>
+            ) : (
+              <p className="text-xl mb-8 text-pretty leading-relaxed">
+                {heroContent.subtitle}
+              </p>
+            )}
+            <Button 
+              size="md" 
+              variant="ghost"
+              className="bg-white text-[var(--marketing-primary)] hover:bg-gray-100 font-semibold px-6 py-2"
+              onClick={() => {
+                const branchesSection = document.getElementById('branches')
+                if (branchesSection) {
+                  const targetPosition = branchesSection.offsetTop - 20 // Add some offset from top
+                  const startPosition = window.pageYOffset
+                  const distance = targetPosition - startPosition
+                  const duration = 1000 // 1 second for smooth scroll
+                  let start = null
+
+                  const animation = (currentTime) => {
+                    if (start === null) start = currentTime
+                    const timeElapsed = currentTime - start
+                    const run = easeInOutQuad(timeElapsed, startPosition, distance, duration)
+                    window.scrollTo(0, run)
+                    if (timeElapsed < duration) requestAnimationFrame(animation)
+                  }
+
+                  const easeInOutQuad = (t, b, c, d) => {
+                    t /= d / 2
+                    if (t < 1) return c / 2 * t * t + b
+                    t--
+                    return -c / 2 * (t * (t - 2) - 1) + b
+                  }
+
+                  requestAnimationFrame(animation)
+                }
+              }}
+            >
+              {isSystemAdmin ? (
+                <InlineEditable
+                  enabled={effectiveEditMode}
+                  value={heroContent.buttonText}
+                  onSave={(path, value) => handleContentUpdate('hero.buttonText', value)}
+                  fieldPath="hero.buttonText"
+                  className="text-[var(--marketing-primary)]"
+                />
+              ) : (
+                heroContent.buttonText
+              )}
+            </Button>
+
+            <div className="max-w-4xl mx-auto mt-12">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+                <Card className="p-6 border-0 bg-white" style={{ boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
+                  <CardContent className="p-0">
+                    <div className="text-4xl font-bold text-[var(--marketing-primary)] mb-2">{typeof branchCount === 'number' ? branchCount : '—'}</div>
+                    <div className="text-gray-600">Branches</div>
+                  </CardContent>
+                </Card>
+                <Card className="p-6 border-0 bg-white" style={{ boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
+                  <CardContent className="p-0">
+                    <div className="text-4xl font-bold text-[var(--marketing-primary)] mb-2">{typeof clientCount === 'number' ? clientCount.toLocaleString() : '—'}</div>
+                    <div className="text-gray-600">Happy Clients</div>
+                  </CardContent>
+                </Card>
+                <Card className="p-6 border-0 bg-white" style={{ boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
+                  <CardContent className="p-0">
+                    <div className="text-4xl font-bold text-[var(--marketing-primary)] mb-2">
+                      {isSystemAdmin ? (
+                        <InlineEditable
+                          enabled={effectiveEditMode}
+                          value={statsContent.yearsExperience}
+                          onSave={(path, value) => handleContentUpdate('stats.yearsExperience', value)}
+                          fieldPath="stats.yearsExperience"
+                          className="text-[var(--marketing-primary)]"
+                        />
+                      ) : (
+                        statsContent.yearsExperience
+                      )}
+                    </div>
+                    <div className="text-gray-600">Years Experience</div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        </section>
+      </EditableImage>
 
       {/* Our Location Section */}
       <section id="branches" className="py-16 px-2 sm:px-4">
         <div className="max-w-7xl mx-auto">
           {isSystemAdmin ? (
-            <h2 className="font-bold text-center text-[#160B53] mb-4" style={{ fontSize: '50px' }}>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>
               <InlineEditable
+                enabled={effectiveEditMode}
                 value={branchesContent.title}
                 onSave={(path, value) => handleContentUpdate('branches.title', value)}
                 fieldPath="branches.title"
-                className="text-[#160B53]"
+                className="text-[var(--marketing-primary)]"
               />
             </h2>
           ) : (
-            <h2 className="font-bold text-center text-[#160B53] mb-4" style={{ fontSize: '50px' }}>{branchesContent.title}</h2>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>{branchesContent.title}</h2>
           )}
           {branchesContent.subtitle && (
             isSystemAdmin ? (
               <p className="text-center text-gray-600 mb-8">
                 <InlineEditable
+                  enabled={effectiveEditMode}
                   value={branchesContent.subtitle}
                   onSave={(path, value) => handleContentUpdate('branches.subtitle', value)}
                   fieldPath="branches.subtitle"
@@ -403,7 +815,11 @@ export default function HomePage({ embedded = false }) {
                     </span>
                   </div>
                   <Link to={`/branch/${branch.slug}`}>
-                    <Button variant="ghost" size="md" className="w-full text-white bg-[#160B53] hover:bg-[#160B53]/90 py-2">
+                    <Button
+                      variant="ghost"
+                      size="md"
+                      className="w-full text-white bg-[var(--marketing-primary)] hover:opacity-90 py-2"
+                    >
                       View Services
                     </Button>
                   </Link>
@@ -418,7 +834,7 @@ export default function HomePage({ embedded = false }) {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="w-8 h-8 p-0 bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 transition-all duration-300 hover:scale-110 hover:border-[#160B53]/50"
+                className="w-8 h-8 p-0 bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 transition-all duration-300 hover:scale-110 hover:border-[var(--marketing-primary)]"
                 onClick={() => handlePageChange(currentPage - 1)}
                 disabled={currentPage === 1}
               >
@@ -434,8 +850,8 @@ export default function HomePage({ embedded = false }) {
                     size="sm" 
                     className={`w-8 h-8 p-0 transition-all duration-300 hover:scale-110 ${
                       currentPage === page
-                        ? 'bg-[#160B53] text-white border-[#160B53]'
-                        : 'bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-[#160B53]/50'
+                        ? 'bg-[var(--marketing-primary)] text-white border-[var(--marketing-primary)]'
+                        : 'bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-[var(--marketing-primary)]'
                     }`}
                     onClick={() => handlePageChange(page)}
                   >
@@ -447,7 +863,7 @@ export default function HomePage({ embedded = false }) {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="w-8 h-8 p-0 bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 transition-all duration-300 hover:scale-110 hover:border-[#160B53]/50"
+                className="w-8 h-8 p-0 bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 transition-all duration-300 hover:scale-110 hover:border-[var(--marketing-primary)]"
                 onClick={() => handlePageChange(currentPage + 1)}
                 disabled={currentPage === totalPages}
               >
@@ -474,20 +890,22 @@ export default function HomePage({ embedded = false }) {
       <section className="py-16 px-2 sm:px-4 bg-gray-50">
         <div className="max-w-6xl mx-auto">
           {isSystemAdmin ? (
-            <h2 className="font-bold text-center text-[#160B53] mb-4" style={{ fontSize: '50px' }}>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>
               <InlineEditable
+                enabled={effectiveEditMode}
                 value={testimonialsContent.title}
                 onSave={(path, value) => handleContentUpdate('testimonials.title', value)}
                 fieldPath="testimonials.title"
-                className="text-[#160B53]"
+                className="text-[var(--marketing-primary)]"
               />
             </h2>
           ) : (
-            <h2 className="font-bold text-center text-[#160B53] mb-4" style={{ fontSize: '50px' }}>{testimonialsContent.title}</h2>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>{testimonialsContent.title}</h2>
           )}
           {isSystemAdmin ? (
             <p className="text-center text-gray-600 mb-12">
               <InlineEditable
+                enabled={effectiveEditMode}
                 value={testimonialsContent.subtitle}
                 onSave={(path, value) => handleContentUpdate('testimonials.subtitle', value)}
                 fieldPath="testimonials.subtitle"
@@ -509,10 +927,11 @@ export default function HomePage({ embedded = false }) {
                 }}
               >
                 <CardContent className="p-0">
-                  <div className="text-6xl text-[#160B53] mb-4">"</div>
+                  <div className="text-6xl text-[var(--marketing-primary)] mb-4">"</div>
                   {isSystemAdmin ? (
                     <p className="text-gray-700 mb-6 leading-relaxed">
                       <InlineEditable
+                        enabled={effectiveEditMode}
                         value={testimonial.text}
                         onSave={(path, value) => handleTestimonialUpdate(index, 'text', value)}
                         fieldPath={`testimonials.items.${index}.text`}
@@ -528,22 +947,24 @@ export default function HomePage({ embedded = false }) {
                   <div className="flex items-center justify-between">
                     <div>
                       {isSystemAdmin ? (
-                        <div className="font-semibold text-[#160B53]">
+                        <div className="font-semibold text-[var(--marketing-primary)]">
                           <InlineEditable
+                            enabled={effectiveEditMode}
                             value={testimonial.name}
                             onSave={(path, value) => handleTestimonialUpdate(index, 'name', value)}
                             fieldPath={`testimonials.items.${index}.name`}
-                            className="text-[#160B53]"
+                            className="text-[var(--marketing-primary)]"
                           />
                         </div>
                       ) : (
-                        <div className="font-semibold text-[#160B53]">
+                        <div className="font-semibold text-[var(--marketing-primary)]">
                           {testimonial.name}
                         </div>
                       )}
                       {isSystemAdmin ? (
                         <div className="text-sm text-gray-500">
                           <InlineEditable
+                            enabled={effectiveEditMode}
                             value={testimonial.branch}
                             onSave={(path, value) => handleTestimonialUpdate(index, 'branch', value)}
                             fieldPath={`testimonials.items.${index}.branch`}
@@ -565,11 +986,12 @@ export default function HomePage({ embedded = false }) {
       </section>
 
       {/* Call to Action Section */}
-      <section className="py-16 px-2 sm:px-4 bg-[#160B53] text-white text-center">
+      <section className="py-16 px-2 sm:px-4 bg-[var(--marketing-cta-bg)] text-white text-center">
         <div className="max-w-4xl mx-auto">
           {isSystemAdmin ? (
             <h2 className="font-bold mb-6" style={{ fontSize: '50px' }}>
               <InlineEditable
+                enabled={effectiveEditMode}
                 value={ctaContent.title}
                 onSave={(path, value) => handleContentUpdate('cta.title', value)}
                 fieldPath="cta.title"
@@ -582,6 +1004,7 @@ export default function HomePage({ embedded = false }) {
           {isSystemAdmin ? (
             <p className="text-xl mb-8 text-pretty leading-relaxed">
               <InlineEditable
+                enabled={effectiveEditMode}
                 value={ctaContent.subtitle}
                 onSave={(path, value) => handleContentUpdate('cta.subtitle', value)}
                 fieldPath="cta.subtitle"
@@ -598,7 +1021,7 @@ export default function HomePage({ embedded = false }) {
             <Button
               size="md"
               variant="ghost"
-              className="border border-white text-white hover:bg-white hover:text-[#160B53] bg-transparent px-6 py-2"
+              className="border border-white text-white hover:bg-white hover:text-[var(--marketing-primary)] bg-transparent px-6 py-2"
               onClick={() => {
                 const branchesSection = document.getElementById('branches')
                 if (branchesSection) {
@@ -629,6 +1052,7 @@ export default function HomePage({ embedded = false }) {
             >
               {isSystemAdmin ? (
                 <InlineEditable
+                  enabled={effectiveEditMode}
                   value={ctaContent.buttonText}
                   onSave={(path, value) => handleContentUpdate('cta.buttonText', value)}
                   fieldPath="cta.buttonText"
@@ -641,8 +1065,8 @@ export default function HomePage({ embedded = false }) {
           </div>
         </div>
       </section>
-      <Footer />
-    </>
+      {!embedded && <Footer />}
+    </div>
   )
 }
 

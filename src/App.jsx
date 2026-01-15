@@ -2,6 +2,7 @@ import { BrowserRouter as Router } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import AppRoutes from './routes/AppRoutes';
+import ToastSound from './components/ui/ToastSound';
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
     >
       <AuthProvider>
         <AppRoutes />
+        <ToastSound />
         <Toaster
           position="top-right"
           toastOptions={{

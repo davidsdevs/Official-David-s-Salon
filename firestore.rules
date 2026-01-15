@@ -1,6 +1,34 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSystemAdmin() {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isSignedIn() && (
+        userData.role == 'system_admin' ||
+        userData.role == 'systemAdmin' ||
+        (userData.roles is list && userData.roles.hasAny(['system_admin', 'systemAdmin']))
+      );
+    }
+
+    match /contents/{contentId} {
+      allow read: if true;
+      allow write: if isSystemAdmin();
+    }
+
+    match /marketingContents/{contentId} {
+      allow read: if true;
+      allow write: if isSystemAdmin();
+    }
+
+    match /marketingBranch/{contentId} {
+      allow read: if true;
+      allow write: if isSystemAdmin();
+    }
+
     // Open access - no restrictions
     // WARNING: This allows anyone to read and write to your database
     // Only use this for development/testing purposes
@@ -8,4 +36,4 @@ service cloud.firestore {
       allow read, write: if true;
     }
   }
-    }
+}

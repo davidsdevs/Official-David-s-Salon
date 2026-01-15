@@ -18,11 +18,11 @@ const PostServiceNotesModal = ({ isOpen, appointment, onClose, onSubmit, loading
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full my-4 max-h-[90vh] overflow-hidden flex flex-col">
         <form onSubmit={handleSubmit}>
           {/* Header */}
-          <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between flex-shrink-0">
             <h2 className="text-xl font-bold text-gray-900">
               Complete Appointment
             </h2>
@@ -37,7 +37,7 @@ const PostServiceNotesModal = ({ isOpen, appointment, onClose, onSubmit, loading
           </div>
 
           {/* Content */}
-          <div className="p-6">
+          <div className="p-6 overflow-y-auto flex-1">
             <div className="mb-4">
               <p className="text-sm text-gray-600 mb-2">
                 Client: <span className="font-semibold text-gray-900">{appointment?.clientName}</span>
@@ -65,7 +65,7 @@ const PostServiceNotesModal = ({ isOpen, appointment, onClose, onSubmit, loading
           </div>
 
           {/* Footer */}
-          <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
+          <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3 flex-shrink-0">
             <button
               type="button"
               onClick={onClose}

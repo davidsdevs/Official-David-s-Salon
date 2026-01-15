@@ -23,6 +23,8 @@ const SeedData = () => {
   const [expandedStylists, setExpandedStylists] = useState(new Set());
   const [seeding, setSeeding] = useState(false);
   const [seedResults, setSeedResults] = useState(null);
+  const [seedingClients, setSeedingClients] = useState(false);
+  const [clientSeedResults, setClientSeedResults] = useState(null);
 
   // Fetch stylists and services data
   useEffect(() => {
@@ -117,6 +119,24 @@ const SeedData = () => {
     setExpandedStylists(newExpanded);
   };
 
+  const getTotalClientsInUsers = async () => {
+    try {
+      const usersRef = collection(db, 'users');
+
+      try {
+        const q = query(usersRef, where('roles', 'array-contains', 'client'));
+        const snap = await getDocs(q);
+        return snap.size;
+      } catch (e) {
+        const q = query(usersRef, where('role', '==', 'client'));
+        const snap = await getDocs(q);
+        return snap.size;
+      }
+    } catch (e) {
+      return null;
+    }
+  };
+
   const handleSeedAppointments = async () => {
     if (!window.confirm('This will create test appointments. Are you sure you want to continue?')) {
       return;
@@ -150,6 +170,45 @@ const SeedData = () => {
       toast.error('Failed to seed appointments: ' + error.message);
     } finally {
       setSeeding(false);
+    }
+  };
+
+  const handleSeedClients = async () => {
+    if (!window.confirm('This will add 30 client user accounts to Firestore. Are you sure you want to continue?')) {
+      return;
+    }
+
+    try {
+      setSeedingClients(true);
+      setClientSeedResults(null);
+
+      const beforeCount = await getTotalClientsInUsers();
+
+      const { seedClients } = await import('../../utils/seedClients');
+      const result = await seedClients({
+        createdBy: currentUser?.uid || 'seed'
+      });
+
+      const afterCount = await getTotalClientsInUsers();
+
+      setClientSeedResults({
+        success: true,
+        message: `Successfully created ${result.created} clients (skipped ${result.skipped})`,
+        beforeCount,
+        afterCount,
+        ...result
+      });
+
+      toast.success(`Created ${result.created} clients (skipped ${result.skipped})`);
+    } catch (error) {
+      console.error('Error seeding clients:', error);
+      setClientSeedResults({
+        success: false,
+        message: error.message || 'Failed to seed clients'
+      });
+      toast.error('Failed to seed clients: ' + error.message);
+    } finally {
+      setSeedingClients(false);
     }
   };
 
@@ -389,6 +448,56 @@ const SeedData = () => {
             </div>
           </div>
         )}
+
+        <div className="mt-8 border-2 border-primary-500 rounded-lg p-6 bg-primary-50">
+          <h2 className="text-xl font-semibold text-gray-800 mb-4">Seed Client Accounts</h2>
+          <p className="text-gray-600 mb-4">
+            This will create 30 client user accounts in the <code className="bg-white px-2 py-1 rounded">users</code> collection.
+          </p>
+          <p className="text-sm text-gray-500 mb-4">
+            Re-running this is safe: existing seeded emails will be skipped.
+          </p>
+
+          <button
+            onClick={handleSeedClients}
+            disabled={seedingClients || loading}
+            className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {seedingClients && <LoadingSpinner size="sm" />}
+            {seedingClients ? 'Seeding Clients...' : 'Seed Client Accounts'}
+          </button>
+
+          {clientSeedResults && (
+            <div className={`mt-4 p-4 rounded-lg ${
+              clientSeedResults.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+            }`}>
+              <p className={`font-medium ${
+                clientSeedResults.success ? 'text-green-800' : 'text-red-800'
+              }`}>
+                {clientSeedResults.message}
+              </p>
+              {clientSeedResults.success && (
+                <div className="text-sm text-green-700 mt-2 space-y-1">
+                  {clientSeedResults.projectId && (
+                    <p>
+                      Firebase project: <code className="bg-white px-2 py-0.5 rounded">{clientSeedResults.projectId}</code>
+                    </p>
+                  )}
+                  {clientSeedResults.beforeCount !== null && clientSeedResults.afterCount !== null && (
+                    <p>
+                      Total clients in <code className="bg-white px-2 py-0.5 rounded">users</code>: {clientSeedResults.beforeCount} → {clientSeedResults.afterCount}
+                    </p>
+                  )}
+                  {clientSeedResults.password && (
+                    <p>
+                      Seeded client password: <code className="bg-white px-2 py-0.5 rounded">{clientSeedResults.password}</code>
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Seed Appointments Section */}
         <div className="mt-8 border-2 border-primary-500 rounded-lg p-6 bg-primary-50">

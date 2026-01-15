@@ -53,8 +53,8 @@ const UserDetailsModal = ({ user, onClose, onEdit }) => {
   const userRoles = getUserRoles(user);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full my-2 sm:my-6 max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col min-h-0">
         {/* Header */}
         <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
@@ -94,7 +94,7 @@ const UserDetailsModal = ({ user, onClose, onEdit }) => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
           {/* Basic Information */}
           <div>
             <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 pb-2 border-b border-gray-200">

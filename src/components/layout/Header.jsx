@@ -73,7 +73,7 @@ const Header = ({ toggleSidebar, sidebarOpen }) => {
 
   const getRoleBasedSettingsRoute = () => {
     const roleRoutes = {
-      systemAdmin: '/admin/settings',
+      systemAdmin: '/admin',
       operationalManager: '/operational-manager/settings',
       branchManager: '/manager/settings',
       receptionist: '/receptionist/settings',
@@ -196,16 +196,18 @@ const Header = ({ toggleSidebar, sidebarOpen }) => {
                     My Profile
                   </button>
                   
-                  <button
-                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    onClick={() => {
-                      setShowDropdown(false);
-                      navigate(getRoleBasedSettingsRoute());
-                    }}
-                  >
-                    <Settings className="w-4 h-4" />
-                    Settings
-                  </button>
+                  {activeRole !== 'systemAdmin' && (
+                    <button
+                      className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => {
+                        setShowDropdown(false);
+                        navigate(getRoleBasedSettingsRoute());
+                      }}
+                    >
+                      <Settings className="w-4 h-4" />
+                      Settings
+                    </button>
+                  )}
                   
                   <div className="border-t border-gray-200 my-1" />
                   
