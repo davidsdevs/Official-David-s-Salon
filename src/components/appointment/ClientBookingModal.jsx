@@ -1045,7 +1045,7 @@ const ClientBookingModal = ({
                         setLoadingPortfolios(true);
                         try {
                           const portfolioData = await getPortfoliosByStylist(stylist.id);
-                          setPortfolios(portfolioData.filter(p => p.status === 'approved'));
+                          setPortfolios(portfolioData.filter(p => p.status === 'active' || p.status === 'approved'));
                         } catch (error) {
                           console.error('Error loading portfolios:', error);
                           setPortfolios([]);

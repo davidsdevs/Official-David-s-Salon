@@ -203,6 +203,7 @@ export default function Products({ embedded = false, cmsEditMode } = {}) {
   return (
     <>
       {!embedded && <Navigation />}
+      {embedded && <Navigation embedded={true} cmsEditMode={cmsEditMode} />}
 
       {isSystemAdmin && (
         <FloatingSaveButton onSave={handleSave} saving={saving} hasChanges={hasChanges} />
@@ -372,6 +373,7 @@ export default function Products({ embedded = false, cmsEditMode } = {}) {
       </main>
 
       {!embedded && <Footer />}
+      {embedded && <Footer embedded={true} cmsEditMode={cmsEditMode} />}
     </>
   );
 }

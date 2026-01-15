@@ -22,6 +22,47 @@ const ImportModal = ({
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState(null);
 
+  const parseCsvLine = (line) => {
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+
+      if (inQuotes) {
+        if (ch === '"') {
+          const next = line[i + 1];
+          if (next === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          current += ch;
+        }
+        continue;
+      }
+
+      if (ch === ',') {
+        values.push(current.trim());
+        current = '';
+        continue;
+      }
+
+      if (ch === '"') {
+        inQuotes = true;
+        continue;
+      }
+
+      current += ch;
+    }
+
+    values.push(current.trim());
+    return values;
+  };
+
   const handleFileSelect = (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
@@ -61,14 +102,18 @@ const ImportModal = ({
 
       let data = [];
 
+      const requiredColumns = validationRules
+        ? Object.keys(validationRules).filter((key) => validationRules[key]?.required)
+        : templateColumns;
+
       if (file.name.endsWith('.csv')) {
         // Parse CSV
         const text = await file.text();
-        const lines = text.split('\n').filter(line => line.trim());
-        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        const lines = text.split(/\r?\n/).filter(line => line.trim());
+        const headers = parseCsvLine(lines[0]).map(h => String(h).trim());
         
         // Validate headers
-        const missingHeaders = templateColumns.filter(col => !headers.includes(col));
+        const missingHeaders = requiredColumns.filter(col => !headers.includes(col));
         if (missingHeaders.length > 0) {
           setError(`Missing required columns: ${missingHeaders.join(', ')}`);
           setLoading(false);
@@ -77,7 +122,7 @@ const ImportModal = ({
 
         // Parse data rows
         for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+          const values = parseCsvLine(lines[i]).map(v => String(v).trim());
           if (values.length === headers.length && values.some(v => v)) {
             const row = {};
             headers.forEach((header, index) => {
@@ -104,7 +149,7 @@ const ImportModal = ({
         const headers = jsonData[0].map(h => String(h).trim());
         
         // Validate headers
-        const missingHeaders = templateColumns.filter(col => !headers.includes(col));
+        const missingHeaders = requiredColumns.filter(col => !headers.includes(col));
         if (missingHeaders.length > 0) {
           setError(`Missing required columns: ${missingHeaders.join(', ')}`);
           setLoading(false);

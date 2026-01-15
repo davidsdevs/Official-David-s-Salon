@@ -452,6 +452,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
       {/* Promotion Popup - Only show when not embedded */}
       {!embedded && <PromotionPopup />}
       {!embedded && <Navigation />}
+      {embedded && <Navigation embedded={true} cmsEditMode={cmsEditMode} />}
       
       {/* Floating Save Button for System Admin */}
       {isSystemAdmin && (
@@ -1066,6 +1067,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
         </div>
       </section>
       {!embedded && <Footer />}
+      {embedded && <Footer embedded={true} cmsEditMode={cmsEditMode} />}
     </div>
   )
 }

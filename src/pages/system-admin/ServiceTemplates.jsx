@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit, Trash2, Power, Search, Scissors, Upload } from 'lucide-react';
+import { Plus, Edit, Trash2, Power, Search, Scissors, Upload, Download } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
   getAllServices,
@@ -40,6 +40,87 @@ const ServiceTemplates = () => {
       document.title = 'DSMS - David\'s Salon Management System';
     };
   }, []);
+
+  const playImportNotificationSound = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const ctx = new AudioCtx();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.15);
+
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.16);
+      oscillator.onended = () => {
+        ctx.close?.();
+      };
+    } catch (e) {
+      // ignore audio errors
+    }
+  };
+
+  const exportServicesCsv = () => {
+    try {
+      const rows = Array.isArray(services) ? services : [];
+      const headers = [
+        'Service ID',
+        'Service Name',
+        'Category',
+        'Duration (minutes)',
+        'Description',
+        'Is Chemical (Yes/No)',
+        'Commission (%)',
+        'Status (Active/Inactive)',
+        'Image URL'
+      ];
+
+      const escapeCsv = (value) => {
+        const str = value === null || value === undefined ? '' : String(value);
+        return `"${str.replace(/"/g, '""')}"`;
+      };
+
+      const csvLines = [headers.join(',')];
+      rows.forEach((s) => {
+        const commission = typeof s?.commissionPercentage === 'number' ? s.commissionPercentage : DEFAULT_COMMISSION_PERCENT;
+        csvLines.push(
+          [
+            s?.id || '',
+            s?.name || '',
+            s?.category || '',
+            s?.duration ?? '',
+            s?.description || '',
+            (s?.isChemical ? 'Yes' : 'No'),
+            commission,
+            (s?.isActive ? 'Active' : 'Inactive'),
+            s?.imageURL || ''
+          ].map(escapeCsv).join(',')
+        );
+      });
+
+      const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const dateStr = new Date().toISOString().split('T')[0];
+      link.download = `services_${dateStr}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success('Exported services CSV');
+    } catch (e) {
+      console.error('Export CSV error:', e);
+      toast.error('Failed to export CSV');
+    }
+  };
   const [showModal, setShowModal] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -168,11 +249,11 @@ const ServiceTemplates = () => {
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet([
       // Headers
-      ['Service Name', 'Category', 'Duration (minutes)', 'Description', 'Is Chemical (Yes/No)', 'Status (Active/Inactive)', 'Image URL'],
+      ['Service Name', 'Category', 'Duration (minutes)', 'Description', 'Is Chemical (Yes/No)', 'Commission (%)', 'Status (Active/Inactive)', 'Image URL'],
       // Sample data rows
-      ['Basic Haircut', 'Haircut and Blowdry', '30', 'Standard haircut service', 'No', 'Active', ''],
-      ['Hair Color Treatment', 'Hair Coloring', '120', 'Full hair coloring service', 'Yes', 'Active', ''],
-      ['Manicure', 'Nail Care / Waxing / Threading', '45', 'Nail care service', 'No', 'Active', '']
+      ['Basic Haircut', 'Haircut and Blowdry', '30', 'Standard haircut service', 'No', '5', 'Active', ''],
+      ['Hair Color Treatment', 'Hair Coloring', '120', 'Full hair coloring service', 'Yes', '10', 'Active', ''],
+      ['Manicure', 'Nail Care / Waxing / Threading', '45', 'Nail care service', 'No', '5', 'Active', '']
     ]);
 
     // Set column widths
@@ -182,6 +263,7 @@ const ServiceTemplates = () => {
       { wch: 20 }, // Duration
       { wch: 40 }, // Description
       { wch: 20 }, // Is Chemical
+      { wch: 16 }, // Commission
       { wch: 20 }, // Status
       { wch: 50 }  // Image URL
     ];
@@ -217,6 +299,7 @@ const ServiceTemplates = () => {
           const duration = parseInt(row['Duration (minutes)'] || row['Duration'] || row['duration (minutes)'] || row['duration'] || 30);
           const description = (row['Description'] || row['description'] || '').trim();
           const isChemicalInput = (row['Is Chemical (Yes/No)'] || row['Is Chemical'] || row['is chemical'] || row['IsChemical'] || 'No').trim().toLowerCase();
+          const commissionInputRaw = (row['Commission (%)'] || row['Commission'] || row['commission (%)'] || row['commission'] || row['commissionPercentage'] || '').toString().trim();
           const statusInput = (row['Status (Active/Inactive)'] || row['Status'] || row['status'] || 'Active').trim();
           const imageURL = (row['Image URL'] || row['Image'] || row['image url'] || row['ImageURL'] || '').trim();
 
@@ -238,6 +321,11 @@ const ServiceTemplates = () => {
           const isChemical = isChemicalInput === 'yes' || isChemicalInput === 'y' || isChemicalInput === 'true' || isChemicalInput === '1';
           const isActive = statusInput.toLowerCase() === 'active' || statusInput.toLowerCase() === 'true' || statusInput === '1';
 
+          const commissionParsed = commissionInputRaw === '' ? DEFAULT_COMMISSION_PERCENT : Number(commissionInputRaw);
+          const commissionPercentage = Number.isFinite(commissionParsed)
+            ? Math.min(100, Math.max(0, commissionParsed))
+            : DEFAULT_COMMISSION_PERCENT;
+
           // Create service data
           const serviceData = {
             name: serviceName,
@@ -245,12 +333,13 @@ const ServiceTemplates = () => {
             duration: duration,
             description: description || '',
             isChemical: isChemical,
+            commissionPercentage,
             isActive: isActive,
             imageURL: imageURL || ''
           };
 
           // Save service
-          await saveService(serviceData, currentUser);
+          await saveService(serviceData, currentUser, { silent: true });
           successCount++;
         } catch (err) {
           errorCount++;
@@ -264,15 +353,18 @@ const ServiceTemplates = () => {
       if (errorCount > 0) {
         const errorMessage = `Imported ${successCount} services successfully. ${errorCount} errors occurred:\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? `\n... and ${errors.length - 10} more errors` : ''}`;
         toast.error(errorMessage, { duration: 8000 });
+        playImportNotificationSound();
         return { success: false, error: errorMessage };
       }
 
       toast.success(`Successfully imported ${successCount} services!`);
+      playImportNotificationSound();
       setShowImportModal(false);
       return { success: true };
     } catch (err) {
       console.error('Import error:', err);
       toast.error(`Import failed: ${err.message}`);
+      playImportNotificationSound();
       return { success: false, error: err.message };
     }
   };
@@ -292,6 +384,13 @@ const ServiceTemplates = () => {
           <p className="text-gray-600">Master catalog of services for all branches</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={exportServicesCsv}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Download className="w-5 h-5" />
+            Export CSV
+          </button>
           <button
             onClick={() => setShowImportModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -646,6 +745,7 @@ const ServiceTemplates = () => {
           'Duration (minutes)',
           'Description',
           'Is Chemical (Yes/No)',
+          'Commission (%)',
           'Status (Active/Inactive)',
           'Image URL'
         ]}
@@ -657,6 +757,7 @@ const ServiceTemplates = () => {
             'Duration (minutes)': '30',
             'Description': 'Standard haircut service',
             'Is Chemical (Yes/No)': 'No',
+            'Commission (%)': '5',
             'Status (Active/Inactive)': 'Active',
             'Image URL': ''
           },
@@ -666,6 +767,7 @@ const ServiceTemplates = () => {
             'Duration (minutes)': '120',
             'Description': 'Full hair coloring service',
             'Is Chemical (Yes/No)': 'Yes',
+            'Commission (%)': '10',
             'Status (Active/Inactive)': 'Active',
             'Image URL': ''
           },
@@ -675,6 +777,7 @@ const ServiceTemplates = () => {
             'Duration (minutes)': '45',
             'Description': 'Nail care service',
             'Is Chemical (Yes/No)': 'No',
+            'Commission (%)': '5',
             'Status (Active/Inactive)': 'Active',
             'Image URL': ''
           }

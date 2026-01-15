@@ -7,6 +7,7 @@ import AboutPage from '../public/AboutPage';
 import ProductsPage from '../public/Products';
 import BranchContentManagement from './BranchContentManagement';
 import BranchProductsContentManagement from './BranchProductsContentManagement';
+import LayoutContentManagement from './LayoutContentManagement';
 import ServicesContentManagement from './ServicesContentManagement';
 import StylistsContentManagement from './StylistsContentManagement';
 import StylistPortfolioContentManagement from './StylistPortfolioContentManagement';
@@ -34,7 +35,43 @@ const ContentManagement = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [pageFilter, setPageFilter] = useState('all');
 
+  const allowEmbeddedInteraction = (target) => {
+    if (!target || typeof target.closest !== 'function') return false;
+    if (target.closest('[data-cms-allow-interaction="true"]')) return true;
+
+    const tag = target.tagName ? target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'option') return true;
+    if (target.isContentEditable) return true;
+
+    return false;
+  };
+
+  const handleEmbeddedClickCapture = (e) => {
+    const target = e?.target;
+    if (allowEmbeddedInteraction(target)) return;
+
+    // Block navigation / button clicks while editing in embedded CMS preview
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleEmbeddedSubmitCapture = (e) => {
+    const target = e?.target;
+    if (allowEmbeddedInteraction(target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   const landingPages = [
+    {
+      id: 'layout',
+      title: 'Header & Footer',
+      description: 'Global site header + footer labels (public pages)',
+      icon: FileText,
+      component: LayoutContentManagement,
+      path: '/layout',
+      type: 'public'
+    },
     {
       id: 'homepage',
       title: 'Homepage',
@@ -197,7 +234,7 @@ const ContentManagement = () => {
         {/* Embedded Page Container */}
         <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-white shadow-lg" style={{ minHeight: 'calc(100vh - 250px)' }}>
           <div className="w-full h-full overflow-y-auto" style={{ maxHeight: 'calc(100vh - 250px)' }}>
-            <div className="relative">
+            <div className="relative" onClickCapture={handleEmbeddedClickCapture} onSubmitCapture={handleEmbeddedSubmitCapture}>
               <PageComponent embedded={true} cmsEditMode={editMode} />
             </div>
           </div>
@@ -230,7 +267,7 @@ const ContentManagement = () => {
               </div>
 
               <div className="flex-1 overflow-y-auto">
-                <div className="relative">
+                <div className="relative" onClickCapture={handleEmbeddedClickCapture} onSubmitCapture={handleEmbeddedSubmitCapture}>
                   <PageComponent embedded={true} cmsEditMode={editMode} />
                 </div>
               </div>

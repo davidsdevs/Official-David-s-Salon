@@ -72,8 +72,9 @@ export const getServiceById = async (serviceId) => {
  * @param {Object} currentUser - User performing the action
  * @returns {Promise<string>} Service ID
  */
-export const saveService = async (serviceData, currentUser) => {
+export const saveService = async (serviceData, currentUser, options = {}) => {
   try {
+    const silent = options?.silent === true;
     const serviceId = serviceData.id || doc(collection(db, 'services')).id;
     const serviceRef = doc(db, 'services', serviceId);
     
@@ -124,12 +125,16 @@ export const saveService = async (serviceData, currentUser) => {
         category: serviceData.category
       }
     });
-    
-    toast.success(`Service ${serviceData.id ? 'updated' : 'created'} successfully!`);
+
+    if (!silent) {
+      toast.success(`Service ${serviceData.id ? 'updated' : 'created'} successfully!`);
+    }
     return serviceId;
   } catch (error) {
     console.error('Error saving service:', error);
-    toast.error('Failed to save service');
+    if (options?.silent !== true) {
+      toast.error('Failed to save service');
+    }
     throw error;
   }
 };

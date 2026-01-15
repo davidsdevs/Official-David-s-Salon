@@ -280,7 +280,7 @@ export default function BranchPage({
 
       if (typeof years === 'number' && years > 0) return `${years} years`
       if (typeof years === 'string' && years.trim()) return years.trim()
-      return '—'
+      return ''
     }
 
     const loadStylists = async () => {
@@ -310,7 +310,16 @@ export default function BranchPage({
             name: fullName(u),
             specialty: u.specialty || u.specialization || u.position || 'Stylist',
             experience: toExperienceLabel(u),
-            image: u.photoURL || u.profilePicture || u.avatarUrl || u.image || '/logo.jpg',
+            image:
+              u.imageURL ||
+              u.imageUrl ||
+              u.photoURL ||
+              u.photoUrl ||
+              u.profilePicture ||
+              u.avatarUrl ||
+              u.profileImageUrl ||
+              u.image ||
+              '',
           }))
 
         const stylistIds = mapped.map((s) => s.id).filter(Boolean)
@@ -986,7 +995,7 @@ export default function BranchPage({
                 <Card key={stylist.id} className="bg-white text-gray-900 overflow-hidden border-0 p-0" style={{ boxShadow: '0 2px 15px 0 rgba(0, 0, 0, 0.25)' }}>
                   <div className="h-64 w-full bg-gray-200 overflow-hidden">
                     <img
-                      src={stylist.image || stylist.portfolioImage || '/logo.jpg'}
+                      src={stylist.image || '/logo.jpg'}
                       alt={stylist.name}
                       className="w-full h-full object-cover"
                       onError={(e) => {
@@ -1004,7 +1013,11 @@ export default function BranchPage({
                   <div className="p-6 text-center">
                     <h3 className="text-xl font-bold text-[var(--branch-primary)] mb-1">{stylist.name}</h3>
                     <p className="text-gray-600 text-sm mb-2">{stylist.specialty}</p>
-                    <p className="text-gray-500 text-xs mb-4">{stylist.experience} experience</p>
+                    {stylist.experience ? (
+                      <p className="text-gray-500 text-xs mb-4">{stylist.experience}</p>
+                    ) : (
+                      <div className="mb-4" />
+                    )}
                     {embedded ? (
                       <Button
                         size="sm"

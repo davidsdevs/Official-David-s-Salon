@@ -56,6 +56,7 @@ export default function BranchStylistsPage({ embedded = false, cmsEditMode, cmsB
   const [selectedBranch, setSelectedBranch] = useState(null)
   const [stylists, setStylists] = useState([])
   const [loadingStylists, setLoadingStylists] = useState(true)
+  const [brokenImageById, setBrokenImageById] = useState({})
 
   const branchName = cmsBranchName || (selectedBranch?.__name || computedBranchName)
 
@@ -153,6 +154,10 @@ export default function BranchStylistsPage({ embedded = false, cmsEditMode, cmsB
   }, [marketingContentId])
 
   useEffect(() => {
+    setBrokenImageById({})
+  }, [selectedBranchId])
+
+  useEffect(() => {
     if (content && !localContent) {
       setLocalContent(content)
     }
@@ -185,7 +190,14 @@ export default function BranchStylistsPage({ embedded = false, cmsEditMode, cmsB
             reviews: typeof s.reviews === 'number' ? s.reviews : (typeof s.reviewCount === 'number' ? s.reviewCount : 0),
             specialties: Array.isArray(s.specialties) ? s.specialties : [specialty],
             description: s.bio || s.description || '',
-            image: s.photoURL || s.photoUrl || s.avatarUrl || s.profileImageUrl || ''
+            image:
+              s.imageURL ||
+              s.imageUrl ||
+              s.photoURL ||
+              s.photoUrl ||
+              s.avatarUrl ||
+              s.profileImageUrl ||
+              ''
           }
         })
 
@@ -302,6 +314,8 @@ export default function BranchStylistsPage({ embedded = false, cmsEditMode, cmsB
   const startIndex = (currentPage - 1) * stylistsPerPage
   const endIndex = startIndex + stylistsPerPage
   const currentStylists = filteredStylists.slice(startIndex, endIndex)
+
+  const isImageBroken = (id) => brokenImageById?.[id] === true
 
   const handlePageChange = (page) => {
     setCurrentPage(page)
@@ -447,11 +461,17 @@ export default function BranchStylistsPage({ embedded = false, cmsEditMode, cmsB
               >
                 {/* Stylist Image */}
                 <div className="relative h-64 bg-gray-100 overflow-hidden">
-                  {stylist.image ? (
+                  {stylist.image && !isImageBroken(stylist.id) ? (
                     <img
                       src={stylist.image}
                       alt={stylist.name}
                       className="w-full h-full object-cover"
+                      onError={() => {
+                        setBrokenImageById((prev) => ({
+                          ...(prev || {}),
+                          [stylist.id]: true
+                        }))
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400 font-poppins">

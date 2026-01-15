@@ -1,6 +1,5 @@
-import { Award, Users, Clock, Globe, ChevronDown, ChevronUp, Printer } from "lucide-react"
+import { Award, Users, Clock, Globe, ChevronDown, ChevronUp } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
-import { useReactToPrint } from "react-to-print"
 import PromotionPopup from "../../components/landing/PromotionPopup"
 import Navigation from "../../components/landing/Navigation"
 import Footer from "../../components/landing/Footer"
@@ -9,7 +8,6 @@ import { useAuth } from "../../context/AuthContext"
 import { USER_ROLES } from "../../utils/constants"
 import InlineEditable from "../../components/cms/InlineEditable"
 import FloatingSaveButton from "../../components/cms/FloatingSaveButton"
-import Button from "../../components/ui/Button"
 import EditableImage from "../../components/cms/EditableImage"
 import InlineColorPicker from "../../components/cms/InlineColorPicker"
 
@@ -35,10 +33,6 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
   
   // Print functionality
   const printRef = useRef()
-  const handlePrint = useReactToPrint({
-    content: () => printRef.current,
-    documentTitle: `About_Davids_Salon_${new Date().toISOString().split('T')[0]}`,
-  })
 
   // Load content from Firestore
   useEffect(() => {
@@ -300,6 +294,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
   return (
     <>
       {!embedded && <Navigation />}
+      {embedded && <Navigation embedded={true} cmsEditMode={cmsEditMode} />}
       <div className="min-h-screen bg-white" style={{ '--marketing-primary': primaryColor }}>
         {/* Promotion Popup - Only show when not embedded */}
         {!embedded && <PromotionPopup />}
@@ -311,20 +306,6 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
           saving={saving} 
           hasChanges={hasChanges}
         />
-      )}
-      
-      {/* Print Button */}
-      {!embedded && (
-        <div className="fixed bottom-6 right-6 z-40">
-          <Button
-            onClick={handlePrint}
-            className="bg-[var(--marketing-primary)] hover:opacity-90 text-white shadow-lg"
-            size="lg"
-          >
-            <Printer className="h-5 w-5 mr-2" />
-            Print Page
-          </Button>
-        </div>
       )}
       
       {/* Print Content */}
@@ -886,6 +867,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
         </div>
       </div>
       {!embedded && <Footer />}
+      {embedded && <Footer embedded={true} cmsEditMode={cmsEditMode} />}
     </>
   )
 }

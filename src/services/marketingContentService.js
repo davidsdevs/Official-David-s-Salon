@@ -39,6 +39,8 @@ class MarketingContentService {
           ? this.getDefaultAboutPageContent()
           : type === 'products'
           ? this.getDefaultProductsPageContent()
+          : type === 'layout'
+          ? this.getDefaultLayoutContent()
           : this.getDefaultBranchContent(contentId)
       };
     } catch (error) {
@@ -52,6 +54,8 @@ class MarketingContentService {
           ? this.getDefaultAboutPageContent()
           : type === 'products'
           ? this.getDefaultProductsPageContent()
+          : type === 'layout'
+          ? this.getDefaultLayoutContent()
           : this.getDefaultBranchContent(contentId)
       };
     }
@@ -67,6 +71,10 @@ class MarketingContentService {
 
   async getProductsPageContent() {
     return this.getContent('products', 'products');
+  }
+
+  async getLayoutContent() {
+    return this.getContent('layout', 'layout');
   }
 
   subscribeToContent(contentId, type, callback) {
@@ -92,6 +100,8 @@ class MarketingContentService {
               ? this.getDefaultAboutPageContent()
               : type === 'products'
               ? this.getDefaultProductsPageContent()
+              : type === 'layout'
+              ? this.getDefaultLayoutContent()
               : this.getDefaultBranchContent(contentId)
           });
         }
@@ -104,6 +114,8 @@ class MarketingContentService {
             ? this.getDefaultAboutPageContent()
             : type === 'products'
             ? this.getDefaultProductsPageContent()
+            : type === 'layout'
+            ? this.getDefaultLayoutContent()
             : this.getDefaultBranchContent(contentId)
         });
       }
@@ -118,6 +130,8 @@ class MarketingContentService {
           ? this.getDefaultAboutPageContent()
           : type === 'products'
           ? this.getDefaultProductsPageContent()
+          : type === 'layout'
+          ? this.getDefaultLayoutContent()
           : this.getDefaultBranchContent(contentId)
       });
     });
@@ -229,6 +243,41 @@ class MarketingContentService {
         title: "Ready to Transform Your Look?",
         subtitle: "Visit our Harbor Point Ayala location to discover our exclusive services and book your appointment today.",
         buttonText: "View Our Services"
+      },
+      createdAt: null,
+      updatedAt: null
+    };
+  }
+
+  getDefaultLayoutContent() {
+    return {
+      type: 'layout',
+      contentId: 'layout',
+      navigation: {
+        links: {
+          home: 'HOME',
+          branch: 'BRANCH',
+          about: 'ABOUT',
+          products: 'PRODUCTS'
+        },
+        buttons: {
+          register: 'REGISTER',
+          login: 'LOGIN'
+        }
+      },
+      footer: {
+        description: 'Premium hair and beauty services at our Harbor Point Ayala location. We offer specialized services tailored for our local community.',
+        quickLinksTitle: 'Quick Links',
+        quickLinks: {
+          location: 'Our Location',
+          about: 'About Us',
+          contact: 'Contact',
+          bookOnline: 'Book Online'
+        },
+        contactInfoTitle: 'Contact Info',
+        phone: '+63 930 222 9659',
+        address: 'Makati, Philippines',
+        copyright: "© 2025 David's Salon. All Rights Reserved."
       },
       createdAt: null,
       updatedAt: null
@@ -394,7 +443,7 @@ class MarketingContentService {
           gallery: 'Gallery',
           products: 'Products'
         },
-        copyright: "© 2025 David's Salon - {branchName}. All Rights Reserved."
+        copyright: " 2025 David's Salon - {branchName}. All Rights Reserved."
       },
       servicesPage: {
         header: {
@@ -435,6 +484,19 @@ class MarketingContentService {
           subtitle: 'Choose your preferred stylist and schedule your appointment today',
           primaryButtonText: 'Book Appointment',
           secondaryButtonText: 'Call Us Now'
+        }
+      },
+      stylistPortfolioPage: {
+        header: {
+          title: 'Gallery',
+          subtitle: 'Meet our team of expert stylists ready to transform your look'
+        },
+        filters: {
+          allLabel: 'All'
+        },
+        emptyState: {
+          title: 'No images found',
+          subtitle: 'Try selecting a different category'
         }
       },
       theme: {
