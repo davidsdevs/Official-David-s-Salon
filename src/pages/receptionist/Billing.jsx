@@ -17,6 +17,8 @@ import { getBranchServices } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
 import { USER_ROLES, APPOINTMENT_STATUS, ROUTES } from '../../utils/constants';
 import BillingModalPOS from '../../components/billing/BillingModalPOS';
+import EnhancedBillingModal from '../../components/billing/EnhancedBillingModal';
+import TwoStepCheckoutModal from '../../components/billing/TwoStepCheckoutModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ReceiptComponent from '../../components/billing/Receipt';
 import { thermalPrinter } from '../../services/thermalPrinterService';
@@ -167,6 +169,8 @@ const ReceptionistBilling = () => {
     setEndDateFilter(range.endDate);
   };
   const [showBillingModal, setShowBillingModal] = useState(false);
+  const [showEnhancedBillingModal, setShowEnhancedBillingModal] = useState(false);
+  const [showTwoStepCheckoutModal, setShowTwoStepCheckoutModal] = useState(false);
   const [showPOSModal, setShowPOSModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [dailySummary, setDailySummary] = useState(null);
@@ -485,6 +489,16 @@ const ReceptionistBilling = () => {
   const handleProcessPayment = (appointment) => {
     setSelectedAppointment(appointment);
     setShowBillingModal(true);
+  };
+
+  const handleProcessPaymentEnhanced = (appointment) => {
+    setSelectedAppointment(appointment);
+    setShowEnhancedBillingModal(true);
+  };
+
+  const handleProcessPaymentTwoStep = (appointment) => {
+    setSelectedAppointment(appointment);
+    setShowTwoStepCheckoutModal(true);
   };
 
   const handleWalkInBilling = () => {
@@ -1367,6 +1381,30 @@ const ReceptionistBilling = () => {
         serviceChargeRate={SERVICE_CHARGE_RATE}
       />
 
+      {/* Enhanced Billing Modal with Tax & Loyalty */}
+      <EnhancedBillingModal
+        isOpen={showEnhancedBillingModal}
+        billData={selectedAppointment}
+        onClose={() => {
+          setShowEnhancedBillingModal(false);
+          setSelectedAppointment(null);
+        }}
+        onSubmit={handleSubmitBill}
+        loading={processing}
+      />
+
+      {/* Two-Step Checkout Modal - Reduced Cognitive Overload */}
+      <TwoStepCheckoutModal
+        isOpen={showTwoStepCheckoutModal}
+        billData={selectedAppointment}
+        onClose={() => {
+          setShowTwoStepCheckoutModal(false);
+          setSelectedAppointment(null);
+        }}
+        onSubmit={handleSubmitBill}
+        loading={processing}
+      />
+
       {/* Quick POS Modal - Products Only */}
       <BillingModalPOS
         isOpen={showPOSModal}
@@ -2056,43 +2094,67 @@ const ReceptionistBilling = () => {
                 {/* List */}
                 <div className="max-h-96 overflow-y-auto">
                   {completedAppointments.map((apt) => (
-                    <button
-                      key={apt.id}
-                      onClick={() => {
-                        handleProcessPayment(apt);
-                        setShowPendingList(false);
-                      }}
-                      className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {apt.clientName}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <p className="text-xs text-gray-500">
-                              #{apt.id.slice(-6)}
+                    <div key={apt.id} className="border-b border-gray-100 last:border-b-0">
+                      <div className="px-4 py-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {apt.clientName}
                             </p>
-                            {apt.services && apt.services.length > 0 && (
-                              <>
-                                <span className="text-gray-300">•</span>
-                                <p className="text-xs text-gray-500">
-                                  {apt.services.length} service(s)
-                                </p>
-                              </>
-                            )}
+                            <div className="flex items-center gap-2 mt-1">
+                              <p className="text-xs text-gray-500">
+                                #{apt.id.slice(-6)}
+                              </p>
+                              {apt.services && apt.services.length > 0 && (
+                                <>
+                                  <span className="text-gray-300">•</span>
+                                  <p className="text-xs text-gray-500">
+                                    {apt.services.length} service(s)
+                                  </p>
+                                </>
+                              )}
+                            </div>
                           </div>
+                          <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0 ml-2" />
                         </div>
-                        <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0 ml-2" />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              handleProcessPayment(apt);
+                              setShowPendingList(false);
+                            }}
+                            className="flex-1 px-3 py-1.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                          >
+                            Standard Billing
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleProcessPaymentTwoStep(apt);
+                              setShowPendingList(false);
+                            }}
+                            className="flex-1 px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                          >
+                            2-Step Checkout
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleProcessPaymentEnhanced(apt);
+                              setShowPendingList(false);
+                            }}
+                            className="flex-1 px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 transition-colors"
+                          >
+                            Enhanced Billing
+                          </button>
+                        </div>
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
 
                 {/* Footer */}
                 <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
                   <p className="text-xs text-gray-600 text-center">
-                    Click to process payment
+                    Choose billing method: Standard, 2-Step Checkout (recommended), or Enhanced (with tax & loyalty)
                   </p>
                 </div>
               </div>

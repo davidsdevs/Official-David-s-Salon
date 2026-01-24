@@ -26,7 +26,7 @@ const Promotions = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedPromotion, setSelectedPromotion] = useState(null);
-  
+
   // Filtering and pagination states
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'inactive', 'upcoming', 'expired'
@@ -68,7 +68,8 @@ const Promotions = () => {
         getAllPromotions(),
         getAllBranches()
       ]);
-      setPromotions(promosData);
+      const activePromos = promosData.filter(p => p.isActive !== false);
+      setPromotions(activePromos);
       setBranches(branchesData);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -103,7 +104,7 @@ const Promotions = () => {
 
   const handleEdit = (promotion) => {
     setSelectedPromotion(promotion);
-    
+
     // Handle date conversion - support both Date objects and Timestamps
     const formatDate = (date) => {
       if (!date) return '';
@@ -118,7 +119,7 @@ const Promotions = () => {
       }
       return '';
     };
-    
+
     setFormData({
       title: promotion.title || promotion.name || '',
       description: promotion.description || '',
@@ -152,7 +153,7 @@ const Promotions = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.title || !formData.startDate || !formData.endDate) {
       toast.error('Please fill in all required fields');
       return;
@@ -180,7 +181,7 @@ const Promotions = () => {
         promotionCode: formData.promotionCode.trim().toUpperCase(),
         maxUses: formData.usageType === 'repeating' && formData.maxUses ? parseInt(formData.maxUses) : null
       };
-      
+
       if (selectedPromotion) {
         await updatePromotion(selectedPromotion.id, promotionData, currentUser);
         toast.success('Promotion updated successfully');
@@ -188,7 +189,7 @@ const Promotions = () => {
         await createPromotion(promotionData, currentUser);
         toast.success('Promotion created successfully');
       }
-      
+
       setShowModal(false);
       await fetchData();
     } catch (error) {
@@ -211,7 +212,7 @@ const Promotions = () => {
   const isActive = (promotion) => {
     if (!promotion.isActive) return false;
     const now = new Date();
-    
+
     // Handle date conversion - support both Date objects and Timestamps
     const getDate = (date) => {
       if (date instanceof Date) return date;
@@ -219,12 +220,12 @@ const Promotions = () => {
       if (typeof date === 'string') return new Date(date);
       return new Date();
     };
-    
+
     const start = getDate(promotion.startDate);
     const end = getDate(promotion.endDate);
     return now >= start && now <= end;
   };
-  
+
   const getBranchName = (branchId) => {
     if (!branchId) return 'System-Wide (All Branches)';
     const branch = branches.find(b => b.id === branchId);
@@ -255,7 +256,7 @@ const Promotions = () => {
     const now = new Date();
     const start = promotion.startDate?.toDate ? promotion.startDate.toDate() : new Date(promotion.startDate);
     const end = promotion.endDate?.toDate ? promotion.endDate.toDate() : new Date(promotion.endDate);
-    
+
     if (now < start) return 'upcoming';
     if (now > end) return 'expired';
     return 'active';
@@ -268,7 +269,7 @@ const Promotions = () => {
     // Search filter
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
-      filtered = filtered.filter(p => 
+      filtered = filtered.filter(p =>
         (p.title || p.name || '').toLowerCase().includes(searchLower) ||
         (p.promotionCode || '').toLowerCase().includes(searchLower) ||
         (p.description || '').toLowerCase().includes(searchLower)
@@ -321,7 +322,7 @@ const Promotions = () => {
     // Sorting
     filtered.sort((a, b) => {
       let aValue, bValue;
-      
+
       switch (sortBy) {
         case 'startDate':
           aValue = a.startDate?.toDate ? a.startDate.toDate() : new Date(a.startDate || 0);
@@ -361,7 +362,7 @@ const Promotions = () => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     const paginatedPromotions = filteredAndSortedPromotions.slice(startIndex, endIndex);
-    
+
     return {
       totalItems,
       totalPages,
@@ -401,7 +402,7 @@ const Promotions = () => {
     branches.forEach(branch => {
       const branchPromotions = promotions.filter(p => p.branchId === branch.id);
       const now = new Date();
-      
+
       const activePromos = branchPromotions.filter(p => {
         if (!p.isActive) return false;
         const start = p.startDate?.toDate ? p.startDate.toDate() : new Date(p.startDate);
@@ -433,7 +434,7 @@ const Promotions = () => {
     // System-wide promotions
     const systemWidePromos = promotions.filter(p => !p.branchId);
     const now = new Date();
-    
+
     stats.systemWide.total = systemWidePromos.length;
     stats.systemWide.active = systemWidePromos.filter(p => {
       if (!p.isActive) return false;
@@ -441,13 +442,13 @@ const Promotions = () => {
       const end = p.endDate?.toDate ? p.endDate.toDate() : new Date(p.endDate);
       return now >= start && now <= end;
     }).length;
-    
+
     stats.systemWide.upcoming = systemWidePromos.filter(p => {
       if (!p.isActive) return false;
       const start = p.startDate?.toDate ? p.startDate.toDate() : new Date(p.startDate);
       return now < start;
     }).length;
-    
+
     stats.systemWide.expired = systemWidePromos.filter(p => {
       const end = p.endDate?.toDate ? p.endDate.toDate() : new Date(p.endDate);
       return now > end || !p.isActive;
@@ -581,11 +582,10 @@ const Promotions = () => {
             }}
             className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
           >
-            <option value="all">All Status</option>
+            <option value="all">All Active Status</option>
             <option value="active">Active</option>
             <option value="upcoming">Upcoming</option>
             <option value="expired">Expired</option>
-            <option value="inactive">Inactive</option>
           </select>
           <select
             value={branchFilter}
@@ -695,7 +695,7 @@ const Promotions = () => {
                     if (typeof date === 'string') return new Date(date).toLocaleDateString();
                     return 'N/A';
                   };
-                  
+
                   return (
                     <tr key={promotion.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -735,15 +735,14 @@ const Promotions = () => {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                          status === 'active' 
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${status === 'active'
                             ? 'bg-green-100 text-green-700 border border-green-200'
                             : status === 'upcoming'
-                            ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
-                            : status === 'expired'
-                            ? 'bg-red-100 text-red-700 border border-red-200'
-                            : 'bg-gray-100 text-gray-700 border border-gray-200'
-                        }`}>
+                              ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
+                              : status === 'expired'
+                                ? 'bg-red-100 text-red-700 border border-red-200'
+                                : 'bg-gray-100 text-gray-700 border border-gray-200'
+                          }`}>
                           {status === 'active' && <CheckCircle className="h-3 w-3" />}
                           {status === 'upcoming' && <Clock className="h-3 w-3" />}
                           {status === 'expired' && <XCircle className="h-3 w-3" />}
@@ -1093,15 +1092,14 @@ const Promotions = () => {
                           </div>
                         )}
                       </div>
-                      <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${
-                        status === 'active' 
+                      <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${status === 'active'
                           ? 'bg-green-100 text-green-700 border-2 border-green-200'
                           : status === 'upcoming'
-                          ? 'bg-yellow-100 text-yellow-700 border-2 border-yellow-200'
-                          : status === 'expired'
-                          ? 'bg-red-100 text-red-700 border-2 border-red-200'
-                          : 'bg-gray-100 text-gray-700 border-2 border-gray-200'
-                      }`}>
+                            ? 'bg-yellow-100 text-yellow-700 border-2 border-yellow-200'
+                            : status === 'expired'
+                              ? 'bg-red-100 text-red-700 border-2 border-red-200'
+                              : 'bg-gray-100 text-gray-700 border-2 border-gray-200'
+                        }`}>
                         {status === 'active' && <CheckCircle className="h-5 w-5" />}
                         {status === 'upcoming' && <Clock className="h-5 w-5" />}
                         {status === 'expired' && <XCircle className="h-5 w-5" />}
@@ -1134,8 +1132,8 @@ const Promotions = () => {
                           <div className="flex justify-between items-center py-2 border-b border-gray-100">
                             <span className="text-sm font-medium text-gray-600">Discount Value</span>
                             <span className="text-lg font-bold text-[#160B53]">
-                              {promotion.discountType === 'percentage' 
-                                ? `${promotion.discountValue}%` 
+                              {promotion.discountType === 'percentage'
+                                ? `${promotion.discountValue}%`
                                 : `₱${parseFloat(promotion.discountValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                             </span>
                           </div>
@@ -1186,9 +1184,9 @@ const Promotions = () => {
                           <div className="flex justify-between items-center py-2 border-b border-gray-100">
                             <span className="text-sm font-medium text-gray-600">Applicable To</span>
                             <span className="text-sm text-gray-900 capitalize">
-                              {promotion.applicableTo === 'all' ? 'All Services & Products' : 
-                               promotion.applicableTo === 'services' ? 'Services Only' :
-                               promotion.applicableTo === 'products' ? 'Products Only' : 'Specific Items'}
+                              {promotion.applicableTo === 'all' ? 'All Services & Products' :
+                                promotion.applicableTo === 'services' ? 'Services Only' :
+                                  promotion.applicableTo === 'products' ? 'Products Only' : 'Specific Items'}
                             </span>
                           </div>
                           <div className="flex justify-between items-center py-2">

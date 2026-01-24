@@ -220,26 +220,26 @@ const ReceptionistAppointments = () => {
         return;
       }
 
-      // Auto-cancel eligible appointments (only run occasionally to avoid heavy reads)
-      const lastAutoCancelKey = `lastAutoCancel_${userBranch}`;
-      const lastRun = localStorage.getItem(lastAutoCancelKey);
-      const now = Date.now();
-      const ONE_HOUR = 60 * 60 * 1000; // Only run every hour
+      // DISABLED: Auto-cancel eligible appointments (causing undefined field errors)
+      // const lastAutoCancelKey = `lastAutoCancel_${userBranch}`;
+      // const lastRun = localStorage.getItem(lastAutoCancelKey);
+      // const now = Date.now();
+      // const ONE_HOUR = 60 * 60 * 1000; // Only run every hour
 
-      if (!lastRun || (now - parseInt(lastRun)) > ONE_HOUR) {
-        try {
-          const { autoCancelAppointments } = await import('../../services/appointmentService');
-          const cancelledAppointments = await autoCancelAppointments(userBranch);
-          if (cancelledAppointments.length > 0) {
-            console.log(`🗑️ Auto-cancelled ${cancelledAppointments.length} appointments`);
-            // Could show a toast notification here if needed
-          }
-          localStorage.setItem(lastAutoCancelKey, now.toString());
-        } catch (error) {
-          console.error('Error running auto-cancel:', error);
-          // Continue even if auto-cancel fails
-        }
-      }
+      // if (!lastRun || (now - parseInt(lastRun)) > ONE_HOUR) {
+      //   try {
+      //     const { autoCancelAppointments } = await import('../../services/appointmentService');
+      //     const cancelledAppointments = await autoCancelAppointments(userBranch);
+      //     if (cancelledAppointments.length > 0) {
+      //       console.log(`🗑️ Auto-cancelled ${cancelledAppointments.length} appointments`);
+      //       // Could show a toast notification here if needed
+      //     }
+      //     localStorage.setItem(lastAutoCancelKey, now.toString());
+      //   } catch (error) {
+      //     console.error('Error running auto-cancel:', error);
+      //     // Continue even if auto-cancel fails
+      //   }
+      // }
 
       const data = await getAppointmentsByBranch(userBranch);
       

@@ -5,7 +5,6 @@ import { MapPin, Phone, Search } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useState, useEffect, useRef } from "react"
 import { collection, getCountFromServer, query, where } from "firebase/firestore"
-import PromotionPopup from "../../components/landing/PromotionPopup"
 import Navigation from "../../components/landing/Navigation"
 import Footer from "../../components/landing/Footer"
 import { marketingContentService } from "../../services/marketingContentService"
@@ -359,8 +358,6 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
 
   return (
     <div style={{ '--marketing-primary': primaryColor, '--marketing-cta-bg': ctaBackgroundColor }}>
-      {/* Promotion Popup - Only show when not embedded */}
-      {!embedded && <PromotionPopup />}
       {!embedded && <Navigation />}
       {embedded && <Navigation embedded={true} cmsEditMode={cmsEditMode} />}
       
@@ -598,18 +595,40 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
                 }}
               >
                 <div className="h-48 w-full overflow-hidden relative">
-                  <img
-                    src={branch.image || "/placeholder.svg"}
-                    alt={`${branch.name} branch`}
-                    className="w-full h-full object-cover"
-                    style={{ 
-                      objectPosition: 'center center',
-                      height: '192px',
-                      width: '100%',
-                      maxHeight: '192px',
-                      maxWidth: '100%'
+                  <EditableImage
+                    enabled={isSystemAdmin && effectiveEditMode}
+                    imageUrl={branch.imageUrl || branch.image || "/placeholder.svg"}
+                    onChange={async (url) => {
+                      // Update branch image in Firestore
+                      const updatedBranches = branchesData.map(b => 
+                        b.id === branch.id ? { ...b, imageUrl: url } : b
+                      );
+                      setBranchesData(updatedBranches);
+                      
+                      // Save to Firestore with proper user context
+                      try {
+                        const { updateBranch } = await import('../../services/branchService');
+                        await updateBranch(branch.id, { imageUrl: url }, userData);
+                        console.log('✅ Branch image updated successfully');
+                      } catch (error) {
+                        console.error('❌ Error updating branch image:', error);
+                      }
                     }}
-                  />
+                    wrapperClassName="w-full h-full"
+                  >
+                    <img
+                      src={branch.imageUrl || branch.image || "/placeholder.svg"}
+                      alt={`${branch.name} branch`}
+                      className="w-full h-full object-cover"
+                      style={{ 
+                        objectPosition: 'center center',
+                        height: '192px',
+                        width: '100%',
+                        maxHeight: '192px',
+                        maxWidth: '100%'
+                      }}
+                    />
+                  </EditableImage>
                 </div>
                 <CardContent className="p-6">
                   <h3 className="text-xl font-bold mb-2 text-gray-800">

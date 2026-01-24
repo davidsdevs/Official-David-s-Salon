@@ -4,7 +4,6 @@ import {
   LayoutDashboard, 
   Package, 
   ShoppingCart, 
-  BarChart3, 
   AlertTriangle, 
   Calendar,
   Receipt,
@@ -28,8 +27,6 @@ const OverallInventoryControllerLayout = () => {
     { section: 'Monitoring & Alerts' },
     { path: ROUTES.OVERALL_INVENTORY_ALERTS, label: 'Stock Alerts', icon: AlertTriangle },
     { path: ROUTES.OVERALL_INVENTORY_EXPIRY, label: 'Expiry Tracker', icon: Calendar },
-    { section: 'Analytics' },
-    { path: ROUTES.OVERALL_INVENTORY_REPORTS, label: 'Reports', icon: BarChart3 },
   ];
 
   return (

@@ -37,7 +37,7 @@ export const getSchedulesByBranch = async (branchId) => {
     const schedulesRef = collection(db, 'schedules');
     const q = query(schedulesRef, where('branchId', '==', branchId));
     const snapshot = await getDocs(q);
-    
+
     const schedules = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
@@ -48,7 +48,7 @@ export const getSchedulesByBranch = async (branchId) => {
         updatedAt: data.updatedAt?.toDate()
       });
     });
-    
+
     return schedules;
   } catch (error) {
     console.error('Error fetching schedules:', error);
@@ -66,17 +66,17 @@ export const getSchedulesByEmployee = async (employeeId, branchId = null) => {
   try {
     const schedulesRef = collection(db, 'schedules');
     let q = query(schedulesRef, where('employeeId', '==', employeeId));
-    
+
     if (branchId) {
-      q = query(schedulesRef, 
+      q = query(schedulesRef,
         where('employeeId', '==', employeeId),
         where('branchId', '==', branchId)
       );
     }
-    
+
     const snapshot = await getDocs(q);
     const schedules = [];
-    
+
     snapshot.forEach((doc) => {
       const data = doc.data();
       schedules.push({
@@ -86,7 +86,7 @@ export const getSchedulesByEmployee = async (employeeId, branchId = null) => {
         updatedAt: data.updatedAt?.toDate()
       });
     });
-    
+
     return schedules;
   } catch (error) {
     console.error('Error fetching employee schedules:', error);
@@ -108,28 +108,28 @@ export const getSchedulesByEmployee = async (employeeId, branchId = null) => {
 export const createSchedule = async (scheduleData) => {
   try {
     const { branchId, employeeId, dayOfWeek, startTime, endTime, notes = '' } = scheduleData;
-    
+
     // Validate day of week
     if (!DAYS_OF_WEEK.includes(dayOfWeek)) {
       throw new Error('Invalid day of week');
     }
-    
+
     // Validate time format
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
     if (!timeRegex.test(startTime) || !timeRegex.test(endTime)) {
       throw new Error('Invalid time format. Use HH:mm format (e.g., 09:00)');
     }
-    
+
     // Validate start time is before end time
     const [startHour, startMin] = startTime.split(':').map(Number);
     const [endHour, endMin] = endTime.split(':').map(Number);
     const startMinutes = startHour * 60 + startMin;
     const endMinutes = endHour * 60 + endMin;
-    
+
     if (endMinutes <= startMinutes) {
       throw new Error('End time must be after start time');
     }
-    
+
     const schedulesRef = collection(db, 'schedules');
     const newSchedule = {
       branchId,
@@ -142,7 +142,7 @@ export const createSchedule = async (scheduleData) => {
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now()
     };
-    
+
     const docRef = await addDoc(schedulesRef, newSchedule);
     toast.success('Schedule created successfully');
     return docRef.id;
@@ -162,12 +162,12 @@ export const createSchedule = async (scheduleData) => {
 export const updateSchedule = async (scheduleId, updates) => {
   try {
     const scheduleRef = doc(db, 'schedules', scheduleId);
-    
+
     // Validate day of week if provided
     if (updates.dayOfWeek && !DAYS_OF_WEEK.includes(updates.dayOfWeek)) {
       throw new Error('Invalid day of week');
     }
-    
+
     // Validate time format if provided
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
     if (updates.startTime && !timeRegex.test(updates.startTime)) {
@@ -176,24 +176,24 @@ export const updateSchedule = async (scheduleId, updates) => {
     if (updates.endTime && !timeRegex.test(updates.endTime)) {
       throw new Error('Invalid end time format. Use HH:mm format');
     }
-    
+
     // Validate start time is before end time if both are provided
     if (updates.startTime && updates.endTime) {
       const [startHour, startMin] = updates.startTime.split(':').map(Number);
       const [endHour, endMin] = updates.endTime.split(':').map(Number);
       const startMinutes = startHour * 60 + startMin;
       const endMinutes = endHour * 60 + endMin;
-      
+
       if (endMinutes <= startMinutes) {
         throw new Error('End time must be after start time');
       }
     }
-    
+
     await updateDoc(scheduleRef, {
       ...updates,
       updatedAt: Timestamp.now()
     });
-    
+
     toast.success('Schedule updated successfully');
   } catch (error) {
     console.error('Error updating schedule:', error);
@@ -234,7 +234,7 @@ export const getScheduleForDay = async (employeeId, dayOfWeek, branchId = null) 
       where('employeeId', '==', employeeId),
       where('dayOfWeek', '==', dayOfWeek)
     );
-    
+
     if (branchId) {
       q = query(
         schedulesRef,
@@ -243,12 +243,12 @@ export const getScheduleForDay = async (employeeId, dayOfWeek, branchId = null) 
         where('branchId', '==', branchId)
       );
     }
-    
+
     const snapshot = await getDocs(q);
     if (snapshot.empty) {
       return null;
     }
-    
+
     const doc = snapshot.docs[0];
     const data = doc.data();
     return {
@@ -286,13 +286,13 @@ export const getScheduleConfigurationsByBranch = async (branchId) => {
       schedulesRef,
       where('branchId', '==', branchId)
     );
-    
+
     const snapshot = await getDocs(q);
     const configurations = [];
-    
+
     snapshot.forEach((doc) => {
       const data = doc.data();
-      
+
       // Check if this is a branch-wide configuration (has shifts object, no employeeId)
       if (data.shifts && typeof data.shifts === 'object' && !data.employeeId) {
         // Try to find startDate from document level, or extract from shifts
@@ -306,8 +306,8 @@ export const getScheduleConfigurationsByBranch = async (branchId) => {
             if (employeeShifts && typeof employeeShifts === 'object') {
               Object.values(employeeShifts).forEach(dayShift => {
                 if (dayShift && dayShift.startDate) {
-                  const sd = dayShift.startDate?.toDate ? dayShift.startDate.toDate() : 
-                            (dayShift.startDate instanceof Date ? dayShift.startDate : new Date(dayShift.startDate));
+                  const sd = dayShift.startDate?.toDate ? dayShift.startDate.toDate() :
+                    (dayShift.startDate instanceof Date ? dayShift.startDate : new Date(dayShift.startDate));
                   allStartDates.push(sd);
                 }
               });
@@ -320,7 +320,7 @@ export const getScheduleConfigurationsByBranch = async (branchId) => {
             startDate = data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt instanceof Date ? data.createdAt : new Date(data.createdAt));
           }
         }
-        
+
         const config = {
           id: doc.id,
           ...data,
@@ -330,18 +330,18 @@ export const getScheduleConfigurationsByBranch = async (branchId) => {
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt instanceof Date ? data.createdAt : new Date(data.createdAt)),
           updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.updatedAt instanceof Date ? data.updatedAt : new Date(data.updatedAt))
         };
-        
+
         configurations.push(config);
       }
     });
-    
+
     // Sort by startDate descending (newest first)
     const sorted = configurations.sort((a, b) => {
       const aTime = a.startDate?.getTime() || 0;
       const bTime = b.startDate?.getTime() || 0;
       return bTime - aTime;
     });
-    
+
     return sorted;
   } catch (error) {
     console.error('Error fetching schedule configurations:', error);
@@ -358,12 +358,12 @@ export const getScheduleConfigurationsByBranch = async (branchId) => {
  */
 const getScheduleForDate = (configs, targetDate) => {
   if (!targetDate || !configs || configs.length === 0) return null;
-  
+
   // Normalize target date to start of day for comparison
   const targetDateObj = new Date(targetDate);
   targetDateObj.setHours(0, 0, 0, 0);
   const targetTime = targetDateObj.getTime();
-  
+
   // Filter configs that have startDate <= targetDate, then find the most recent one
   // Note: We include both active and inactive configs - the isActive flag doesn't matter for date-based lookup
   const applicableConfigs = configs
@@ -381,7 +381,7 @@ const getScheduleForDate = (configs, targetDate) => {
       const bTime = new Date(b.startDate).getTime();
       return bTime - aTime; // Most recent first
     });
-  
+
   return applicableConfigs.length > 0 ? applicableConfigs[0] : null;
 };
 
@@ -407,15 +407,15 @@ export const getActiveSchedulesByEmployee = async (employeeId, branchId, weekSta
   try {
     // Get all configurations for the branch
     const allConfigs = await getScheduleConfigurationsByBranch(branchId);
-    
+
     // Find the configuration that applies to today (or weekStart if provided)
     const targetDate = weekStart || new Date();
     const activeConfig = getScheduleForDate(allConfigs, targetDate);
-    
+
     // Get all other configurations (for UI display/history)
     // These are configs that don't apply to the target date
     const inactiveConfigs = allConfigs.filter(c => c.id !== activeConfig?.id);
-    
+
     // Extract employee's shifts from active config
     // Try to find shifts by employeeId, and also check if there's a match with different ID format
     let employeeShifts = {};
@@ -426,18 +426,18 @@ export const getActiveSchedulesByEmployee = async (employeeId, branchId, weekSta
       } else {
         // Try to find a partial match (in case IDs are stored differently)
         const availableIds = Object.keys(activeConfig.shifts);
-        const matchingId = availableIds.find(id => 
-          id === employeeId || 
-          id.includes(employeeId) || 
+        const matchingId = availableIds.find(id =>
+          id === employeeId ||
+          id.includes(employeeId) ||
           employeeId.includes(id)
         );
-        
+
         if (matchingId) {
           employeeShifts = activeConfig.shifts[matchingId];
         }
       }
     }
-    
+
     // Get date-specific shifts (still stored individually for now)
     // Fetch all date-specific shifts for the branch, then filter in JavaScript to avoid index requirement
     const schedulesRef = collection(db, 'schedules');
@@ -445,22 +445,22 @@ export const getActiveSchedulesByEmployee = async (employeeId, branchId, weekSta
       schedulesRef,
       where('branchId', '==', branchId)
     );
-    
+
     const dateSpecificSnapshot = await getDocs(dateSpecificQuery);
     const dateSpecificShifts = [];
     const weekEnd = weekStart ? new Date(weekStart) : null;
     if (weekEnd) {
       weekEnd.setDate(weekEnd.getDate() + 6);
     }
-    
+
     // Filter in JavaScript instead of using Firestore query
     dateSpecificSnapshot.forEach((doc) => {
       const data = doc.data();
-      
+
       // Only process date-specific shifts (has date field and matches employeeId)
       if (data.date && data.employeeId === employeeId) {
         const scheduleDate = data.date?.toDate ? data.date.toDate() : (data.date instanceof Date ? data.date : new Date(data.date));
-        
+
         if (scheduleDate) {
           // Filter by week if weekStart is provided
           if (weekStart) {
@@ -470,7 +470,7 @@ export const getActiveSchedulesByEmployee = async (employeeId, branchId, weekSta
             weekStartOnly.setHours(0, 0, 0, 0);
             const weekEndOnly = new Date(weekEnd);
             weekEndOnly.setHours(0, 0, 0, 0);
-            
+
             if (scheduleDateOnly >= weekStartOnly && scheduleDateOnly <= weekEndOnly) {
               dateSpecificShifts.push({
                 id: doc.id,
@@ -492,7 +492,7 @@ export const getActiveSchedulesByEmployee = async (employeeId, branchId, weekSta
         }
       }
     });
-    
+
     return {
       activeConfig: activeConfig ? {
         ...activeConfig,
@@ -521,7 +521,7 @@ export const getScheduleHistoryByEmployee = async (employeeId, branchId) => {
   try {
     // Get all branch configurations
     const allConfigs = await getScheduleConfigurationsByBranch(branchId);
-    
+
     // Extract employee's shifts from each configuration
     const employeeConfigs = allConfigs.map(config => ({
       id: config.id,
@@ -534,7 +534,7 @@ export const getScheduleHistoryByEmployee = async (employeeId, branchId) => {
       updatedAt: config.updatedAt,
       shifts: config.shifts?.[employeeId] || {} // Extract just this employee's shifts
     }));
-    
+
     // Get date-specific shifts
     // Fetch all date-specific shifts for the branch, then filter in JavaScript to avoid index requirement
     const schedulesRef = collection(db, 'schedules');
@@ -542,10 +542,10 @@ export const getScheduleHistoryByEmployee = async (employeeId, branchId) => {
       schedulesRef,
       where('branchId', '==', branchId)
     );
-    
+
     const dateSpecificSnapshot = await getDocs(dateSpecificQuery);
     const dateSpecificShifts = [];
-    
+
     // Filter in JavaScript instead of using Firestore query
     dateSpecificSnapshot.forEach((doc) => {
       const data = doc.data();
@@ -561,7 +561,7 @@ export const getScheduleHistoryByEmployee = async (employeeId, branchId) => {
         });
       }
     });
-    
+
     // Sort by startDate descending (newest first)
     return employeeConfigs.sort((a, b) => {
       const aTime = a.startDate?.getTime() || 0;
@@ -589,16 +589,16 @@ export const getScheduleHistoryByEmployee = async (employeeId, branchId) => {
 export const createOrUpdateScheduleConfiguration = async (scheduleData) => {
   try {
     const { branchId, shifts, startDate, notes = '' } = scheduleData;
-    
+
     if (!shifts || typeof shifts !== 'object') {
       throw new Error('Shifts object is required');
     }
-    
+
     // Validate all shifts have valid times
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
     for (const [employeeId, employeeShifts] of Object.entries(shifts)) {
       if (!employeeShifts || typeof employeeShifts !== 'object') continue;
-      
+
       for (const [dayKey, shift] of Object.entries(employeeShifts)) {
         if (shift && (shift.start || shift.end)) {
           if (!shift.start || !shift.end) {
@@ -607,48 +607,48 @@ export const createOrUpdateScheduleConfiguration = async (scheduleData) => {
           if (!timeRegex.test(shift.start) || !timeRegex.test(shift.end)) {
             throw new Error(`Invalid time format for ${employeeId} - ${dayKey}. Use HH:mm format`);
           }
-          
+
           const [startHour, startMin] = shift.start.split(':').map(Number);
           const [endHour, endMin] = shift.end.split(':').map(Number);
           const startMinutes = startHour * 60 + startMin;
           const endMinutes = endHour * 60 + endMin;
-          
+
           if (endMinutes <= startMinutes) {
             throw new Error(`End time must be after start time for ${employeeId} - ${dayKey}`);
           }
         }
       }
     }
-    
+
     // Parse start date and normalize to Monday of that week
     const startDateObj = startDate ? new Date(startDate) : new Date();
     startDateObj.setHours(0, 0, 0, 0);
-    
+
     // Ensure startDate is a Monday (adjust if not)
     const dayOfWeek = startDateObj.getDay();
     const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Sunday = 0, Monday = 1
     startDateObj.setDate(startDateObj.getDate() + daysToMonday);
-    
+
     // Calculate end date (Sunday of the same week)
     const endDateObj = new Date(startDateObj);
     endDateObj.setDate(startDateObj.getDate() + 6);
     endDateObj.setHours(23, 59, 59, 999);
-    
+
     const schedulesRef = collection(db, 'schedules');
-    
+
     // Find existing schedule configuration for this branch and SAME WEEK
     // We look for documents where startDate matches the week's Monday
     const existingQuery = query(
       schedulesRef,
       where('branchId', '==', branchId)
     );
-    
+
     const existingSnapshot = await getDocs(existingQuery);
-    
+
     // Find if there's an existing document for this exact week
     let existingDocForWeek = null;
     const startDateStr = startDateObj.toISOString().split('T')[0];
-    
+
     existingSnapshot.forEach((docSnap) => {
       const data = docSnap.data();
       // Only check full configurations (has shifts object, no employeeId)
@@ -658,19 +658,19 @@ export const createOrUpdateScheduleConfiguration = async (scheduleData) => {
           const docStartDate = data.startDate?.toDate ? data.startDate.toDate() : new Date(data.startDate);
           docStartDate.setHours(0, 0, 0, 0);
           const docStartDateStr = docStartDate.toISOString().split('T')[0];
-          
+
           if (docStartDateStr === startDateStr) {
             existingDocForWeek = { id: docSnap.id, ref: docSnap.ref, data };
           }
         }
       }
     });
-    
+
     if (existingDocForWeek) {
       // UPDATE existing document for this week - merge shifts
       const existingShifts = existingDocForWeek.data.shifts || {};
       const mergedShifts = { ...existingShifts };
-      
+
       // Merge new shifts into existing (new shifts take priority)
       Object.entries(shifts).forEach(([employeeId, employeeShifts]) => {
         if (!mergedShifts[employeeId]) {
@@ -685,14 +685,14 @@ export const createOrUpdateScheduleConfiguration = async (scheduleData) => {
           }
         });
       });
-      
+
       await updateDoc(existingDocForWeek.ref, {
         shifts: mergedShifts,
         endDate: Timestamp.fromDate(endDateObj),
         updatedAt: Timestamp.now(),
         notes: notes || existingDocForWeek.data.notes || ''
       });
-      
+
       console.log(`[Schedule] Updated existing document ${existingDocForWeek.id} for week ${startDateStr}`);
       return existingDocForWeek.id;
     } else {
@@ -707,7 +707,7 @@ export const createOrUpdateScheduleConfiguration = async (scheduleData) => {
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
       };
-      
+
       const docRef = await addDoc(schedulesRef, newSchedule);
       console.log(`[Schedule] Created new document ${docRef.id} for week ${startDateStr}`);
       return docRef.id;
@@ -734,12 +734,12 @@ export const createOrUpdateScheduleConfiguration = async (scheduleData) => {
  */
 export const createOrUpdateScheduleWithHistory = async (scheduleData) => {
   try {
-    const { branchId, employeeId, dayOfWeek, date, startTime, endTime, notes = '' } = scheduleData;
-    
+    const { branchId, employeeId, dayOfWeek, date, startTime, endTime, notes = '', type = 'regular' } = scheduleData;
+
     // If date is provided, calculate dayOfWeek from it; otherwise use provided dayOfWeek
     let finalDayOfWeek = dayOfWeek;
     let scheduleDate = null;
-    
+
     if (date) {
       // Parse the date and get day of week
       const dateObj = new Date(date);
@@ -747,32 +747,32 @@ export const createOrUpdateScheduleWithHistory = async (scheduleData) => {
       finalDayOfWeek = days[dateObj.getDay()];
       scheduleDate = Timestamp.fromDate(dateObj);
     }
-    
+
     // Validate day of week
     if (!finalDayOfWeek || !DAYS_OF_WEEK.includes(finalDayOfWeek)) {
       throw new Error('Invalid day of week');
     }
-    
+
     // Validate time format
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
     if (!timeRegex.test(startTime) || !timeRegex.test(endTime)) {
       throw new Error('Invalid time format. Use HH:mm format (e.g., 09:00)');
     }
-    
+
     // Validate start time is before end time
     const [startHour, startMin] = startTime.split(':').map(Number);
     const [endHour, endMin] = endTime.split(':').map(Number);
     const startMinutes = startHour * 60 + startMin;
     const endMinutes = endHour * 60 + endMin;
-    
+
     if (endMinutes <= startMinutes) {
       throw new Error('End time must be after start time');
     }
-    
+
     // For date-specific shifts, create individual documents
     if (date && scheduleDate) {
       const schedulesRef = collection(db, 'schedules');
-      
+
       // Find existing active schedule for this specific date
       const existingQuery = query(
         schedulesRef,
@@ -780,9 +780,9 @@ export const createOrUpdateScheduleWithHistory = async (scheduleData) => {
         where('date', '==', scheduleDate),
         where('branchId', '==', branchId)
       );
-      
+
       const existingSnapshot = await getDocs(existingQuery);
-      
+
       // Mark existing as inactive
       const updatePromises = [];
       existingSnapshot.forEach((doc) => {
@@ -798,11 +798,11 @@ export const createOrUpdateScheduleWithHistory = async (scheduleData) => {
           );
         }
       });
-      
+
       if (updatePromises.length > 0) {
         await Promise.all(updatePromises);
       }
-      
+
       // Create new date-specific shift
       const newSchedule = {
         branchId,
@@ -814,21 +814,22 @@ export const createOrUpdateScheduleWithHistory = async (scheduleData) => {
         notes: notes || '',
         isActive: true,
         isRecurring: false,
+        type: type || 'oncall', // Default to oncall for date-specific if not specified
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
       };
-      
+
       const docRef = await addDoc(schedulesRef, newSchedule);
       return docRef.id;
     }
-    
+
     // For recurring shifts, we need to get the current active branch configuration
     // and update the employee's shift in it, or create a new configuration
     const allConfigs = await getScheduleConfigurationsByBranch(branchId);
     const activeConfig = allConfigs.find(c => c.isActive);
-    
+
     const dayKey = finalDayOfWeek.toLowerCase();
-    
+
     if (activeConfig) {
       // Update existing branch configuration - update this employee's shift
       const updatedShifts = {
@@ -841,12 +842,12 @@ export const createOrUpdateScheduleWithHistory = async (scheduleData) => {
           }
         }
       };
-      
+
       await updateDoc(doc(db, 'schedules', activeConfig.id), {
         shifts: updatedShifts,
         updatedAt: Timestamp.now()
       });
-      
+
       return activeConfig.id;
     } else {
       // Create new branch configuration with just this employee's shift
@@ -858,7 +859,7 @@ export const createOrUpdateScheduleWithHistory = async (scheduleData) => {
           }
         }
       };
-      
+
       return await createOrUpdateScheduleConfiguration({
         branchId,
         shifts: newShifts,
@@ -889,9 +890,9 @@ export const deactivateSchedule = async (employeeId, dayOfWeek, branchId) => {
       where('dayOfWeek', '==', dayOfWeek),
       where('branchId', '==', branchId)
     );
-    
+
     const snapshot = await getDocs(q);
-    
+
     // Filter in code to find active schedules
     const activeSchedules = [];
     snapshot.forEach((doc) => {
@@ -902,11 +903,11 @@ export const deactivateSchedule = async (employeeId, dayOfWeek, branchId) => {
         activeSchedules.push(doc);
       }
     });
-    
+
     if (activeSchedules.length === 0) {
       throw new Error('No active schedule found to deactivate');
     }
-    
+
     // Mark all active schedules for this day as inactive
     const updatePromises = [];
     activeSchedules.forEach((doc) => {
@@ -919,7 +920,7 @@ export const deactivateSchedule = async (employeeId, dayOfWeek, branchId) => {
         })
       );
     });
-    
+
     await Promise.all(updatePromises);
   } catch (error) {
     console.error('Error deactivating schedule:', error);

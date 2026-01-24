@@ -22,6 +22,8 @@ import { db } from '../config/firebase';
 // Inventory service removed - inventory deduction disabled
 import toast from 'react-hot-toast';
 import { earnLoyaltyPoints, redeemLoyaltyPoints } from './loyaltyService';
+import { calculatePointsEarned, calculateMaxRedeemablePoints, getLoyaltyCriteria } from './loyaltyCriteriaService';
+import { calculateTax, getTaxConfiguration } from './taxConfigurationService';
 import { getClientProfile, updateClientProfile } from './clientService';
 import { getReferralCode } from './referralService';
 import { getBranchById } from './branchService';
@@ -348,13 +350,18 @@ export const createBill = async (billData, currentUser) => {
         
         // Earn loyalty points from transaction (after redemption, so net amount)
         if (billData.total > 0) {
-          await earnLoyaltyPoints(
-            billData.clientId,
-            billData.branchId,
-            billData.total,
-            transactionId,
-            currentUser
-          );
+          const pointsEarned = await calculatePointsEarned(billData.total);
+          if (pointsEarned > 0) {
+            await earnLoyaltyPoints(
+              billData.clientId,
+              billData.branchId,
+              billData.total,
+              transactionId,
+              currentUser,
+              // Use the calculated points per peso from criteria
+              pointsEarned / billData.total // This gives us the effective rate
+            );
+          }
         }
         
         // Update client profile stats (visitCount, totalSpent, lastVisit)
@@ -782,11 +789,12 @@ export const getDailySalesSummary = async (branchId, date = new Date()) => {
 };
 
 /**
- * Calculate bill totals
+ * Calculate bill totals with tax configuration
  * @param {Object} billData - Bill data with items, discount, tax rate, etc.
- * @returns {Object} - Calculated totals
+ * @param {Object} customerInfo - Customer information for discounts
+ * @returns {Promise<Object>} - Calculated totals
  */
-export const calculateBillTotals = (billData) => {
+export const calculateBillTotals = async (billData, customerInfo = {}) => {
   const { items = [], discount = 0, discountType = 'fixed', loyaltyPointsUsed = 0, promotionDiscount = 0 } = billData;
 
   // Calculate subtotal from items
@@ -802,28 +810,56 @@ export const calculateBillTotals = (billData) => {
     discountAmount = discount;
   }
 
-  // Add loyalty points discount (e.g., 1 point = 1 peso)
-  discountAmount += loyaltyPointsUsed;
+  // Add loyalty points discount (using loyalty criteria configuration)
+  const loyaltyCriteria = await getLoyaltyCriteria();
+  discountAmount += (loyaltyPointsUsed * loyaltyCriteria.pointValue);
 
   // Add promotion discount
   discountAmount += (promotionDiscount || 0);
 
-  // Amount after discount
-  const amountAfterDiscount = Math.max(0, subtotal - discountAmount);
-
-  // Tax removed - always 0
-  const tax = 0;
-
-  // Calculate total
-  const total = amountAfterDiscount + tax;
+  // Calculate tax using tax configuration
+  const taxCalculation = await calculateTax({
+    items,
+    subtotal: subtotal - discountAmount
+  }, null, customerInfo);
 
   return {
     subtotal: parseFloat(subtotal.toFixed(2)),
     discount: parseFloat(discountAmount.toFixed(2)),
-    serviceCharge: 0,
-    tax: parseFloat(tax.toFixed(2)),
-    total: parseFloat(total.toFixed(2))
+    serviceCharge: parseFloat(taxCalculation.serviceChargeAmount.toFixed(2)),
+    tax: parseFloat(taxCalculation.vatAmount.toFixed(2)),
+    total: parseFloat(taxCalculation.total.toFixed(2)),
+    taxCalculation // Include full tax calculation details
   };
+};
+
+/**
+ * Calculate loyalty points that will be earned from a transaction
+ * @param {number} amount - Transaction amount
+ * @returns {Promise<number>} - Points that will be earned
+ */
+export const calculateLoyaltyPointsEarned = async (amount) => {
+  try {
+    return await calculatePointsEarned(amount);
+  } catch (error) {
+    console.error('Error calculating loyalty points earned:', error);
+    return 0;
+  }
+};
+
+/**
+ * Calculate maximum redeemable loyalty points for a transaction
+ * @param {number} billAmount - Bill amount
+ * @param {number} availablePoints - Available loyalty points
+ * @returns {Promise<Object>} - { maxPoints, maxDiscount }
+ */
+export const calculateMaxRedeemableLoyaltyPoints = async (billAmount, availablePoints) => {
+  try {
+    return await calculateMaxRedeemablePoints(billAmount, availablePoints);
+  } catch (error) {
+    console.error('Error calculating max redeemable points:', error);
+    return { maxPoints: 0, maxDiscount: 0 };
+  }
 };
 
 /**

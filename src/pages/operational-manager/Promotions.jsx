@@ -27,19 +27,19 @@ const OperationalManagerPromotions = () => {
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedPromotion, setSelectedPromotion] = useState(null);
-  
+
   // Image upload states
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
-  
+
   // Email states
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [isEmailPreviewOpen, setIsEmailPreviewOpen] = useState(false);
   const [emailPreviewHtml, setEmailPreviewHtml] = useState('');
   const [selectedClients, setSelectedClients] = useState(new Set());
   const [isSending, setIsSending] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -68,8 +68,11 @@ const OperationalManagerPromotions = () => {
       setLoading(true);
       // Get all promotions, but filter for system-wide (branchId === null)
       const allPromos = await getAllPromotions();
-      // Filter for system-wide promotions only (branchId is null)
-      const systemWidePromos = allPromos.filter(promo => promo.branchId === null || promo.branchId === undefined);
+      // Filter for active and system-wide promotions only (branchId is null)
+      const systemWidePromos = allPromos.filter(promo =>
+        (promo.branchId === null || promo.branchId === undefined) &&
+        (promo.isActive !== false)
+      );
       setPromotions(systemWidePromos);
     } catch (error) {
       console.error('Error fetching promotions:', error);
@@ -116,7 +119,7 @@ const OperationalManagerPromotions = () => {
     }
 
     setImageFile(file);
-    
+
     // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -128,16 +131,16 @@ const OperationalManagerPromotions = () => {
   // Upload image to Cloudinary
   const uploadPromotionImage = async (file) => {
     if (!file) return null;
-    
+
     try {
       setUploadingImage(true);
-      
+
       const result = await cloudinaryService.uploadImage(file, 'promotions');
-      
+
       if (!result.success) {
         throw new Error(result.error || 'Failed to upload image');
       }
-      
+
       return result.url;
     } catch (err) {
       console.error('Error uploading image:', err);
@@ -149,15 +152,15 @@ const OperationalManagerPromotions = () => {
 
   // Generate email preview HTML
   const generateEmailPreview = (promotion) => {
-    const discountText = promotion.discountType === 'percentage' 
+    const discountText = promotion.discountType === 'percentage'
       ? `${promotion.discountValue}% OFF`
       : `₱${promotion.discountValue} OFF`;
 
-    const startDate = promotion.startDate instanceof Date 
-      ? promotion.startDate 
+    const startDate = promotion.startDate instanceof Date
+      ? promotion.startDate
       : new Date(promotion.startDate);
-    const endDate = promotion.endDate instanceof Date 
-      ? promotion.endDate 
+    const endDate = promotion.endDate instanceof Date
+      ? promotion.endDate
       : new Date(promotion.endDate);
 
     const startDateFormatted = format(startDate, 'MMMM d, yyyy');
@@ -245,7 +248,7 @@ const OperationalManagerPromotions = () => {
     try {
       setIsSending(true);
       const clientsToSend = clients.filter(c => selectedClients.has(c.id) && c.email);
-      
+
       let successCount = 0;
       let failCount = 0;
 
@@ -343,7 +346,7 @@ const OperationalManagerPromotions = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.name || !formData.promotionCode || !formData.startDate || !formData.endDate) {
       toast.error('Please fill in all required fields');
       return;
@@ -381,7 +384,7 @@ const OperationalManagerPromotions = () => {
         await createPromotion(promotionData, currentUser);
         toast.success('Promotion created successfully');
       }
-      
+
       setShowModal(false);
       setImageFile(null);
       setImagePreview('');
@@ -453,101 +456,100 @@ const OperationalManagerPromotions = () => {
           </div>
         ) : (
           promotions.map((promotion) => (
-            <Card key={promotion.id} className="hover:shadow-lg transition-shadow overflow-hidden">
-              {/* Promotion Image */}
-              {promotion.imageUrl && (
-                <div className="h-32 overflow-hidden">
-                  <img
-                    src={promotion.imageUrl}
-                    alt={promotion.name}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
-              <div className="p-6">
+            <Card
+              key={promotion.id}
+              className="overflow-hidden hover:shadow-xl transition-all duration-300 group relative min-h-[320px] flex flex-col border-0"
+              style={promotion.imageUrl ? {
+                backgroundImage: `url(${promotion.imageUrl})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center'
+              } : {}}
+            >
+              {/* Overlay for readability */}
+              <div className={`absolute inset-0 z-0 transition-opacity duration-300 ${promotion.imageUrl ? 'bg-black/60 group-hover:bg-black/50' : 'bg-gradient-to-br from-[#160B53] to-[#2D1B4E]'}`}></div>
+
+              <div className="p-6 flex flex-col h-full relative z-10 text-white">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
-                      <Globe className="h-5 w-5 text-primary-600" />
-                      <h3 className="text-lg font-semibold text-gray-900">{promotion.name}</h3>
+                      <Globe className="h-5 w-5 text-blue-400" />
+                      <h3 className="text-xl font-bold drop-shadow-md">{promotion.name}</h3>
                     </div>
                     {promotion.description && (
-                      <p className="text-sm text-gray-600 mb-3">{promotion.description}</p>
+                      <p className={`text-sm line-clamp-2 ${promotion.imageUrl ? 'text-gray-100' : 'text-blue-100'}`}>{promotion.description}</p>
                     )}
                   </div>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                    isActive(promotion)
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-gray-100 text-gray-700'
-                  }`}>
-                    {isActive(promotion) ? 'Active' : 'Inactive'}
+                  <span className={`px-2 py-1 text-xs font-bold rounded-full backdrop-blur-md border ${isActive(promotion)
+                      ? 'bg-green-500/20 border-green-500/50 text-green-300'
+                      : 'bg-red-500/20 border-red-500/50 text-red-300'
+                    }`}>
+                    {isActive(promotion) ? 'Active' : 'Expired'}
                   </span>
                 </div>
 
-                <div className="space-y-2 mb-4">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Tag className="h-4 w-4 text-gray-400" />
-                    <span className="font-mono text-gray-900 bg-gray-100 px-2 py-1 rounded">
-                      {promotion.promotionCode || 'N/A'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Calendar className="h-4 w-4 text-gray-400" />
-                    <span className="text-gray-600">
-                      {promotion.startDate?.toDate ? promotion.startDate.toDate().toLocaleDateString() : new Date(promotion.startDate).toLocaleDateString()} - {promotion.endDate?.toDate ? promotion.endDate.toDate().toLocaleDateString() : new Date(promotion.endDate).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    Discount: {promotion.discountType === 'percentage' ? `${promotion.discountValue}%` : `₱${promotion.discountValue}`}
-                  </div>
-                  <div className="text-sm text-gray-600 flex items-center gap-1">
-                    <Building2 className="h-4 w-4" />
-                    <span>All Branches</span>
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    Usage: {promotion.usageType === 'one-time' ? 'One-time' : 'Repeating'} 
-                    {promotion.maxUses && promotion.usageType === 'repeating' && ` (Max: ${promotion.maxUses})`}
-                  </div>
-                  {promotion.usageCount !== undefined && (
-                    <div className="text-xs text-gray-500">
-                      Used: {promotion.usageCount || 0} times
+                <div className="flex-1 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white/10 rounded-lg backdrop-blur-md">
+                      <Tag className="h-5 w-5 text-green-400" />
                     </div>
-                  )}
+                    <div className="flex flex-col">
+                      <span className="text-2xl font-black tracking-tight drop-shadow-lg">
+                        {promotion.discountType === 'percentage' ? `${promotion.discountValue}% OFF` : `₱${promotion.discountValue} OFF`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 border-l border-white/20 pl-4 mt-2">
+                    <div className="flex items-center gap-2 text-sm text-gray-200">
+                      <Tag className="h-4 w-4 text-purple-400" />
+                      <span className="font-mono bg-white/10 px-2 rounded">{promotion.promotionCode || 'N/A'}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-200">
+                      <Calendar className="h-4 w-4 text-blue-400" />
+                      <span>
+                        {promotion.startDate?.toDate ? promotion.startDate.toDate().toLocaleDateString() : new Date(promotion.startDate).toLocaleDateString()} - {promotion.endDate?.toDate ? promotion.endDate.toDate().toLocaleDateString() : new Date(promotion.endDate).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-200">
+                      <Building2 className="h-4 w-4 text-orange-400" />
+                      <span>All Branches</span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 pt-4 border-t">
+                <div className="flex flex-wrap gap-2 pt-4 mt-6 border-t border-white/10">
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => handleEdit(promotion)}
-                    className="flex-1"
+                    className="flex-1 bg-white/10 hover:bg-white/20 text-white border-0"
                   >
                     <Edit className="h-4 w-4 mr-1" />
                     Edit
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => handleOpenSendModal(promotion)}
-                    className="text-blue-600 hover:text-blue-700"
+                    className="bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 border-0"
                     title="Send to Clients"
                   >
                     <Mail className="h-4 w-4" />
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => handleShowEmailPreview(promotion)}
-                    className="text-purple-600 hover:text-purple-700"
+                    className="bg-purple-500/20 hover:bg-purple-500/40 text-purple-300 border-0"
                     title="Preview Email"
                   >
                     <Eye className="h-4 w-4" />
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => handleDelete(promotion)}
-                    className="text-red-600 hover:text-red-700"
+                    className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border-0"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

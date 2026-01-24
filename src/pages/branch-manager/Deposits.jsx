@@ -42,12 +42,12 @@ import toast from 'react-hot-toast';
 
 const Deposits = () => {
   const { userData } = useAuth();
-  
+
   const [deposits, setDeposits] = useState([]);
   const [filteredDeposits, setFilteredDeposits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   // Filter and sort states
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -57,7 +57,7 @@ const Deposits = () => {
   const [dateFilterType, setDateFilterType] = useState('all'); // 'all', 'today', 'thisWeek', 'thisMonth', 'custom'
   const [sortBy, setSortBy] = useState('date'); // 'date', 'amount', 'difference'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
-  
+
   // Form states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [depositDate, setDepositDate] = useState(new Date().toISOString().split('T')[0]);
@@ -68,21 +68,21 @@ const Deposits = () => {
   const [accountNumber, setAccountNumber] = useState('');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [notes, setNotes] = useState('');
-  
+
   // OCR states
   const [isScanning, setIsScanning] = useState(false);
   const [ocrResult, setOcrResult] = useState(null);
   const [dailySalesTotal, setDailySalesTotal] = useState(0);
   const [validationResult, setValidationResult] = useState(null);
-  
+
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedDeposit, setSelectedDeposit] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  
-  // Expenses/Justifications state
-  const [expenses, setExpenses] = useState([]);
-  
+
+  // Deposit Adjustments state
+  const [adjustments, setAdjustments] = useState([]);
+
   // Filter modal state
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showDuplicateWarningModal, setShowDuplicateWarningModal] = useState(false);
@@ -90,7 +90,7 @@ const Deposits = () => {
   // Load deposits
   const loadDeposits = async () => {
     if (!userData?.branchId) return;
-    
+
     try {
       setLoading(true);
       setError(null);
@@ -120,7 +120,7 @@ const Deposits = () => {
     // Search filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(deposit => 
+      filtered = filtered.filter(deposit =>
         deposit.referenceNumber?.toLowerCase().includes(term) ||
         deposit.bankName?.toLowerCase().includes(term) ||
         deposit.notes?.toLowerCase().includes(term) ||
@@ -160,7 +160,7 @@ const Deposits = () => {
     // Sorting
     filtered.sort((a, b) => {
       let aValue, bValue;
-      
+
       switch (sortBy) {
         case 'date':
           aValue = new Date(a.depositDate).getTime();
@@ -192,7 +192,7 @@ const Deposits = () => {
   useEffect(() => {
     const fetchDailySales = async () => {
       if (!userData?.branchId || !depositDate) return;
-      
+
       // Check for duplicate deposit immediately when date changes
       if (checkDuplicateDeposit(depositDate)) {
         setError(`A deposit already exists for ${format(new Date(depositDate), 'MMMM dd, yyyy')}. You cannot submit another deposit for this date.`);
@@ -211,15 +211,23 @@ const Deposits = () => {
           setShowDuplicateWarningModal(false);
         }
       }
-      
+
       try {
         const salesTotal = await depositService.getDailySalesTotal(
           userData.branchId,
-          new Date(depositDate)
+          depositDate // Pass the string "YYYY-MM-DD" directly
         );
+        console.log(`[Deposits] Fetched sales for ${depositDate}: ₱${salesTotal}`);
         setDailySalesTotal(salesTotal);
+
+        if (salesTotal === 0) {
+          toast.error(`No transactions found for ${format(new Date(depositDate), 'MMM dd')} in branch ${userData.branchId.substring(0, 6)}...`);
+        } else {
+          toast.success(`Loaded ₱${salesTotal.toLocaleString()} in daily sales`);
+        }
       } catch (err) {
         console.error('Error fetching daily sales:', err);
+        toast.error(`Failed to load sales: ${err.message}`);
       }
     };
 
@@ -242,14 +250,14 @@ const Deposits = () => {
     }
 
     setReceiptImage(file);
-    
+
     // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
       setReceiptPreview(reader.result);
     };
     reader.readAsDataURL(file);
-    
+
     setError(null);
 
     // Automatically run OCR when image is uploaded to validate receipt
@@ -263,25 +271,25 @@ const Deposits = () => {
 
         // Extract text from receipt using OCR
         const result = await extractAmountFromReceipt(file);
-        
+
         if (result.success) {
           setOcrResult(result);
-          
+
           // Check if daily sales total appears in the receipt text
           if (dailySalesTotal > 0 && result.rawText) {
             const salesAmountStr = dailySalesTotal.toString();
             const salesAmountFormatted = dailySalesTotal.toLocaleString('en-US');
             const salesAmountWithPeso = `₱${salesAmountFormatted}`;
             const salesAmountNoComma = salesAmountStr;
-            
+
             // Check if any variation of the amount appears in the receipt text
             const receiptText = result.rawText.toLowerCase();
-            const found = 
+            const found =
               receiptText.includes(salesAmountStr.toLowerCase()) ||
               receiptText.includes(salesAmountFormatted.toLowerCase()) ||
               receiptText.includes(salesAmountWithPeso.toLowerCase()) ||
               receiptText.includes(salesAmountNoComma.toLowerCase());
-            
+
             if (found) {
               setValidationResult({
                 isValid: true,
@@ -326,25 +334,25 @@ const Deposits = () => {
 
       // Extract text from receipt using OCR
       const result = await extractAmountFromReceipt(receiptImage);
-      
+
       if (result.success) {
         setOcrResult(result);
-        
+
         // Check if daily sales total appears in the receipt text
         if (dailySalesTotal > 0 && result.rawText) {
           const salesAmountStr = dailySalesTotal.toString();
           const salesAmountFormatted = dailySalesTotal.toLocaleString('en-US');
           const salesAmountWithPeso = `₱${salesAmountFormatted}`;
           const salesAmountNoComma = salesAmountStr;
-          
+
           // Check if any variation of the amount appears in the receipt text
           const receiptText = result.rawText.toLowerCase();
-          const found = 
+          const found =
             receiptText.includes(salesAmountStr.toLowerCase()) ||
             receiptText.includes(salesAmountFormatted.toLowerCase()) ||
             receiptText.includes(salesAmountWithPeso.toLowerCase()) ||
             receiptText.includes(salesAmountNoComma.toLowerCase());
-          
+
           if (found) {
             setValidationResult({
               isValid: true,
@@ -384,14 +392,14 @@ const Deposits = () => {
       const salesAmountFormatted = salesTotal.toLocaleString('en-US');
       const salesAmountWithPeso = `₱${salesAmountFormatted}`;
       const salesAmountNoComma = salesAmountStr;
-      
+
       const receiptText = ocrText.toLowerCase();
-      const found = 
+      const found =
         receiptText.includes(salesAmountStr.toLowerCase()) ||
         receiptText.includes(salesAmountFormatted.toLowerCase()) ||
         receiptText.includes(salesAmountWithPeso.toLowerCase()) ||
         receiptText.includes(salesAmountNoComma.toLowerCase());
-      
+
       if (!found) {
         hasAnomaly = true;
         anomalies.push(`Daily sales total (₱${salesTotal.toLocaleString()}) was not found in the receipt. The receipt may not match today's sales.`);
@@ -434,7 +442,7 @@ const Deposits = () => {
   const checkDuplicateDeposit = (date) => {
     const selectedDate = new Date(date);
     selectedDate.setHours(0, 0, 0, 0);
-    
+
     return deposits.some(deposit => {
       const depositDate = new Date(deposit.depositDate);
       depositDate.setHours(0, 0, 0, 0);
@@ -464,6 +472,22 @@ const Deposits = () => {
       return;
     }
 
+    // Validate adjustments
+    for (const adj of adjustments) {
+      if (!adj.amount || parseFloat(adj.amount) <= 0) {
+        setError('All adjustments must have a valid amount');
+        return;
+      }
+      if (!adj.description) {
+        setError('All adjustments must have a description');
+        return;
+      }
+      if (!adj.receiptImage && !adj.receiptImageUrl) { // Allow existing URL if editing (future proofing)
+        setError('All adjustments must have a receipt image');
+        return;
+      }
+    }
+
     try {
       setIsSubmitting(true);
       setError(null);
@@ -475,41 +499,46 @@ const Deposits = () => {
       }
       const receiptImageUrl = uploadResult.url;
 
-      // Upload expense receipt images
-      const expensesWithUrls = await Promise.all(expenses.map(async (expense) => {
-        let receiptImageUrl = null;
-        let receiptImagePath = null;
-        
-        if (expense.receiptImage) {
-          const uploadResult = await cloudinaryService.uploadImage(expense.receiptImage, 'deposits/expenses');
+      // Upload adjustment receipt images
+      const adjustmentsWithUrls = await Promise.all(adjustments.map(async (adj) => {
+        let receiptImageUrl = adj.receiptImageUrl || null;
+        let receiptImagePath = adj.receiptImagePath || null;
+
+        if (adj.receiptImage) {
+          const uploadResult = await cloudinaryService.uploadImage(adj.receiptImage, 'deposits/adjustments');
           if (uploadResult.success) {
             receiptImageUrl = uploadResult.url;
             receiptImagePath = uploadResult.publicId || '';
+          } else {
+            throw new Error(`Failed to upload receipt for adjustment: ${adj.description}`);
           }
         }
-        
+
         return {
-          amount: parseFloat(expense.amount) || 0,
-          description: expense.description || '',
+          type: adj.type || 'deduction',
+          amount: parseFloat(adj.amount) || 0,
+          description: adj.description || '',
           receiptImageUrl: receiptImageUrl,
           receiptImagePath: receiptImagePath,
           createdAt: new Date().toISOString()
         };
       }));
 
-      // Calculate difference (accounting for expenses)
+      // Calculate totals
+      const totalAdditionsVal = adjustmentsWithUrls.filter(a => a.type === 'addition').reduce((sum, a) => sum + a.amount, 0);
+      const totalDeductionsVal = adjustmentsWithUrls.filter(a => a.type === 'deduction').reduce((sum, a) => sum + a.amount, 0);
+
       const depositAmount = parseFloat(amount);
-      const totalExpensesAmount = expensesWithUrls.reduce((sum, exp) => sum + exp.amount, 0);
-      const adjustedSalesTotal = dailySalesTotal - totalExpensesAmount;
+      const adjustedSalesTotal = dailySalesTotal + totalAdditionsVal - totalDeductionsVal;
       const difference = depositAmount - adjustedSalesTotal;
-      
+
       // Check for anomalies
       const anomalyCheck = checkAnomalies(
         ocrResult?.rawText || ocrResult?.extractedText || null,
         depositAmount,
         adjustedSalesTotal
       );
-      
+
       // Determine validation status
       let validationStatus = 'pending';
       if (Math.abs(difference) <= 1) {
@@ -530,15 +559,16 @@ const Deposits = () => {
         ocrExtractedAmount: ocrResult?.amount || null,
         ocrConfidence: ocrResult?.confidence || null,
         dailySalesTotal: dailySalesTotal,
-        totalExpenses: totalExpensesAmount,
-        expenses: expensesWithUrls,
+        expenses: adjustmentsWithUrls, // Backwards combatibility field name
+        totalExpenses: totalDeductionsVal, // Backwards compatibility
+        totalAdditions: totalAdditionsVal, // New field
         difference: difference,
         validationStatus: validationStatus,
         hasAnomaly: anomalyCheck.hasAnomaly,
         anomalyDescription: anomalyCheck.description || null,
         submittedBy: userData.uid || userData.id,
-        submittedByName: (userData.firstName && userData.lastName 
-          ? `${userData.firstName} ${userData.lastName}`.trim() 
+        submittedByName: (userData.firstName && userData.lastName
+          ? `${userData.firstName} ${userData.lastName}`.trim()
           : (userData.email || 'Unknown')),
         bankName: bankName,
         accountNumber: accountNumber,
@@ -547,13 +577,13 @@ const Deposits = () => {
       };
 
       await depositService.createDeposit(depositData);
-      
+
       // Reset form
       resetForm();
       setIsModalOpen(false);
       setShowDuplicateWarningModal(false);
       await loadDeposits();
-      
+
       toast.success('Deposit submitted successfully!');
     } catch (err) {
       console.error('Error submitting deposit:', err);
@@ -566,7 +596,7 @@ const Deposits = () => {
   // Handle form submission with duplicate check
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!userData?.branchId) {
       setError('Branch ID not found');
       return;
@@ -596,7 +626,7 @@ const Deposits = () => {
         selectedDateObj.setHours(0, 0, 0, 0);
         return depositDateObj.getTime() === selectedDateObj.getTime();
       });
-      
+
       setShowDuplicateWarningModal(true);
       setError(`A deposit already exists for ${format(new Date(depositDate), 'MMMM dd, yyyy')}. You cannot submit another deposit for this date.`);
       return;
@@ -618,14 +648,16 @@ const Deposits = () => {
     setNotes('');
     setOcrResult(null);
     setValidationResult(null);
-    setExpenses([]);
+    setValidationResult(null);
+    setAdjustments([]);
     setError(null);
   };
 
-  // Add expense
-  const addExpense = () => {
-    setExpenses([...expenses, {
+  // Add adjustment
+  const addAdjustment = () => {
+    setAdjustments([...adjustments, {
       id: Date.now().toString(),
+      type: 'deduction', // Default to existing behavior (expense)
       amount: '',
       description: '',
       receiptImage: null,
@@ -634,23 +666,23 @@ const Deposits = () => {
     }]);
   };
 
-  // Remove expense
-  const removeExpense = (expenseId) => {
-    setExpenses(expenses.filter(exp => exp.id !== expenseId));
+  // Remove adjustment
+  const removeAdjustment = (id) => {
+    setAdjustments(adjustments.filter(adj => adj.id !== id));
   };
 
-  // Update expense field
-  const updateExpense = (expenseId, field, value) => {
-    setExpenses(expenses.map(exp => 
-      exp.id === expenseId ? { ...exp, [field]: value } : exp
+  // Update adjustment field
+  const updateAdjustment = (id, field, value) => {
+    setAdjustments(adjustments.map(adj =>
+      adj.id === id ? { ...adj, [field]: value } : adj
     ));
   };
 
-  // Handle expense image upload
-  const handleExpenseImageUpload = (expenseId, e) => {
+  // Handle adjustment image upload
+  const handleAdjustmentImageUpload = (id, e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     if (!file.type.startsWith('image/')) {
       setError('Please upload an image file');
       return;
@@ -664,20 +696,24 @@ const Deposits = () => {
     // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
-      updateExpense(expenseId, 'receiptPreview', reader.result);
-      updateExpense(expenseId, 'receiptImage', file);
+      updateAdjustment(id, 'receiptPreview', reader.result);
+      updateAdjustment(id, 'receiptImage', file);
     };
     reader.readAsDataURL(file);
     setError(null);
   };
 
-  // Calculate total expenses
-  const totalExpenses = expenses.reduce((sum, exp) => {
-    return sum + (parseFloat(exp.amount) || 0);
-  }, 0);
+  // Calculate totals
+  const totalDeductions = adjustments
+    .filter(adj => adj.type === 'deduction')
+    .reduce((sum, adj) => sum + (parseFloat(adj.amount) || 0), 0);
 
-  // Calculate expected deposit (Sales - Expenses)
-  const expectedDepositAmount = Math.max(0, dailySalesTotal - totalExpenses);
+  const totalAdditions = adjustments
+    .filter(adj => adj.type === 'addition' || !adj.type) // Handle legacy/undefined as addition? No, deduction is safer, but new items have default.
+    .reduce((sum, adj) => sum + (parseFloat(adj.amount) || 0), 0);
+
+  // Calculate expected deposit (Sales + Additions - Deductions)
+  const expectedDepositAmount = Math.max(0, dailySalesTotal + totalAdditions - totalDeductions);
 
   // Get status color
   const getStatusColor = (status) => {
@@ -703,14 +739,14 @@ const Deposits = () => {
   const getDateRange = (type) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     switch (type) {
       case 'today':
         return {
           startDate: today.toISOString().split('T')[0],
           endDate: today.toISOString().split('T')[0]
         };
-      
+
       case 'thisWeek':
         const thisWeekStart = new Date(today);
         thisWeekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
@@ -725,7 +761,7 @@ const Deposits = () => {
           startDate: thisMonthStart.toISOString().split('T')[0],
           endDate: today.toISOString().split('T')[0]
         };
-      
+
       default:
         return { startDate: '', endDate: '' };
     }
@@ -746,10 +782,10 @@ const Deposits = () => {
 
   // Clear all filters
   const clearFilters = () => {
-                setStatusFilter('all');
-                setValidationFilter('all');
-                setDateFrom('');
-                setDateTo('');
+    setStatusFilter('all');
+    setValidationFilter('all');
+    setDateFrom('');
+    setDateTo('');
     setDateFilterType('all');
   };
 
@@ -784,7 +820,7 @@ const Deposits = () => {
 
       filteredDeposits.forEach(deposit => {
         const dateStr = format(new Date(deposit.depositDate), 'MMM dd, yyyy');
-        
+
         const row = [
           `"${dateStr}"`,
           `"${deposit.amount || 0}"`,
@@ -837,10 +873,10 @@ const Deposits = () => {
       const depositRows = filteredDeposits.map(deposit => {
         const dateStr = format(new Date(deposit.depositDate), 'MMM dd, yyyy');
         const status = deposit.status === 'approved' ? 'Approved' :
-                      deposit.status === 'rejected' ? 'Rejected' : 'Pending';
+          deposit.status === 'rejected' ? 'Rejected' : 'Pending';
         const validationStatus = deposit.validationStatus === 'match' ? 'Match' :
-                                deposit.validationStatus === 'mismatch' ? 'Mismatch' :
-                                deposit.validationStatus === 'manual_review' ? 'Review Needed' : 'Pending';
+          deposit.validationStatus === 'mismatch' ? 'Mismatch' :
+            deposit.validationStatus === 'manual_review' ? 'Review Needed' : 'Pending';
 
         return `
           <tr>
@@ -953,7 +989,7 @@ const Deposits = () => {
     } catch (error) {
       console.error('Error generating print report:', error);
       toast.error('Failed to generate print report');
-                  }
+    }
   };
 
 
@@ -969,12 +1005,12 @@ const Deposits = () => {
           <Button
             onClick={() => setIsModalOpen(true)}
             className="bg-[#160B53] text-white hover:bg-[#12094A] flex items-center gap-2"
-              >
+          >
             <Upload className="h-4 w-4" />
             Submit Deposit
-              </Button>
-            </div>
-          </div>
+          </Button>
+        </div>
+      </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -987,10 +1023,10 @@ const Deposits = () => {
             </div>
             <div className="p-3 bg-blue-100 rounded-lg">
               <Banknote className="w-6 h-6 text-blue-600" />
-          </div>
+            </div>
           </div>
         </div>
-          
+
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -1001,10 +1037,10 @@ const Deposits = () => {
             </div>
             <div className="p-3 bg-green-100 rounded-lg">
               <CheckCircle className="w-6 h-6 text-green-600" />
-          </div>
+            </div>
           </div>
         </div>
-          
+
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -1015,10 +1051,10 @@ const Deposits = () => {
             </div>
             <div className="p-3 bg-yellow-100 rounded-lg">
               <AlertTriangle className="w-6 h-6 text-yellow-600" />
-          </div>
+            </div>
           </div>
         </div>
-          
+
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -1029,10 +1065,10 @@ const Deposits = () => {
             </div>
             <div className="p-3 bg-purple-100 rounded-lg">
               <TrendingUp className="w-6 h-6 text-purple-600" />
+            </div>
           </div>
-              </div>
-            </div>
-            </div>
+        </div>
+      </div>
 
       {/* Filters and Actions */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
@@ -1052,11 +1088,10 @@ const Deposits = () => {
           {/* Filter Button */}
           <button
             onClick={() => setShowFilterModal(true)}
-            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
-              hasActiveFilters
-                ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
-                : 'border-gray-300 hover:bg-gray-50'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${hasActiveFilters
+              ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
+              : 'border-gray-300 hover:bg-gray-50'
+              }`}
             title={`Filter - ${filteredDeposits.length} deposits`}
           >
             <Filter className="w-5 h-5" />
@@ -1127,8 +1162,8 @@ const Deposits = () => {
                             {deposits.length === 0 ? 'No data yet hello?? hehehe 😊' : 'No deposits match your filters'}
                           </p>
                           <p className="text-sm text-gray-500 mt-1">
-                            {deposits.length === 0 
-                              ? 'Start by submitting your first deposit!' 
+                            {deposits.length === 0
+                              ? 'Start by submitting your first deposit!'
                               : 'Try adjusting your search or filter criteria'}
                           </p>
                         </div>
@@ -1162,21 +1197,20 @@ const Deposits = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`font-medium ${
-                          Math.abs(deposit.difference || 0) <= 1 
-                            ? 'text-green-600' 
-                            : Math.abs(deposit.difference || 0) > 100
+                        <span className={`font-medium ${Math.abs(deposit.difference || 0) <= 1
+                          ? 'text-green-600'
+                          : Math.abs(deposit.difference || 0) > 100
                             ? 'text-red-600'
                             : 'text-yellow-600'
-                        }`}>
+                          }`}>
                           {deposit.difference >= 0 ? '+' : ''}₱{Math.abs(deposit.difference || 0).toFixed(2)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getValidationColor(deposit.validationStatus)}`}>
                           {deposit.validationStatus === 'match' ? 'Match' :
-                           deposit.validationStatus === 'mismatch' ? 'Mismatch' :
-                           deposit.validationStatus === 'manual_review' ? 'Review Needed' : 'Pending'}
+                            deposit.validationStatus === 'mismatch' ? 'Mismatch' :
+                              deposit.validationStatus === 'manual_review' ? 'Review Needed' : 'Pending'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -1197,7 +1231,7 @@ const Deposits = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(deposit.status)}`}>
                           {deposit.status === 'approved' ? 'Approved' :
-                           deposit.status === 'rejected' ? 'Rejected' : 'Pending'}
+                            deposit.status === 'rejected' ? 'Rejected' : 'Pending'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -1221,611 +1255,406 @@ const Deposits = () => {
         </Card>
       )}
 
-      {/* Submit Deposit Modal */}
+      {/* Enhanced Submit Deposit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-[75vw] max-h-[95vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold">Submit Bank Deposit</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 transition-all duration-300">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+
+            {/* Sticky Header */}
+            <div className="bg-gradient-to-r from-[#160B53] to-[#2A1B70] text-white px-6 py-4 flex-shrink-0 relative overflow-hidden shadow-md z-20">
+              <div className="absolute inset-0 bg-white/5 opacity-20 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white/20 to-transparent"></div>
+              <div className="relative flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-white/10 rounded-xl backdrop-blur-md shadow-inner border border-white/20">
+                    <Banknote className="h-6 w-6 text-green-300" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-sm">Submit Bank Deposit</h2>
+                    <p className="text-blue-100 text-xs font-medium opacity-90">Verify daily sales and upload proof</p>
+                  </div>
+                </div>
                 <Button
                   variant="ghost"
                   onClick={() => {
                     setIsModalOpen(false);
                     resetForm();
                   }}
-                  className="text-white hover:bg-white/20"
+                  className="bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition-all duration-200 hover:rotate-90"
                 >
-                  <XCircle className="h-5 w-5" />
+                  <X className="h-5 w-5" />
                 </Button>
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              {/* Daily Sales Total - Prominent Display */}
-              <Card className={`p-6 ${dailySalesTotal > 0 ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white' : 'bg-gray-100 border-2 border-gray-300'}`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className={`text-sm font-medium mb-1 ${dailySalesTotal > 0 ? 'text-blue-100' : 'text-gray-600'}`}>
-                      Total Transactions Today
-                    </p>
-                    <p className={`text-3xl font-bold ${dailySalesTotal > 0 ? 'text-white' : 'text-gray-700'}`}>
-                      ₱{dailySalesTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                    <p className={`text-xs mt-1 ${dailySalesTotal > 0 ? 'text-blue-100' : 'text-gray-500'}`}>
-                      For {format(new Date(depositDate), 'MMMM dd, yyyy')}
-                    </p>
-                    {dailySalesTotal === 0 && (
-                      <p className="text-xs text-gray-500 mt-1 italic">No transactions found for this date</p>
-                    )}
-                  </div>
-                  <Banknote className={`h-12 w-12 ${dailySalesTotal > 0 ? 'text-blue-200' : 'text-gray-400'}`} />
-                </div>
-              </Card>
+            {/* Form Container - Flex Column to allow scrolling body */}
+            <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
 
-              {/* Anomaly Status Display - Only show after receipt is uploaded */}
-              {receiptImage && (() => {
-                const currentAnomalyCheck = checkAnomalies(
-                  ocrResult?.rawText || ocrResult?.extractedText || null,
-                  amount ? parseFloat(amount) : null,
-                  dailySalesTotal
-                );
-                  
-                if (currentAnomalyCheck.hasAnomaly) {
-                  return (
-                    <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg shadow-md">
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <h3 className="text-lg font-bold text-red-800 mb-2">
-                            ⚠️ Anomaly Detected
-                          </h3>
-                          <div className="bg-white p-3 rounded border border-red-200">
-                            <p className="text-sm text-red-700 font-medium mb-2">
-                              Issues found with this deposit:
-                            </p>
-                            <div className="space-y-2">
-                              {currentAnomalyCheck.description?.split(' | ').map((issue, index) => (
-                                <div key={index} className="flex items-start gap-2">
-                                  <span className="text-red-600 mt-1">•</span>
-                                  <p className="text-sm text-red-800">{issue}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <p className="text-xs text-red-600 font-medium mt-3">
-                            This deposit will be flagged for review by the Operational Manager.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                } else if (ocrResult && dailySalesTotal > 0 && amount) {
-                  return (
-                    <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded-lg shadow-md">
-                      <div className="flex items-start gap-3">
-                        <CheckCircle className="h-6 w-6 text-green-600 flex-shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <h3 className="text-lg font-bold text-green-800 mb-1">
-                            ✓ No Anomalies Detected
-                          </h3>
-                          <p className="text-sm text-green-700">
-                            All validations passed. The deposit amount matches the daily sales total and the receipt has been verified.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
+              {/* Scrollable Content Body */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50/50">
 
-              {/* Validation Summary */}
-              {(dailySalesTotal > 0 || ocrResult || amount) && (
-                <Card className="p-6 bg-gradient-to-r from-blue-50 to-green-50 border-2 border-blue-200">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Deposit Validation</h3>
-                  <div className="space-y-4">
-                    {/* Daily Sales Total */}
-                    <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-blue-200">
-                      <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-blue-600"></div>
-                        <span className="font-medium text-gray-700">Daily Sales Total (Transactions)</span>
-                      </div>
-                      <span className="text-xl font-bold text-blue-600">
-                        ₱{dailySalesTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-
-                    {/* Receipt Validation Status */}
-                    {ocrResult && dailySalesTotal > 0 && (
-                      <div className={`flex items-center justify-between p-3 bg-white rounded-lg border ${
-                        validationResult?.isValid ? 'border-green-200' : 'border-red-200'
+                {/* 1. Top Section: Sales Summary & Date */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Daily Sales Card */}
+                  <div className="lg:col-span-2">
+                    <div className={`relative overflow-hidden rounded-2xl p-6 transition-all duration-300 shadow-sm border ${dailySalesTotal > 0
+                      ? 'bg-gradient-to-br from-blue-600 to-blue-800 text-white border-blue-600'
+                      : 'bg-white border-gray-200'
                       }`}>
-                        <div className="flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full ${
-                            validationResult?.isValid ? 'bg-green-600' : 'bg-red-600'
-                          }`}></div>
-                          <span className="font-medium text-gray-700">Receipt Validation</span>
-                          {ocrResult.confidence && (
-                            <span className="text-xs text-gray-500">({ocrResult.confidence.toFixed(1)}% confidence)</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {validationResult?.isValid ? (
-                            <span className="text-sm font-medium text-green-600 flex items-center gap-1">
-                              <CheckCircle className="h-4 w-4" />
-                              Found in Receipt
-                            </span>
-                          ) : (
-                            <span className="text-sm font-medium text-red-600 flex items-center gap-1">
-                              <AlertTriangle className="h-4 w-4" />
-                              Not Found
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Total Expenses */}
-                    {totalExpenses > 0 && (
-                      <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full bg-orange-600"></div>
-                          <span className="font-medium text-gray-700">Total Expenses</span>
-                        </div>
-                        <span className="text-xl font-bold text-orange-600">
-                          ₱{totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Expected Deposit (Sales - Expenses) */}
-                    {totalExpenses > 0 && (
-                      <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-blue-200">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full bg-blue-600"></div>
-                          <span className="font-medium text-gray-700">Expected Deposit (Sales - Expenses)</span>
-                        </div>
-                        <span className="text-xl font-bold text-blue-600">
-                          ₱{expectedDepositAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Manual Deposit Amount */}
-                    {amount && (
-                      <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-green-200">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full bg-green-600"></div>
-                          <span className="font-medium text-gray-700">Deposit Amount</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xl font-bold text-green-600">
-                            ₱{parseFloat(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                          {dailySalesTotal > 0 && (
-                            <span className={`text-sm font-medium ${
-                              Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1 ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                              ({parseFloat(amount) >= expectedDepositAmount ? '+' : ''}₱{Math.abs(parseFloat(amount) - expectedDepositAmount).toFixed(2)})
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Match Status Display */}
-                    {amount && dailySalesTotal > 0 && (
-                      <div className={`flex items-center justify-between p-4 rounded-lg border-2 ${
-                        Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1 
-                          ? 'bg-green-50 border-green-500' 
-                          : 'bg-red-50 border-red-500'
-                      }`}>
-                        <div className="flex items-center gap-3">
-                          {Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1 ? (
-                            <CheckCircle className="h-6 w-6 text-green-600" />
-                          ) : (
-                            <AlertTriangle className="h-6 w-6 text-red-600" />
-                          )}
-                          <div>
-                            <p className={`text-lg font-bold ${
-                              Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1 ? 'text-green-800' : 'text-red-800'
-                            }`}>
-                              {Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1 
-                                ? '✓ Amounts Match' 
-                                : '✗ Amounts Do Not Match'}
-                            </p>
-                            {Math.abs(parseFloat(amount) - expectedDepositAmount) > 1 && (
-                              <p className="text-sm text-red-700 mt-1">
-                                Difference: ₱{Math.abs(parseFloat(amount) - expectedDepositAmount).toFixed(2)}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs text-gray-600 mb-1">Daily Sales</p>
-                          <p className="text-sm font-semibold text-gray-800">
+                      <div className="relative z-10 flex justify-between items-start">
+                        <div>
+                          <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${dailySalesTotal > 0 ? 'text-blue-200' : 'text-gray-500'}`}>
+                            Total Sales To Deposit
+                          </p>
+                          <p className={`text-3xl font-extrabold tracking-tight ${dailySalesTotal > 0 ? 'text-white' : 'text-gray-900'}`}>
                             ₱{dailySalesTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </p>
-                          {totalExpenses > 0 && (
-                            <>
-                              <p className="text-xs text-gray-600 mt-1 mb-1">Less: Expenses</p>
-                              <p className="text-sm font-semibold text-orange-700">
-                                -₱{totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </p>
-                            </>
+                          <div className={`flex items-center gap-2 mt-2 text-sm ${dailySalesTotal > 0 ? 'text-blue-100' : 'text-gray-500'}`}>
+                            <Calendar className="h-4 w-4" />
+                            <span>For {format(new Date(depositDate), 'EEEE, MMMM dd, yyyy')}</span>
+                          </div>
+                          {dailySalesTotal === 0 && (
+                            <p className="text-xs text-red-500 mt-2 font-medium bg-red-50 inline-block px-2 py-1 rounded">No transactions found</p>
                           )}
-                          <p className="text-xs text-gray-600 mt-1 mb-1">Expected Deposit</p>
-                          <p className="text-sm font-semibold text-blue-700">
-                            ₱{expectedDepositAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </p>
-                          <p className="text-xs text-gray-600 mt-1 mb-1">Actual Deposit</p>
-                          <p className="text-sm font-semibold text-gray-800">
-                            ₱{parseFloat(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </p>
+                        </div>
+                        <div className={`p-3 rounded-xl ${dailySalesTotal > 0 ? 'bg-white/10 backdrop-blur-sm' : 'bg-gray-100'}`}>
+                          <TrendingUp className={`h-6 w-6 ${dailySalesTotal > 0 ? 'text-green-300' : 'text-gray-400'}`} />
                         </div>
                       </div>
-                    )}
-
-                    {/* Validation Summary */}
-                    {amount && dailySalesTotal > 0 && (
-                      <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                        <p className="text-sm font-semibold text-gray-700 mb-2">Validation Summary:</p>
-                        <div className="space-y-1">
-                          {ocrResult && dailySalesTotal > 0 && (
-                            <p className="text-xs text-gray-600">
-                              Receipt Check: <span className={`font-medium ${
-                                validationResult?.isValid ? 'text-green-600' : 'text-red-600'
-                              }`}>
-                                {validationResult?.isValid 
-                                  ? `✓ Daily sales total (₱${dailySalesTotal.toLocaleString()}) found in receipt` 
-                                  : `✗ Daily sales total (₱${dailySalesTotal.toLocaleString()}) not found in receipt`}
-                              </span>
-                            </p>
-                          )}
-                          {totalExpenses > 0 && (
-                            <p className="text-xs text-gray-600">
-                              Expenses deducted: <span className="font-medium text-orange-600">₱{totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                            </p>
-                          )}
-                          <p className="text-xs text-gray-600">
-                            Deposit vs Expected: <span className={`font-medium ${
-                              Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1 ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                              {Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1 ? '✓ Match' : `✗ Difference: ₱${Math.abs(parseFloat(amount) - expectedDepositAmount).toFixed(2)}`}
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-                    )}
+                    </div>
                   </div>
-                </Card>
-              )}
 
-              {/* Deposit Date */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Deposit Date <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  type="date"
-                  value={depositDate}
-                  onChange={(e) => setDepositDate(e.target.value)}
-                  required
-                  max={new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  You can deposit for today or up to 1 day in advance
-                </p>
-              </div>
+                  {/* Date Selection */}
+                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Deposit Date
+                    </label>
+                    <Input
+                      type="date"
+                      value={depositDate}
+                      onChange={(e) => setDepositDate(e.target.value)}
+                      required
+                      max={new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+                      className="w-full text-base p-2 border-gray-300 rounded-lg focus:ring-[#160B53]"
+                    />
+                    <p className="text-xs text-center text-gray-500 mt-2 bg-gray-50 p-1.5 rounded text-gray-600">
+                      Select date to load sales
+                    </p>
+                  </div>
+                </div>
 
-              {/* Receipt Image Upload */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Receipt Image <span className="text-red-500">*</span>
-                </label>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <label className="flex-1 cursor-pointer">
+                {/* 2. Main Logic: Anomalies & Upload */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Left Column: Upload & Validation */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <Receipt className="h-4 w-4 text-gray-500" />
+                        Deposit Receipt
+                        <span className="text-red-500">*</span>
+                      </h3>
+                      {isScanning && <span className="text-xs text-blue-600 animate-pulse font-medium">Scanning...</span>}
+                    </div>
+
+                    <label className="group block relative cursor-pointer w-full">
                       <input
                         type="file"
                         accept="image/*"
                         onChange={handleImageUpload}
                         className="hidden"
                       />
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-[#160B53] transition-colors">
+                      <div className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-all duration-300 overflow-hidden ${receiptPreview
+                        ? 'border-blue-500 bg-blue-50/30'
+                        : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50/50'
+                        }`}>
                         {receiptPreview ? (
-                          <img src={receiptPreview} alt="Receipt preview" className="max-h-48 mx-auto rounded" />
+                          <div className="relative group-hover:scale-[1.01] transition-transform">
+                            <img src={receiptPreview} alt="Receipt preview" className="max-h-56 mx-auto rounded-lg shadow-sm object-contain bg-white" />
+                            <div className="absolute inset-0 bg-black/20 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <div className="bg-white text-gray-900 px-3 py-1.5 rounded-md font-medium shadow-lg text-sm">
+                                Change Image
+                              </div>
+                            </div>
+                          </div>
                         ) : (
-                          <div>
-                            <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                            <p className="text-sm text-gray-600">Click to upload receipt image</p>
-                            <p className="text-xs text-gray-500 mt-1">PNG, JPG up to 5MB</p>
+                          <div className="py-6">
+                            <div className="bg-blue-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                              <Upload className="h-6 w-6 text-blue-600" />
+                            </div>
+                            <p className="text-sm font-medium text-gray-700">Click to upload deposit slip</p>
+                            <p className="text-xs text-gray-400 mt-1">First, upload the receipt image</p>
                           </div>
                         )}
                       </div>
                     </label>
+
+                    {/* Anomaly Check Logic (Inlined) */}
+                    {receiptImage && (() => {
+                      const currentAnomalyCheck = checkAnomalies(
+                        ocrResult?.rawText || ocrResult?.extractedText || null,
+                        amount ? parseFloat(amount) : null,
+                        dailySalesTotal
+                      );
+
+                      if (currentAnomalyCheck.hasAnomaly) {
+                        return (
+                          <div className="bg-red-50 border border-red-200 p-4 rounded-xl animate-in slide-in-from-top-2">
+                            <div className="flex items-start gap-3">
+                              <div className="p-2 bg-white rounded-full shadow-sm">
+                                <AlertTriangle className="h-5 w-5 text-red-600" />
+                              </div>
+                              <div className="flex-1">
+                                <h3 className="text-sm font-bold text-red-900 mb-1">
+                                  Anomaly Detected
+                                </h3>
+                                <div className="text-xs text-red-700 space-y-1">
+                                  {currentAnomalyCheck.description?.split(' | ').map((issue, index) => (
+                                    <p key={index} className="flex items-start gap-1">
+                                      <span className="font-bold">•</span> {issue}
+                                    </p>
+                                  ))}
+                                </div>
+                                <p className="text-[10px] text-red-600 font-semibold mt-2 bg-red-100 p-1.5 rounded inline-block">
+                                  Flagged for Manager Review
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      } else if (ocrResult && dailySalesTotal > 0 && amount) {
+                        return (
+                          <div className="bg-green-50 border border-green-200 p-3 rounded-xl flex items-start gap-3">
+                            <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                            <div>
+                              <h3 className="text-sm font-bold text-green-900">Verified</h3>
+                              <p className="text-xs text-green-700">Receipt matches sales data.</p>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
-                    
-                  {/* Show scanning status */}
-                  {isScanning && (
-                    <div className="flex items-center justify-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                      <span className="text-sm text-blue-700">Scanning receipt...</span>
+
+                  {/* Right Column: Amount & Form Validations */}
+                  <div className="space-y-6">
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-5">
+                      <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                        <h3 className="text-base font-bold text-gray-900">Deposit Details</h3>
+                        <div className="text-xs text-gray-500 text-right">
+                          <p>Expected: <span className="font-semibold text-gray-900">₱{expectedDepositAmount.toLocaleString()}</span></p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">
+                          Amount Deposited <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-lg">₱</span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            placeholder="0.00"
+                            required
+                            min="0"
+                            className="w-full pl-10 py-3 text-xl font-bold border-gray-300 rounded-xl focus:ring-[#160B53] focus:border-[#160B53]"
+                          />
+                        </div>
+
+                        {/* Difference Alert */}
+                        {dailySalesTotal > 0 && amount && (
+                          <div className={`mt-2 text-xs flex items-center gap-1.5 font-medium ${Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1
+                            ? 'text-green-600'
+                            : 'text-orange-600'
+                            }`}>
+                            {Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1
+                              ? <><CheckCircle className="h-3 w-3" /> Amounts match</>
+                              : <><AlertTriangle className="h-3 w-3" /> Difference: ₱{Math.abs(parseFloat(amount) - expectedDepositAmount).toFixed(2)}</>}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">Bank Name</label>
+                          <Input
+                            value={bankName}
+                            onChange={(e) => setBankName(e.target.value)}
+                            placeholder="e.g. BDO"
+                            className="bg-gray-50/50 border-gray-200"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">Reference No.</label>
+                          <Input
+                            value={referenceNumber}
+                            onChange={(e) => setReferenceNumber(e.target.value)}
+                            placeholder="Ref #"
+                            className="bg-gray-50/50 border-gray-200"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Deposit Adjustments Section */}
+                <div className="bg-orange-50/30 rounded-2xl border border-orange-100 p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                        <Receipt className="h-4 w-4 text-orange-500" />
+                        Deposit Adjustments
+                      </h3>
+                      <p className="text-xs text-gray-500">Record expenses (deductions) or added cash (income)</p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={addAdjustment}
+                      className="bg-white text-xs border-orange-200 hover:bg-orange-50 text-orange-700"
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add Adjustment
+                    </Button>
+                  </div>
+
+                  {adjustments.length > 0 ? (
+                    <div className="space-y-3">
+                      {adjustments.map((adjustment, index) => (
+                        <div key={adjustment.id} className="bg-white p-4 rounded-xl border border-orange-100 shadow-sm relative group">
+                          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button type="button" onClick={() => removeAdjustment(adjustment.id)} className="text-red-400 hover:text-red-600 p-1">
+                              <XCircle className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Adjustment #{index + 1}</h4>
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[10px] font-medium text-gray-500 mb-1">Type</label>
+                                <select
+                                  value={adjustment.type}
+                                  onChange={(e) => updateAdjustment(adjustment.id, 'type', e.target.value)}
+                                  className="w-full text-sm border-gray-200 rounded-lg focus:ring-orange-500 focus:border-orange-500 py-2"
+                                >
+                                  <option value="deduction">Expense (Deduction)</option>
+                                  <option value="addition">Income (Addition)</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-medium text-gray-500 mb-1">Amount</label>
+                                <div className="relative">
+                                  <Input
+                                    type="number"
+                                    value={adjustment.amount}
+                                    onChange={(e) => updateAdjustment(adjustment.id, 'amount', e.target.value)}
+                                    placeholder="0.00"
+                                    className="h-[38px] text-sm"
+                                  />
+                                  <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold ${adjustment.type === 'addition' ? 'text-green-500' : 'text-red-500'}`}>
+                                    {adjustment.type === 'addition' ? '+' : '-'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-medium text-gray-500 mb-1">Description</label>
+                              <Input
+                                value={adjustment.description}
+                                onChange={(e) => updateAdjustment(adjustment.id, 'description', e.target.value)}
+                                placeholder="What is this adjustment for?"
+                                className="h-[38px] text-sm"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-medium text-gray-500 mb-1">Receipt Image <span className="text-red-500">*</span></label>
+                              <label className="flex items-center gap-3 cursor-pointer p-2 border border-dashed border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => handleAdjustmentImageUpload(adjustment.id, e)}
+                                  className="hidden"
+                                />
+                                {adjustment.receiptPreview ? (
+                                  <>
+                                    <img src={adjustment.receiptPreview} alt="Receipt" className="h-10 w-10 object-cover rounded-md" />
+                                    <span className="text-xs text-blue-600 font-medium">Click to change</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="bg-gray-100 p-2 rounded-md">
+                                      <Upload className="h-4 w-4 text-gray-500" />
+                                    </div>
+                                    <span className="text-xs text-gray-500">Upload Receipt Proof (Required)</span>
+                                  </>
+                                )}
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="flex justify-end gap-4 text-sm font-bold mt-2">
+                        {totalAdditions > 0 && <span className="text-green-700">Total Additions: +₱{totalAdditions.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>}
+                        {totalDeductions > 0 && <span className="text-red-700">Total Deductions: -₱{totalDeductions.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 text-xs text-gray-400 border-2 border-dashed border-orange-200/50 rounded-xl">
+                      No adjustments recorded
                     </div>
                   )}
-
-                  {/* OCR Validation Results */}
-                  {ocrResult && dailySalesTotal > 0 && (
-                    <Card className={`p-4 ${
-                      validationResult?.isValid 
-                        ? 'bg-green-50 border-green-200' 
-                        : 'bg-red-50 border-red-200'
-                    }`}>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          {validationResult?.isValid ? (
-                            <CheckCircle className="h-5 w-5 text-green-600" />
-                          ) : (
-                            <AlertTriangle className="h-5 w-5 text-red-600" />
-                          )}
-                          <p className={`text-sm font-medium ${
-                            validationResult?.isValid ? 'text-green-800' : 'text-red-800'
-                          }`}>
-                            {validationResult?.isValid 
-                              ? `Daily sales total (₱${dailySalesTotal.toLocaleString()}) found in receipt`
-                              : `Daily sales total (₱${dailySalesTotal.toLocaleString()}) not found in receipt`}
-                          </p>
-                        </div>
-                        <p className="text-xs text-gray-600">
-                          Receipt scanned with {(ocrResult.confidence || 0).toFixed(1)}% confidence
-                        </p>
-                      </div>
-                    </Card>
-                  )}
-
                 </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Additional Notes</label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={2}
+                    className="w-full border-gray-300 rounded-lg focus:ring-[#160B53] focus:border-[#160B53] shadow-sm text-sm p-3"
+                    placeholder="Remarks..."
+                  />
+                </div>
+
+                {error && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4" /> {error}
+                  </div>
+                )}
+
               </div>
 
-              {/* Expenses/Justifications Section */}
-              <Card className="p-6 bg-orange-50 border-2 border-orange-200">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Expenses & Justifications</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Add expenses (e.g., maintenance, repairs) to justify why the deposit amount differs from sales
-                    </p>
-                  </div>
+              {/* Sticky Footer */}
+              <div className="bg-white border-t border-gray-200 p-5 flex items-center justify-between flex-shrink-0 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                <div className="hidden sm:block text-xs text-gray-500">
+                  Verify account details before submitting.
+                </div>
+                <div className="flex gap-3 w-full sm:w-auto">
                   <Button
                     type="button"
-                    variant="outline"
-                    onClick={addExpense}
-                    className="flex items-center gap-2 bg-white hover:bg-orange-100"
+                    variant="ghost"
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      resetForm();
+                    }}
+                    className="flex-1 sm:flex-none text-gray-600 hover:bg-gray-100"
                   >
-                    <Plus className="h-4 w-4" />
-                    Add Expense
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting || checkDuplicateDeposit(depositDate)}
+                    className="flex-1 sm:flex-none bg-[#160B53] text-white hover:bg-[#2A1B70] px-6 py-2 rounded-lg shadow-lg hover:shadow-xl transition-all font-medium"
+                  >
+                    {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing</> : 'Confirm Deposit'}
                   </Button>
                 </div>
-
-                {expenses.length > 0 && (
-                  <div className="space-y-4 mb-4">
-                    {expenses.map((expense, index) => (
-                      <Card key={expense.id} className="p-4 bg-white border border-orange-200">
-                        <div className="flex items-start justify-between mb-3">
-                          <h4 className="font-semibold text-gray-900">Expense #{index + 1}</h4>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeExpense(expense.id)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Amount <span className="text-red-500">*</span>
-                            </label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={expense.amount}
-                              onChange={(e) => updateExpense(expense.id, 'amount', e.target.value)}
-                              placeholder="0.00"
-                              min="0"
-                              required
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Description <span className="text-red-500">*</span>
-                            </label>
-                            <Input
-                              type="text"
-                              value={expense.description}
-                              onChange={(e) => updateExpense(expense.id, 'description', e.target.value)}
-                              placeholder="e.g., Maintenance repair, Supplies, etc."
-                              required
-                            />
-                          </div>
-                        </div>
-                        <div className="mt-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Receipt Image (Optional)
-                          </label>
-                          <label className="cursor-pointer">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) => handleExpenseImageUpload(expense.id, e)}
-                              className="hidden"
-                            />
-                            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-orange-400 transition-colors">
-                              {expense.receiptPreview ? (
-                                <div>
-                                  <img src={expense.receiptPreview} alt="Receipt preview" className="max-h-32 mx-auto rounded mb-2" />
-                                  <p className="text-xs text-gray-600">Click to change image</p>
-                                </div>
-                              ) : (
-                                <div>
-                                  <Receipt className="h-6 w-6 text-gray-400 mx-auto mb-2" />
-                                  <p className="text-sm text-gray-600">Click to upload receipt</p>
-                                  <p className="text-xs text-gray-500 mt-1">PNG, JPG up to 5MB</p>
-                                </div>
-                              )}
-                            </div>
-                          </label>
-                        </div>
-                      </Card>
-                    ))}
-                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-gray-700">Total Expenses:</span>
-                        <span className="text-lg font-bold text-blue-700">₱{totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      </div>
-                      {dailySalesTotal > 0 && (
-                        <div className="mt-2 pt-2 border-t border-blue-300">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">Daily Sales:</span>
-                            <span className="text-sm font-semibold text-gray-900">₱{dailySalesTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                          </div>
-                          <div className="flex items-center justify-between mt-1">
-                            <span className="text-sm font-medium text-gray-700">Expected Deposit:</span>
-                            <span className="text-base font-bold text-green-700">₱{expectedDepositAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {expenses.length === 0 && (
-                  <div className="text-center py-8 border-2 border-dashed border-orange-300 rounded-lg bg-white">
-                    <Receipt className="h-12 w-12 text-orange-400 mx-auto mb-3" />
-                    <p className="text-sm text-gray-600 mb-2">No expenses added yet</p>
-                    <p className="text-xs text-gray-500">Click "Add Expense" to justify deposit differences</p>
-                  </div>
-                )}
-              </Card>
-
-              {/* Amount */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Deposit Amount <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
-                  required
-                  min="0"
-                />
-                {dailySalesTotal > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {totalExpenses > 0 && (
-                      <p className="text-xs text-gray-600">
-                        After expenses: ₱{expectedDepositAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </p>
-                    )}
-                    {amount && (
-                      <p className={`text-xs font-medium ${
-                        Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1 ? 'text-green-600' : 'text-orange-600'
-                      }`}>
-                        Difference: {parseFloat(amount) >= expectedDepositAmount ? '+' : ''}
-                        ₱{Math.abs(parseFloat(amount) - expectedDepositAmount).toFixed(2)}
-                        {Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1 && ' ✓ Match'}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Bank Details */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Bank Name
-                  </label>
-                  <Input
-                    type="text"
-                    value={bankName}
-                    onChange={(e) => setBankName(e.target.value)}
-                    placeholder="e.g., BDO, BPI"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Account Number
-                  </label>
-                  <Input
-                    type="text"
-                    value={accountNumber}
-                    onChange={(e) => setAccountNumber(e.target.value)}
-                    placeholder="Account number"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Reference Number
-                </label>
-                <Input
-                  type="text"
-                  value={referenceNumber}
-                  onChange={(e) => setReferenceNumber(e.target.value)}
-                  placeholder="Deposit reference number"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Notes
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                  placeholder="Additional notes..."
-                />
-              </div>
-
-              {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-800">{error}</p>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setIsModalOpen(false);
-                    resetForm();
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={isSubmitting || checkDuplicateDeposit(depositDate)}
-                  className="bg-[#160B53] text-white hover:bg-[#12094A] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    'Submit Deposit'
-                  )}
-                </Button>
               </div>
             </form>
           </div>
@@ -1835,163 +1664,214 @@ const Deposits = () => {
       {/* Deposit Details Modal */}
       {showDetailsModal && selectedDeposit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold">Deposit Details</h2>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-6 flex-shrink-0 relative overflow-hidden">
+              <div className="absolute inset-0 bg-white/5 opacity-10 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white/20 to-transparent"></div>
+              <div className="relative flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-white/10 rounded-xl backdrop-blur-md shadow-inner border border-white/20">
+                    <FileText className="h-6 w-6 text-blue-200" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold tracking-tight">Deposit Details</h2>
+                    <p className="text-blue-100 text-xs font-medium opacity-90">Transaction records and proof</p>
+                  </div>
+                </div>
                 <Button
                   variant="ghost"
                   onClick={() => setShowDetailsModal(false)}
-                  className="text-white hover:bg-white/20"
+                  className="bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition-all duration-200 hover:rotate-90"
                 >
-                  <XCircle className="h-5 w-5" />
+                  <X className="h-5 w-5" />
                 </Button>
               </div>
             </div>
 
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Date</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {format(new Date(selectedDeposit.depositDate), 'MMM dd, yyyy')}
-                  </p>
+            {/* Content Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50/50">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left Side: Info */}
+                <div className="space-y-6">
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <Calendar className="h-4 w-4" /> Core Information
+                    </h3>
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <p className="text-xs font-bold text-gray-500 uppercase mb-1">Date</p>
+                        <p className="text-lg font-bold text-gray-900">
+                          {format(new Date(selectedDeposit.depositDate), 'MMMM dd, yyyy')}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-gray-500 uppercase mb-1">Amount</p>
+                        <p className="text-lg font-bold text-[#160B53]">
+                          ₱{(selectedDeposit.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-gray-500 uppercase mb-1">Daily Sales</p>
+                        <p className="text-lg font-semibold text-gray-900">
+                          ₱{(selectedDeposit.dailySalesTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-gray-500 uppercase mb-1">Difference</p>
+                        <p className={`text-lg font-bold ${Math.abs(selectedDeposit.difference || 0) <= 1 ? 'text-green-600' : 'text-red-600'}`}>
+                          {selectedDeposit.difference >= 0 ? '+' : ''}₱{Math.abs(selectedDeposit.difference || 0).toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <Building className="h-4 w-4" /> Bank & Status
+                    </h3>
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <p className="text-xs font-bold text-gray-500 uppercase mb-1">Status</p>
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(selectedDeposit.status)}`}>
+                          {selectedDeposit.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-gray-500 uppercase mb-1">Validation</p>
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${getValidationColor(selectedDeposit.validationStatus)}`}>
+                          {selectedDeposit.validationStatus.toUpperCase()}
+                        </span>
+                      </div>
+                      {selectedDeposit.bankName && (
+                        <div className="col-span-2 border-t border-gray-50 pt-4 mt-2">
+                          <p className="text-xs font-bold text-gray-500 uppercase mb-1">Bank Name</p>
+                          <p className="text-gray-900 font-medium">{selectedDeposit.bankName}</p>
+                        </div>
+                      )}
+                      {selectedDeposit.referenceNumber && (
+                        <div className="col-span-2">
+                          <p className="text-xs font-bold text-gray-500 uppercase mb-1">Reference Number</p>
+                          <p className="text-gray-900 font-mono text-sm">{selectedDeposit.referenceNumber}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedDeposit.notes && (
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <FileText className="h-4 w-4" /> Additional Notes
+                      </h3>
+                      <p className="text-sm text-gray-700 bg-gray-50 p-4 rounded-xl border border-gray-100 italic leading-relaxed">
+                        "{selectedDeposit.notes}"
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Amount</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    ₱{(selectedDeposit.amount || 0).toLocaleString()}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Daily Sales</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    ₱{(selectedDeposit.dailySalesTotal || 0).toLocaleString()}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Difference</p>
-                  <p className={`text-lg font-semibold ${
-                    Math.abs(selectedDeposit.difference || 0) <= 1 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {selectedDeposit.difference >= 0 ? '+' : ''}₱{Math.abs(selectedDeposit.difference || 0).toFixed(2)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Status</p>
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(selectedDeposit.status)}`}>
-                    {selectedDeposit.status}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Validation</p>
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getValidationColor(selectedDeposit.validationStatus)}`}>
-                    {selectedDeposit.validationStatus}
-                  </span>
+
+                {/* Right Side: Proof */}
+                <div className="space-y-6">
+                  {selectedDeposit.receiptImageUrl && (
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-full">
+                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <Receipt className="h-4 w-4" /> Deposit Proof Receipt
+                      </h3>
+                      <div className="relative group cursor-zoom-in" onClick={() => window.open(selectedDeposit.receiptImageUrl, '_blank')}>
+                        <img
+                          src={selectedDeposit.receiptImageUrl}
+                          alt="Deposit receipt"
+                          className="w-full rounded-xl border border-gray-100 shadow-sm transition-transform duration-300 group-hover:scale-[1.01]"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-xl flex items-center justify-center">
+                          <div className="bg-white/90 text-gray-900 px-4 py-2 rounded-full font-bold shadow-2xl scale-90 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-300 flex items-center gap-2">
+                            <Eye className="h-4 w-4" /> View Full Image
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedDeposit.hasAnomaly && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-2xl shadow-sm">
+                      <div className="flex items-start gap-4">
+                        <div className="p-2 bg-white rounded-full shadow-sm">
+                          <AlertTriangle className="h-5 w-5 text-red-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-red-900 mb-1">Anomaly Information</p>
+                          <p className="text-xs text-red-800 leading-relaxed font-medium">
+                            {selectedDeposit.anomalyDescription || 'This deposit was flagged for manual review due to data inconsistencies.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {selectedDeposit.receiptImageUrl && (
-                <div>
-                  <p className="text-sm font-medium text-gray-500 mb-2">Receipt</p>
-                  <img 
-                    src={selectedDeposit.receiptImageUrl} 
-                    alt="Deposit receipt" 
-                    className="max-w-full rounded-lg border border-gray-200"
-                  />
-                </div>
-              )}
-
-              {selectedDeposit.bankName && (
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Bank</p>
-                  <p className="text-gray-900">{selectedDeposit.bankName}</p>
-                </div>
-              )}
-
-              {selectedDeposit.referenceNumber && (
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Reference Number</p>
-                  <p className="text-gray-900">{selectedDeposit.referenceNumber}</p>
-                </div>
-              )}
-
-              {selectedDeposit.notes && (
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Notes</p>
-                  <p className="text-gray-900">{selectedDeposit.notes}</p>
-                </div>
-              )}
-
-              {selectedDeposit.reviewNotes && (
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Review Notes</p>
-                  <p className="text-gray-900">{selectedDeposit.reviewNotes}</p>
-                </div>
-              )}
-
-              {/* Expenses Section */}
+              {/* Adjustments Section - Full Width Bottom */}
               {selectedDeposit.expenses && selectedDeposit.expenses.length > 0 && (
-                <div className="border-t border-gray-200 pt-4">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Receipt className="h-5 w-5 text-orange-600" />
-                    Expenses & Justifications
-                  </h3>
-                  <div className="space-y-3">
-                    {selectedDeposit.expenses.map((expense, index) => (
-                      <Card key={index} className="p-4 bg-orange-50 border border-orange-200">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="text-sm font-semibold text-gray-900">Expense #{index + 1}</span>
-                              <span className="text-lg font-bold text-orange-700">
-                                ₱{(expense.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                            {expense.description && (
-                              <p className="text-sm text-gray-700 mb-2">{expense.description}</p>
-                            )}
-                            {expense.receiptImageUrl && (
-                              <div className="mt-3">
-                                <p className="text-xs font-medium text-gray-600 mb-2">Receipt:</p>
-                                <img 
-                                  src={expense.receiptImageUrl} 
-                                  alt={`Expense receipt ${index + 1}`}
-                                  className="max-w-full max-h-48 rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
-                                  onClick={() => window.open(expense.receiptImageUrl, '_blank')}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-gray-700">Total Expenses:</span>
-                        <span className="text-lg font-bold text-blue-700">
-                          ₱{(selectedDeposit.totalExpenses || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
+                <div className="bg-orange-50/30 rounded-2xl border border-orange-100 p-6 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <RefreshCw className="h-5 w-5 text-orange-500" />
+                        Deposit Adjustments
+                      </h3>
+                      <p className="text-xs text-gray-500">Recorded deductions and additions for this date</p>
                     </div>
                   </div>
-                </div>
-              )}
 
-              {/* Anomaly Information */}
-              {selectedDeposit.hasAnomaly && (
-                <div className="border-t border-gray-200 pt-4">
-                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-red-900 mb-2">⚠️ Anomaly Detected</p>
-                        <p className="text-sm text-red-800">{selectedDeposit.anomalyDescription || 'Anomaly detected in deposit validation'}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {selectedDeposit.expenses.map((expense, index) => (
+                      <div key={index} className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
+                        <div className={`absolute top-0 left-0 w-1.5 h-full ${expense.type === 'addition' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <div className="flex items-center justify-between mb-4 border-b border-gray-50 pb-3">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Adjustment #{index + 1}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-tighter ${expense.type === 'addition' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {expense.type === 'addition' ? 'Addition' : 'Deduction'}
+                          </span>
+                        </div>
+                        <div className="flex items-start gap-4 mb-4">
+                          <div className={`p-3 rounded-xl ${expense.type === 'addition' ? 'bg-green-50' : 'bg-red-50'}`}>
+                            <span className={`text-lg font-black ${expense.type === 'addition' ? 'text-green-600' : 'text-red-600'}`}>
+                              {expense.type === 'addition' ? '+' : '-'}₱{(expense.amount || 0).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-700 font-semibold flex-1 leading-snug">{expense.description}</p>
+                        </div>
+                        {expense.receiptImageUrl && (
+                          <div className="relative group/img cursor-zoom-in" onClick={() => window.open(expense.receiptImageUrl, '_blank')}>
+                            <img
+                              src={expense.receiptImageUrl}
+                              alt={`Adjustment ${index + 1}`}
+                              className="w-full h-40 object-cover rounded-xl border border-gray-100 transition-opacity group-hover/img:opacity-90"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity">
+                              <div className="bg-black/60 text-white p-2 rounded-full backdrop-blur-sm">
+                                <Eye className="h-5 w-5" />
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Sticky Footer */}
+            <div className="bg-white border-t border-gray-200 p-6 flex items-center justify-between flex-shrink-0 shadow-md">
+              <div className="text-xs text-gray-400 italic">
+                View-only mode. Approval can only be changed by administrators.
+              </div>
+              <Button
+                onClick={() => setShowDetailsModal(false)}
+                className="bg-[#160B53] text-white hover:bg-[#2A1B70] px-10 py-2.5 rounded-xl shadow-lg transition-all font-bold"
+              >
+                Done
+              </Button>
             </div>
           </div>
         </div>
@@ -1999,28 +1879,28 @@ const Deposits = () => {
 
       {/* Filter Modal */}
       {showFilterModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h2 className="text-xl font-bold text-gray-900">Filter Deposits</h2>
               <button
                 onClick={() => setShowFilterModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left Column */}
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 font-bold">Status</label>
                     <select
                       value={statusFilter}
                       onChange={(e) => setStatusFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
                     >
                       <option value="all">All Status</option>
                       <option value="submitted">Pending</option>
@@ -2030,11 +1910,11 @@ const Deposits = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Validation Status</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 font-bold">Validation Status</label>
                     <select
                       value={validationFilter}
                       onChange={(e) => setValidationFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
                     >
                       <option value="all">All Validation</option>
                       <option value="match">Match</option>
@@ -2047,11 +1927,11 @@ const Deposits = () => {
                 {/* Right Column */}
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 font-bold">Date Range</label>
                     <select
                       value={dateFilterType}
                       onChange={(e) => handleDateFilterTypeChange(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent mb-3"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent mb-3"
                     >
                       <option value="all">All Dates</option>
                       <option value="today">Today</option>
@@ -2068,7 +1948,7 @@ const Deposits = () => {
                             type="date"
                             value={dateFrom}
                             onChange={(e) => setDateFrom(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent text-sm"
                           />
                         </div>
                         <div>
@@ -2077,7 +1957,7 @@ const Deposits = () => {
                             type="date"
                             value={dateTo}
                             onChange={(e) => setDateTo(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent text-sm"
                           />
                         </div>
                       </div>
@@ -2090,17 +1970,14 @@ const Deposits = () => {
             <div className="flex items-center justify-between p-6 border-t border-gray-200">
               <button
                 onClick={clearFilters}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                className="text-sm text-red-600 hover:text-red-700 font-bold"
               >
-                Clear Filters
+                Clear All
               </button>
               <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-600">
-                  {filteredDeposits.length} of {deposits.length} deposits
-                </span>
                 <Button
                   onClick={() => setShowFilterModal(false)}
-                  className="bg-[#160B53] text-white hover:bg-[#12094A]"
+                  className="bg-[#160B53] text-white hover:bg-[#2A1B70] px-8"
                 >
                   Apply Filters
                 </Button>
@@ -2112,50 +1989,39 @@ const Deposits = () => {
 
       {/* Duplicate Deposit Error Modal */}
       {showDuplicateWarningModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-6">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="p-3 bg-red-100 rounded-full">
-                  <XCircle className="w-6 h-6 text-red-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Cannot Submit Deposit</h3>
-                </div>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full animate-in zoom-in-95 duration-200">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <XCircle className="w-10 h-10 text-red-600" />
               </div>
 
-              <div className="mb-6">
-                <p className="text-sm text-gray-700 mb-2">
-                  You already have a deposit for <strong className="text-red-600">{format(new Date(depositDate), 'MMMM dd, yyyy')}</strong>.
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Duplicate Submission</h3>
+              <p className="text-gray-600 mb-6">
+                You already have a deposit recorded for <br />
+                <strong className="text-red-600">{format(new Date(depositDate), 'MMMM dd, yyyy')}</strong>.
+              </p>
+
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+                <p className="text-xs text-red-800 font-semibold flex items-center justify-center gap-2">
+                  <AlertTriangle className="h-4 w-4" /> Only one deposit allowed per date.
                 </p>
-                <p className="text-sm text-gray-600 mb-3">
-                  You cannot submit another deposit for this date. Please select a different date.
-                </p>
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-xs text-red-800 font-medium">
-                    ⚠️ Only one deposit per date is allowed.
-                  </p>
-                </div>
               </div>
 
-              <div className="flex items-center justify-end">
-                <Button
-                  onClick={() => {
-                    setShowDuplicateWarningModal(false);
-                    setError('');
-                  }}
-                  className="bg-[#160B53] text-white hover:bg-[#12094A]"
-                >
-                  Close
-                </Button>
-              </div>
+              <Button
+                onClick={() => {
+                  setShowDuplicateWarningModal(false);
+                  setError('');
+                }}
+                className="w-full bg-[#160B53] text-white hover:bg-[#2A1B70] py-3 rounded-xl font-bold"
+              >
+                Understood
+              </Button>
             </div>
           </div>
         </div>
       )}
-
     </div>
-    
   );
 };
 

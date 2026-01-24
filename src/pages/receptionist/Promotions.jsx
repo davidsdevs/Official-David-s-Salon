@@ -9,15 +9,15 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { Card } from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import { 
-  Tag, 
-  Calendar, 
-  Percent, 
-  Users, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
-  Search, 
+import {
+  Tag,
+  Calendar,
+  Percent,
+  Users,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Search,
   Filter,
   Eye,
   Megaphone
@@ -28,7 +28,7 @@ import { productService } from '../../services/productService';
 
 const ReceptionistPromotions = () => {
   const { userBranch, userBranchData } = useAuth();
-  
+
   const [promotions, setPromotions] = useState([]);
   const [availableServices, setAvailableServices] = useState([]);
   const [availableProducts, setAvailableProducts] = useState([]);
@@ -44,7 +44,7 @@ const ReceptionistPromotions = () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       if (!userBranch) {
         setError('Branch ID not found');
         setLoading(false);
@@ -55,7 +55,7 @@ const ReceptionistPromotions = () => {
       const q = query(promotionsRef, where('branchId', '==', userBranch));
       const snapshot = await getDocs(q);
       const promotionsList = [];
-      
+
       snapshot.forEach((doc) => {
         const data = doc.data();
         promotionsList.push({
@@ -74,14 +74,18 @@ const ReceptionistPromotions = () => {
           usageType: data.usageType || 'repeating',
           maxUses: data.maxUses || null,
           usageCount: data.usageCount || 0,
+          imageUrl: data.imageUrl || '',
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
         });
       });
-      
+
+      // Filter out inactive promotions
+      const activePromos = promotionsList.filter(p => p.isActive !== false);
+
       // Sort by createdAt descending
-      promotionsList.sort((a, b) => b.createdAt - a.createdAt);
-      
-      setPromotions(promotionsList);
+      activePromos.sort((a, b) => b.createdAt - a.createdAt);
+
+      setPromotions(activePromos);
     } catch (err) {
       console.error('Error loading promotions:', err);
       setError(err.message);
@@ -96,7 +100,7 @@ const ReceptionistPromotions = () => {
       if (userBranch) {
         const services = await getBranchServices(userBranch);
         setAvailableServices(services || []);
-        
+
         const productsResult = await productService.getProductsByBranch(userBranch);
         setAvailableProducts(productsResult?.products || []);
       }
@@ -117,36 +121,36 @@ const ReceptionistPromotions = () => {
     const now = new Date();
     const startDate = new Date(promotion.startDate);
     const endDate = new Date(promotion.endDate);
-    
+
     if (!promotion.isActive) {
       return { status: 'inactive', label: 'Inactive', color: 'bg-gray-100 text-gray-700 border-gray-300' };
     }
-    
+
     if (now < startDate) {
       return { status: 'upcoming', label: 'Upcoming', color: 'bg-blue-100 text-blue-700 border-blue-300' };
     }
-    
+
     if (now > endDate) {
       return { status: 'expired', label: 'Expired', color: 'bg-red-100 text-red-700 border-red-300' };
     }
-    
+
     return { status: 'active', label: 'Active', color: 'bg-green-100 text-green-700 border-green-300' };
   };
 
   // Filter promotions
   const filteredPromotions = useMemo(() => {
     let filtered = [...promotions];
-    
+
     // Search filter
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
-      filtered = filtered.filter(p => 
+      filtered = filtered.filter(p =>
         p.title?.toLowerCase().includes(searchLower) ||
         p.description?.toLowerCase().includes(searchLower) ||
         p.promotionCode?.toLowerCase().includes(searchLower)
       );
     }
-    
+
     // Status filter
     if (statusFilter !== 'all') {
       filtered = filtered.filter(p => {
@@ -154,7 +158,7 @@ const ReceptionistPromotions = () => {
         return status.status === statusFilter;
       });
     }
-    
+
     return filtered;
   }, [promotions, searchTerm, statusFilter]);
 
@@ -212,7 +216,7 @@ const ReceptionistPromotions = () => {
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
-          
+
           {/* Status Filter */}
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-gray-400" />
@@ -238,8 +242,8 @@ const ReceptionistPromotions = () => {
             <Tag className="h-12 w-12 mx-auto mb-4 text-gray-400" />
             <p>No promotions found</p>
             <p className="text-sm mt-2">
-              {searchTerm || statusFilter !== 'all' 
-                ? 'Try adjusting your filters' 
+              {searchTerm || statusFilter !== 'all'
+                ? 'Try adjusting your filters'
                 : 'No promotions have been created for this branch yet'}
             </p>
           </div>
@@ -247,77 +251,80 @@ const ReceptionistPromotions = () => {
           filteredPromotions.map((promotion) => {
             const status = getPromotionStatus(promotion);
             return (
-              <Card key={promotion.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-3">
+              <Card
+                key={promotion.id}
+                className="overflow-hidden hover:shadow-xl transition-all duration-300 group relative min-h-[300px] flex flex-col border-0"
+                style={promotion.imageUrl ? {
+                  backgroundImage: `url(${promotion.imageUrl})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center'
+                } : {}}
+              >
+                {/* Overlay for readability */}
+                <div className={`absolute inset-0 z-0 transition-opacity duration-300 ${promotion.imageUrl ? 'bg-black/60 group-hover:bg-black/50' : 'bg-gradient-to-br from-[#160B53] to-[#2D1B4E]'}`}></div>
+
+                <div className="p-6 flex flex-col h-full relative z-10 text-white">
+                  <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <Tag className="h-5 w-5 text-primary-600" />
-                        <h3 className="text-lg font-semibold text-gray-900">{promotion.title}</h3>
+                        <Tag className="h-5 w-5 text-primary-400" />
+                        <h3 className="text-xl font-bold drop-shadow-md">{promotion.title}</h3>
                       </div>
                       {promotion.description && (
-                        <p className="text-sm text-gray-600 line-clamp-2 mb-2">{promotion.description}</p>
+                        <p className={`text-sm line-clamp-2 ${promotion.imageUrl ? 'text-white/90' : 'text-blue-100'}`}>{promotion.description}</p>
                       )}
                     </div>
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${status.color}`}>
+                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border backdrop-blur-md ${status.color.replace('bg-', 'bg-').replace('text-', 'text-')}`}>
                       {status.status === 'active' && <CheckCircle className="h-3 w-3" />}
                       {status.status === 'upcoming' && <Clock className="h-3 w-3" />}
                       {status.status === 'expired' && <XCircle className="h-3 w-3" />}
-                      {status.status === 'inactive' && <XCircle className="h-3 w-3" />}
                       {status.label}
                     </span>
                   </div>
 
-                  <div className="space-y-2 mb-4">
+                  <div className="flex-1 space-y-3">
                     {/* Discount */}
-                    <div className="flex items-center gap-2 text-sm">
-                      <Percent className="h-4 w-4 text-gray-400" />
-                      <span className="text-gray-700">
-                        <span className="font-semibold text-primary-600">
-                          {promotion.discountType === 'percentage' 
-                            ? `${promotion.discountValue}% OFF` 
-                            : `₱${promotion.discountValue} OFF`}
-                        </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-3xl font-black text-white tracking-tight drop-shadow-lg">
+                        {promotion.discountType === 'percentage'
+                          ? `${promotion.discountValue}% OFF`
+                          : `₱${promotion.discountValue} OFF`}
                       </span>
                     </div>
 
-                    {/* Dates */}
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Calendar className="h-4 w-4 text-gray-400" />
-                      <span>
-                        {format(new Date(promotion.startDate), 'MMM dd, yyyy')} - {format(new Date(promotion.endDate), 'MMM dd, yyyy')}
-                      </span>
-                    </div>
-
-                    {/* Promotion Code */}
-                    {promotion.promotionCode && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="font-mono px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-semibold">
-                          {promotion.promotionCode}
+                    <div className="grid grid-cols-1 gap-2 mt-4">
+                      {/* Dates */}
+                      <div className="flex items-center gap-2 text-sm text-white/80">
+                        <Calendar className="h-4 w-4 text-blue-400" />
+                        <span>
+                          {format(new Date(promotion.startDate), 'MMM dd')} - {format(new Date(promotion.endDate), 'MMM dd, yyyy')}
                         </span>
                       </div>
-                    )}
 
-                    {/* Applicable To */}
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Users className="h-4 w-4 text-gray-400" />
-                      <span>
-                        {promotion.applicableTo === 'all' 
-                          ? 'All Services & Products'
-                          : promotion.applicableTo === 'services'
-                          ? 'Services Only'
-                          : promotion.applicableTo === 'products'
-                          ? 'Products Only'
-                          : 'Specific Items'}
-                      </span>
-                    </div>
+                      {/* Promotion Code */}
+                      {promotion.promotionCode && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Tag className="h-4 w-4 text-purple-400" />
+                          <span className="font-mono px-2 py-0.5 bg-white/20 text-white rounded text-xs font-bold tracking-wider uppercase">
+                            {promotion.promotionCode}
+                          </span>
+                        </div>
+                      )}
 
-                    {/* Usage Info */}
-                    {promotion.usageType === 'repeating' && promotion.maxUses && (
-                      <div className="text-xs text-gray-500">
-                        Used {promotion.usageCount || 0} / {promotion.maxUses} times
+                      {/* Applicable To */}
+                      <div className="flex items-center gap-2 text-sm text-white/80">
+                        <Users className="h-4 w-4 text-orange-400" />
+                        <span>
+                          {promotion.applicableTo === 'all'
+                            ? 'All Services & Products'
+                            : promotion.applicableTo === 'services'
+                              ? 'Services Only'
+                              : promotion.applicableTo === 'products'
+                                ? 'Products Only'
+                                : 'Specific Items'}
+                        </span>
                       </div>
-                    )}
+                    </div>
                   </div>
 
                   {/* View Details Button */}
@@ -326,10 +333,10 @@ const ReceptionistPromotions = () => {
                       setSelectedPromotion(promotion);
                       setShowDetailsModal(true);
                     }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition-colors text-sm font-medium"
+                    className="w-full mt-6 flex items-center justify-center gap-2 px-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all text-sm font-bold backdrop-blur-sm border border-white/10"
                   >
                     <Eye className="w-4 h-4" />
-                    View Details
+                    View Promotion Details
                   </button>
                 </div>
               </Card>
@@ -388,8 +395,8 @@ const ReceptionistPromotions = () => {
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Discount</p>
                   <p className="font-semibold text-primary-600">
-                    {selectedPromotion.discountType === 'percentage' 
-                      ? `${selectedPromotion.discountValue}% OFF` 
+                    {selectedPromotion.discountType === 'percentage'
+                      ? `${selectedPromotion.discountValue}% OFF`
                       : `₱${selectedPromotion.discountValue} OFF`}
                   </p>
                 </div>
@@ -431,13 +438,13 @@ const ReceptionistPromotions = () => {
               <div className="mb-4">
                 <p className="text-sm text-gray-500 mb-2">Applicable To</p>
                 <p className="text-gray-900">
-                  {selectedPromotion.applicableTo === 'all' 
+                  {selectedPromotion.applicableTo === 'all'
                     ? 'All Services & Products'
                     : selectedPromotion.applicableTo === 'services'
-                    ? 'Services Only'
-                    : selectedPromotion.applicableTo === 'products'
-                    ? 'Products Only'
-                    : 'Specific Items'}
+                      ? 'Services Only'
+                      : selectedPromotion.applicableTo === 'products'
+                        ? 'Products Only'
+                        : 'Specific Items'}
                 </p>
               </div>
 

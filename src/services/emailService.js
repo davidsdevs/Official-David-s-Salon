@@ -21,12 +21,12 @@ export const sendEmail = async ({ to, subject, text, html }) => {
   const apiKey = import.meta.env.VITE_BREVO_API_KEY;
   const fromEmail = import.meta.env.VITE_BREVO_FROM_EMAIL || import.meta.env.VITE_SENDER_EMAIL || 'noreply@davidsalon.com';
   const fromName = import.meta.env.VITE_BREVO_FROM_NAME || import.meta.env.VITE_SENDER_NAME || 'David\'s Salon';
-  
+
   console.log('📧 [Brevo Email] Attempting to send email...');
   console.log('📧 [Brevo Email] To:', to);
   console.log('📧 [Brevo Email] Subject:', subject);
   console.log('📧 [Brevo Email] From:', fromName, `<${fromEmail}>`);
-  
+
   if (!apiKey) {
     console.error('❌ [Brevo Email] API key not configured. Email not sent.');
     return {
@@ -34,7 +34,7 @@ export const sendEmail = async ({ to, subject, text, html }) => {
       error: 'Brevo API key not configured'
     };
   }
-  
+
   console.log('📧 [Brevo Email] API Key configured:', apiKey.substring(0, 10) + '...');
 
   try {
@@ -54,7 +54,7 @@ export const sendEmail = async ({ to, subject, text, html }) => {
     };
 
     console.log('📧 [Brevo Email] Sending request to Brevo API...');
-    
+
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
@@ -63,9 +63,9 @@ export const sendEmail = async ({ to, subject, text, html }) => {
       },
       body: JSON.stringify(requestBody)
     });
-    
+
     console.log('📧 [Brevo Email] Response status:', response.status);
-    
+
     if (!response.ok) {
       const errorData = await response.text();
       let errorMessage = `Brevo API error: ${response.status}`;
@@ -78,11 +78,11 @@ export const sendEmail = async ({ to, subject, text, html }) => {
       console.error('❌ [Brevo Email] Failed:', errorMessage);
       throw new Error(errorMessage);
     }
-    
+
     const responseData = await response.json();
     console.log('✅ [Brevo Email] SUCCESS! Email sent to:', to);
     console.log('✅ [Brevo Email] Message ID:', responseData.messageId);
-    
+
     return {
       success: true,
       message: 'Email sent successfully',
@@ -110,9 +110,9 @@ export const sendPurchaseOrderEmail = async (orderData, supplierData) => {
       error: 'Supplier email not found'
     };
   }
-  
+
   const { formatDate } = await import('../utils/helpers');
-  
+
   // Format order items
   const itemsList = orderData.items.map((item, index) => `
     <tr>
@@ -123,8 +123,8 @@ export const sendPurchaseOrderEmail = async (orderData, supplierData) => {
       <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">₱${((item.quantity || 0) * (item.unitCost || 0)).toFixed(2)}</td>
     </tr>
   `).join('');
-  
-  const expectedDeliveryDate = orderData.expectedDeliveryDate 
+
+  const expectedDeliveryDate = orderData.expectedDeliveryDate
     ? formatDate(orderData.expectedDeliveryDate instanceof Date ? orderData.expectedDeliveryDate : orderData.expectedDeliveryDate.toDate())
     : 'TBD';
 
@@ -217,9 +217,9 @@ export const sendPurchaseOrderEmail = async (orderData, supplierData) => {
     ${orderData.branchName ? `Branch: ${orderData.branchName}\n` : ''}
     
     Order Items:
-    ${orderData.items.map((item, index) => 
-      `${index + 1}. ${item.itemName || 'Item'} - ${item.quantity} ${item.unit || ''} @ ₱${(item.unitCost || 0).toFixed(2)} = ₱${((item.quantity || 0) * (item.unitCost || 0)).toFixed(2)}`
-    ).join('\n')}
+    ${orderData.items.map((item, index) =>
+    `${index + 1}. ${item.itemName || 'Item'} - ${item.quantity} ${item.unit || ''} @ ₱${(item.unitCost || 0).toFixed(2)} = ₱${((item.quantity || 0) * (item.unitCost || 0)).toFixed(2)}`
+  ).join('\n')}
     
     Total Amount: ₱${(orderData.totalAmount || 0).toFixed(2)}
     
@@ -233,7 +233,7 @@ export const sendPurchaseOrderEmail = async (orderData, supplierData) => {
     ${orderData.createdByName || 'Inventory Team'}
     David's Salon
   `;
-  
+
   return await sendEmail({
     to: supplierData.email,
     subject: `Purchase Order ${orderData.poNumber} - David's Salon`,
@@ -793,11 +793,11 @@ export const sendPromotionEmail = async (promotion, clientData) => {
     }
 
     // Format dates
-    const startDate = promotion.startDate?.toDate 
-      ? promotion.startDate.toDate() 
+    const startDate = promotion.startDate?.toDate
+      ? promotion.startDate.toDate()
       : new Date(promotion.startDate);
-    const endDate = promotion.endDate?.toDate 
-      ? promotion.endDate.toDate() 
+    const endDate = promotion.endDate?.toDate
+      ? promotion.endDate.toDate()
       : new Date(promotion.endDate);
 
     const startDateFormatted = startDate.toLocaleDateString('en-US', {
@@ -841,11 +841,11 @@ export const sendPromotionEmail = async (promotion, clientData) => {
     }
 
     // Build promotion code info
-    const promotionCodeText = promotion.promotionCode 
+    const promotionCodeText = promotion.promotionCode
       ? `Promotion Code: ${promotion.promotionCode}`
       : '';
 
-    const discountText = promotion.discountType === 'percentage' 
+    const discountText = promotion.discountType === 'percentage'
       ? `${promotion.discountValue}% OFF`
       : `₱${promotion.discountValue} OFF`;
 
@@ -977,14 +977,14 @@ export const sendAppointmentReminderEmail = async (appointmentData, branchData) 
   }
 
   const { formatDate, formatTime } = await import('../utils/helpers');
-  
+
   // Format appointment date and time
-  const appointmentDate = appointmentData.appointmentDate 
-    ? (appointmentData.appointmentDate instanceof Date 
-        ? appointmentData.appointmentDate 
-        : appointmentData.appointmentDate.toDate?.() || new Date(appointmentData.appointmentDate))
+  const appointmentDate = appointmentData.appointmentDate
+    ? (appointmentData.appointmentDate instanceof Date
+      ? appointmentData.appointmentDate
+      : appointmentData.appointmentDate.toDate?.() || new Date(appointmentData.appointmentDate))
     : null;
-  
+
   if (!appointmentDate) {
     return {
       success: false,
@@ -995,7 +995,7 @@ export const sendAppointmentReminderEmail = async (appointmentData, branchData) 
   const formattedDate = formatDate(appointmentDate, 'MMMM dd, yyyy');
   const formattedTime = formatTime(appointmentDate);
   const dayOfWeek = appointmentDate.toLocaleDateString('en-US', { weekday: 'long' });
-  
+
   // Get service names
   let serviceNames = [];
   if (appointmentData.services && Array.isArray(appointmentData.services)) {
@@ -1004,7 +1004,7 @@ export const sendAppointmentReminderEmail = async (appointmentData, branchData) 
     serviceNames = [appointmentData.serviceName];
   }
   const servicesText = serviceNames.length > 0 ? serviceNames.join(', ') : 'Service';
-  
+
   // Get stylist name
   let stylistName = 'TBA';
   if (appointmentData.services && Array.isArray(appointmentData.services) && appointmentData.services.length > 0) {
@@ -1015,11 +1015,11 @@ export const sendAppointmentReminderEmail = async (appointmentData, branchData) 
   } else if (appointmentData.stylistName) {
     stylistName = appointmentData.stylistName;
   }
-  
+
   const branchName = branchData?.branchName || branchData?.name || 'David\'s Salon';
   const branchAddress = branchData?.address || '';
   const branchPhone = branchData?.phoneNumber || branchData?.phone || '';
-  
+
   const clientName = appointmentData.clientName || 'Valued Client';
 
   const htmlContent = `
@@ -1169,7 +1169,7 @@ export const sendPasswordResetEmail = async ({ email, firstName, lastName, roleP
   }
 
   const displayName = `${firstName || ''} ${lastName || ''}`.trim() || 'User';
-  
+
   // Format role passwords
   const rolePasswordsList = Object.entries(rolePasswords || {})
     .map(([role, password]) => {
@@ -1244,9 +1244,9 @@ export const sendPasswordResetEmail = async ({ email, firstName, lastName, roleP
     Your password has been reset. Here are your new role-specific passwords:
     
     ${Object.entries(rolePasswords || {}).map(([role, password]) => {
-      const roleLabel = role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, ' ');
-      return `${roleLabel}: ${password}`;
-    }).join('\n')}
+    const roleLabel = role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, ' ');
+    return `${roleLabel}: ${password}`;
+  }).join('\n')}
     
     ⚠️ Important Security Notice:
     - Please change these passwords after your first login
@@ -1298,7 +1298,7 @@ export const sendProfileUpdateEmail = async ({ email, firstName, lastName, chang
   }
 
   const displayName = `${firstName || ''} ${lastName || ''}`.trim() || 'User';
-  
+
   // Format changes list
   const changesList = (changes || []).map(change => `<li>${change}</li>`).join('');
 
@@ -1388,4 +1388,86 @@ export const sendProfileUpdateEmail = async ({ email, firstName, lastName, chang
     message: result.success ? 'Profile update email sent successfully' : result.error || 'Failed to send email',
     email: email
   };
+};
+
+/**
+ * Send OTP verification email to new client
+ * @param {Object} otpData - OTP data
+ * @param {string} otpData.email - Client email
+ * @param {string} otpData.otpCode - 6-digit OTP code
+ * @returns {Promise<Object>} Send result
+ */
+export const sendOTPEmail = async ({ email, otpCode }) => {
+  if (!email || !otpCode) {
+    return {
+      success: false,
+      error: 'Email and OTP code are required'
+    };
+  }
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 40px 20px; }
+        .card { background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: 1px solid #eef2f7; overflow: hidden; }
+        .header { background: linear-gradient(135deg, #160B53, #2563eb); color: white; padding: 40px 30px; text-align: center; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: 700; }
+        .content { padding: 40px 30px; text-align: center; }
+        .otp-box { background: #f8fafc; border: 2px dashed #e2e8f0; padding: 30px; border-radius: 12px; margin: 30px 0; }
+        .otp-code { font-family: 'Courier New', Courier, monospace; font-size: 42px; font-weight: 800; color: #160B53; letter-spacing: 12px; margin: 0; }
+        .instructions { font-size: 15px; color: #64748b; margin-bottom: 30px; }
+        .warning { font-size: 13px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 25px; margin-top: 25px; }
+        .footer { text-align: center; padding: 30px; color: #94a3b8; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="card">
+          <div class="header">
+            <h1>Email Verification</h1>
+          </div>
+          <div class="content">
+            <p>Hello there!</p>
+            <p>Thank you for registering at <strong>David's Salon</strong>. To complete your registration, please use the following verification code:</p>
+            
+            <div class="otp-box">
+              <h2 class="otp-code">${otpCode}</h2>
+            </div>
+            
+            <p class="instructions">Enter this code on the registration page to verify your email address. This code will expire in 10 minutes.</p>
+            
+            <div class="warning">
+              <p>If you didn't request this code, you can safely ignore this email.</p>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <p>&copy; ${new Date().getFullYear()} David's Salon. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const textContent = `
+    Verify your email for David's Salon
+    
+    Your verification code is: ${otpCode}
+    
+    Use this code to complete your registration. This code will expire in 10 minutes.
+    
+    If you didn't request this, please ignore this email.
+    
+    © ${new Date().getFullYear()} David's Salon
+  `;
+
+  return await sendEmail({
+    to: email,
+    subject: `Verify your account: ${otpCode}`,
+    text: textContent,
+    html: htmlContent
+  });
 };

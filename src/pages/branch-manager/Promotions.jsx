@@ -72,19 +72,23 @@ const Promotions = () => {
   const [isSending, setIsSending] = useState(false);
   const [isEmailPreviewOpen, setIsEmailPreviewOpen] = useState(false);
   const [emailPreviewHtml, setEmailPreviewHtml] = useState('');
-  
+
   // Report states
   const [promotionReports, setPromotionReports] = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
-  
+
   // AI Insights for Promotions
   const [promotionRecommendations, setPromotionRecommendations] = useState(null);
   const [loadingPromotionAI, setLoadingPromotionAI] = useState(false);
-  
+
   // Image upload states
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  // Modal search states
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [productSearch, setProductSearch] = useState('');
 
   // Form states
   const [formData, setFormData] = useState({
@@ -111,7 +115,7 @@ const Promotions = () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       if (!userData?.branchId) {
         setError('Branch ID not found');
         setLoading(false);
@@ -122,7 +126,7 @@ const Promotions = () => {
       const q = query(promotionsRef, where('branchId', '==', userData.branchId));
       const snapshot = await getDocs(q);
       const promotionsList = [];
-      
+
       snapshot.forEach((doc) => {
         const data = doc.data();
         promotionsList.push({
@@ -148,10 +152,10 @@ const Promotions = () => {
           updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.updatedAt ? new Date(data.updatedAt) : new Date())
         });
       });
-      
+
       // Sort by createdAt descending
       promotionsList.sort((a, b) => b.createdAt - a.createdAt);
-      
+
       setPromotions(promotionsList);
     } catch (err) {
       console.error('Error loading promotions:', err);
@@ -167,7 +171,7 @@ const Promotions = () => {
 
     try {
       setLoadingReports(true);
-      
+
       // Query all transactions for the branch (Firestore doesn't support != null)
       const transactionsRef = collection(db, 'transactions');
       const q = query(
@@ -175,17 +179,17 @@ const Promotions = () => {
         where('branchId', '==', userData.branchId)
       );
       const transactionsSnapshot = await getDocs(q);
-      
+
       // Group transactions by promotionId (filter out null promotionIds)
       const promotionUsageMap = new Map();
-      
+
       transactionsSnapshot.forEach((doc) => {
         const transaction = doc.data();
         const promotionId = transaction.promotionId;
-        
+
         // Filter out transactions without promotions
         if (!promotionId) return;
-        
+
         if (!promotionUsageMap.has(promotionId)) {
           promotionUsageMap.set(promotionId, {
             promotionId: promotionId,
@@ -196,22 +200,22 @@ const Promotions = () => {
             transactionCount: 0
           });
         }
-        
+
         const report = promotionUsageMap.get(promotionId);
         report.transactions.push(transaction);
         report.totalDiscount += transaction.promotionDiscount || 0;
         report.transactionCount += 1;
-        
+
         if (transaction.clientId) {
           report.uniqueClients.add(transaction.clientId);
         }
       });
-      
+
       // Enrich with promotion details
       const reports = [];
       for (const [promotionId, usageData] of promotionUsageMap.entries()) {
         const promotion = promotions.find(p => p.id === promotionId);
-        
+
         if (promotion) {
           reports.push({
             ...promotion,
@@ -222,10 +226,10 @@ const Promotions = () => {
           });
         }
       }
-      
+
       // Sort by total discount descending
       reports.sort((a, b) => b.totalDiscount - a.totalDiscount);
-      
+
       setPromotionReports(reports);
     } catch (err) {
       console.error('Error loading promotion reports:', err);
@@ -250,11 +254,11 @@ const Promotions = () => {
   const loadServicesAndProducts = async () => {
     try {
       if (!userData?.branchId) return;
-      
+
       // Load services for this branch using branchServicesService
       const services = await getBranchServices(userData.branchId);
       setAvailableServices(services);
-      
+
       // Load products
       const productsResult = await productService.getAllProducts();
       if (productsResult.success) {
@@ -276,17 +280,17 @@ const Promotions = () => {
       }
       return `DS-XXX-${random}`;
     }
-    
+
     // Get first 3 characters of branch ID (uppercase)
     const branchPrefix = userData.branchId.substring(0, 3).toUpperCase();
-    
+
     // Generate random 5-character suffix
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluding confusing chars
     let random = '';
     for (let i = 0; i < 5; i++) {
       random += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    
+
     return `DS-${branchPrefix}-${random}`;
   };
 
@@ -296,7 +300,7 @@ const Promotions = () => {
       const promotionsRef = collection(db, 'promotions');
       const q = query(promotionsRef, where('promotionCode', '==', code.toUpperCase()));
       const snapshot = await getDocs(q);
-      
+
       // Check if code exists and is not the current promotion being edited
       const exists = snapshot.docs.some(doc => doc.id !== excludeId);
       return !exists;
@@ -324,7 +328,7 @@ const Promotions = () => {
     }
 
     setImageFile(file);
-    
+
     // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -336,17 +340,17 @@ const Promotions = () => {
   // Upload image to Cloudinary
   const uploadPromotionImage = async (file) => {
     if (!file) return null;
-    
+
     try {
       setUploadingImage(true);
       const { cloudinaryService } = await import('../../services/cloudinaryService');
-      
+
       const result = await cloudinaryService.uploadImage(file, 'promotions');
-      
+
       if (!result.success) {
         throw new Error(result.error || 'Failed to upload image');
       }
-      
+
       return result.url;
     } catch (err) {
       console.error('Error uploading image:', err);
@@ -358,15 +362,15 @@ const Promotions = () => {
 
   // Generate email preview HTML
   const generateEmailPreview = (promotion) => {
-    const discountText = promotion.discountType === 'percentage' 
+    const discountText = promotion.discountType === 'percentage'
       ? `${promotion.discountValue}% OFF`
       : `₱${promotion.discountValue} OFF`;
 
-    const startDate = promotion.startDate instanceof Date 
-      ? promotion.startDate 
+    const startDate = promotion.startDate instanceof Date
+      ? promotion.startDate
       : new Date(promotion.startDate);
-    const endDate = promotion.endDate instanceof Date 
-      ? promotion.endDate 
+    const endDate = promotion.endDate instanceof Date
+      ? promotion.endDate
       : new Date(promotion.endDate);
 
     const startDateFormatted = format(startDate, 'MMMM d, yyyy');
@@ -453,22 +457,22 @@ const Promotions = () => {
   // Load AI promotion recommendations
   const loadPromotionAIRecommendations = async () => {
     if (!openaiService.isConfigured() || promotions.length === 0 || clients.length === 0) return;
-    
+
     try {
       setLoadingPromotionAI(true);
-      
+
       // Calculate client metrics
       const clientMetrics = {
         totalClients: clients.length,
         avgSpending: 0, // Would need transaction data
         avgVisits: 0 // Would need transaction data
       };
-      
+
       const recommendations = await openaiService.generatePromotionRecommendations(
         clientMetrics,
         [] // Product sales data would go here if available
       );
-      
+
       if (recommendations) {
         setPromotionRecommendations(recommendations);
       }
@@ -498,41 +502,41 @@ const Promotions = () => {
     const now = new Date();
     const startDate = new Date(promotion.startDate);
     const endDate = new Date(promotion.endDate);
-    
+
     if (!promotion.isActive) {
       return { status: 'inactive', label: 'Inactive', color: 'text-gray-600 bg-gray-100 border-gray-200' };
     }
-    
+
     if (now < startDate) {
       return { status: 'upcoming', label: 'Upcoming', color: 'text-blue-600 bg-blue-100 border-blue-200' };
     }
-    
+
     if (now > endDate) {
       return { status: 'expired', label: 'Expired', color: 'text-red-600 bg-red-100 border-red-200' };
     }
-    
+
     return { status: 'active', label: 'Active', color: 'text-green-600 bg-green-100 border-green-200' };
   };
 
-  // Filter promotions
   const filteredPromotions = promotions.filter(promotion => {
-    const matchesSearch = 
+    const matchesSearch =
       promotion.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       promotion.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    
+
     const promotionStatus = getPromotionStatus(promotion);
     const matchesStatus = statusFilter === 'all' || promotionStatus.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
+    const isPromotionActive = promotion.isActive !== false;
+
+    return matchesSearch && matchesStatus && isPromotionActive;
   });
 
   // Handle create promotion
   const handleCreatePromotion = async (e) => {
     e.preventDefault();
-    
+
     try {
       setError(null);
-      
+
       // Validations
       if (!userData?.branchId) {
         setError('Branch ID not found');
@@ -626,7 +630,7 @@ const Promotions = () => {
           setError('Failed to upload image. Please try again.');
           return;
         }
-      }      const promotionData = {
+      } const promotionData = {
         branchId: userData.branchId,
         title: formData.title.trim(),
         description: formData.description.trim(),
@@ -655,18 +659,18 @@ const Promotions = () => {
 
       const promotionRef = await addDoc(collection(db, 'promotions'), promotionData);
       const newPromotion = { id: promotionRef.id, ...promotionData };
-      
+
       // If email to clients is checked, send emails
       if (formData.emailToClients) {
         console.log('📧 EMAIL TO CLIENTS ENABLED - Starting email sending process...');
         console.log('📧 Total clients loaded:', clients.length);
-        
+
         try {
           setError(null);
           const clientsWithEmail = clients.filter(c => c.email);
           console.log('📧 Clients with email addresses:', clientsWithEmail.length);
           console.log('📧 Clients with emails:', clientsWithEmail.map(c => ({ id: c.id, name: c.firstName + ' ' + c.lastName, email: c.email })));
-          
+
           if (clientsWithEmail.length === 0) {
             console.warn('⚠️ No clients with email addresses found');
             setError('No clients with email addresses found. Promotion created but no emails sent.');
@@ -683,12 +687,12 @@ const Promotions = () => {
                 name: `${client.firstName} ${client.lastName}`,
                 email: client.email
               });
-              
+
               try {
                 console.log(`📧 Calling sendPromotionEmail for ${client.email}...`);
                 const result = await sendPromotionEmail(newPromotion, client);
                 console.log(`📧 Email result for ${client.email}:`, result);
-                
+
                 if (result.success) {
                   console.log(`✅ Successfully sent email to ${client.email}`);
                   successCount++;
@@ -750,7 +754,7 @@ const Promotions = () => {
       } else {
         console.log('📧 Email to clients is DISABLED - skipping email sending');
       }
-      
+
       setIsCreateModalOpen(false);
       setFormData({
         title: '',
@@ -772,7 +776,7 @@ const Promotions = () => {
       });
       setImageFile(null);
       setImagePreview('');
-      
+
       await loadPromotions();
     } catch (err) {
       console.error('Error creating promotion:', err);
@@ -804,7 +808,7 @@ const Promotions = () => {
 
       const selectedClientsList = Array.from(selectedClients);
       const clientsToEmail = clients.filter(c => selectedClientsList.includes(c.id));
-      
+
       // Send emails to selected clients
       const emailResults = [];
       for (const client of clientsToEmail) {
@@ -820,9 +824,9 @@ const Promotions = () => {
                   <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
                     <h3 style="color: #160B53; margin-top: 0;">Discount Details</h3>
                     <p style="font-size: 24px; font-weight: bold; color: #10b981;">
-                      ${selectedPromotion.discountType === 'percentage' 
-                        ? `${selectedPromotion.discountValue}% OFF`
-                        : `₱${selectedPromotion.discountValue} OFF`}
+                      ${selectedPromotion.discountType === 'percentage'
+                  ? `${selectedPromotion.discountValue}% OFF`
+                  : `₱${selectedPromotion.discountValue} OFF`}
                     </p>
                     <p><strong>Valid from:</strong> ${format(new Date(selectedPromotion.startDate), 'MMM dd, yyyy')}</p>
                     <p><strong>Valid until:</strong> ${format(new Date(selectedPromotion.endDate), 'MMM dd, yyyy')}</p>
@@ -838,7 +842,7 @@ const Promotions = () => {
             console.log(`📧 Calling sendPromotionEmail for ${client.email}...`);
             const result = await sendPromotionEmail(selectedPromotion, client);
             console.log(`📧 Email result for ${client.email}:`, result);
-            
+
             if (result.success) {
               console.log(`✅ Successfully sent email to ${client.email}`);
               emailResults.push({ clientId: client.id, email: client.email, success: true });
@@ -857,7 +861,7 @@ const Promotions = () => {
       const promotionRef = doc(db, 'promotions', selectedPromotion.id);
       const currentSentTo = selectedPromotion.sentTo || [];
       const updatedSentTo = [...new Set([...currentSentTo, ...selectedClientsList])];
-      
+
       await updateDoc(promotionRef, {
         sentTo: updatedSentTo,
         updatedAt: serverTimestamp()
@@ -866,9 +870,9 @@ const Promotions = () => {
       setIsSendModalOpen(false);
       setSelectedClients(new Set());
       setSelectedPromotion(null);
-      
+
       await loadPromotions();
-      
+
       // Show success modal instead of alert
       const successCount = emailResults.filter(r => r.success).length;
       const failCount = emailResults.filter(r => !r.success).length;
@@ -926,17 +930,17 @@ const Promotions = () => {
 
   if (loading) {
     return (
-      
+
       <div className="flex items-center justify-center h-64">
         <RefreshCw className="h-8 w-8 animate-spin text-[#160B53]" />
         <span className="ml-2 text-gray-600">Loading promotions...</span>
       </div>
-      
+
     );
   }
 
   return (
-    
+
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -945,8 +949,8 @@ const Promotions = () => {
             {activeTab === 'reports' ? 'Promotion Reports' : 'Promotions'}
           </h1>
           <p className="text-gray-600">
-            {activeTab === 'reports' 
-              ? 'Analytics and insights on promotion performance' 
+            {activeTab === 'reports'
+              ? 'Analytics and insights on promotion performance'
               : 'Create and manage promotional offers for your clients'}
           </p>
         </div>
@@ -975,11 +979,10 @@ const Promotions = () => {
         <div className="flex space-x-8">
           <button
             onClick={() => setActiveTab('promotions')}
-            className={`py-4 px-1 font-medium text-sm border-b-2 transition-colors ${
-              activeTab === 'promotions'
-                ? 'border-[#160B53] text-[#160B53]'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+            className={`py-4 px-1 font-medium text-sm border-b-2 transition-colors ${activeTab === 'promotions'
+              ? 'border-[#160B53] text-[#160B53]'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
           >
             <div className="flex items-center gap-2">
               <Megaphone className="h-5 w-5" />
@@ -988,11 +991,10 @@ const Promotions = () => {
           </button>
           <button
             onClick={() => setActiveTab('reports')}
-            className={`py-4 px-1 font-medium text-sm border-b-2 transition-colors ${
-              activeTab === 'reports'
-                ? 'border-[#160B53] text-[#160B53]'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+            className={`py-4 px-1 font-medium text-sm border-b-2 transition-colors ${activeTab === 'reports'
+              ? 'border-[#160B53] text-[#160B53]'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
           >
             <div className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
@@ -1015,286 +1017,287 @@ const Promotions = () => {
       {/* PROMOTIONS TAB */}
       {activeTab === 'promotions' && (
         <>
-      {/* AI Promotion Recommendations */}
-      {openaiService.isConfigured() && (
-        <Card className="p-6 bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Sparkles className="h-5 w-5 text-purple-600" />
+          {/* AI Promotion Recommendations */}
+          {openaiService.isConfigured() && (
+            <Card className="p-6 bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <Sparkles className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">AI-Powered Promotion Strategies</h3>
+                    <p className="text-sm text-gray-600">Smart recommendations to boost your marketing</p>
+                  </div>
+                </div>
+                {loadingPromotionAI && (
+                  <Loader2Icon className="h-5 w-5 animate-spin text-purple-600" />
+                )}
               </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">AI-Powered Promotion Strategies</h3>
-                <p className="text-sm text-gray-600">Smart recommendations to boost your marketing</p>
-              </div>
-            </div>
-            {loadingPromotionAI && (
-              <Loader2Icon className="h-5 w-5 animate-spin text-purple-600" />
-            )}
-          </div>
-            
-          {promotionRecommendations && !loadingPromotionAI ? (
-            <div className="space-y-4">
-              {promotionRecommendations.promotions && promotionRecommendations.promotions.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Promotion Ideas</h4>
-                  <ul className="space-y-1">
-                    {promotionRecommendations.promotions.map((promo, idx) => (
-                      <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                        <span className="text-purple-600 mt-1">•</span>
-                        <span>{typeof promo === 'string' ? promo : promo}</span>
-                      </li>
-                    ))}
-                  </ul>
+
+              {promotionRecommendations && !loadingPromotionAI ? (
+                <div className="space-y-4">
+                  {promotionRecommendations.promotions && promotionRecommendations.promotions.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-900 mb-2">Promotion Ideas</h4>
+                      <ul className="space-y-1">
+                        {promotionRecommendations.promotions.map((promo, idx) => (
+                          <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                            <span className="text-purple-600 mt-1">•</span>
+                            <span>{typeof promo === 'string' ? promo : promo}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {promotionRecommendations.targetAudience && promotionRecommendations.targetAudience.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-900 mb-2">Target Audience</h4>
+                      <ul className="space-y-1">
+                        {promotionRecommendations.targetAudience.map((audience, idx) => (
+                          <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                            <span className="text-blue-600 mt-1">→</span>
+                            <span>{typeof audience === 'string' ? audience : audience}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {promotionRecommendations.discountStrategy && promotionRecommendations.discountStrategy.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-900 mb-2">Discount Strategies</h4>
+                      <ul className="space-y-1">
+                        {promotionRecommendations.discountStrategy.map((strategy, idx) => (
+                          <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                            <span className="text-green-600 mt-1">★</span>
+                            <span>{typeof strategy === 'string' ? strategy : strategy}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
+              ) : !loadingPromotionAI && (
+                <Button
+                  onClick={loadPromotionAIRecommendations}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Generate AI Recommendations
+                </Button>
               )}
-                
-              {promotionRecommendations.targetAudience && promotionRecommendations.targetAudience.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Target Audience</h4>
-                  <ul className="space-y-1">
-                    {promotionRecommendations.targetAudience.map((audience, idx) => (
-                      <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                        <span className="text-blue-600 mt-1">→</span>
-                        <span>{typeof audience === 'string' ? audience : audience}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-                
-              {promotionRecommendations.discountStrategy && promotionRecommendations.discountStrategy.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Discount Strategies</h4>
-                  <ul className="space-y-1">
-                    {promotionRecommendations.discountStrategy.map((strategy, idx) => (
-                      <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                        <span className="text-green-600 mt-1">★</span>
-                        <span>{typeof strategy === 'string' ? strategy : strategy}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          ) : !loadingPromotionAI && (
-            <Button
-              onClick={loadPromotionAIRecommendations}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Sparkles className="h-4 w-4" />
-              Generate AI Recommendations
-            </Button>
+            </Card>
           )}
-        </Card>
-      )}
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center">
-            <Megaphone className="h-8 w-8 text-blue-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Total Promotions</p>
-              <p className="text-xl font-bold text-gray-900">{promotions.length}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center">
-            <CheckCircle className="h-8 w-8 text-green-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Active</p>
-              <p className="text-xl font-bold text-gray-900">
-                {promotions.filter(p => getPromotionStatus(p).status === 'active').length}
-              </p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center">
-            <Clock className="h-8 w-8 text-blue-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Upcoming</p>
-              <p className="text-xl font-bold text-gray-900">
-                {promotions.filter(p => getPromotionStatus(p).status === 'upcoming').length}
-              </p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center">
-            <Users className="h-8 w-8 text-purple-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Total Clients</p>
-              <p className="text-xl font-bold text-gray-900">{clients.filter(c => c.email).length}</p>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Search and Filters */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              type="text"
-              placeholder="Search promotions by title or description..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10"
-            />
-          </div>
-          <div className="flex gap-3">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="upcoming">Upcoming</option>
-              <option value="expired">Expired</option>
-              <option value="inactive">Inactive</option>
-            </select>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSearchTerm('');
-                setStatusFilter('all');
-              }}
-              className="flex items-center gap-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Reset
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      {/* Promotions List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredPromotions.map((promotion) => {
-          const status = getPromotionStatus(promotion);
-          return (
-            <Card key={promotion.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-              <div className="p-6">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">{promotion.title}</h3>
-                    <p className="text-sm text-gray-600 line-clamp-2">{promotion.description}</p>
-                  </div>
-                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${status.color}`}>
-                    {status.status === 'active' && <CheckCircle className="h-3 w-3" />}
-                    {status.status === 'upcoming' && <Clock className="h-3 w-3" />}
-                    {status.status === 'expired' && <XCircle className="h-3 w-3" />}
-                    {status.status === 'inactive' && <XCircle className="h-3 w-3" />}
-                    {status.label}
-                  </span>
-                </div>
-
-                <div className="mb-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Tag className="h-4 w-4 text-green-600" />
-                    <span className="text-lg font-bold text-green-600">
-                      {promotion.discountType === 'percentage' 
-                        ? `${promotion.discountValue}% OFF`
-                        : `₱${promotion.discountValue} OFF`}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Calendar className="h-4 w-4" />
-                    <span>{format(new Date(promotion.startDate), 'MMM dd')} - {format(new Date(promotion.endDate), 'MMM dd, yyyy')}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
-                    <Users className="h-4 w-4" />
-                    <span>Sent to {promotion.sentTo?.length || 0} client(s)</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
-                    <Tag className="h-4 w-4" />
-                    <span className="font-mono font-semibold text-[#160B53]">{promotion.promotionCode || 'N/A'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
-                    {promotion.usageType === 'one-time' ? (
-                      <>
-                        <span>One-time use</span>
-                        <span className="text-xs bg-gray-200 px-2 py-0.5 rounded">
-                          {promotion.usedBy?.length || 0} used
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Repeating</span>
-                        {promotion.maxUses && (
-                          <span className="text-xs bg-gray-200 px-2 py-0.5 rounded">
-                            {promotion.usageCount || 0}/{promotion.maxUses} uses
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedPromotion(promotion);
-                      setIsDetailsModalOpen(true);
-                    }}
-                    className="flex-1 flex items-center gap-2"
-                  >
-                    <Eye className="h-4 w-4" />
-                    View
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedPromotion(promotion);
-                      setSelectedClients(new Set());
-                      setIsSendModalOpen(true);
-                    }}
-                    className="flex-1 flex items-center gap-2"
-                    disabled={status.status === 'expired' || status.status === 'inactive'}
-                  >
-                    <Mail className="h-4 w-4" />
-                    Send
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDeletePromotion(promotion.id)}
-                    className="flex items-center gap-2 text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+          {/* Statistics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="p-4">
+              <div className="flex items-center">
+                <Megaphone className="h-8 w-8 text-blue-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Total Promotions</p>
+                  <p className="text-xl font-bold text-gray-900">{promotions.length}</p>
                 </div>
               </div>
             </Card>
-          );
-        })}
-      </div>
+            <Card className="p-4">
+              <div className="flex items-center">
+                <CheckCircle className="h-8 w-8 text-green-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Active</p>
+                  <p className="text-xl font-bold text-gray-900">
+                    {promotions.filter(p => getPromotionStatus(p).status === 'active').length}
+                  </p>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="flex items-center">
+                <Clock className="h-8 w-8 text-blue-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Upcoming</p>
+                  <p className="text-xl font-bold text-gray-900">
+                    {promotions.filter(p => getPromotionStatus(p).status === 'upcoming').length}
+                  </p>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="flex items-center">
+                <Users className="h-8 w-8 text-purple-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Total Clients</p>
+                  <p className="text-xl font-bold text-gray-900">{clients.filter(c => c.email).length}</p>
+                </div>
+              </div>
+            </Card>
+          </div>
 
-      {/* Empty State */}
-      {filteredPromotions.length === 0 && (
-        <Card className="p-12 text-center">
-          <Megaphone className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No Promotions Found</h3>
-          <p className="text-gray-600 mb-4">
-            {searchTerm || statusFilter !== 'all'
-              ? 'Try adjusting your search or filters'
-              : 'Create your first promotion to attract more clients'}
-          </p>
-          <Button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 mx-auto">
-            <Plus className="h-4 w-4" />
-            Create Promotion
-          </Button>
-        </Card>
-      )}
+          {/* Search and Filters */}
+          <Card className="p-6">
+            <div className="flex flex-col lg:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Search promotions by title or description..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10"
+                />
+              </div>
+              <div className="flex gap-3">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="expired">Expired</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setStatusFilter('all');
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Reset
+                </Button>
+              </div>
+            </div>
+          </Card>
+
+          {/* Promotions List */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredPromotions.map((promotion) => {
+              const status = getPromotionStatus(promotion);
+              return (
+                <Card
+                  key={promotion.id}
+                  className="overflow-hidden hover:shadow-xl transition-all duration-300 group relative min-h-[320px] flex flex-col border-0"
+                  style={promotion.imageUrl ? {
+                    backgroundImage: `url(${promotion.imageUrl})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center'
+                  } : {}}
+                >
+                  {/* Overlay for readability */}
+                  <div className={`absolute inset-0 z-0 transition-opacity duration-300 ${promotion.imageUrl ? 'bg-black/60 group-hover:bg-black/50' : 'bg-gradient-to-br from-[#160B53] to-[#2D1B4E]'}`}></div>
+
+                  <div className="p-6 flex flex-col h-full relative z-10 text-white">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1">
+                        <h3 className="text-xl font-bold mb-2 drop-shadow-md">{promotion.title}</h3>
+                        <p className={`text-sm line-clamp-2 ${promotion.imageUrl ? 'text-gray-100' : 'text-blue-100'}`}>{promotion.description}</p>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border backdrop-blur-md ${status.status === 'active' ? 'bg-green-500/20 border-green-500/50 text-green-300' :
+                        status.status === 'upcoming' ? 'bg-blue-500/20 border-blue-500/50 text-blue-300' :
+                          'bg-red-500/20 border-red-500/50 text-red-300'
+                        }`}>
+                        {status.status === 'active' && <CheckCircle className="h-3 w-3" />}
+                        {status.status === 'upcoming' && <Clock className="h-3 w-3" />}
+                        {status.status === 'expired' && <XCircle className="h-3 w-3" />}
+                        {status.label}
+                      </span>
+                    </div>
+
+                    <div className="flex-1 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-white/10 rounded-lg backdrop-blur-md">
+                          <Percent className="h-5 w-5 text-green-400" />
+                        </div>
+                        <div>
+                          <span className="text-2xl font-black text-white tracking-tight drop-shadow-lg">
+                            {promotion.discountType === 'percentage'
+                              ? `${promotion.discountValue}% OFF`
+                              : `₱${promotion.discountValue} OFF`}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2 mt-4">
+                        <div className="flex items-center gap-2 text-sm text-gray-200">
+                          <Calendar className="h-4 w-4 text-blue-400" />
+                          <span>{format(new Date(promotion.startDate), 'MMM dd')} - {format(new Date(promotion.endDate), 'MMM dd, yyyy')}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-gray-200">
+                          <Tag className="h-4 w-4 text-purple-400" />
+                          <span className="font-mono font-bold tracking-wider bg-white/10 px-2 py-0.5 rounded uppercase">{promotion.promotionCode || 'N/A'}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-gray-200">
+                          <Users className="h-4 w-4 text-orange-400" />
+                          <span>{promotion.sentTo?.length || 0} clients</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 mt-6 pt-4 border-t border-white/10">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedPromotion(promotion);
+                          setIsDetailsModalOpen(true);
+                        }}
+                        className="flex-1 flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white border-0"
+                      >
+                        <Eye className="h-4 w-4" />
+                        View
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedPromotion(promotion);
+                          setSelectedClients(new Set());
+                          setIsSendModalOpen(true);
+                        }}
+                        className="flex-1 flex items-center gap-2 bg-[#160B53]/80 hover:bg-[#160B53] text-white border-0"
+                        disabled={status.status === 'expired'}
+                      >
+                        <Mail className="h-4 w-4" />
+                        Send
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeletePromotion(promotion.id)}
+                        className="flex items-center gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 border-0"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* Empty State */}
+          {filteredPromotions.length === 0 && (
+            <Card className="p-12 text-center">
+              <Megaphone className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Promotions Found</h3>
+              <p className="text-gray-600 mb-4">
+                {searchTerm || statusFilter !== 'all'
+                  ? 'Try adjusting your search or filters'
+                  : 'Create your first promotion to attract more clients'}
+              </p>
+              <Button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 mx-auto">
+                <Plus className="h-4 w-4" />
+                Create Promotion
+              </Button>
+            </Card>
+          )}
         </>
       )}
 
@@ -1398,18 +1401,18 @@ const Promotions = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {promotionReports.map((report) => {
-                      const discountDisplay = report.discountType === 'percentage' 
-                        ? `${report.discountValue}%` 
+                      const discountDisplay = report.discountType === 'percentage'
+                        ? `${report.discountValue}%`
                         : `₱${report.discountValue}`;
-                      
-                      const applicableToDisplay = report.applicableTo === 'all' 
+
+                      const applicableToDisplay = report.applicableTo === 'all'
                         ? 'All Services & Products'
                         : report.applicableTo === 'services'
-                        ? 'All Services'
-                        : report.applicableTo === 'products'
-                        ? 'All Products'
-                        : 'Specific Items';
-                      
+                          ? 'All Services'
+                          : report.applicableTo === 'products'
+                            ? 'All Products'
+                            : 'Specific Items';
+
                       return (
                         <tr key={report.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4">
@@ -1452,11 +1455,10 @@ const Promotions = () => {
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                              report.isActive 
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-gray-100 text-gray-800'
-                            }`}>
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${report.isActive
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
+                              }`}>
                               {report.isActive ? 'Active' : 'Inactive'}
                             </span>
                           </td>
@@ -1492,451 +1494,460 @@ const Promotions = () => {
               startDate: '',
               endDate: '',
               isActive: true,
-              emailToClients: false
+              emailToClients: false,
+              imageUrl: ''
             });
+            setServiceSearch('');
+            setProductSearch('');
           }}
-          title="Create Promotion"
-          size="2xl"
+          title="Create New Promotion"
+          size="4xl"
         >
-          <form onSubmit={handleCreatePromotion} className="space-y-6">
-            {/* First Row: Title and Code */}
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Promotion Title <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  type="text"
-                  value={formData.title}
-                  onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="e.g., 10% Off Haircut Special"
-                  required
-                />
-              </div>
+          <form onSubmit={handleCreatePromotion} className="flex gap-8 relative max-h-[75vh]">
+            {/* Left Side: Form Content */}
+            <div className="flex-1 space-y-8 overflow-y-auto pr-2 custom-scrollbar">
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Promotion Code <span className="text-red-500">*</span>
-                </label>
-                <div className="flex items-center gap-3">
-                  <Input
-                    type="text"
-                    value={formData.promotionCode}
-                    placeholder="DS-XXX-XXXXX"
-                    className="flex-1 font-mono"
-                    required
-                    readOnly
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormData(prev => ({ ...prev, promotionCode: generatePromotionCode() }));
-                    }}
-                    className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center"
-                    title="Generate new code"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </button>
+              {/* Section 1: Basic Information */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+                  <div className="p-1.5 bg-blue-50 rounded-lg">
+                    <Megaphone className="h-4 w-4 text-blue-600" />
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wider">Basic Information</h3>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Format: DS-{userData?.branchId ? userData.branchId.substring(0, 3).toUpperCase() : 'XXX'}-XXXXX
-                </p>
-              </div>
-            </div>
 
-            {/* Description - Full Width */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Description <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Describe your promotion..."
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                required
-              />
-            </div>
-
-            {/* Promotion Image */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Promotion Banner Image (Optional)
-              </label>
-              <div className="flex items-start gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 cursor-pointer transition-colors">
-                      <ImageIcon className="h-4 w-4" />
-                      <span className="text-sm">{imageFile ? 'Change Image' : 'Upload Image'}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageSelect}
-                        className="hidden"
-                      />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                      Promotion Title <span className="text-red-500">*</span>
                     </label>
-                    {(imagePreview || formData.imageUrl) && (
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={formData.title}
+                        onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                        placeholder="e.g., Summer Blowout Sale"
+                        className="pl-2"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                      Promotion Code <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Tag className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <Input
+                          type="text"
+                          value={formData.promotionCode}
+                          placeholder="CODE"
+                          className="pl-10 font-mono text-sm uppercase"
+                          required
+                          readOnly
+                        />
+                      </div>
                       <button
                         type="button"
-                        onClick={() => {
-                          setImageFile(null);
-                          setImagePreview('');
-                          setFormData(prev => ({ ...prev, imageUrl: '' }));
-                        }}
-                        className="text-sm text-red-600 hover:text-red-700"
+                        onClick={() => setFormData(prev => ({ ...prev, promotionCode: generatePromotionCode() }))}
+                        className="p-2.5 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 border border-gray-200 transition-colors"
+                        title="Regenerate Code"
                       >
-                        Remove
+                        <RefreshCw className="h-4 w-4" />
                       </button>
+                    </div>
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                      Description <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Enter a compelling description for your clients..."
+                      rows={3}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Discount & Rules */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+                  <div className="p-1.5 bg-green-50 rounded-lg">
+                    <Percent className="h-4 w-4 text-green-600" />
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wider">Discount & Rules</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                      Discount Type
+                    </label>
+                    <select
+                      value={formData.discountType}
+                      onChange={(e) => setFormData(prev => ({ ...prev, discountType: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="percentage">Percentage (%)</option>
+                      <option value="fixed">Fixed Amount (₱)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                      Value
+                    </label>
+                    <Input
+                      type="number"
+                      value={formData.discountValue}
+                      onChange={(e) => setFormData(prev => ({ ...prev, discountValue: e.target.value }))}
+                      placeholder="0.00"
+                      className="text-lg font-bold"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                      Usage Type
+                    </label>
+                    <select
+                      value={formData.usageType}
+                      onChange={(e) => setFormData(prev => ({ ...prev, usageType: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="repeating">Repeating Use</option>
+                      <option value="one-time">One-time per Client</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                      Max Uses
+                    </label>
+                    <Input
+                      type="number"
+                      value={formData.maxUses}
+                      onChange={(e) => setFormData(prev => ({ ...prev, maxUses: e.target.value }))}
+                      placeholder="Unlimited"
+                      disabled={formData.usageType === 'one-time'}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Availability & Media */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+                  <div className="p-1.5 bg-purple-50 rounded-lg">
+                    <Calendar className="h-4 w-4 text-purple-600" />
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wider">Availability & Media</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Start Date</label>
+                    <Input
+                      type="datetime-local"
+                      value={formData.startDate}
+                      onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">End Date</label>
+                    <Input
+                      type="datetime-local"
+                      value={formData.endDate}
+                      onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Banner Image</label>
+                    <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                      <div className="flex-1">
+                        <label className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-lg shadow-sm hover:bg-gray-50 cursor-pointer transition-all border border-gray-200">
+                          <ImageIcon className="h-4 w-4 text-gray-400" />
+                          <span className="text-sm font-medium">Select Image</span>
+                          <input type="file" accept="image/*" onChange={handleImageSelect} className="hidden" />
+                        </label>
+                        <p className="text-[10px] text-gray-400 mt-2 uppercase font-bold">PNG, JPG up to 5MB</p>
+                      </div>
+                      {imagePreview && (
+                        <div className="relative w-24 h-16 rounded-lg overflow-hidden border border-white shadow-md">
+                          <img src={imagePreview} className="w-full h-full object-cover" alt="Preview" />
+                          <button
+                            type="button"
+                            onClick={() => { setImageFile(null); setImagePreview(''); }}
+                            className="absolute top-0 right-0 p-0.5 bg-red-500 text-white rounded-bl-lg"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Target Offerings */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+                  <div className="p-1.5 bg-orange-50 rounded-lg">
+                    <Tag className="h-4 w-4 text-orange-600" />
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wider">Target Offerings</h3>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-3">Applicable Services/Products</label>
+                    <div className="flex gap-2 mb-4">
+                      {['all', 'services', 'products', 'specific'].map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, applicableTo: type }))}
+                          className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg border transition-all ${formData.applicableTo === type
+                            ? 'bg-[#160B53] text-white border-[#160B53] shadow-md'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                            }`}
+                        >
+                          {type === 'all' ? 'Everything' :
+                            type === 'services' ? 'All Services' :
+                              type === 'products' ? 'All Products' : 'Specific Items'}
+                        </button>
+                      ))}
+                    </div>
+
+                    {formData.applicableTo === 'specific' && (
+                      <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                        {/* Services List */}
+                        <div className="space-y-2">
+                          <div className="relative">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                            <input
+                              type="text"
+                              placeholder="Search services..."
+                              value={serviceSearch}
+                              onChange={(e) => setServiceSearch(e.target.value)}
+                              className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-100 rounded-md outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                          <div className="h-40 overflow-y-auto border border-gray-100 rounded-lg p-1 bg-gray-50/50 custom-scrollbar">
+                            {availableServices
+                              .filter(s => (s.name || s.serviceName || '').toLowerCase().includes(serviceSearch.toLowerCase()))
+                              .map(service => (
+                                <label key={service.id} className={`flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors ${formData.specificServices.includes(service.id) ? 'bg-blue-100 text-blue-900' : 'hover:bg-white'
+                                  }`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={formData.specificServices.includes(service.id)}
+                                    onChange={(e) => {
+                                      const id = service.id;
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        specificServices: e.target.checked ? [...prev.specificServices, id] : prev.specificServices.filter(i => i !== id)
+                                      }))
+                                    }}
+                                    className="hidden"
+                                  />
+                                  <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${formData.specificServices.includes(service.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'
+                                    }`}>
+                                    {formData.specificServices.includes(service.id) && <CheckCircle className="h-3 w-3 text-white" />}
+                                  </div>
+                                  <span className="text-[11px] font-medium truncate flex-1">{service.name || service.serviceName}</span>
+                                </label>
+                              ))}
+                          </div>
+                        </div>
+
+                        {/* Products List */}
+                        <div className="space-y-2">
+                          <div className="relative">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                            <input
+                              type="text"
+                              placeholder="Search products..."
+                              value={productSearch}
+                              onChange={(e) => setProductSearch(e.target.value)}
+                              className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-100 rounded-md outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                          <div className="h-40 overflow-y-auto border border-gray-100 rounded-lg p-1 bg-gray-50/50 custom-scrollbar">
+                            {availableProducts
+                              .filter(p => (p.name || '').toLowerCase().includes(productSearch.toLowerCase()))
+                              .map(product => (
+                                <label key={product.id} className={`flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors ${formData.specificProducts.includes(product.id) ? 'bg-purple-100 text-purple-900' : 'hover:bg-white'
+                                  }`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={formData.specificProducts.includes(product.id)}
+                                    onChange={(e) => {
+                                      const id = product.id;
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        specificProducts: e.target.checked ? [...prev.specificProducts, id] : prev.specificProducts.filter(i => i !== id)
+                                      }))
+                                    }}
+                                    className="hidden"
+                                  />
+                                  <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${formData.specificProducts.includes(product.id) ? 'bg-purple-600 border-purple-600' : 'bg-white border-gray-300'
+                                    }`}>
+                                    {formData.specificProducts.includes(product.id) && <CheckCircle className="h-3 w-3 text-white" />}
+                                  </div>
+                                  <span className="text-[11px] font-medium truncate flex-1">{product.name}</span>
+                                </label>
+                              ))}
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Recommended: 600x300px, Max 5MB. This image will appear in the email.
-                  </p>
                 </div>
-                {(imagePreview || formData.imageUrl) && (
-                  <div className="w-40 h-20 rounded-lg overflow-hidden border border-gray-200">
-                    <img 
-                      src={imagePreview || formData.imageUrl} 
-                      alt="Preview" 
-                      className="w-full h-full object-cover"
+              </div>
+
+              {/* Section 5: Marketing & Status */}
+              <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm">
+                      <Mail className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900">Email Marketing</h4>
+                      <p className="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">Announce to your clients</p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={formData.emailToClients}
+                      onChange={(e) => setFormData(prev => ({ ...prev, emailToClients: e.target.checked }))}
                     />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {formData.emailToClients && (
+                  <div className="pt-2 flex justify-between items-center text-[11px]">
+                    <span className="text-gray-500 font-medium">Auto-send to <span className="text-blue-600 font-bold">{clients.filter(c => c.email).length}</span> clients with email addresses.</span>
+                    <button
+                      type="button"
+                      onClick={() => handleShowEmailPreview({ ...formData, imageUrl: imagePreview || formData.imageUrl })}
+                      className="text-blue-600 hover:underline font-bold"
+                    >
+                      PREVIEW EMAIL
+                    </button>
                   </div>
                 )}
               </div>
-              {uploadingImage && (
-                <div className="flex items-center gap-2 mt-2 text-sm text-blue-600">
-                  <Loader2Icon className="h-4 w-4 animate-spin" />
-                  Uploading image...
+            </div>
+
+            {/* Right Side: Live Preview */}
+            <div className="w-[320px] shrink-0 border-l border-gray-100 pl-8 hidden lg:block overflow-y-auto custom-scrollbar">
+              <div className="sticky top-0 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Eye className="h-4 w-4 text-gray-400" />
+                  <h3 className="font-bold text-gray-900 text-xs uppercase tracking-widest">Live Preview</h3>
                 </div>
-              )}
-            </div>
 
-            {/* Discount Type and Value */}
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Discount Type <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.discountType}
-                  onChange={(e) => setFormData(prev => ({ ...prev, discountType: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                  required
+                {/* Preview Card */}
+                <Card
+                  className="overflow-hidden shadow-2xl transition-all duration-300 group relative min-h-[320px] flex flex-col border-0 rounded-2xl ring-4 ring-offset-4 ring-blue-500/10"
+                  style={imagePreview || formData.imageUrl ? {
+                    backgroundImage: `url(${imagePreview || formData.imageUrl})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center'
+                  } : {}}
                 >
-                  <option value="percentage">Percentage (%)</option>
-                  <option value="fixed">Fixed Amount (₱)</option>
-                </select>
-              </div>
+                  <div className={`absolute inset-0 z-0 transition-opacity duration-300 ${imagePreview || formData.imageUrl ? 'bg-black/60' : 'bg-gradient-to-br from-[#160B53] to-[#2D1B4E]'}`}></div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Discount Value <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  type="number"
-                  value={formData.discountValue}
-                  onChange={(e) => setFormData(prev => ({ ...prev, discountValue: e.target.value }))}
-                  placeholder={formData.discountType === 'percentage' ? '10' : '100'}
-                  min="0"
-                  step={formData.discountType === 'percentage' ? '1' : '0.01'}
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Applicable To and Usage Type */}
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Applicable To <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.applicableTo}
-                  onChange={(e) => setFormData(prev => ({ 
-                    ...prev, 
-                    applicableTo: e.target.value,
-                    specificServices: e.target.value !== 'specific' ? [] : prev.specificServices,
-                    specificProducts: e.target.value !== 'specific' ? [] : prev.specificProducts
-                  }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                  required
-                >
-                  <option value="all">All Services & Products</option>
-                  <option value="services">All Services</option>
-                  <option value="products">All Products</option>
-                  <option value="specific">Specific Services/Products</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Usage Type <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.usageType}
-                  onChange={(e) => setFormData(prev => ({ ...prev, usageType: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
-                  required
-                >
-                  <option value="repeating">Repeating (can be used multiple times)</option>
-                  <option value="one-time">One-time use (per client)</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  {formData.usageType === 'one-time' 
-                    ? 'Each client can only use this promotion once.'
-                    : 'This promotion can be used multiple times by any client.'}
-                </p>
-              </div>
-            </div>
-
-            {/* Max Uses - Full Width if repeating */}
-            {formData.usageType === 'repeating' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Max Uses (Optional)
-                </label>
-                <Input
-                  type="number"
-                  value={formData.maxUses}
-                  onChange={(e) => setFormData(prev => ({ ...prev, maxUses: e.target.value }))}
-                  placeholder="Leave empty for unlimited"
-                  min="1"
-                  className="max-w-xs"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Maximum number of times this promotion can be used. Leave empty for unlimited.
-                </p>
-              </div>
-            )}
-
-            {/* Specific Services/Products Selection - Side by Side */}
-            {formData.applicableTo === 'specific' && (
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Services
-                  </label>
-                  <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3">
-                    {availableServices.length === 0 ? (
-                      <p className="text-sm text-gray-500 text-center py-4">No services available</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {availableServices.map(service => (
-                          <label key={service.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={formData.specificServices.includes(service.id)}
-                              onChange={(e) => {
-                                const serviceId = service.id;
-                                if (e.target.checked) {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    specificServices: [...prev.specificServices, serviceId]
-                                  }));
-                                } else {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    specificServices: prev.specificServices.filter(id => id !== serviceId)
-                                  }));
-                                }
-                              }}
-                              className="w-4 h-4 text-[#160B53] border-gray-300 rounded focus:ring-[#160B53]"
-                            />
-                            <span className="text-sm text-gray-900 flex-1">{service.name || service.serviceName}</span>
-                            <span className="text-xs text-gray-500">
-                              ₱{service.price || (service.branchPricing?.[userData?.branchId]) || 0}
-                            </span>
-                          </label>
-                        ))}
+                  <div className="p-5 flex flex-col h-full relative z-10 text-white">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1">
+                        <h3 className="text-lg font-bold mb-1 drop-shadow-md">{formData.title || 'Your Promo Title'}</h3>
+                        <p className="text-[10px] line-clamp-2 opacity-80">{formData.description || 'Enter a description to see how it looks...'}</p>
                       </div>
-                    )}
-                  </div>
-                  {formData.specificServices.length > 0 && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formData.specificServices.length} service(s) selected
-                    </p>
-                  )}
-                </div>
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-black border backdrop-blur-md bg-green-500/20 border-green-500/50 text-green-300 uppercase">
+                        ACTIVE
+                      </span>
+                    </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Products
-                  </label>
-                  <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3">
-                    {availableProducts.length === 0 ? (
-                      <p className="text-sm text-gray-500 text-center py-4">No products available</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {availableProducts.map(product => (
-                          <label key={product.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={formData.specificProducts.includes(product.id)}
-                              onChange={(e) => {
-                                const productId = product.id;
-                                if (e.target.checked) {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    specificProducts: [...prev.specificProducts, productId]
-                                  }));
-                                } else {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    specificProducts: prev.specificProducts.filter(id => id !== productId)
-                                  }));
-                                }
-                              }}
-                              className="w-4 h-4 text-[#160B53] border-gray-300 rounded focus:ring-[#160B53]"
-                            />
-                            <span className="text-sm text-gray-900 flex-1">{product.name}</span>
-                            <span className="text-xs text-gray-500">
-                              ₱{product.otcPrice || product.unitCost || 0}
-                            </span>
-                          </label>
-                        ))}
+                    <div className="flex-1 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-white/10 rounded-lg backdrop-blur-md">
+                          <Percent className="h-4 w-4 text-green-400" />
+                        </div>
+                        <span className="text-xl font-black text-white tracking-tighter drop-shadow-lg">
+                          {formData.discountValue ? (formData.discountType === 'percentage' ? `${formData.discountValue}% OFF` : `₱${formData.discountValue} OFF`) : '0% OFF'}
+                        </span>
                       </div>
-                    )}
+
+                      <div className="grid grid-cols-1 gap-1.5 mt-2">
+                        <div className="flex items-center gap-2 text-[10px] text-gray-200">
+                          <Calendar className="h-3 w-3 text-blue-400" />
+                          <span>Now - Valid Thru {formData.endDate ? format(new Date(formData.endDate), 'MMM dd, yyyy') : 'Date'}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] text-gray-200">
+                          <Tag className="h-3 w-3 text-purple-400" />
+                          <span className="font-mono font-bold tracking-wider bg-white/10 px-1.5 py-0.5 rounded uppercase">{formData.promotionCode || 'CODE'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-white/10">
+                      <div className="w-full py-2 flex items-center justify-center gap-2 bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest">
+                        Preview Only
+                      </div>
+                    </div>
                   </div>
-                  {formData.specificProducts.length > 0 && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formData.specificProducts.length} product(s) selected
-                    </p>
-                  )}
+                </Card>
+
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                  <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Status Summary</h4>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-500">Active Status</span>
+                      <span className={`font-bold ${formData.isActive ? 'text-green-600' : 'text-gray-400'}`}>{formData.isActive ? 'YES' : 'NO'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-500">Target</span>
+                      <span className="font-bold text-gray-900 uppercase">{formData.applicableTo}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
-
-            {formData.applicableTo === 'specific' && (formData.specificServices.length === 0 && formData.specificProducts.length === 0) && (
-              <p className="text-xs text-red-500">
-                Please select at least one service or product
-              </p>
-            )}
-
-            {/* Date Range */}
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Start Date <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  type="datetime-local"
-                  value={formData.startDate}
-                  onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  End Date <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  type="datetime-local"
-                  value={formData.endDate}
-                  onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                  required
-                />
-              </div>
             </div>
 
-            {/* Checkboxes - Side by Side */}
-            <div className="grid grid-cols-2 gap-6">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="isActive"
-                  checked={formData.isActive}
-                  onChange={(e) => setFormData(prev => ({ ...prev, isActive: e.target.checked }))}
-                  className="w-4 h-4 text-[#160B53] border-gray-300 rounded focus:ring-[#160B53]"
-                />
-                <label htmlFor="isActive" className="text-sm text-gray-700">
-                  Active (promotion will be visible to clients)
-                </label>
-              </div>
-
-              <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <input
-                  type="checkbox"
-                  id="emailToClients"
-                  checked={formData.emailToClients}
-                  onChange={(e) => setFormData(prev => ({ ...prev, emailToClients: e.target.checked }))}
-                  className="w-4 h-4 text-[#160B53] border-gray-300 rounded focus:ring-[#160B53]"
-                />
-                <label htmlFor="emailToClients" className="text-sm font-medium text-gray-900 cursor-pointer">
-                  📧 Email this promotion to all clients
-                </label>
-              </div>
-            </div>
-            {formData.emailToClients && (
-              <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-xs text-gray-600">
-                  All clients with email addresses will receive this promotion via email when you create it.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => handleShowEmailPreview({
-                    ...formData,
-                    imageUrl: imagePreview || formData.imageUrl
-                  })}
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-                >
-                  <Eye className="h-4 w-4" />
-                  Preview Email
-                </button>
-              </div>
-            )}
-
-            <div className="flex justify-between gap-3 pt-4 border-t border-gray-200">
-              <button
+            {/* Footer Buttons */}
+            <div className="absolute -bottom-6 -left-6 -right-6 px-6 py-4 bg-white border-t border-gray-100 flex justify-end gap-3 rounded-b-2xl z-20">
+              <Button
                 type="button"
-                onClick={() => handleShowEmailPreview({
-                  ...formData,
-                  imageUrl: imagePreview || formData.imageUrl
-                })}
-                className="text-sm text-gray-600 hover:text-gray-700 flex items-center gap-1"
+                variant="outline"
+                onClick={() => setIsCreateModalOpen(false)}
+                className="hover:bg-gray-50"
               >
-                <Eye className="h-4 w-4" />
-                Preview Email
-              </button>
-              <div className="flex gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setIsCreateModalOpen(false);
-                    setFormData({
-                      title: '',
-                      description: '',
-                      promotionCode: '',
-                      autoGenerateCode: true,
-                      discountType: 'percentage',
-                      discountValue: '',
-                      applicableTo: 'all',
-                      specificServices: [],
-                      specificProducts: [],
-                      usageType: 'one-time',
-                      maxUses: '',
-                      startDate: '',
-                      endDate: '',
-                      isActive: true,
-                      imageUrl: ''
-                    });
-                    setImageFile(null);
-                    setImagePreview('');
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  type="submit" 
-                  className="bg-[#160B53] text-white hover:bg-[#12094A]"
-                  disabled={uploadingImage}
-                >
-                  {uploadingImage ? 'Uploading...' : 'Create Promotion'}
-                </Button>
-              </div>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-[#160B53] text-white hover:bg-[#12094A] px-8 shadow-lg shadow-blue-900/20"
+                disabled={uploadingImage}
+              >
+                {uploadingImage ? 'Uploading...' : 'Create Promotion'}
+              </Button>
             </div>
           </form>
         </Modal>
@@ -1974,7 +1985,7 @@ const Promotions = () => {
               <div>
                 <label className="text-sm font-medium text-gray-500">Discount</label>
                 <p className="text-lg font-semibold text-green-600">
-                  {selectedPromotion.discountType === 'percentage' 
+                  {selectedPromotion.discountType === 'percentage'
                     ? `${selectedPromotion.discountValue}% OFF`
                     : `₱${selectedPromotion.discountValue} OFF`}
                 </p>
@@ -2045,7 +2056,7 @@ const Promotions = () => {
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h3 className="font-semibold text-blue-900 mb-1">{selectedPromotion.title}</h3>
               <p className="text-sm text-blue-700">
-                {selectedPromotion.discountType === 'percentage' 
+                {selectedPromotion.discountType === 'percentage'
                   ? `${selectedPromotion.discountValue}% OFF`
                   : `₱${selectedPromotion.discountValue} OFF`}
               </p>
@@ -2159,7 +2170,7 @@ const Promotions = () => {
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h3 className="font-semibold text-blue-900 mb-2">{selectedPromotion.title}</h3>
               <p className="text-sm text-blue-700">
-                {selectedPromotion.discountType === 'percentage' 
+                {selectedPromotion.discountType === 'percentage'
                   ? `${selectedPromotion.discountValue}% OFF`
                   : `₱${selectedPromotion.discountValue} OFF`}
               </p>
@@ -2270,7 +2281,7 @@ const Promotions = () => {
         </Modal>
       )}
     </div>
-    
+
   );
 };
 

@@ -10,7 +10,7 @@ import { getUsersByBranch, getUserById } from '../../services/userService';
 import { getLendingRequests, getActiveLending, getActiveLendingFromBranch, getActiveLendingForBranch } from '../../services/stylistLendingService';
 import { getLeaveRequestsByBranch } from '../../services/leaveManagementService';
 import { getBranchById } from '../../services/branchService';
-import { 
+import {
   getActiveSchedulesByEmployee,
   getAllScheduleConfigurations,
   createOrUpdateScheduleWithHistory,
@@ -24,7 +24,7 @@ import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { USER_ROLES } from '../../utils/constants';
-import { getFullName, getInitials, formatTime12Hour, formatDate } from '../../utils/helpers';
+import { getFullName, getInitials, formatTime12Hour, formatDate, formatDateLocal } from '../../utils/helpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 
@@ -51,7 +51,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
-  const [shiftForm, setShiftForm] = useState({ start: '', end: '', date: '' });
+  const [shiftForm, setShiftForm] = useState({ start: '', end: '', date: '', type: 'regular' });
   const [selectedStaffIds, setSelectedStaffIds] = useState([]); // Array of selected staff IDs
   const [selectedDays, setSelectedDays] = useState([]); // Array of selected day keys (legacy, not used anymore)
   const [staffTimes, setStaffTimes] = useState({}); // { staffId: { start: '', end: '' } }
@@ -75,9 +75,9 @@ const StaffSchedule = ({ onEditTrigger }) => {
   const [quickBulkEmployee, setQuickBulkEmployee] = useState(null); // Employee for quick bulk shifts
   const [quickBulkForm, setQuickBulkForm] = useState({ start: '', end: '', days: [] }); // Quick bulk form data
   const [viewMode, setViewMode] = useState('week'); // 'week' or 'month'
-    const [searchTerm, setSearchTerm] = useState('');
-    const [showFilterModalSchedule, setShowFilterModalSchedule] = useState(false);
-    const [showPDFPreviewSchedule, setShowPDFPreviewSchedule] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showFilterModalSchedule, setShowFilterModalSchedule] = useState(false);
+  const [showPDFPreviewSchedule, setShowPDFPreviewSchedule] = useState(false);
   const [filters, setFilters] = useState({
     roles: [], // Array of selected roles
     shiftStatus: 'all', // 'all', 'withShifts', 'withoutShifts'
@@ -99,7 +99,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
   // Print ref
   const printRef = useRef();
-  
+
   // Branch info for print
   const [branchInfo, setBranchInfo] = useState(null);
   const [printOnlyWithSchedules, setPrintOnlyWithSchedules] = useState(false);
@@ -175,7 +175,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
     if (showBulkConfigModal && !bulkStartDate) {
       const weekStart = new Date(currentWeek);
       weekStart.setHours(0, 0, 0, 0);
-      setBulkStartDate(weekStart.toISOString().split('T')[0]);
+      setBulkStartDate(formatDateLocal(weekStart));
     }
   }, [showBulkConfigModal, currentWeek, bulkStartDate]);
 
@@ -200,12 +200,12 @@ const StaffSchedule = ({ onEditTrigger }) => {
         }
       });
       setEditableShifts(initialEditableShifts);
-      
+
       // Set start date to the current week being viewed
       const weekStart = new Date(currentWeek);
       weekStart.setHours(0, 0, 0, 0);
-      setConfigStartDate(weekStart.toISOString().split('T')[0]);
-      
+      setConfigStartDate(formatDateLocal(weekStart));
+
       setIsEditMode(true);
     }
   }, [onEditTrigger, staff, currentWeek]);
@@ -251,10 +251,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
             if (!leaveMap[employeeId]) {
               leaveMap[employeeId] = [];
             }
-            
+
             // Ensure dates are Date objects - handle Firestore Timestamps
             let startDate, endDate;
-            
+
             if (leave.startDate instanceof Date) {
               startDate = new Date(leave.startDate);
             } else if (leave.startDate && typeof leave.startDate.toDate === 'function') {
@@ -265,7 +265,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
               console.warn('Invalid startDate for leave:', leave);
               return; // Skip this leave if dates are invalid
             }
-            
+
             if (leave.endDate instanceof Date) {
               endDate = new Date(leave.endDate);
             } else if (leave.endDate && typeof leave.endDate.toDate === 'function') {
@@ -276,11 +276,11 @@ const StaffSchedule = ({ onEditTrigger }) => {
               console.warn('Invalid endDate for leave:', leave);
               return; // Skip this leave if dates are invalid
             }
-            
+
             // Normalize dates to start of day
             startDate.setHours(0, 0, 0, 0);
             endDate.setHours(23, 59, 59, 999);
-            
+
             leaveMap[employeeId].push({
               startDate,
               endDate,
@@ -288,11 +288,11 @@ const StaffSchedule = ({ onEditTrigger }) => {
               type: leave.type,
               reason: leave.reason
             });
-            
+
             // Added leave to map
           }
         });
-        
+
         // Staff leave map created
         setStaffLeaveMap(leaveMap);
       }
@@ -314,9 +314,9 @@ const StaffSchedule = ({ onEditTrigger }) => {
           endDate: doc.data().endDate?.toDate(),
           requestedAt: doc.data().requestedAt?.toDate(),
         }));
-        
+
         setLeaveRequests(leaves);
-        
+
         // Create leave map
         const leaveMap = {};
         leaves.forEach(leave => {
@@ -326,14 +326,14 @@ const StaffSchedule = ({ onEditTrigger }) => {
             if (!leaveMap[employeeId]) {
               leaveMap[employeeId] = [];
             }
-            
-            const startDate = leave.startDate instanceof Date 
-              ? leave.startDate 
+
+            const startDate = leave.startDate instanceof Date
+              ? leave.startDate
               : (leave.startDate?.toDate ? leave.startDate.toDate() : new Date(leave.startDate));
-            const endDate = leave.endDate instanceof Date 
-              ? leave.endDate 
+            const endDate = leave.endDate instanceof Date
+              ? leave.endDate
               : (leave.endDate?.toDate ? leave.endDate.toDate() : new Date(leave.endDate));
-            
+
             leaveMap[employeeId].push({
               startDate,
               endDate,
@@ -358,12 +358,12 @@ const StaffSchedule = ({ onEditTrigger }) => {
         const userRoles = user.roles || (user.role ? [user.role] : []);
         return userRoles.some(role => MANAGEABLE_ROLES.includes(role));
       });
-      
+
       // Get week start date for filtering date-specific shifts
       const weekStart = new Date(currentWeek);
       weekStart.setHours(0, 0, 0, 0);
-      
-      
+
+
       // Load schedules for each staff member and merge with staff data
       const staffWithSchedules = await Promise.all(
         manageableStaff.map(async (member) => {
@@ -372,18 +372,18 @@ const StaffSchedule = ({ onEditTrigger }) => {
             // Member has no ID or UID, skipping schedule lookup
             return member;
           }
-          
+
           try {
             // Get active schedule configuration, inactive configs, and date-specific shifts
             // Try both member.id and member.uid in case they're stored differently
             const { activeConfig, inactiveConfigs, dateSpecificShifts: dateSpecificShiftsList } = await getActiveSchedulesByEmployee(memberId, userBranch, weekStart);
-            
-            
+
+
             // Note: We no longer pre-populate member.shifts here
             // The getShiftForDay function will find the correct schedule for each date
             // based on startDate. This prevents showing "Inactive" for future dates.
             const shifts = {};
-            
+
             // Only add shifts from the config that applies to the current week start
             // This is just for backward compatibility/fallback
             if (activeConfig && activeConfig.employeeShifts) {
@@ -402,24 +402,25 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 }
               });
             }
-            
-            
+
+
             // Convert date-specific shifts to dateSpecificShifts format
             const dateSpecificShifts = {}; // Store by date string for easy lookup
             dateSpecificShiftsList.forEach(schedule => {
-              const dateStr = schedule.date.toISOString().split('T')[0];
+              const dateStr = formatDateLocal(schedule.date);
               dateSpecificShifts[dateStr] = {
                 start: schedule.startTime,
                 end: schedule.endTime,
                 date: schedule.date,
                 isDateSpecific: true,
-                scheduleId: schedule.id
+                scheduleId: schedule.id,
+                type: schedule.type // Add this
               };
             });
-            
-            return { 
-              ...member, 
-              shifts, 
+
+            return {
+              ...member,
+              shifts,
               dateSpecificShifts,
               activeConfigId: activeConfig?.id,
               configStartDate: activeConfig?.startDate
@@ -430,9 +431,9 @@ const StaffSchedule = ({ onEditTrigger }) => {
           }
         })
       );
-      
+
       setStaff(staffWithSchedules);
-      
+
       // Fetch staff lent TO this branch and add them to the staff list
       await fetchLentToBranchStaff();
     } catch (error) {
@@ -444,43 +445,43 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
   const fetchLentToBranchStaff = async () => {
     if (!userBranch) return;
-    
+
     try {
       // Get all staff currently lent TO this branch (from other branches)
       // Pass null to get ALL approved/active requests regardless of date
       const activeLendingsTo = await getActiveLendingForBranch(userBranch, null);
-      
+
       // Fetch the actual staff data for lent staff
       const lentStaffData = await Promise.all(
         activeLendingsTo.map(async (lending) => {
           try {
             const staffMember = await getUserById(lending.stylistId);
             const fromBranch = await getBranchById(lending.fromBranchId);
-            
+
             // Get week start date for filtering date-specific shifts
             const weekStart = new Date(currentWeek);
             weekStart.setHours(0, 0, 0, 0);
-            
+
             // Load schedules for the lent staff member from their original branch
             const memberId = staffMember.id || staffMember.uid;
             let shifts = {};
             let dateSpecificShifts = {};
-            
+
             if (memberId) {
               try {
-                const { activeConfig, inactiveConfigs, dateSpecificShifts: dateSpecificShiftsList } = 
+                const { activeConfig, inactiveConfigs, dateSpecificShifts: dateSpecificShiftsList } =
                   await getActiveSchedulesByEmployee(memberId, lending.fromBranchId, weekStart);
-                
+
                 // Build shifts object from active config
                 if (activeConfig && activeConfig.shifts && activeConfig.shifts[memberId]) {
                   shifts = activeConfig.shifts[memberId];
                 }
-                
+
                 // Build date-specific shifts map
                 if (dateSpecificShiftsList && dateSpecificShiftsList.length > 0) {
                   dateSpecificShiftsList.forEach(schedule => {
                     if (schedule.date) {
-                      const dateStr = new Date(schedule.date).toISOString().split('T')[0];
+                      const dateStr = formatDateLocal(schedule.date);
                       dateSpecificShifts[dateStr] = {
                         start: schedule.startTime,
                         end: schedule.endTime,
@@ -495,7 +496,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 console.error(`Error loading schedules for lent staff ${memberId}:`, error);
               }
             }
-            
+
             return {
               ...staffMember,
               isLent: true,
@@ -512,10 +513,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
           }
         })
       );
-      
+
       const validLentStaff = lentStaffData.filter(s => s !== null);
       setLentToBranchStaff(validLentStaff);
-      
+
       // Add lent staff to the main staff list for display
       setStaff(prevStaff => {
         // Remove any previously added lent staff to avoid duplicates
@@ -529,21 +530,21 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
   const fetchLendingData = async () => {
     if (!staff.length || !userBranch) return;
-    
+
     try {
       const dates = getWeekDates();
       const lendingMap = {}; // Staff lent TO other branches (for display)
       const lentOutMap = {}; // Staff lent OUT FROM this branch (for validation)
-      
+
       // Fetch all active lending where staff FROM this branch are lent out
       // Pass null to get ALL approved/active requests regardless of date
       const activeLendingsFromBranch = await getActiveLendingFromBranch(userBranch, null);
-      
+
       // Check each staff member for active lending during the week (staff lent TO other branches)
       for (const member of staff) {
         const memberId = member.id || member.uid;
         if (!memberId) continue;
-        
+
         // Check today's date for active lending
         const today = new Date();
         const activeLending = await getActiveLending(memberId, today);
@@ -557,10 +558,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
           };
         }
       }
-      
+
       // Wait for all branch name fetches to complete
       await Promise.all(
-        activeLendingsFromBranch.map(lending => 
+        activeLendingsFromBranch.map(lending =>
           lending.stylistId ? getBranchById(lending.toBranchId).then(toBranch => {
             lentOutMap[lending.stylistId] = {
               toBranchName: toBranch?.branchName || toBranch?.name || 'Unknown Branch',
@@ -578,9 +579,9 @@ const StaffSchedule = ({ onEditTrigger }) => {
           }) : Promise.resolve()
         )
       );
-      
+
       // Fetched lending data
-      
+
       setLendingData(lendingMap);
       setLentOutData(lentOutMap);
     } catch (error) {
@@ -592,7 +593,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
     const dates = [];
     const start = new Date(currentWeek);
     start.setHours(0, 0, 0, 0);
-    
+
     for (let i = 0; i < 7; i++) {
       const date = new Date(start);
       date.setDate(start.getDate() + i);
@@ -606,22 +607,22 @@ const StaffSchedule = ({ onEditTrigger }) => {
     const month = currentMonth.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    
+
     // Get day of week for first day (0 = Sunday, 1 = Monday, etc.)
     const firstDayOfWeek = firstDay.getDay();
     const startDate = new Date(firstDay);
     // Adjust to Monday (if firstDayOfWeek is 0 (Sunday), go back 6 days, otherwise go back firstDayOfWeek - 1 days)
     startDate.setDate(firstDay.getDate() - (firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1));
-    
+
     const dates = [];
     const current = new Date(startDate);
-    
+
     // Generate 6 weeks (42 days) to cover all possible month layouts
     for (let i = 0; i < 42; i++) {
       dates.push(new Date(current));
       current.setDate(current.getDate() + 1);
     }
-    
+
     return dates;
   };
 
@@ -633,12 +634,12 @@ const StaffSchedule = ({ onEditTrigger }) => {
   // Helper function to find the schedule configuration that applies to a specific date
   const getScheduleForDate = (configs, targetDate) => {
     if (!targetDate || !configs || configs.length === 0) return null;
-    
+
     // Normalize target date to start of day for comparison
     const targetDateObj = new Date(targetDate);
     targetDateObj.setHours(0, 0, 0, 0);
     const targetTime = targetDateObj.getTime();
-    
+
     // Filter configs that have startDate <= targetDate, then find the most recent one
     // Note: We include both active and inactive configs - the isActive flag doesn't matter for date-based lookup
     const applicableConfigs = configs
@@ -654,7 +655,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
         const bTime = new Date(b.startDate).getTime();
         return bTime - aTime; // Most recent first
       });
-    
+
     return applicableConfigs.length > 0 ? applicableConfigs[0] : null;
   };
 
@@ -663,10 +664,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
     const memberId = member.id || member.uid;
     if (memberId && lendingData[memberId] && date) {
       const lending = lendingData[memberId];
-      const dateStr = date.toISOString().split('T')[0];
-      const lendingStart = lending.startDate ? new Date(lending.startDate).toISOString().split('T')[0] : null;
-      const lendingEnd = lending.endDate ? new Date(lending.endDate).toISOString().split('T')[0] : null;
-      
+      const dateStr = formatDateLocal(date);
+      const lendingStart = lending.startDate ? formatDateLocal(lending.startDate) : null;
+      const lendingEnd = lending.endDate ? formatDateLocal(lending.endDate) : null;
+
       if (lendingStart && lendingEnd && dateStr >= lendingStart && dateStr <= lendingEnd) {
         return {
           isLending: true,
@@ -674,23 +675,26 @@ const StaffSchedule = ({ onEditTrigger }) => {
         };
       }
     }
-    
+
     // First check for date-specific shift (these override recurring shifts)
     if (member.dateSpecificShifts && date) {
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = formatDateLocal(date);
       if (member.dateSpecificShifts[dateStr]) {
-        return member.dateSpecificShifts[dateStr];
+        return {
+          ...member.dateSpecificShifts[dateStr],
+          type: member.dateSpecificShifts[dateStr].type || (member.dateSpecificShifts[dateStr].isDateSpecific ? 'oncall' : 'regular')
+        };
       }
     }
-    
+
     // Find the schedule configuration that applies to this specific date
     // This is the primary method - it finds the config with the most recent startDate <= date
     // Note: We check ALL configs (both active and inactive) - the isActive flag doesn't matter for date-based lookup
     if (date && allScheduleConfigs.length > 0) {
       const configForDate = getScheduleForDate(allScheduleConfigs, date);
-      
+
       // Config found for date-based lookup
-      
+
       if (configForDate && configForDate.shifts) {
         // Collect ALL possible ID variations for this staff member
         const possibleIds = [];
@@ -698,17 +702,17 @@ const StaffSchedule = ({ onEditTrigger }) => {
         if (member.uid && member.uid !== member.id) possibleIds.push(member.uid);
         // Also check if there's a user document ID stored differently
         if (member.userId && !possibleIds.includes(member.userId)) possibleIds.push(member.userId);
-        
+
         // Remove duplicates and empty values
         const uniqueIds = [...new Set(possibleIds.filter(id => id))];
         const memberId = uniqueIds[0] || member.id || member.uid;
-        
+
         // Looking for shifts for member
-        
+
         // Try to find shifts using any of the possible IDs
         let employeeShifts = null;
         let matchedId = null;
-        
+
         for (const id of uniqueIds) {
           if (id && configForDate.shifts[id]) {
             employeeShifts = configForDate.shifts[id];
@@ -717,18 +721,18 @@ const StaffSchedule = ({ onEditTrigger }) => {
             break;
           }
         }
-        
+
         // If no direct match, try partial matching (check if IDs contain each other)
         if (!employeeShifts) {
           const availableIds = Object.keys(configForDate.shifts);
           // No direct match found, trying partial matching
-          
+
           for (const id of uniqueIds) {
             if (!id) continue;
-            
+
             // Try exact reverse match
-            const reverseMatch = availableIds.find(availId => 
-              availId === id || 
+            const reverseMatch = availableIds.find(availId =>
+              availId === id ||
               availId === String(id) ||
               String(availId) === id
             );
@@ -738,9 +742,9 @@ const StaffSchedule = ({ onEditTrigger }) => {
               // Found exact reverse match
               break;
             }
-            
+
             // Try substring matching (if one contains the other)
-            const substringMatch = availableIds.find(availId => 
+            const substringMatch = availableIds.find(availId =>
               (typeof availId === 'string' && typeof id === 'string') &&
               (availId.includes(id) || id.includes(availId))
             );
@@ -752,24 +756,25 @@ const StaffSchedule = ({ onEditTrigger }) => {
             }
           }
         }
-        
+
         if (employeeShifts && employeeShifts[dayKey] && employeeShifts[dayKey].start && employeeShifts[dayKey].end) {
           // Always mark as active when found via date-based lookup
           // The isActive flag on the config is just for marking "current" config, not for historical/future dates
           // Shift found
-          
+
           return {
             start: employeeShifts[dayKey].start,
             end: employeeShifts[dayKey].end,
             isRecurring: true,
             isActive: true, // Always true when found via date-based lookup
             configId: configForDate.id,
-            startDate: configForDate.startDate
+            startDate: configForDate.startDate,
+            type: employeeShifts[dayKey].type || 'regular'
           };
         }
       }
     }
-    
+
     // Fall back to member.shifts (for backward compatibility or if configs not loaded yet)
     // But only if it doesn't have isActive: false (which would be from old inactive configs)
     if (member.shifts && member.shifts[dayKey]) {
@@ -781,36 +786,36 @@ const StaffSchedule = ({ onEditTrigger }) => {
       }
       return fallbackShift;
     }
-    
+
     return null;
   };
 
   // Helper function to check if a staff member is lent out on a specific date
   const isStaffLentOut = (memberId, date) => {
     if (!memberId || !date) return false;
-    
+
     // Check if staff member has any lending data
     if (!lentOutData[memberId]) {
       return false;
     }
-    
+
     const lending = lentOutData[memberId];
     const checkDate = new Date(date);
     checkDate.setHours(0, 0, 0, 0);
-    
+
     // Handle both Date objects and timestamps
-    const startDate = lending.startDate instanceof Date 
-      ? new Date(lending.startDate) 
+    const startDate = lending.startDate instanceof Date
+      ? new Date(lending.startDate)
       : new Date(lending.startDate);
     startDate.setHours(0, 0, 0, 0);
-    
-    const endDate = lending.endDate instanceof Date 
-      ? new Date(lending.endDate) 
+
+    const endDate = lending.endDate instanceof Date
+      ? new Date(lending.endDate)
       : new Date(lending.endDate);
     endDate.setHours(23, 59, 59, 999);
-    
+
     const isLentOut = checkDate >= startDate && checkDate <= endDate;
-    
+
     if (isLentOut) {
       console.log('Staff is lent out:', {
         memberId,
@@ -820,135 +825,138 @@ const StaffSchedule = ({ onEditTrigger }) => {
         lending
       });
     }
-    
+
     return isLentOut;
   };
 
   // Helper function to check if a staff member is on leave on a specific date
   const isStaffOnLeave = (memberId, date) => {
     if (!memberId || !date) return false;
-    
+
     const leaves = staffLeaveMap[memberId];
     if (!leaves || leaves.length === 0) {
       return false;
     }
-    
+
     const checkDate = new Date(date);
     checkDate.setHours(0, 0, 0, 0);
     const checkTime = checkDate.getTime();
-    
+
     // Check if date falls within any approved leave period (pending leaves don't block scheduling)
     const isOnLeave = leaves.some(leave => {
       if (!leave.startDate || !leave.endDate) return false;
-      
+
       // Only check approved leaves
       if (leave.status !== 'approved') return false;
-      
+
       // Dates should already be normalized Date objects from fetchLeaveRequests
       const startDate = leave.startDate instanceof Date ? leave.startDate : new Date(leave.startDate);
       const endDate = leave.endDate instanceof Date ? leave.endDate : new Date(leave.endDate);
-      
+
       const startTime = startDate.getTime();
       const endTime = endDate.getTime();
-      
+
       const result = checkTime >= startTime && checkTime <= endTime;
-      
+
       return result;
     });
-    
+
     return isOnLeave;
   };
 
   // Helper function to get leave info for a specific date
   const getLeaveInfoForDate = (memberId, date) => {
     if (!memberId || !date) return null;
-    
+
     const leaves = staffLeaveMap[memberId];
     if (!leaves || leaves.length === 0) {
       return null;
     }
-    
+
     const checkDate = new Date(date);
     checkDate.setHours(0, 0, 0, 0);
-    
+
     // Find the leave that covers this date
     const leave = leaves.find(leave => {
       if (!leave.startDate || !leave.endDate) return false;
-      
+
       // Ensure dates are Date objects
-      const startDate = leave.startDate instanceof Date 
-        ? new Date(leave.startDate) 
+      const startDate = leave.startDate instanceof Date
+        ? new Date(leave.startDate)
         : (leave.startDate?.toDate ? leave.startDate.toDate() : new Date(leave.startDate));
       startDate.setHours(0, 0, 0, 0);
-      
-      const endDate = leave.endDate instanceof Date 
-        ? new Date(leave.endDate) 
+
+      const endDate = leave.endDate instanceof Date
+        ? new Date(leave.endDate)
         : (leave.endDate?.toDate ? leave.endDate.toDate() : new Date(leave.endDate));
       endDate.setHours(23, 59, 59, 999);
-      
+
       return checkDate >= startDate && checkDate <= endDate;
     });
-    
+
     return leave || null;
   };
 
   // Helper function to check if a staff member is lent TO this branch and if date is outside lending period
   const isBorrowedStaffOutsideLendingPeriod = (member, date) => {
     if (!member || !date) return false;
-    
+
     // Check if this is a borrowed staff member (lent TO this branch)
     if (!member.isLent || !member.lendingStartDate || !member.lendingEndDate) {
       return false;
     }
-    
+
     const checkDate = new Date(date);
     checkDate.setHours(0, 0, 0, 0);
-    
+
     // Handle both Date objects and timestamps
-    const startDate = member.lendingStartDate instanceof Date 
-      ? new Date(member.lendingStartDate) 
+    const startDate = member.lendingStartDate instanceof Date
+      ? new Date(member.lendingStartDate)
       : new Date(member.lendingStartDate);
     startDate.setHours(0, 0, 0, 0);
-    
-    const endDate = member.lendingEndDate instanceof Date 
-      ? new Date(member.lendingEndDate) 
+
+    const endDate = member.lendingEndDate instanceof Date
+      ? new Date(member.lendingEndDate)
       : new Date(member.lendingEndDate);
     endDate.setHours(23, 59, 59, 999);
-    
+
     // Return true if date is OUTSIDE the lending period (before start or after end)
     const isOutside = checkDate < startDate || checkDate > endDate;
-    
+
     return isOutside;
   };
 
   const handleEditShift = (member, dayKey, date) => {
     // Only allow editing if in edit mode
     if (!isEditMode) return;
-    
+
     const memberId = member.id || member.uid;
-    
+
     // Check if staff is lent out on this date (staff lent OUT FROM this branch)
     if (date && isStaffLentOut(memberId, date)) {
       const lending = lentOutData[memberId];
       toast.error(`Cannot edit shift: Staff member is lent out to ${lending.toBranchName} from ${formatDate(lending.startDate, 'MMM dd, yyyy')} to ${formatDate(lending.endDate, 'MMM dd, yyyy')}`);
       return;
     }
-    
+
     // Check if borrowed staff (lent TO this branch) and date is outside lending period
     if (date && isBorrowedStaffOutsideLendingPeriod(member, date)) {
       toast.error(`Cannot edit shift: Staff member is only lent to this branch from ${formatDate(member.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(member.lendingEndDate, 'MMM dd, yyyy')}`);
       return;
     }
-    
+
     const existingShift = editableShifts[memberId]?.[dayKey];
-    
+
     setSelectedStaff(member);
     setSelectedDay(dayKey);
     setSelectedDate(date);
+    const savedShift = date && member.dateSpecificShifts?.[formatDateLocal(date)];
+
     setShiftForm({
-      start: existingShift?.start || '',
-      end: existingShift?.end || '',
-      date: date ? date.toISOString().split('T')[0] : ''
+      start: existingShift?.start || savedShift?.start || '',
+      end: existingShift?.end || savedShift?.end || '',
+      date: date ? formatDateLocal(date) : '',
+      type: existingShift?.type || savedShift?.type || (savedShift || existingShift?.isDateSpecific ? 'oncall' : 'regular')
     });
     setIsAddingShift(false);
     setShowEditShiftModal(true);
@@ -957,43 +965,44 @@ const StaffSchedule = ({ onEditTrigger }) => {
   const handleAddShift = (member, dayKey, date) => {
     // Only allow adding if in edit mode
     if (!isEditMode) return;
-    
+
     const memberId = member.id || member.uid;
-    
+
     // Check if staff is on leave on this date
     if (date && isStaffOnLeave(memberId, date)) {
       const leave = getLeaveInfoForDate(memberId, date);
       toast.error(`Cannot add shift: Staff member is on leave from ${formatDate(leave.startDate, 'MMM dd, yyyy')} to ${formatDate(leave.endDate, 'MMM dd, yyyy')}`);
       return;
     }
-    
+
     // Check if staff is lent out on this date (staff lent OUT FROM this branch)
     if (date && isStaffLentOut(memberId, date)) {
       const lending = lentOutData[memberId];
       toast.error(`Cannot add shift: Staff member is lent out to ${lending.toBranchName} from ${formatDate(lending.startDate, 'MMM dd, yyyy')} to ${formatDate(lending.endDate, 'MMM dd, yyyy')}`);
       return;
     }
-    
+
     // Check if borrowed staff (lent TO this branch) and date is outside lending period
     if (date && isBorrowedStaffOutsideLendingPeriod(member, date)) {
       toast.error(`Cannot add shift: Staff member is only lent to this branch from ${formatDate(member.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(member.lendingEndDate, 'MMM dd, yyyy')}`);
       return;
     }
-    
+
     // Auto-set configStartDate to the Monday of the current week if not already set
     if (!configStartDate) {
       const weekStart = new Date(currentWeek);
       weekStart.setHours(0, 0, 0, 0);
-      setConfigStartDate(weekStart.toISOString().split('T')[0]);
+      setConfigStartDate(formatDateLocal(weekStart));
     }
-    
+
     setSelectedStaff(member);
     setSelectedDay(dayKey);
     setSelectedDate(date);
-    setShiftForm({ 
-      start: '', 
+    setShiftForm({
+      start: '',
       end: '',
-      date: date ? date.toISOString().split('T')[0] : ''
+      date: date ? date.toISOString().split('T')[0] : '',
+      type: 'regular'
     });
     setIsAddingShift(true);
     setShowEditShiftModal(true);
@@ -1061,7 +1070,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
       });
 
       toast.success(`${quickBulkForm.days.length} shift${quickBulkForm.days.length > 1 ? 's' : ''} added and saved ✓`);
-      
+
       // Reload staff schedules
       await fetchStaff();
     } catch (error) {
@@ -1133,7 +1142,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
       });
 
       toast.success('Shift removed and saved ✓');
-      
+
       // Reload staff schedules
       await fetchStaff();
     } catch (error) {
@@ -1148,7 +1157,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
     setSelectedStaff(null);
     setSelectedDay(null);
     setSelectedDate(null);
-    setShiftForm({ start: '', end: '', date: '' });
+    setShiftForm({ start: '', end: '', date: '', type: 'regular' });
     setIsAddingShift(false);
   };
 
@@ -1183,14 +1192,14 @@ const StaffSchedule = ({ onEditTrigger }) => {
     }
 
     const memberId = selectedStaff.id || selectedStaff.uid;
-    
+
     // Check if staff is on leave on the date being edited
     if (selectedDate && isStaffOnLeave(memberId, selectedDate)) {
       const leave = getLeaveInfoForDate(memberId, selectedDate);
       toast.error(`Cannot save shift: Staff member is on leave from ${formatDate(leave.startDate, 'MMM dd, yyyy')} to ${formatDate(leave.endDate, 'MMM dd, yyyy')}`);
       return;
     }
-    
+
     // Check if staff is lent out on the date being edited (staff lent OUT FROM this branch)
     // For recurring shifts, check if staff is lent out during the config start date period
     if (selectedDate && isStaffLentOut(memberId, selectedDate)) {
@@ -1198,36 +1207,36 @@ const StaffSchedule = ({ onEditTrigger }) => {
       toast.error(`Cannot save shift: Staff member is lent out to ${lending.toBranchName} from ${formatDate(lending.startDate, 'MMM dd, yyyy')} to ${formatDate(lending.endDate, 'MMM dd, yyyy')}`);
       return;
     }
-    
+
     // Check if borrowed staff (lent TO this branch) and date is outside lending period
     if (selectedDate && isBorrowedStaffOutsideLendingPeriod(selectedStaff, selectedDate)) {
       toast.error(`Cannot save shift: Staff member is only lent to this branch from ${formatDate(selectedStaff.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(selectedStaff.lendingEndDate, 'MMM dd, yyyy')}`);
       return;
     }
-    
+
     // For recurring shifts (no specific date), we need to check the actual date for that day of the week
     // Use the week dates to find the correct date for the selected day
     if (!selectedDate && configStartDate && selectedDay) {
       const weekDates = getWeekDates();
       const dayIndex = DAYS_OF_WEEK.findIndex(d => d.key === selectedDay);
-      
+
       if (dayIndex !== -1 && weekDates[dayIndex]) {
         const actualDate = weekDates[dayIndex];
-        
+
         // Check if staff is on leave
         if (isStaffOnLeave(memberId, actualDate)) {
           const leave = getLeaveInfoForDate(memberId, actualDate);
           toast.error(`Cannot save shift: Staff member is on leave from ${formatDate(leave.startDate, 'MMM dd, yyyy')} to ${formatDate(leave.endDate, 'MMM dd, yyyy')}`);
           return;
         }
-        
+
         // Check if staff is lent out (lent OUT FROM this branch)
         if (isStaffLentOut(memberId, actualDate)) {
           const lending = lentOutData[memberId];
           toast.error(`Cannot save shift: Staff member is lent out to ${lending.toBranchName} from ${formatDate(lending.startDate, 'MMM dd, yyyy')} to ${formatDate(lending.endDate, 'MMM dd, yyyy')}`);
           return;
         }
-        
+
         // Check if borrowed staff (lent TO this branch) and date is outside lending period
         if (isBorrowedStaffOutsideLendingPeriod(selectedStaff, actualDate)) {
           toast.error(`Cannot save shift: Staff member is only lent to this branch from ${formatDate(selectedStaff.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(selectedStaff.lendingEndDate, 'MMM dd, yyyy')}`);
@@ -1235,7 +1244,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
         }
       }
     }
-    
+
     // Update editableShifts state first
     const updatedShifts = {
       ...editableShifts,
@@ -1247,8 +1256,31 @@ const StaffSchedule = ({ onEditTrigger }) => {
         }
       }
     };
-    
+
     setEditableShifts(updatedShifts);
+
+    // If On-Call (BIGLAAN), save as date-specific shift using a separate service call
+    if (shiftForm.type === 'oncall') {
+      if (!selectedDate) {
+        toast.error('Date is required for On-Call shifts');
+        return;
+      }
+
+      await createOrUpdateScheduleWithHistory({
+        branchId: userBranch,
+        employeeId: memberId,
+        date: shiftForm.date, // Use the date from form or selectedDate
+        startTime: shiftForm.start,
+        endTime: shiftForm.end,
+        type: 'oncall',
+        notes: 'BIGLAAN shift'
+      });
+
+      toast.success('On-Call (BIGLAAN) shift saved ✓');
+      await fetchStaff();
+      setShowEditShiftModal(false);
+      return;
+    }
 
     // Auto-save to database immediately
     try {
@@ -1257,6 +1289,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
         return;
       }
 
+      // Default logic for Regular (recurring) shifts
       // IMPORTANT: Merge with existing shifts from all staff members
       // This ensures we don't lose shifts from other staff when saving
       const existingShiftsFromStaff = {};
@@ -1317,7 +1350,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
       });
 
       toast.success(isAddingShift ? 'Shift added and saved ✓' : 'Shift updated and saved ✓');
-      
+
       // Reload staff schedules to show updated data
       await fetchStaff();
       await fetchAllScheduleConfigs();
@@ -1347,11 +1380,11 @@ const StaffSchedule = ({ onEditTrigger }) => {
     // Only block if there are shifts configured for days when staff are lent out
     const weekDates = getWeekDates();
     const validationErrors = [];
-    
+
     Object.entries(editableShifts).forEach(([memberId, employeeShifts]) => {
       const staffMember = staff.find(s => (s.id || s.uid) === memberId);
       const memberName = staffMember ? getFullName(staffMember) : 'Staff member';
-      
+
       // Check each day that has a shift configured
       Object.keys(employeeShifts).forEach(dayKey => {
         const shift = employeeShifts[dayKey];
@@ -1361,7 +1394,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
           const dayIndex = DAYS_OF_WEEK.findIndex(d => d.key === dayKey);
           if (dayIndex !== -1 && weekDates[dayIndex]) {
             const actualDate = weekDates[dayIndex];
-            
+
             // Check if staff is on leave on this specific date
             if (isStaffOnLeave(memberId, actualDate)) {
               const leave = getLeaveInfoForDate(memberId, actualDate);
@@ -1371,7 +1404,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
               );
               return; // Skip this day - use return instead of continue in forEach
             }
-            
+
             // Check if staff is lent out on this specific date (lent OUT FROM this branch)
             if (isStaffLentOut(memberId, actualDate)) {
               const lending = lentOutData[memberId];
@@ -1380,7 +1413,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 `${memberName} - ${dayLabel} (${formatDate(actualDate, 'MMM dd, yyyy')}): Lent out to ${lending.toBranchName}`
               );
             }
-            
+
             // Check if borrowed staff (lent TO this branch) and date is outside lending period
             if (staffMember && isBorrowedStaffOutsideLendingPeriod(staffMember, actualDate)) {
               const dayLabel = DAYS_OF_WEEK[dayIndex]?.label || dayKey;
@@ -1392,7 +1425,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
         }
       });
     });
-    
+
     if (validationErrors.length > 0) {
       toast.error(`Cannot save shifts for the following:\n${validationErrors.join('\n')}`, { duration: 6000 });
       return;
@@ -1400,13 +1433,13 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
     try {
       setSaving(true);
-      
+
       // Validate all shifts against branch hours
       const validationErrors = [];
       Object.entries(editableShifts).forEach(([employeeId, employeeShifts]) => {
         const member = staff.find(s => (s.id || s.uid) === employeeId);
         const memberName = member ? getFullName(member) : 'Staff member';
-        
+
         Object.entries(employeeShifts).forEach(([dayKey, shift]) => {
           if (shift.start && shift.end) {
             const validation = validateShiftAgainstBranchHours(dayKey, shift.start, shift.end);
@@ -1422,10 +1455,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
         setSaving(false);
         return;
       }
-      
+
       // Prepare shifts data structure: { employeeId: { monday: {start, end}, ... }, ... }
       const shiftsData = {};
-      
+
       Object.entries(editableShifts).forEach(([employeeId, employeeShifts]) => {
         const cleanedShifts = {};
         Object.entries(employeeShifts).forEach(([dayKey, shift]) => {
@@ -1437,7 +1470,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
             };
           }
         });
-        
+
         // Only add employee if they have at least one shift
         if (Object.keys(cleanedShifts).length > 0) {
           shiftsData[employeeId] = cleanedShifts;
@@ -1462,7 +1495,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
       setIsEditMode(false);
       setEditableShifts({});
       setConfigStartDate('');
-      
+
       // Reload staff schedules
       await fetchStaff();
     } catch (error) {
@@ -1478,7 +1511,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
     const isDateSpecific = shift?.isDateSpecific;
     const dateStr = date ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
     const dayLabel = DAYS_OF_WEEK.find(d => d.key === dayKey)?.label;
-    
+
     if (!confirm(`Remove shift for ${isDateSpecific ? dateStr : dayLabel}?`)) {
       return;
     }
@@ -1490,23 +1523,23 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
     try {
       const memberId = member.id || member.uid;
-      
+
       if (isDateSpecific && date) {
         // For date-specific shifts, we need to deactivate by date
         // We'll need to update the deactivateSchedule function or create a new one
         // For now, let's use a workaround - find and deactivate the specific schedule
         const weekStart = new Date(currentWeek);
         weekStart.setHours(0, 0, 0, 0);
-        const schedules = await getActiveSchedulesByEmployee(memberId, userBranch, weekStart);
+        const { dateSpecificShifts: schedules } = await getActiveSchedulesByEmployee(memberId, userBranch, weekStart);
         const scheduleToDelete = schedules.find(s => {
           if (s.date) {
-            const sDate = s.date.toISOString().split('T')[0];
-            const targetDate = date.toISOString().split('T')[0];
+            const sDate = formatDateLocal(s.date);
+            const targetDate = formatDateLocal(date);
             return sDate === targetDate;
           }
           return false;
         });
-        
+
         if (scheduleToDelete) {
           const { deleteSchedule } = await import('../../services/scheduleService');
           await deleteSchedule(scheduleToDelete.id);
@@ -1519,23 +1552,24 @@ const StaffSchedule = ({ onEditTrigger }) => {
         }
         await deactivateSchedule(memberId, dayOfWeek, userBranch);
       }
-      
+
       // Reload schedules
       const weekStart = new Date(currentWeek);
       weekStart.setHours(0, 0, 0, 0);
       const schedules = await getActiveSchedulesByEmployee(memberId, userBranch, weekStart);
       const shifts = {};
       const dateSpecificShifts = {};
-      
+
       schedules.forEach(schedule => {
         if (schedule.date) {
-          const dateStr = schedule.date.toISOString().split('T')[0];
+          const dateStr = formatDateLocal(schedule.date);
           dateSpecificShifts[dateStr] = {
             start: schedule.startTime,
             end: schedule.endTime,
             date: schedule.date,
             isDateSpecific: true,
-            scheduleId: schedule.id
+            scheduleId: schedule.id,
+            type: schedule.type || 'oncall'
           };
         } else {
           const dayKey = schedule.dayOfWeek?.toLowerCase();
@@ -1549,7 +1583,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
           }
         }
       });
-      
+
       // Update local state
       setStaff(prev => prev.map(s => {
         const sId = s.id || s.uid;
@@ -1576,7 +1610,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
       setLoadingHistory(true);
       setSelectedStaff(member);
       const memberId = member.id || member.uid;
-      
+
       // Fetch shift history
       const history = await getScheduleHistoryByEmployee(memberId, userBranch);
       setShiftHistory(history);
@@ -1591,33 +1625,33 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
   const validateShiftAgainstBranchHours = (dayKey, startTime, endTime) => {
     if (!branchHours) return { valid: true }; // If no branch hours, allow any time
-    
+
     const dayHours = branchHours[dayKey];
     if (!dayHours || !dayHours.isOpen) {
-      return { 
-        valid: false, 
-        message: `${DAYS_OF_WEEK.find(d => d.key === dayKey)?.label} is closed` 
+      return {
+        valid: false,
+        message: `${DAYS_OF_WEEK.find(d => d.key === dayKey)?.label} is closed`
       };
     }
 
     if (startTime >= endTime) {
-      return { 
-        valid: false, 
-        message: 'End time must be after start time' 
+      return {
+        valid: false,
+        message: 'End time must be after start time'
       };
     }
 
     if (startTime < dayHours.open) {
-      return { 
-        valid: false, 
-        message: `Start time must be after branch opening time (${dayHours.open})` 
+      return {
+        valid: false,
+        message: `Start time must be after branch opening time (${dayHours.open})`
       };
     }
 
     if (endTime > dayHours.close) {
-      return { 
-        valid: false, 
-        message: `End time must be before branch closing time (${dayHours.close})` 
+      return {
+        valid: false,
+        message: `End time must be before branch closing time (${dayHours.close})`
       };
     }
 
@@ -1672,23 +1706,23 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
     try {
       setSaving(true);
-      
+
       // Get current active configuration to update it
       const allConfigs = await getScheduleConfigurationsByBranch(userBranch);
       const activeConfig = allConfigs.find(c => c.isActive);
-      
+
       // Prepare shifts data structure
       const shiftsData = activeConfig?.shifts || {};
-      
+
       // Add shifts for all selected staff with their individual days and times
       selectedStaffIds.forEach(employeeId => {
         if (!shiftsData[employeeId]) {
           shiftsData[employeeId] = {};
         }
-        
+
         const times = staffTimes[employeeId];
         const days = staffDays[employeeId] || [];
-        
+
         // Add shifts for each day this employee is scheduled
         days.forEach(dayKey => {
           shiftsData[employeeId][dayKey] = {
@@ -1720,7 +1754,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
         const days = staffDays[id] || [];
         return sum + days.length;
       }, 0);
-      
+
       toast.success(`Successfully created ${totalShifts} shift(s)!`);
       setShowShiftModal(false);
       setSelectedStaffIds([]);
@@ -1728,7 +1762,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
       setStaffTimes({});
       setStaffDays({});
       setShiftForm({ start: '', end: '', date: '' });
-      
+
       // Reload staff schedules
       await fetchStaff();
     } catch (error) {
@@ -1747,10 +1781,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
     try {
       setSaving(true);
-      
+
       // Prepare shifts data structure: { employeeId: { monday: {start, end}, ... }, ... }
       const shiftsData = {};
-      
+
       Object.entries(bulkShifts).forEach(([employeeId, employeeShifts]) => {
         const cleanedShifts = {};
         Object.entries(employeeShifts).forEach(([dayKey, shift]) => {
@@ -1762,7 +1796,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
             };
           }
         });
-        
+
         // Only add employee if they have at least one shift
         if (Object.keys(cleanedShifts).length > 0) {
           shiftsData[employeeId] = cleanedShifts;
@@ -1784,7 +1818,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
       toast.success('All shifts configured successfully!');
       setShowBulkConfigModal(false);
-      
+
       // Reload staff schedules
       await fetchStaff();
     } catch (error) {
@@ -1930,7 +1964,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
       // Get the inner HTML of the print content (includes inline styles)
       const printContentHTML = printRef.current.innerHTML;
-      
+
       // Get all computed styles from the document
       let styles = '';
       try {
@@ -2026,7 +2060,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
         </body>
         </html>
       `);
-      
+
       printWindow.document.close();
     }, 100);
   };
@@ -2187,9 +2221,9 @@ const StaffSchedule = ({ onEditTrigger }) => {
                     {filters.availabilityStatus !== 'all' && (
                       <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
                         {filters.availabilityStatus === 'available' ? 'Available' :
-                         filters.availabilityStatus === 'onLeave' ? 'On Leave' :
-                         filters.availabilityStatus === 'lentOut' ? 'Lent Out' :
-                         filters.availabilityStatus === 'lentIn' ? 'Lent In' : filters.availabilityStatus}
+                          filters.availabilityStatus === 'onLeave' ? 'On Leave' :
+                            filters.availabilityStatus === 'lentOut' ? 'Lent Out' :
+                              filters.availabilityStatus === 'lentIn' ? 'Lent In' : filters.availabilityStatus}
                       </span>
                     )}
                   </div>
@@ -2276,21 +2310,19 @@ const StaffSchedule = ({ onEditTrigger }) => {
           <div className="flex bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setViewMode('week')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                viewMode === 'week'
-                  ? 'bg-white text-primary-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'week'
+                ? 'bg-white text-primary-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+                }`}
             >
               Week
             </button>
             <button
               onClick={() => setViewMode('month')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                viewMode === 'month'
-                  ? 'bg-white text-primary-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'month'
+                ? 'bg-white text-primary-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+                }`}
             >
               Month
             </button>
@@ -2330,13 +2362,12 @@ const StaffSchedule = ({ onEditTrigger }) => {
               today.setDate(1);
               setCurrentMonth(today);
             }}
-            className={`px-4 py-2 rounded-lg border transition-colors text-sm ${
-              viewMode === 'week' 
-                ? (isCurrentWeek ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50')
-                : (currentMonth.getMonth() === new Date().getMonth() && currentMonth.getFullYear() === new Date().getFullYear() 
-                    ? 'bg-primary-600 text-white border-primary-600' 
-                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50')
-            }`}
+            className={`px-4 py-2 rounded-lg border transition-colors text-sm ${viewMode === 'week'
+              ? (isCurrentWeek ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50')
+              : (currentMonth.getMonth() === new Date().getMonth() && currentMonth.getFullYear() === new Date().getFullYear()
+                ? 'bg-primary-600 text-white border-primary-600'
+                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50')
+              }`}
           >
             Today
           </button>
@@ -2376,11 +2407,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
           <button
             onClick={() => setShowFilterModalSchedule(true)}
-            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors text-sm ${
-              (filters.roles.length > 0 || filters.shiftStatus !== 'all' || filters.availabilityStatus !== 'all')
-                ? 'border-primary-500 bg-primary-50 text-primary-700 hover:bg-primary-100'
-                : 'border-gray-300 hover:bg-gray-50'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors text-sm ${(filters.roles.length > 0 || filters.shiftStatus !== 'all' || filters.availabilityStatus !== 'all')
+              ? 'border-primary-500 bg-primary-50 text-primary-700 hover:bg-primary-100'
+              : 'border-gray-300 hover:bg-gray-50'
+              }`}
           >
             <Filter className="w-5 h-5" />
             <span className="px-1.5 py-0.5 bg-primary-600 text-white text-xs rounded-full">
@@ -2456,456 +2486,460 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 <span className="text-gray-500"> (filtered from {staff.length} total)</span>
               )}
             </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              Items per page:
-              <select
-                value={staffItemsPerPage}
-                onChange={(e) => {
-                  setStaffItemsPerPage(Number(e.target.value));
-                  setStaffPage(1);
-                }}
-                className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
-              >
-                {[10, 25, 50, 100].map(option => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setStaffPage(prev => Math.max(1, prev - 1))}
-                disabled={safeStaffPage === 1}
-                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
-              >
-                Previous
-              </button>
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(5, totalStaffPages) }, (_, i) => {
-                  let pageNum;
-                  if (totalStaffPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (safeStaffPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (safeStaffPage >= totalStaffPages - 2) {
-                    pageNum = totalStaffPages - 4 + i;
-                  } else {
-                    pageNum = safeStaffPage - 2 + i;
-                  }
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setStaffPage(pageNum)}
-                      className={`px-3 py-1 border rounded-lg text-sm ${
-                        safeStaffPage === pageNum
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                Items per page:
+                <select
+                  value={staffItemsPerPage}
+                  onChange={(e) => {
+                    setStaffItemsPerPage(Number(e.target.value));
+                    setStaffPage(1);
+                  }}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                >
+                  {[10, 25, 50, 100].map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setStaffPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeStaffPage === 1}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Previous
+                </button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalStaffPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalStaffPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (safeStaffPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (safeStaffPage >= totalStaffPages - 2) {
+                      pageNum = totalStaffPages - 4 + i;
+                    } else {
+                      pageNum = safeStaffPage - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setStaffPage(pageNum)}
+                        className={`px-3 py-1 border rounded-lg text-sm ${safeStaffPage === pageNum
                           ? 'bg-primary-600 text-white border-primary-600'
                           : 'border-gray-300 hover:bg-gray-100'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
+                          }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setStaffPage(prev => Math.min(totalStaffPages, prev + 1))}
+                  disabled={safeStaffPage === totalStaffPages}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                >
+                  Next
+                </button>
               </div>
-              <button
-                onClick={() => setStaffPage(prev => Math.min(totalStaffPages, prev + 1))}
-                disabled={safeStaffPage === totalStaffPages}
-                className="px-3 py-1 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
-              >
-                Next
-              </button>
             </div>
           </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-10 min-w-[200px]">
-                  Staff Member
-                </th>
-                {weekDates.map((date, index) => {
-                  const isToday = date.toDateString() === new Date().toDateString();
-                  const dayKey = getDayKey(date);
-                  const dayInfo = DAYS_OF_WEEK.find(d => d.key === dayKey);
-                  
-                  return (
-                    <th
-                      key={index}
-                      className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider min-w-[140px] ${
-                        isToday ? 'bg-primary-50 text-primary-700' : 'text-gray-500'
-                      }`}
-                    >
-                      <div className="flex flex-col items-center">
-                        <span className="font-semibold">{dayInfo?.short}</span>
-                        <span className="text-xs font-normal mt-1">
-                          {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </span>
-                      </div>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {paginatedStaff.length === 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
-                    No staff members found
-                  </td>
-                </tr>
-              ) : (
-                paginatedStaff.map((member) => (
-                  <tr key={member.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-4 whitespace-nowrap sticky left-0 bg-white z-10">
-                      <div className="flex items-center gap-3">
-                        <div className="flex-shrink-0 w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-semibold">
-                          {getInitials(member)}
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-10 min-w-[200px]">
+                    Staff Member
+                  </th>
+                  {weekDates.map((date, index) => {
+                    const isToday = date.toDateString() === new Date().toDateString();
+                    const dayKey = getDayKey(date);
+                    const dayInfo = DAYS_OF_WEEK.find(d => d.key === dayKey);
+
+                    return (
+                      <th
+                        key={index}
+                        className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider min-w-[140px] ${isToday ? 'bg-primary-50 text-primary-700' : 'text-gray-500'
+                          }`}
+                      >
+                        <div className="flex flex-col items-center">
+                          <span className="font-semibold">{dayInfo?.short}</span>
+                          <span className="text-xs font-normal mt-1">
+                            {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </span>
                         </div>
-                        {isEditMode && (
-                          <button
-                            onClick={() => handleOpenQuickBulk(member)}
-                            className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center text-white transition-colors shadow-sm"
-                            title="Quick add shifts"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </button>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                          <div className="text-sm font-medium text-gray-900">
-                            {getFullName(member)}
-                            {member.isLent && (
-                              <span className="ml-2 text-xs font-normal text-blue-600">(lent)</span>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {paginatedStaff.length === 0 ? (
+                  <tr>
+                    <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
+                      No staff members found
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedStaff.map((member) => (
+                    <tr key={member.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-4 whitespace-nowrap sticky left-0 bg-white z-10">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-shrink-0 w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-semibold">
+                            {getInitials(member)}
+                          </div>
+                          {isEditMode && (
+                            <button
+                              onClick={() => handleOpenQuickBulk(member)}
+                              className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center text-white transition-colors shadow-sm"
+                              title="Quick add shifts"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className="text-sm font-medium text-gray-900">
+                                {getFullName(member)}
+                                {member.isLent && (
+                                  <span className="ml-2 text-xs font-normal text-blue-600">(lent)</span>
+                                )}
+                                {!member.isLent && lentOutData[member.id || member.uid] && (
+                                  <span className="ml-2 text-xs font-normal text-orange-600">(lent)</span>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => handleViewHistory(member)}
+                                className="p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded transition-colors"
+                                title="View shift history"
+                              >
+                                <History className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {member.email}
+                            </div>
+                            {member.isLent && member.lentFromBranch && (
+                              <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                                <ArrowRight className="w-3 h-3" />
+                                From: {member.lentFromBranch}
+                              </div>
+                            )}
+                            {!member.isLent && lendingData[member.id || member.uid] && (
+                              <div className="text-xs text-purple-600 mt-1 flex items-center gap-1">
+                                <ArrowRight className="w-3 h-3" />
+                                Lent to {lendingData[member.id || member.uid].branchName}
+                              </div>
                             )}
                             {!member.isLent && lentOutData[member.id || member.uid] && (
-                              <span className="ml-2 text-xs font-normal text-orange-600">(lent)</span>
+                              <div className="text-xs text-orange-600 mt-1 flex items-center gap-1">
+                                <ArrowRight className="w-3 h-3" />
+                                Lent to {lentOutData[member.id || member.uid].toBranchName}
+                              </div>
                             )}
-                            </div>
-                            <button
-                              onClick={() => handleViewHistory(member)}
-                              className="p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded transition-colors"
-                              title="View shift history"
-                            >
-                              <History className="w-4 h-4" />
-                            </button>
                           </div>
-                          <div className="text-xs text-gray-500">
-                            {member.email}
-                          </div>
-                          {member.isLent && member.lentFromBranch && (
-                            <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
-                              <ArrowRight className="w-3 h-3" />
-                              From: {member.lentFromBranch}
-                            </div>
-                          )}
-                          {!member.isLent && lendingData[member.id || member.uid] && (
-                            <div className="text-xs text-purple-600 mt-1 flex items-center gap-1">
-                              <ArrowRight className="w-3 h-3" />
-                              Lent to {lendingData[member.id || member.uid].branchName}
-                            </div>
-                          )}
-                          {!member.isLent && lentOutData[member.id || member.uid] && (
-                            <div className="text-xs text-orange-600 mt-1 flex items-center gap-1">
-                              <ArrowRight className="w-3 h-3" />
-                              Lent to {lentOutData[member.id || member.uid].toBranchName}
-                            </div>
-                          )}
                         </div>
-                      </div>
-                    </td>
-                    {weekDates.map((date, index) => {
-                      const dayKey = getDayKey(date);
-                      const shift = getShiftForDay(member, dayKey, date);
-                      const isToday = date.toDateString() === new Date().toDateString();
-                      const isDateSpecific = shift?.isDateSpecific;
-                      
-                      return (
-                        <td
-                          key={index}
-                          className={`px-4 py-4 text-center ${
-                            isToday ? 'bg-primary-50' : ''
-                          }`}
-                        >
-                          {isEditMode ? (
-                            // Edit Mode - Show shifts from editableShifts or Add button
-                            (() => {
-                              const memberId = member.id || member.uid;
-                              const editableShift = editableShifts[memberId]?.[dayKey];
-                              
-                              // Check if staff is on leave on this date
-                              const onLeave = date && isStaffOnLeave(memberId, date);
-                              const leaveInfo = date && onLeave ? getLeaveInfoForDate(memberId, date) : null;
-                              
-                              // Check if there's a lending day (can't edit)
-                              if (shift?.isLending) {
-                                return (
-                                  <>
-                                    <div className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
-                                      shift.isLentToBranch 
-                                        ? 'bg-blue-100 text-blue-800' 
-                                        : 'bg-purple-100 text-purple-800'
-                                    }`}>
-                                      LENDING
-                                    </div>
-                                    {shift.lendingBranch && (
-                                      <div className={`text-xs font-medium ${
-                                        shift.isLentToBranch 
-                                          ? 'text-blue-600' 
-                                          : 'text-purple-600'
-                                      }`}>
-                                        {shift.isLentToBranch ? 'From: ' : 'To: '}{shift.lendingBranch}
-                                      </div>
-                                    )}
-                                  </>
-                                );
-                              }
-                              
-                              // Check if staff is on leave (show leave indicator, can't edit)
-                              if (onLeave && leaveInfo) {
-                                const leaveTypeLabels = {
-                                  vacation: 'Vacation',
-                                  sick: 'Sick',
-                                  personal: 'Personal',
-                                  emergency: 'Emergency',
-                                  maternity: 'Maternity',
-                                  paternity: 'Paternity',
-                                  bereavement: 'Bereavement',
-                                  undetermined: 'Undetermined'
-                                };
-                                return (
-                                  <>
-                                    <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-800">
-                                      ON LEAVE
-                                    </div>
-                                    <div className="text-xs text-orange-600 font-medium">
-                                      {leaveTypeLabels[leaveInfo.type] || 'Leave'}
-                                    </div>
-                                    {leaveInfo.status === 'pending' && (
-                                      <div className="text-xs text-yellow-600">
-                                        (Pending)
-                                      </div>
-                                    )}
-                                  </>
-                                );
-                              }
-                              
-                              // Check if staff is lent out on this date (lent OUT FROM this branch)
-                              const isLentOut = date && isStaffLentOut(memberId, date);
-                              const lendingInfo = date && isLentOut ? lentOutData[memberId] : null;
-                              
-                              // Show lent out indicator if staff is lent out (can't edit)
-                              if (isLentOut && lendingInfo) {
-                                return (
-                                  <>
-                                    <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-100 text-blue-800">
-                                      LENT OUT
-                                    </div>
-                                    <div className="text-xs text-blue-600 font-medium text-center">
-                                      {lendingInfo.toBranchName}
-                                    </div>
-                                  </>
-                                );
-                              }
-                              
-                              // Check if borrowed staff (lent TO this branch) and date is outside lending period
-                              const isBorrowedOutsidePeriod = date && isBorrowedStaffOutsideLendingPeriod(member, date);
-                              
-                              // Combined check: cannot edit if on leave, lent out OR borrowed outside period
-                              const cannotEdit = onLeave || isLentOut || isBorrowedOutsidePeriod;
-                              
-                              // Show editable shift if exists
-                              if (editableShift && editableShift.start && editableShift.end) {
-                                return (
-                                  <div className="relative group">
-                                    <div 
-                                      className={`flex flex-col items-center gap-1 ${cannotEdit ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                                      onClick={() => !cannotEdit && handleEditShift(member, dayKey, date)}
-                                      title={cannotEdit ? (onLeave ? `Cannot edit: Staff member is on leave from ${formatDate(leaveInfo.startDate, 'MMM dd, yyyy')} to ${formatDate(leaveInfo.endDate, 'MMM dd, yyyy')}` : isBorrowedOutsidePeriod ? `Cannot edit: Staff only lent to this branch from ${formatDate(member.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(member.lendingEndDate, 'MMM dd, yyyy')}` : 'Cannot edit: Staff member is lent out') : 'Click to edit'}
-                                    >
-                                      <div className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
-                                        cannotEdit 
-                                          ? 'bg-gray-100 text-gray-500' 
-                                          : 'bg-primary-100 text-primary-800 hover:bg-primary-200'
-                                      }`}>
-                                        {formatTime12Hour(editableShift.start)} - {formatTime12Hour(editableShift.end)}
-                                      </div>
-                                      <div className="text-xs text-gray-500">
-                                        {Math.round(
-                                          ((new Date(`2000-01-01 ${editableShift.end}`) - new Date(`2000-01-01 ${editableShift.start}`)) / (1000 * 60 * 60)) * 10
-                                        ) / 10}h
-                                      </div>
-                                      {cannotEdit ? (
-                                        <div className="text-xs text-red-600 font-medium">
-                                          {onLeave ? 'On Leave' : isBorrowedOutsidePeriod ? 'Outside lending period' : 'Lent out'}
-                                        </div>
-                                      ) : (
-                                        <div className="text-xs text-primary-600 font-medium">
-                                          Click to edit
-                                        </div>
-                                      )}
-                                    </div>
-                                    {!cannotEdit && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleRemoveShiftFromEditModal();
-                                        }}
-                                        onMouseEnter={() => {
-                                          setSelectedStaff(member);
-                                          setSelectedDay(dayKey);
-                                          setSelectedDate(date);
-                                        }}
-                                        className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full items-center justify-center hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100 hidden group-hover:flex"
-                                        title="Remove shift"
-                                      >
-                                        <X className="w-3 h-3" />
-                                      </button>
-                                    )}
-                                  </div>
-                                );
-                              }
-                              
-                              // Show Add button (disabled if lent out or borrowed outside period)
-                              return (
-                                <button
-                                  onClick={() => handleAddShift(member, dayKey, date)}
-                                  disabled={cannotEdit}
-                                  className={`w-full py-2 text-xs rounded transition-colors flex items-center justify-center gap-1 ${
-                                    cannotEdit
-                                      ? 'text-gray-300 cursor-not-allowed bg-gray-50'
-                                      : 'text-gray-400 hover:text-primary-600 hover:bg-primary-50'
-                                  }`}
-                                  title={cannotEdit ? (onLeave ? `Cannot add shift: Staff member is on leave from ${formatDate(leaveInfo.startDate, 'MMM dd, yyyy')} to ${formatDate(leaveInfo.endDate, 'MMM dd, yyyy')}` : isBorrowedOutsidePeriod ? `Cannot add shift: Staff only lent to this branch from ${formatDate(member.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(member.lendingEndDate, 'MMM dd, yyyy')}` : 'Cannot add shift: Staff member is lent out') : 'Add shift'}
-                                >
-                                  <Plus className="w-3 h-3" />
-                                  Add
-                                </button>
-                              );
-                            })()
-                          ) : (
-                            // View Mode - Display existing shifts
-                            (() => {
-                              const memberId = member.id || member.uid;
-                              const onLeave = date && isStaffOnLeave(memberId, date);
-                              const leaveInfo = date && onLeave ? getLeaveInfoForDate(memberId, date) : null;
-                              
-                              // Check if staff is lent out on this date (lent OUT FROM this branch)
-                              const isLentOut = date && isStaffLentOut(memberId, date);
-                              const lendingInfo = date && isLentOut ? lentOutData[memberId] : null;
-                              
-                              // Show leave indicator if staff is on leave
-                              if (onLeave && leaveInfo) {
-                                const leaveTypeLabels = {
-                                  vacation: 'Vacation',
-                                  sick: 'Sick',
-                                  personal: 'Personal',
-                                  emergency: 'Emergency',
-                                  maternity: 'Maternity',
-                                  paternity: 'Paternity',
-                                  bereavement: 'Bereavement',
-                                  undetermined: 'Undetermined'
-                                };
-                                return (
-                                  <div className="flex flex-col items-center gap-1">
-                                    <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-800">
-                                      ON LEAVE
-                                    </div>
-                                    <div className="text-xs text-orange-600 font-medium">
-                                      {leaveTypeLabels[leaveInfo.type] || 'Leave'}
-                                    </div>
-                                    {leaveInfo.status === 'pending' && (
-                                      <div className="text-xs text-yellow-600">
-                                        (Pending)
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              }
-                              
-                              // Show lent out indicator if staff is lent out
-                              if (isLentOut && lendingInfo) {
-                                return (
-                                  <div className="flex flex-col items-center gap-1">
-                                    <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-100 text-blue-800">
-                                      LENT OUT
-                                    </div>
-                                    <div className="text-xs text-blue-600 font-medium text-center">
-                                      To {lendingInfo.toBranchName}
-                                    </div>
-                                  </div>
-                                );
-                              }
-                              
-                              // Show shift if exists
-                              return shift ? (
-                                <div 
-                                  className="flex flex-col items-center gap-1 group relative"
-                                >
-                                  {shift.isLending ? (
+                      </td>
+                      {weekDates.map((date, index) => {
+                        const dayKey = getDayKey(date);
+                        const shift = getShiftForDay(member, dayKey, date);
+                        const isToday = date.toDateString() === new Date().toDateString();
+                        const isDateSpecific = shift?.isDateSpecific;
+
+                        return (
+                          <td
+                            key={index}
+                            className={`px-4 py-4 text-center ${isToday ? 'bg-primary-50' : ''
+                              }`}
+                          >
+                            {isEditMode ? (
+                              // Edit Mode - Show shifts from editableShifts or Add button
+                              (() => {
+                                const memberId = member.id || member.uid;
+                                const editableShift = editableShifts[memberId]?.[dayKey];
+
+                                // Check if staff is on leave on this date
+                                const onLeave = date && isStaffOnLeave(memberId, date);
+                                const leaveInfo = date && onLeave ? getLeaveInfoForDate(memberId, date) : null;
+
+                                // Check if there's a lending day (can't edit)
+                                if (shift?.isLending) {
+                                  return (
                                     <>
-                                      <div className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
-                                        shift.isLentToBranch 
-                                          ? 'bg-blue-100 text-blue-800' 
-                                          : 'bg-purple-100 text-purple-800'
-                                      }`}>
+                                      <div className={`px-3 py-1.5 rounded-lg text-xs font-medium ${shift.isLentToBranch
+                                        ? 'bg-blue-100 text-blue-800'
+                                        : 'bg-purple-100 text-purple-800'
+                                        }`}>
                                         LENDING
                                       </div>
                                       {shift.lendingBranch && (
-                                        <div className={`text-xs font-medium ${
-                                          shift.isLentToBranch 
-                                            ? 'text-blue-600' 
-                                            : 'text-purple-600'
-                                        }`}>
+                                        <div className={`text-xs font-medium ${shift.isLentToBranch
+                                          ? 'text-blue-600'
+                                          : 'text-purple-600'
+                                          }`}>
                                           {shift.isLentToBranch ? 'From: ' : 'To: '}{shift.lendingBranch}
                                         </div>
                                       )}
                                     </>
-                                  ) : (
+                                  );
+                                }
+
+                                // Check if staff is on leave (show leave indicator, can't edit)
+                                if (onLeave && leaveInfo) {
+                                  const leaveTypeLabels = {
+                                    vacation: 'Vacation',
+                                    sick: 'Sick',
+                                    personal: 'Personal',
+                                    emergency: 'Emergency',
+                                    maternity: 'Maternity',
+                                    paternity: 'Paternity',
+                                    bereavement: 'Bereavement',
+                                    undetermined: 'Undetermined'
+                                  };
+                                  return (
                                     <>
-                                      <div 
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                                          isDateSpecific 
-                                            ? 'bg-blue-100 text-blue-800' 
-                                            : shift.isActive === false
-                                            ? 'bg-gray-100 text-gray-500 line-through'
-                                            : 'bg-primary-100 text-primary-800'
-                                        }`}
-                                      >
-                                        {formatTime12Hour(shift.start)} - {formatTime12Hour(shift.end)}
+                                      <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-800">
+                                        ON LEAVE
                                       </div>
-                                      {isDateSpecific && (
-                                        <div className="text-xs text-blue-600 font-medium">
-                                          One-Time
+                                      <div className="text-xs text-orange-600 font-medium">
+                                        {leaveTypeLabels[leaveInfo.type] || 'Leave'}
+                                      </div>
+                                      {leaveInfo.status === 'pending' && (
+                                        <div className="text-xs text-yellow-600">
+                                          (Pending)
                                         </div>
                                       )}
-                                      {shift.isRecurring && shift.isActive === false && (
-                                        <div className="text-xs font-medium text-gray-500 line-through">
-                                          Inactive
-                                        </div>
-                                      )}
-                                      <div className="text-xs text-gray-500">
-                                        {Math.round(
-                                          ((new Date(`2000-01-01 ${shift.end}`) - new Date(`2000-01-01 ${shift.start}`)) / (1000 * 60 * 60)) * 10
-                                        ) / 10}h
+                                    </>
+                                  );
+                                }
+
+                                // Check if staff is lent out on this date (lent OUT FROM this branch)
+                                const isLentOut = date && isStaffLentOut(memberId, date);
+                                const lendingInfo = date && isLentOut ? lentOutData[memberId] : null;
+
+                                // Show lent out indicator if staff is lent out (can't edit)
+                                if (isLentOut && lendingInfo) {
+                                  return (
+                                    <>
+                                      <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-100 text-blue-800">
+                                        LENT OUT
+                                      </div>
+                                      <div className="text-xs text-blue-600 font-medium text-center">
+                                        {lendingInfo.toBranchName}
                                       </div>
                                     </>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="text-xs text-gray-300">-</div>
-                              );
-                            })()
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                                  );
+                                }
+
+                                // Check if borrowed staff (lent TO this branch) and date is outside lending period
+                                const isBorrowedOutsidePeriod = date && isBorrowedStaffOutsideLendingPeriod(member, date);
+
+                                // Combined check: cannot edit if on leave, lent out OR borrowed outside period
+                                const cannotEdit = onLeave || isLentOut || isBorrowedOutsidePeriod;
+
+                                // Show editable shift if exists
+                                if (editableShift && editableShift.start && editableShift.end) {
+                                  return (
+                                    <div className="relative group">
+                                      <div
+                                        className={`flex flex-col items-center gap-1 ${cannotEdit ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                        onClick={() => !cannotEdit && handleEditShift(member, dayKey, date)}
+                                        title={cannotEdit ? (onLeave ? `Cannot edit: Staff member is on leave from ${formatDate(leaveInfo.startDate, 'MMM dd, yyyy')} to ${formatDate(leaveInfo.endDate, 'MMM dd, yyyy')}` : isBorrowedOutsidePeriod ? `Cannot edit: Staff only lent to this branch from ${formatDate(member.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(member.lendingEndDate, 'MMM dd, yyyy')}` : 'Cannot edit: Staff member is lent out') : 'Click to edit'}
+                                      >
+                                        <div className={`px-3 py-1.5 rounded-lg text-xs font-medium ${cannotEdit
+                                          ? 'bg-gray-100 text-gray-500'
+                                          : editableShift.type === 'oncall'
+                                            ? 'bg-orange-100 text-orange-800 border border-orange-200 shadow-sm'
+                                            : 'bg-primary-100 text-primary-800 hover:bg-primary-200'
+                                          }`}>
+                                          {formatTime12Hour(editableShift.start)} - {formatTime12Hour(editableShift.end)}
+                                        </div>
+                                        {editableShift.type === 'oncall' && (
+                                          <div className="text-[10px] text-orange-600 font-bold uppercase tracking-tight">
+                                            BIGLAAN (On-Call)
+                                          </div>
+                                        )}
+                                        <div className="text-xs text-gray-500">
+                                          {Math.round(
+                                            ((new Date(`2000-01-01 ${editableShift.end}`) - new Date(`2000-01-01 ${editableShift.start}`)) / (1000 * 60 * 60)) * 10
+                                          ) / 10}h
+                                        </div>
+                                        {cannotEdit ? (
+                                          <div className="text-xs text-red-600 font-medium">
+                                            {onLeave ? 'On Leave' : isBorrowedOutsidePeriod ? 'Outside lending period' : 'Lent out'}
+                                          </div>
+                                        ) : (
+                                          <div className="text-xs text-primary-600 font-medium">
+                                            Click to edit
+                                          </div>
+                                        )}
+                                      </div>
+                                      {!cannotEdit && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRemoveShiftFromEditModal();
+                                          }}
+                                          onMouseEnter={() => {
+                                            setSelectedStaff(member);
+                                            setSelectedDay(dayKey);
+                                            setSelectedDate(date);
+                                          }}
+                                          className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full items-center justify-center hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100 hidden group-hover:flex"
+                                          title="Remove shift"
+                                        >
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                }
+
+                                // Show Add button (disabled if lent out or borrowed outside period)
+                                return (
+                                  <button
+                                    onClick={() => handleAddShift(member, dayKey, date)}
+                                    disabled={cannotEdit}
+                                    className={`w-full py-2 text-xs rounded transition-colors flex items-center justify-center gap-1 ${cannotEdit
+                                      ? 'text-gray-300 cursor-not-allowed bg-gray-50'
+                                      : 'text-gray-400 hover:text-primary-600 hover:bg-primary-50'
+                                      }`}
+                                    title={cannotEdit ? (onLeave ? `Cannot add shift: Staff member is on leave from ${formatDate(leaveInfo.startDate, 'MMM dd, yyyy')} to ${formatDate(leaveInfo.endDate, 'MMM dd, yyyy')}` : isBorrowedOutsidePeriod ? `Cannot add shift: Staff only lent to this branch from ${formatDate(member.lendingStartDate, 'MMM dd, yyyy')} to ${formatDate(member.lendingEndDate, 'MMM dd, yyyy')}` : 'Cannot add shift: Staff member is lent out') : 'Add shift'}
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    Add
+                                  </button>
+                                );
+                              })()
+                            ) : (
+                              // View Mode - Display existing shifts
+                              (() => {
+                                const memberId = member.id || member.uid;
+                                const onLeave = date && isStaffOnLeave(memberId, date);
+                                const leaveInfo = date && onLeave ? getLeaveInfoForDate(memberId, date) : null;
+
+                                // Check if staff is lent out on this date (lent OUT FROM this branch)
+                                const isLentOut = date && isStaffLentOut(memberId, date);
+                                const lendingInfo = date && isLentOut ? lentOutData[memberId] : null;
+
+                                // Show leave indicator if staff is on leave
+                                if (onLeave && leaveInfo) {
+                                  const leaveTypeLabels = {
+                                    vacation: 'Vacation',
+                                    sick: 'Sick',
+                                    personal: 'Personal',
+                                    emergency: 'Emergency',
+                                    maternity: 'Maternity',
+                                    paternity: 'Paternity',
+                                    bereavement: 'Bereavement',
+                                    undetermined: 'Undetermined'
+                                  };
+                                  return (
+                                    <div className="flex flex-col items-center gap-1">
+                                      <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-800">
+                                        ON LEAVE
+                                      </div>
+                                      <div className="text-xs text-orange-600 font-medium">
+                                        {leaveTypeLabels[leaveInfo.type] || 'Leave'}
+                                      </div>
+                                      {leaveInfo.status === 'pending' && (
+                                        <div className="text-xs text-yellow-600">
+                                          (Pending)
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                }
+
+                                // Show lent out indicator if staff is lent out
+                                if (isLentOut && lendingInfo) {
+                                  return (
+                                    <div className="flex flex-col items-center gap-1">
+                                      <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-100 text-blue-800">
+                                        LENT OUT
+                                      </div>
+                                      <div className="text-xs text-blue-600 font-medium text-center">
+                                        To {lendingInfo.toBranchName}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+
+                                // Show shift if exists
+                                return shift ? (
+                                  <div
+                                    className="flex flex-col items-center gap-1 group relative"
+                                  >
+                                    {shift.isLending ? (
+                                      <>
+                                        <div className={`px-3 py-1.5 rounded-lg text-xs font-medium ${shift.isLentToBranch
+                                          ? 'bg-blue-100 text-blue-800'
+                                          : 'bg-purple-100 text-purple-800'
+                                          }`}>
+                                          LENDING
+                                        </div>
+                                        {shift.lendingBranch && (
+                                          <div className={`text-xs font-medium ${shift.isLentToBranch
+                                            ? 'text-blue-600'
+                                            : 'text-purple-600'
+                                            }`}>
+                                            {shift.isLentToBranch ? 'From: ' : 'To: '}{shift.lendingBranch}
+                                          </div>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div
+                                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${shift.type === 'oncall'
+                                            ? 'bg-orange-100 text-orange-800 border border-orange-200 shadow-sm'
+                                            : isDateSpecific
+                                              ? 'bg-blue-100 text-blue-800'
+                                              : shift.isActive === false
+                                                ? 'bg-gray-100 text-gray-500 line-through'
+                                                : 'bg-primary-100 text-primary-800'
+                                            }`}
+                                        >
+                                          {formatTime12Hour(shift.start)} - {formatTime12Hour(shift.end)}
+                                        </div>
+                                        {shift.type === 'oncall' && (
+                                          <div className="text-[10px] text-orange-600 font-bold uppercase tracking-tight">
+                                            BIGLAAN (On-Call)
+                                          </div>
+                                        )}
+                                        {isDateSpecific && shift.type !== 'oncall' && (
+                                          <div className="text-xs text-blue-600 font-medium">
+                                            One-Time
+                                          </div>
+                                        )}
+                                        {shift.isRecurring && shift.isActive === false && (
+                                          <div className="text-xs font-medium text-gray-500 line-through">
+                                            Inactive
+                                          </div>
+                                        )}
+                                        <div className="text-xs text-gray-500">
+                                          {Math.round(
+                                            ((new Date(`2000-01-01 ${shift.end}`) - new Date(`2000-01-01 ${shift.start}`)) / (1000 * 60 * 60)) * 10
+                                          ) / 10}h
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-gray-300">-</div>
+                                );
+                              })()
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         /* Monthly Calendar View */
@@ -2923,7 +2957,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
                 const isToday = date.toDateString() === new Date().toDateString();
                 const dayKey = getDayKey(date);
-                
+
                 // Count staff with shifts on this day
                 const staffWithShifts = staff.filter(member => {
                   const shift = getShiftForDay(member, dayKey, date);
@@ -2939,19 +2973,14 @@ const StaffSchedule = ({ onEditTrigger }) => {
                         setShowDayDetailsModal(true);
                       }
                     }}
-                    className={`min-h-[100px] border rounded-lg p-2 ${ 
-                      isCurrentMonth ? 'bg-white' : 'bg-gray-50'
-                    } ${
-                      isToday ? 'ring-2 ring-primary-500' : ''
-                    } ${
-                      isCurrentMonth && staffWithShifts.length > 0 ? 'cursor-pointer hover:shadow-md transition-shadow' : ''
-                    }`}
+                    className={`min-h-[100px] border rounded-lg p-2 ${isCurrentMonth ? 'bg-white' : 'bg-gray-50'
+                      } ${isToday ? 'ring-2 ring-primary-500' : ''
+                      } ${isCurrentMonth && staffWithShifts.length > 0 ? 'cursor-pointer hover:shadow-md transition-shadow' : ''
+                      }`}
                   >
-                    <div className={`text-sm font-semibold mb-1 ${
-                      isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
-                    } ${
-                      isToday ? 'text-primary-600' : ''
-                    }`}>
+                    <div className={`text-sm font-semibold mb-1 ${isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
+                      } ${isToday ? 'text-primary-600' : ''
+                      }`}>
                       {date.getDate()}
                     </div>
                     {isCurrentMonth && staffWithShifts.length > 0 && (
@@ -3040,15 +3069,14 @@ const StaffSchedule = ({ onEditTrigger }) => {
                           const isSelected = selectedStaffIds.includes(memberId);
                           const times = staffTimes[memberId] || { start: '', end: '' };
                           const days = staffDays[memberId] || [];
-                          
+
                           return (
                             <div
                               key={memberId}
-                              className={`p-5 rounded-lg transition-colors ${
-                                isSelected
-                                  ? 'bg-primary-50 border-2 border-primary-500'
-                                  : 'bg-white border-2 border-gray-200'
-                              }`}
+                              className={`p-5 rounded-lg transition-colors ${isSelected
+                                ? 'bg-primary-50 border-2 border-primary-500'
+                                : 'bg-white border-2 border-gray-200'
+                                }`}
                             >
                               {/* Stylist Selection */}
                               <label className="flex items-center gap-3 cursor-pointer mb-4">
@@ -3089,7 +3117,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                                   </div>
                                 </div>
                               </label>
-                              
+
                               {isSelected && (
                                 <div className="mt-4 pt-4 border-t border-gray-300 space-y-4">
                                   {/* Days Selection for this Stylist */}
@@ -3103,11 +3131,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
                                         return (
                                           <label
                                             key={day.key}
-                                            className={`flex flex-col items-center gap-2 p-3 rounded-lg cursor-pointer transition-colors ${
-                                              isDaySelected
-                                                ? 'bg-primary-100 border-2 border-primary-500'
-                                                : 'bg-white border-2 border-gray-200 hover:border-primary-300'
-                                            }`}
+                                            className={`flex flex-col items-center gap-2 p-3 rounded-lg cursor-pointer transition-colors ${isDaySelected
+                                              ? 'bg-primary-100 border-2 border-primary-500'
+                                              : 'bg-white border-2 border-gray-200 hover:border-primary-300'
+                                              }`}
                                           >
                                             <input
                                               type="checkbox"
@@ -3161,13 +3188,13 @@ const StaffSchedule = ({ onEditTrigger }) => {
                                   </div>
 
                                   {/* Time Selection for this Stylist */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Start Time <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="time"
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Start Time <span className="text-red-500">*</span>
+                                      </label>
+                                      <input
+                                        type="time"
                                         value={times.start}
                                         onChange={(e) => {
                                           setStaffTimes(prev => ({
@@ -3178,16 +3205,16 @@ const StaffSchedule = ({ onEditTrigger }) => {
                                             }
                                           }));
                                         }}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                         required={isSelected}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    End Time <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="time"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        End Time <span className="text-red-500">*</span>
+                                      </label>
+                                      <input
+                                        type="time"
                                         value={times.end}
                                         onChange={(e) => {
                                           setStaffTimes(prev => ({
@@ -3198,26 +3225,26 @@ const StaffSchedule = ({ onEditTrigger }) => {
                                             }
                                           }));
                                         }}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                         required={isSelected}
-                  />
-                </div>
-              </div>
+                                      />
+                                    </div>
+                                  </div>
                                   {times.start && times.end && (
                                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-2">
                                       <p className="text-xs text-blue-800">
-                    <strong>Duration:</strong>{' '}
-                    {(() => {
+                                        <strong>Duration:</strong>{' '}
+                                        {(() => {
                                           const [startHour, startMin] = times.start.split(':').map(Number);
                                           const [endHour, endMin] = times.end.split(':').map(Number);
-                      const startMinutes = startHour * 60 + startMin;
-                      const endMinutes = endHour * 60 + endMin;
-                      const duration = (endMinutes - startMinutes) / 60;
-                      return `${duration.toFixed(1)} hours`;
-                    })()}
-                  </p>
-                </div>
-              )}
+                                          const startMinutes = startHour * 60 + startMin;
+                                          const endMinutes = endHour * 60 + endMin;
+                                          const duration = (endMinutes - startMinutes) / 60;
+                                          return `${duration.toFixed(1)} hours`;
+                                        })()}
+                                      </p>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -3226,7 +3253,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                       )}
                     </div>
                   </div>
-            </div>
+                </div>
 
                 {/* Summary */}
                 {selectedStaffIds.length > 0 && (
@@ -3257,16 +3284,16 @@ const StaffSchedule = ({ onEditTrigger }) => {
                         const days = staffDays[id] || [];
                         return times?.start && times?.end && days.length > 0;
                       }) && (
-                        <p className="text-xs text-green-700 mt-3">
-                          Total: <strong>{selectedStaffIds.reduce((sum, id) => {
-                            const days = staffDays[id] || [];
-                            return sum + days.length;
-                          }, 0)}</strong> shift{selectedStaffIds.reduce((sum, id) => {
-                            const days = staffDays[id] || [];
-                            return sum + days.length;
-                          }, 0) !== 1 ? 's' : ''} will be created
-                        </p>
-                      )}
+                          <p className="text-xs text-green-700 mt-3">
+                            Total: <strong>{selectedStaffIds.reduce((sum, id) => {
+                              const days = staffDays[id] || [];
+                              return sum + days.length;
+                            }, 0)}</strong> shift{selectedStaffIds.reduce((sum, id) => {
+                              const days = staffDays[id] || [];
+                              return sum + days.length;
+                            }, 0) !== 1 ? 's' : ''} will be created
+                          </p>
+                        )}
                     </div>
                   </div>
                 )}
@@ -3278,12 +3305,12 @@ const StaffSchedule = ({ onEditTrigger }) => {
                   <p>ΓÜá∩╕Å This will create recurring shifts that automatically appear every week.</p>
                 </div>
                 <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowShiftModal(false);
-                  setSelectedStaff(null);
-                  setSelectedDay(null);
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowShiftModal(false);
+                      setSelectedStaff(null);
+                      setSelectedDay(null);
                       setSelectedDate(null);
                       setShiftForm({ start: '', end: '', date: '' });
                       setSelectedStaffIds([]);
@@ -3359,27 +3386,25 @@ const StaffSchedule = ({ onEditTrigger }) => {
                   {shiftHistory.map((config) => (
                     <div
                       key={config.id}
-                      className={`border rounded-lg p-4 ${
-                        config.isActive
-                          ? 'border-green-200 bg-green-50'
-                          : 'border-gray-200 bg-gray-50'
-                      }`}
+                      className={`border rounded-lg p-4 ${config.isActive
+                        ? 'border-green-200 bg-green-50'
+                        : 'border-gray-200 bg-gray-50'
+                        }`}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-3">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              config.isActive
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-gray-100 text-gray-800'
-                            }`}>
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${config.isActive
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
+                              }`}>
                               {config.isActive ? 'Active' : 'Inactive'}
                             </span>
                             <span className="px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-800">
                               Recurring Configuration
                             </span>
                           </div>
-                          
+
                           <div className="mb-3">
                             <p className="text-xs text-gray-500 mb-1">Start Date</p>
                             <p className="text-sm font-medium text-gray-900">
@@ -3402,7 +3427,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                               </>
                             )}
                           </div>
-                          
+
                           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
                             {DAYS_OF_WEEK.map((day) => {
                               const dayKey = day.key;
@@ -3421,7 +3446,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                               );
                             })}
                           </div>
-                          
+
                           <div className="mt-3 pt-3 border-t border-gray-200">
                             <p className="text-xs text-gray-500">
                               Created: {config.createdAt?.toLocaleDateString('en-US', {
@@ -3433,7 +3458,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                               }) || 'N/A'}
                             </p>
                           </div>
-                          
+
                           {config.endDate && (
                             <div className="mt-2 pt-2 border-t border-gray-200">
                               <p className="text-xs text-gray-500">
@@ -3627,18 +3652,18 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 <button
                   type="button"
                   onClick={() => setShowBulkConfigModal(false)}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                disabled={saving}
-              >
-                Cancel
-              </button>
-              <button
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button
                   onClick={handleSaveBulkShifts}
                   disabled={saving || !bulkStartDate}
                   className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {saving ? 'Saving...' : 'Save All Shifts'}
-              </button>
+                </button>
               </div>
             </div>
           </div>
@@ -3712,6 +3737,43 @@ const StaffSchedule = ({ onEditTrigger }) => {
                     disabled={!shiftForm.start}
                     required
                   />
+                </div>
+              </div>
+
+              {/* Shift Type Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Shift Type
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShiftForm(prev => ({ ...prev, type: 'regular' }))}
+                    className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-all ${shiftForm.type === 'regular'
+                      ? 'border-primary-600 bg-primary-50 text-primary-700'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                      }`}
+                  >
+                    <Clock className="w-4 h-4" />
+                    <div className="text-left">
+                      <p className="text-sm font-bold leading-none">Regular</p>
+                      <p className="text-[10px] opacity-70 mt-1">Recurring weekly</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShiftForm(prev => ({ ...prev, type: 'oncall' }))}
+                    className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-all ${shiftForm.type === 'oncall'
+                      ? 'border-orange-600 bg-orange-50 text-orange-700'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                      }`}
+                  >
+                    <Calendar className="w-4 h-4" />
+                    <div className="text-left">
+                      <p className="text-sm font-bold leading-none">On-Call</p>
+                      <p className="text-[10px] opacity-70 mt-1">BIGLAAN (One-time)</p>
+                    </div>
+                  </button>
                 </div>
               </div>
 
@@ -3843,11 +3905,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
                             : [...prev.days, day.key]
                         }));
                       }}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        quickBulkForm.days.includes(day.key)
-                          ? 'bg-primary-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${quickBulkForm.days.includes(day.key)
+                        ? 'bg-primary-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
                     >
                       {day.label}
                     </button>
@@ -3904,11 +3965,11 @@ const StaffSchedule = ({ onEditTrigger }) => {
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">
-                  {selectedDayDetails.date.toLocaleDateString('en-US', { 
-                    weekday: 'long', 
-                    month: 'long', 
-                    day: 'numeric', 
-                    year: 'numeric' 
+                  {selectedDayDetails.date.toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric'
                   })}
                 </h2>
                 <p className="text-sm text-gray-600 mt-1">
@@ -3932,7 +3993,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 {selectedDayDetails.staff.map(member => {
                   const dayKey = getDayKey(selectedDayDetails.date);
                   const shift = getShiftForDay(member, dayKey, selectedDayDetails.date);
-                  
+
                   return (
                     <div
                       key={member.id}
@@ -3998,20 +4059,20 @@ const StaffSchedule = ({ onEditTrigger }) => {
             }
           }
         `}</style>
-        <div className="print-content" style={{ 
+        <div className="print-content" style={{
           fontFamily: "'Poppins', sans-serif",
           color: '#000',
           background: '#fff',
           padding: '20px'
         }}>
           {/* Header */}
-          <div style={{ 
+          <div style={{
             textAlign: 'center',
             marginBottom: '24px',
             borderBottom: '1px solid #444',
             paddingBottom: '12px'
           }}>
-            <h1 style={{ 
+            <h1 style={{
               fontSize: '22px',
               fontWeight: 700,
               marginBottom: '8px',
@@ -4022,7 +4083,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
             <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
               {branchInfo?.branchName || branchInfo?.name || 'Branch'}
             </div>
-            <div style={{ 
+            <div style={{
               fontSize: '10px',
               marginTop: '8px',
               display: 'flex',
@@ -4033,12 +4094,12 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 <div>Printed by: {currentUser ? getFullName(currentUser) : 'Manager'}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div>Printed: {new Date().toLocaleString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric', 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
+                <div>Printed: {new Date().toLocaleString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
                 })}</div>
               </div>
             </div>
@@ -4092,7 +4153,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
               {staffForPrint.map((member, idx) => {
                 const memberName = getFullName(member);
                 const memberId = member.id || member.uid;
-                
+
                 return (
                   <tr key={memberId || idx} style={{
                     pageBreakInside: 'avoid',
@@ -4108,10 +4169,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
                     </td>
                     {weekDates.map((date, dateIdx) => {
                       const dayKey = DAYS_OF_WEEK[dateIdx]?.key || '';
-                      
+
                       // Use the same getShiftForDay function as the display view
                       const shift = getShiftForDay(member, dayKey, date);
-                      
+
                       let cellContent = '-';
                       let cellStyle = {
                         border: '1px solid #444',
@@ -4134,7 +4195,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
                         const leaveType = leaveInfo?.type ? leaveTypeLabels[leaveInfo.type] || leaveInfo.type : '';
                         cellContent = leaveType ? `ON LEAVE\n${leaveType}` : 'ON LEAVE';
                         cellStyle = { ...cellStyle, fontStyle: 'italic', whiteSpace: 'pre-line' };
-                      } 
+                      }
                       // Check if staff is lent out on this date (lent OUT FROM this branch)
                       else if (isStaffLentOut(memberId, date)) {
                         const lendingInfo = lentOutData[memberId];
@@ -4167,7 +4228,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
       </div>
     </div>
 
-      
+
   );
 };
 

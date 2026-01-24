@@ -38,6 +38,10 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
     return labels[type] || type;
   };
 
+  const formatCurrency = (amount) => {
+    return Number(amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   // Separate services and products
   const services = bill.items?.filter(item => item.type === 'service') || [];
   const products = bill.items?.filter(item => item.type === 'product') || [];
@@ -72,12 +76,10 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
 
       {/* Receipt Details */}
       <div className="mb-4 text-sm space-y-1">
-        {bill.receiptNumber && (
-          <div className="flex justify-between border-b border-dashed border-gray-300 pb-1 mb-1">
-            <span className="font-semibold">Receipt No:</span>
-            <span className="font-bold text-lg">#{bill.receiptNumber}</span>
-          </div>
-        )}
+        <div className="flex justify-between border-b border-dashed border-gray-300 pb-1 mb-1">
+          <span className="font-semibold">Receipt No:</span>
+          <span className="font-bold text-lg">#{bill.receiptNumber || bill.id}</span>
+        </div>
         {bill.id && (
           <div className="flex justify-between">
             <span>Transaction ID:</span>
@@ -129,7 +131,7 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
                     )}
                   </div>
                   <span className="font-semibold">
-                    ₱{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                    ₱{formatCurrency((item.price || 0) * (item.quantity || 1))}
                   </span>
                 </div>
                 {item.stylistName && (
@@ -144,13 +146,13 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
                 )}
                 {item.adjustment !== 0 && item.adjustment !== undefined && (
                   <div className="text-xs text-gray-600 ml-2">
-                    Adjustment: {item.adjustment > 0 ? '+' : ''}₱{item.adjustment?.toFixed(2)}
+                    Adjustment: {item.adjustment > 0 ? '+' : ''}₱{formatCurrency(item.adjustment)}
                     {item.adjustmentReason && ` (${item.adjustmentReason})`}
                   </div>
                 )}
                 {item.quantity > 1 && (
                   <div className="text-xs text-gray-500 ml-2">
-                    Unit Price: ₱{(item.price || 0).toFixed(2)}
+                    Unit Price: ₱{formatCurrency(item.price || 0)}
                   </div>
                 )}
               </div>
@@ -172,12 +174,12 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
                     <span className="text-xs text-gray-600 ml-1">x{item.quantity || 1}</span>
                   </div>
                   <span className="font-semibold">
-                    ₱{((item.price || item.unitCost || 0) * (item.quantity || 1)).toFixed(2)}
+                    ₱{formatCurrency((item.price || item.unitCost || 0) * (item.quantity || 1))}
                   </span>
                 </div>
                 {item.quantity > 1 && (
                   <div className="text-xs text-gray-500 ml-2">
-                    Unit Price: ₱{(item.price || item.unitCost || 0).toFixed(2)}
+                    Unit Price: ₱{formatCurrency(item.price || item.unitCost || 0)}
                   </div>
                 )}
                 {item.commissionerName && (
@@ -204,7 +206,7 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
                     ({charge.percentage}% - {charge.quantityUsed}{charge.unit})
                   </span>
                 </div>
-                <span>₱{charge.charge?.toFixed(2)}</span>
+                <span>₱{formatCurrency(charge.charge)}</span>
               </div>
             ))}
           </div>
@@ -215,16 +217,16 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
       <div className="border-t border-dashed border-gray-300 pt-3 mb-4 space-y-2 text-sm">
         <div className="flex justify-between">
           <span>Subtotal:</span>
-          <span>₱{bill.subtotal?.toFixed(2) || '0.00'}</span>
+          <span>₱{formatCurrency(bill.subtotal)}</span>
         </div>
 
         {(bill.serviceProductChargeTotal || 0) > 0 && (
           <div className="flex justify-between">
             <span>Service Product Charges:</span>
-            <span>₱{bill.serviceProductChargeTotal?.toFixed(2)}</span>
+            <span>₱{formatCurrency(bill.serviceProductChargeTotal)}</span>
           </div>
         )}
-        
+
         {bill.discount > 0 && (
           <div className="flex justify-between text-green-600">
             <span>
@@ -232,41 +234,41 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
               {bill.discountType === 'percent' && ` (${bill.discount}%)`}
               {bill.promotionCode && ` - ${bill.promotionCode}`}:
             </span>
-            <span>-₱{(bill.discountType === 'percent' ? (bill.subtotal * bill.discount / 100) : bill.discount)?.toFixed(2)}</span>
+            <span>-₱{formatCurrency(bill.discountType === 'percent' ? (bill.subtotal * bill.discount / 100) : bill.discount)}</span>
           </div>
         )}
 
         {bill.promotionDiscount > 0 && !bill.discount && (
           <div className="flex justify-between text-green-600">
             <span>Promo ({bill.promotionCode}):</span>
-            <span>-₱{bill.promotionDiscount?.toFixed(2)}</span>
+            <span>-₱{formatCurrency(bill.promotionDiscount)}</span>
           </div>
         )}
 
         {bill.loyaltyPointsUsed > 0 && (
           <div className="flex justify-between text-green-600">
             <span>Loyalty Points ({bill.loyaltyPointsUsed} pts):</span>
-            <span>-₱{bill.loyaltyPointsUsed?.toFixed(2)}</span>
+            <span>-₱{formatCurrency(bill.loyaltyPointsUsed)}</span>
           </div>
         )}
 
         {bill.serviceCharge > 0 && (
           <div className="flex justify-between">
             <span>Service Charge ({bill.serviceChargeRate}%):</span>
-            <span>₱{bill.serviceCharge?.toFixed(2)}</span>
+            <span>₱{formatCurrency(bill.serviceCharge)}</span>
           </div>
         )}
 
         {bill.tax > 0 && (
           <div className="flex justify-between">
             <span>Tax ({bill.taxRate}%):</span>
-            <span>₱{bill.tax?.toFixed(2)}</span>
+            <span>₱{formatCurrency(bill.tax)}</span>
           </div>
         )}
 
         <div className="flex justify-between font-bold text-lg border-t border-gray-300 pt-2">
           <span>TOTAL:</span>
-          <span>₱{bill.total?.toFixed(2) || '0.00'}</span>
+          <span>₱{formatCurrency(bill.total)}</span>
         </div>
 
         <div className="border-t border-gray-200 pt-2">
@@ -279,12 +281,12 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
             <>
               <div className="flex justify-between">
                 <span>Amount Received:</span>
-                <span className="font-semibold">₱{bill.amountReceived?.toFixed(2)}</span>
+                <span className="font-semibold">₱{formatCurrency(bill.amountReceived)}</span>
               </div>
               {bill.change > 0 && (
                 <div className="flex justify-between text-green-600 font-bold">
                   <span>Change:</span>
-                  <span>₱{bill.change?.toFixed(2)}</span>
+                  <span>₱{formatCurrency(bill.change)}</span>
                 </div>
               )}
             </>
@@ -302,15 +304,14 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
       {/* Status Badge */}
       {bill.status && bill.status !== 'paid' && (
         <div className="text-center mb-4">
-          <span className={`inline-block px-3 py-1 text-sm font-bold rounded ${
-            bill.status === 'refunded' ? 'bg-red-100 text-red-700' :
+          <span className={`inline-block px-3 py-1 text-sm font-bold rounded ${bill.status === 'refunded' ? 'bg-red-100 text-red-700' :
             bill.status === 'voided' ? 'bg-gray-100 text-gray-700' :
-            'bg-yellow-100 text-yellow-700'
-          }`}>
+              'bg-yellow-100 text-yellow-700'
+            }`}>
             {bill.status.toUpperCase()}
           </span>
           {bill.refundAmount && (
-            <p className="text-sm text-red-600 mt-1">Refunded: ₱{bill.refundAmount.toFixed(2)}</p>
+            <p className="text-sm text-red-600 mt-1">Refunded: ₱{formatCurrency(bill.refundAmount)}</p>
           )}
         </div>
       )}

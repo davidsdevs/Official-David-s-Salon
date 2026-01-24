@@ -8,7 +8,7 @@ import { format, parseISO, isValid } from 'date-fns';
  */
 export const formatDate = (date, formatStr = 'MMM dd, yyyy') => {
   if (!date) return 'N/A';
-  
+
   try {
     // Handle Firestore Timestamp
     let dateObj;
@@ -17,7 +17,7 @@ export const formatDate = (date, formatStr = 'MMM dd, yyyy') => {
     } else if (typeof date === 'string') {
       // Try parsing as ISO first
       dateObj = parseISO(date);
-      
+
       // If invalid, try parsing as standard date string (RFC format from Firebase Auth)
       if (!isValid(dateObj)) {
         dateObj = new Date(date);
@@ -27,7 +27,7 @@ export const formatDate = (date, formatStr = 'MMM dd, yyyy') => {
     } else {
       return 'Invalid date';
     }
-    
+
     if (!isValid(dateObj)) return 'Invalid date';
     return format(dateObj, formatStr);
   } catch (error) {
@@ -85,7 +85,7 @@ export const snakeToTitleCase = (str) => {
  */
 export const formatCurrency = (amount, currency = 'PHP') => {
   if (typeof amount !== 'number') return 'N/A';
-  
+
   return new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: currency,
@@ -100,10 +100,10 @@ export const formatCurrency = (amount, currency = 'PHP') => {
  */
 export const formatNumber = (num, decimals = 1) => {
   if (typeof num !== 'number' || isNaN(num)) return '0';
-  
+
   const absNum = Math.abs(num);
   const sign = num < 0 ? '-' : '';
-  
+
   if (absNum >= 1e9) {
     return sign + (absNum / 1e9).toFixed(decimals) + 'B';
   } else if (absNum >= 1e6) {
@@ -124,11 +124,11 @@ export const formatNumber = (num, decimals = 1) => {
  */
 export const formatCurrencyBigData = (amount, currency = 'PHP', decimals = 1) => {
   if (typeof amount !== 'number') return 'N/A';
-  
+
   const absAmount = Math.abs(amount);
   const sign = amount < 0 ? '-' : '';
   const currencySymbol = currency === 'PHP' ? '₱' : '$';
-  
+
   if (absAmount >= 1e9) {
     return currencySymbol + sign + (absAmount / 1e9).toFixed(decimals) + 'B';
   } else if (absAmount >= 1e6) {
@@ -161,27 +161,27 @@ export const truncateText = (text, maxLength = 50) => {
  */
 export const getFullName = (user) => {
   if (!user) return 'Unknown User';
-  
+
   // Handle legacy displayName field
   if (user.displayName && !user.firstName) {
     return user.displayName;
   }
-  
+
   const { firstName, middleName, lastName } = user;
-  
+
   if (!firstName && !lastName) return 'Unknown User';
-  
+
   let fullName = firstName || '';
-  
+
   // Add middle initial if middle name exists
   if (middleName) {
     fullName += ` ${middleName.charAt(0).toUpperCase()}.`;
   }
-  
+
   if (lastName) {
     fullName += ` ${lastName}`;
   }
-  
+
   return fullName.trim();
 };
 
@@ -192,19 +192,19 @@ export const getFullName = (user) => {
  */
 export const getInitials = (nameOrUser) => {
   if (!nameOrUser) return '?';
-  
+
   // If it's an object with firstName/lastName
   if (typeof nameOrUser === 'object') {
     const { firstName, lastName, displayName } = nameOrUser;
-    
+
     if (firstName && lastName) {
       return (firstName.charAt(0) + lastName.charAt(0)).toUpperCase();
     }
-    
+
     if (firstName) {
       return firstName.charAt(0).toUpperCase();
     }
-    
+
     // Fallback to displayName if exists
     if (displayName) {
       nameOrUser = displayName;
@@ -212,14 +212,14 @@ export const getInitials = (nameOrUser) => {
       return '?';
     }
   }
-  
+
   // Handle string name
   const parts = nameOrUser.trim().split(/\s+/);
-  
+
   if (parts.length === 1) {
     return parts[0].charAt(0).toUpperCase();
   }
-  
+
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 };
 
@@ -250,12 +250,12 @@ export const isValidPhone = (phone) => {
  */
 export const stringToColor = (str) => {
   if (!str) return '#6b21a8';
-  
+
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
   }
-  
+
   const color = Math.floor(Math.abs((Math.sin(hash) * 16777215) % 1) * 16777215);
   return '#' + color.toString(16).padStart(6, '0');
 };
@@ -268,15 +268,15 @@ export const stringToColor = (str) => {
  */
 export const hasRole = (userOrRoles, roleToCheck) => {
   if (!userOrRoles) return false;
-  
+
   // If it's a user object, get the roles array
   const roles = Array.isArray(userOrRoles) ? userOrRoles : userOrRoles.roles;
-  
+
   // Handle legacy single role field
   if (!roles && userOrRoles.role) {
     return userOrRoles.role === roleToCheck;
   }
-  
+
   return Array.isArray(roles) && roles.includes(roleToCheck);
 };
 
@@ -288,7 +288,7 @@ export const hasRole = (userOrRoles, roleToCheck) => {
  */
 export const hasAnyRole = (userOrRoles, rolesToCheck) => {
   if (!userOrRoles || !Array.isArray(rolesToCheck)) return false;
-  
+
   return rolesToCheck.some(role => hasRole(userOrRoles, role));
 };
 
@@ -300,7 +300,7 @@ export const hasAnyRole = (userOrRoles, rolesToCheck) => {
  */
 export const hasAllRoles = (userOrRoles, rolesToCheck) => {
   if (!userOrRoles || !Array.isArray(rolesToCheck)) return false;
-  
+
   return rolesToCheck.every(role => hasRole(userOrRoles, role));
 };
 
@@ -311,17 +311,17 @@ export const hasAllRoles = (userOrRoles, rolesToCheck) => {
  */
 export const getUserRoles = (user) => {
   if (!user) return [];
-  
+
   // New format: roles array
   if (Array.isArray(user.roles)) {
     return user.roles;
   }
-  
+
   // Legacy format: single role string
   if (user.role) {
     return [user.role];
   }
-  
+
   return [];
 };
 
@@ -349,21 +349,21 @@ export const generateDefaultPassword = (role) => {
   if (!role) {
     role = 'user';
   }
-  
+
   // Convert role to lowercase and remove underscores/spaces
   let roleName = role.toLowerCase().replace(/[_\s]/g, '');
-  
+
   // Capitalize first letter
   roleName = roleName.charAt(0).toUpperCase() + roleName.slice(1);
-  
+
   // Special characters pool
   const specialChars = '!@#$%^&*()_+-=[]{}|;:,.<>?';
-  
+
   // Generate random special character
   const randomSpecialChar = specialChars.charAt(
     Math.floor(Math.random() * specialChars.length)
   );
-  
+
   // Combine: Role + "123" + specialChar (e.g., "Stylist123!", "Branchmanager123@")
   return `${roleName}123${randomSpecialChar}`;
 };
@@ -381,11 +381,11 @@ export const generateDefaultPasswordForUser = (user) => {
 
 export const formatTime12Hour = (time) => {
   if (!time) return '';
-  
+
   const [hours, minutes] = time.split(':').map(Number);
   const period = hours >= 12 ? 'PM' : 'AM';
   const hours12 = hours % 12 || 12; // Convert 0 to 12 for midnight
-  
+
   return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
 };
 
@@ -396,7 +396,7 @@ export const formatTime12Hour = (time) => {
  */
 export const getTimeAgo = (date) => {
   if (!date) return '';
-  
+
   try {
     let dateObj;
     // Handle Firestore Timestamp
@@ -412,16 +412,16 @@ export const getTimeAgo = (date) => {
     } else {
       return '';
     }
-    
+
     if (!isValid(dateObj)) return '';
-    
+
     const now = new Date();
     const diffMs = now - dateObj;
     const diffSeconds = Math.floor(diffMs / 1000);
     const diffMinutes = Math.floor(diffSeconds / 60);
     const diffHours = Math.floor(diffMinutes / 60);
     const diffDays = Math.floor(diffHours / 24);
-    
+
     if (diffSeconds < 60) {
       return 'just now';
     } else if (diffMinutes < 60) {
@@ -437,4 +437,30 @@ export const getTimeAgo = (date) => {
     console.error('Error calculating time ago:', error);
     return '';
   }
+};
+
+/**
+ * Format a date to YYYY-MM-DD in local time
+ * @param {Date|string} date - Date to format
+ * @returns {string} Formatted date string (YYYY-MM-DD)
+ */
+export const formatDateLocal = (date) => {
+  if (!date) return '';
+
+  let dateObj;
+  if (date && typeof date === 'object' && 'toDate' in date) {
+    dateObj = date.toDate();
+  } else if (date instanceof Date) {
+    dateObj = date;
+  } else {
+    dateObj = new Date(date);
+  }
+
+  if (!isValid(dateObj)) return '';
+
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
 };

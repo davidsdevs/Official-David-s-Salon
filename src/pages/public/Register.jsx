@@ -10,7 +10,7 @@ import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } 
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from '../../config/firebase';
 import { logActivity } from '../../services/activityService';
-import { sendWelcomeEmail } from '../../services/emailService';
+import { sendWelcomeEmail, sendOTPEmail } from '../../services/emailService';
 import { processReferral, validateReferralCode } from '../../services/referralService';
 import { USER_ROLES } from '../../utils/constants';
 import { Card } from '../../components/ui/Card';
@@ -22,7 +22,7 @@ import Footer from '../../components/landing/Footer';
 const Register = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  
+
   // Get referral code from URL params (if shared via referral link)
   const urlReferralCode = searchParams.get('ref');
   const [loading, setLoading] = useState(false);
@@ -38,8 +38,28 @@ const Register = () => {
     phone: '',
     password: '',
     confirmPassword: '',
-    referralCode: ''
+    referralCode: '',
+    otpCode: ''
   });
+
+  const [currentStep, setCurrentStep] = useState(1); // 1: Info, 2: OTP
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState({
+    length: false,
+    number: false,
+    special: false,
+    uppercase: false
+  });
+
+  const checkPasswordStrength = (password) => {
+    setPasswordStrength({
+      length: password.length >= 8,
+      number: /\d/.test(password),
+      special: /[!@#$%^&*(),.?":{}|<>]/.test(password),
+      uppercase: /[A-Z]/.test(password)
+    });
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -47,61 +67,88 @@ const Register = () => {
       ...prev,
       [name]: value
     }));
-    
+
+    if (name === 'password') {
+      checkPasswordStrength(value);
+    }
+
     // Clear error when user starts typing
     if (error) {
       setError('');
     }
   };
 
-  const handleSubmit = async (e) => {
+  const handleSendOtp = async (e) => {
     e.preventDefault();
 
-    // Validate passwords match
+    // Basic validation
+    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       return;
     }
 
-    // Validate password strength (FR5 requirement)
-    if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long');
-      return;
-    }
+    const missingRequirements = [];
+    if (!passwordStrength.length) missingRequirements.push('8+ characters');
+    if (!passwordStrength.number) missingRequirements.push('a number');
+    if (!passwordStrength.uppercase) missingRequirements.push('an uppercase letter');
+    if (!passwordStrength.special) missingRequirements.push('a special character');
 
-    // Check for at least one number
-    if (!/\d/.test(formData.password)) {
-      setError('Password must contain at least one number');
-      return;
-    }
-
-    // Check for at least one special character
-    if (!/[!@#$%^&*(),.?":{}|<>]/.test(formData.password)) {
-      setError('Password must contain at least one special character');
+    if (missingRequirements.length > 0) {
+      setError(`Password must have: ${missingRequirements.join(', ')}`);
       return;
     }
 
     setLoading(true);
     setError('');
-    setSuccess('');
 
-    // Validate referral code BEFORE creating account
-    const referralCodeToProcess = formData.referralCode || urlReferralCode;
-    if (referralCodeToProcess) {
-      try {
+
+    try {
+      // Validate referral code BEFORE sending OTP
+      const referralCodeToProcess = formData.referralCode || urlReferralCode;
+      if (referralCodeToProcess) {
         const validationResult = await validateReferralCode(referralCodeToProcess);
         if (!validationResult.valid) {
-          setError(validationResult.message || 'Invalid referral code. Please check and try again.');
+          setError(validationResult.message || 'Invalid referral code');
           setLoading(false);
           return;
         }
-      } catch (validationError) {
-        console.error('Error validating referral code:', validationError);
-        setError('Error validating referral code. Please try again.');
-        setLoading(false);
-        return;
       }
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const result = await sendOTPEmail({
+        email: formData.email,
+        otpCode: code
+      });
+
+      if (result.success) {
+        setGeneratedOtp(code);
+        setOtpSent(true);
+        setCurrentStep(2);
+        setSuccess('A verification code has been sent to your email.');
+      } else {
+        setError(result.error || 'Failed to send verification email');
+      }
+    } catch (err) {
+      setError('Error processing registration');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    if (formData.otpCode !== generatedOtp) {
+      setError('Invalid verification code');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
 
     try {
       // Create Firebase Auth account
@@ -150,7 +197,7 @@ const Register = () => {
 
       // Process referral code if provided (branch ID is automatically determined from referral code)
       const referralCodeToProcess = formData.referralCode || urlReferralCode;
-      
+
       if (referralCodeToProcess) {
         try {
           // processReferral will automatically find the branch ID from the referral code
@@ -160,7 +207,7 @@ const Register = () => {
             null, // branchId will be determined from referral code
             { uid: user.uid, displayName: fullName }
           );
-          
+
           if (referralResult.success) {
             console.log('✅ Referral processed successfully:', referralResult);
           } else {
@@ -181,7 +228,7 @@ const Register = () => {
       }).catch(err => console.error('Welcome email error:', err));
 
       setSuccess('Account created successfully! Please check your email to verify your account.');
-      
+
       // Redirect to login after a short delay
       setTimeout(() => {
         navigate('/login');
@@ -205,249 +252,158 @@ const Register = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white pt-[122px]">
+    <div className="min-h-screen bg-white pt-20">
       {/* Header */}
       <Navigation />
 
       {/* Main Content */}
       <div className="flex items-center justify-center pt-8 pb-16 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-md w-full space-y-8">
+        <div className="max-w-2xl w-full space-y-6">
           <div className="text-center">
-            <h2 className="mt-6 text-center text-3xl font-extrabold text-[#160B53]">
-            Create Your Account
+            <h2 className="mt-10 text-center text-4xl font-extrabold text-[#160B53]">
+              Create Your Account
             </h2>
-            <p className="mt-2 text-center text-sm text-gray-600">
-            Join David's Salon Management System
-          </p>
-        </div>
-
-          <Card className="p-8 border-0" style={{ boxShadow: '0 2px 15px 0 rgba(0, 0, 0, 0.25)' }}>
-            <form className="space-y-6" onSubmit={handleSubmit}>
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                  <div className="flex">
-                    <AlertCircle className="h-5 w-5 text-red-400" />
-                    <div className="ml-3">
-                      <p className="text-sm text-red-800">{error}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {success && (
-                <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                  <div className="flex">
-                    <CheckCircle className="h-5 w-5 text-green-400" />
-                    <div className="ml-3">
-                      <p className="text-sm text-green-800">{success}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
-                    First Name *
-                </label>
-                  <Input
-                    id="firstName"
-                    name="firstName"
-                    type="text"
-                    autoComplete="given-name"
-                    required
-                    placeholder="First name"
-                    value={formData.firstName}
-                    onChange={handleChange}
-                  />
-              </div>
-
-              <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
-                    Last Name *
-                </label>
-                  <Input
-                    id="lastName"
-                    name="lastName"
-                    type="text"
-                    autoComplete="family-name"
-                    required
-                    placeholder="Last name"
-                    value={formData.lastName}
-                    onChange={handleChange}
-                  />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="middleName" className="block text-sm font-medium text-gray-700 mb-2">
-                Middle Name <span className="text-gray-400 text-xs">(Optional)</span>
-              </label>
-                <Input
-                  id="middleName"
-                  name="middleName"
-                  type="text"
-                  autoComplete="additional-name"
-                  placeholder="Middle name"
-                  value={formData.middleName}
-                  onChange={handleChange}
-                />
-            </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
-              </label>
-                  <Input
-                  id="email"
-                  name="email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    placeholder="Enter your email"
-                  value={formData.email}
-                  onChange={handleChange}
-                />
-            </div>
-
-            <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
-                Phone Number
-              </label>
-                  <Input
-                  id="phone"
-                  name="phone"
-                    type="tel"
-                    placeholder="Enter your phone number"
-                  value={formData.phone}
-                  onChange={handleChange}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                  <Input
-                  id="password"
-                  name="password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    required
-                    placeholder="Enter your password"
-                  value={formData.password}
-                  onChange={handleChange}
-                    className="pr-12"
-                />
-                <button
-                  type="button"
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? (
-                      <EyeOff className="h-5 w-5 text-gray-400 hover:text-gray-600" />
-                  ) : (
-                      <Eye className="h-5 w-5 text-gray-400 hover:text-gray-600" />
-                  )}
-                </button>
-              </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  Password must be at least 8 characters long
-                </p>
-            </div>
-
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                Confirm Password
-              </label>
-              <div className="relative">
-                  <Input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    required
-                    placeholder="Confirm your password"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                    className="pr-12"
-                />
-                <button
-                  type="button"
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  {showConfirmPassword ? (
-                      <EyeOff className="h-5 w-5 text-gray-400 hover:text-gray-600" />
-                  ) : (
-                      <Eye className="h-5 w-5 text-gray-400 hover:text-gray-600" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Referral Code Field (Optional) */}
-            <div>
-              <label htmlFor="referralCode" className="block text-sm font-medium text-gray-700 mb-2">
-                Referral Code <span className="text-gray-400 text-xs">(Optional)</span>
-              </label>
-              <Input
-                id="referralCode"
-                name="referralCode"
-                type="text"
-                placeholder="Enter referral code"
-                value={formData.referralCode || urlReferralCode || ''}
-                onChange={handleChange}
-                className="uppercase"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                Have a referral code? Enter it here to earn bonus points! The branch will be automatically determined from the code.
-              </p>
-            </div>
-
-              <div>
-                <Button
-              type="submit"
-                  className="w-full bg-[#160B53] hover:bg-[#160B53]/90 text-white"
-              disabled={loading}
-                >
-                  {loading ? 'Creating account...' : 'Create account'}
-                </Button>
-              </div>
-
-              <div className="text-center">
-            <p className="text-sm text-gray-600">
-              Already have an account?{' '}
-              <Link
-                to="/login"
-                    className="font-medium text-[#160B53] hover:text-[#160B53]/80"
-              >
-                Sign in
-              </Link>
+            <p className="mt-1 text-center text-sm text-gray-600">
+              Join David's Salon Management System
             </p>
           </div>
 
-              {/* Terms */}
-              <p className="text-xs text-gray-500 text-center">
-                By creating an account, you agree to our{' '}
-                <a href="#" className="text-[#160B53] hover:underline">
-                  Terms of Service
-                </a>{' '}
-                and{' '}
-                <a href="#" className="text-[#160B53] hover:underline">
-                  Privacy Policy
-                </a>
+          <Card className="p-6 border-0" style={{ boxShadow: '0 2px 15px 0 rgba(0, 0, 0, 0.25)' }}>
+            {/* Error Message */}
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg flex items-center gap-3 animate-shake">
+                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                <p className="text-sm text-red-700 font-medium">{error}</p>
+              </div>
+            )}
+
+            {/* Success Message */}
+            {success && (
+              <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-r-lg flex items-center gap-3">
+                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                <p className="text-sm text-green-700 font-medium">{success}</p>
+              </div>
+            )}
+
+            {currentStep === 1 ? (
+              <form className="space-y-4" onSubmit={handleSendOtp}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+                    <Input id="firstName" name="firstName" type="text" required placeholder="First name" value={formData.firstName} onChange={handleChange} />
+                  </div>
+                  <div>
+                    <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+                    <Input id="lastName" name="lastName" type="text" required placeholder="Last name" value={formData.lastName} onChange={handleChange} />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="middleName" className="block text-sm font-medium text-gray-700 mb-1">Middle Name <span className="text-gray-400 text-xs">(Optional)</span></label>
+                  <Input id="middleName" name="middleName" type="text" placeholder="Middle name" value={formData.middleName} onChange={handleChange} />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
+                    <Input id="email" name="email" type="email" required placeholder="Enter your email" value={formData.email} onChange={handleChange} />
+                  </div>
+                  <div>
+                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <Input id="phone" name="phone" type="tel" placeholder="Enter your phone number" value={formData.phone} onChange={handleChange} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                    <div className="relative">
+                      <Input id="password" name="password" type={showPassword ? 'text' : 'password'} required placeholder="Enter password" value={formData.password} onChange={handleChange} className="pr-12" />
+                      <button type="button" className="absolute inset-y-0 right-0 pr-3 flex items-center" onClick={() => setShowPassword(!showPassword)}>
+                        {showPassword ? <EyeOff className="h-5 w-5 text-gray-400" /> : <Eye className="h-5 w-5 text-gray-400" />}
+                      </button>
+                    </div>
+                    {/* Password Strength Indicators */}
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Password Requirements:</p>
+                      <div className="grid grid-cols-4 gap-2 text-[9px] whitespace-nowrap">
+                        <div className={`flex items-center gap-1 ${passwordStrength.length ? 'text-green-600' : 'text-gray-400'}`}>
+                          <CheckCircle className={`w-3 h-3 ${passwordStrength.length ? 'fill-green-50' : ''}`} /> 8+ chars
+                        </div>
+                        <div className={`flex items-center gap-1 ${passwordStrength.number ? 'text-green-600' : 'text-gray-400'}`}>
+                          <CheckCircle className={`w-3 h-3 ${passwordStrength.number ? 'fill-green-50' : ''}`} /> 1+ number
+                        </div>
+                        <div className={`flex items-center gap-1 ${passwordStrength.uppercase ? 'text-green-600' : 'text-gray-400'}`}>
+                          <CheckCircle className={`w-3 h-3 ${passwordStrength.uppercase ? 'fill-green-50' : ''}`} /> Uppercase
+                        </div>
+                        <div className={`flex items-center gap-1 ${passwordStrength.special ? 'text-green-600' : 'text-gray-400'}`}>
+                          <CheckCircle className={`w-3 h-3 ${passwordStrength.special ? 'fill-green-50' : ''}`} /> Special
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
+                    <div className="relative">
+                      <Input id="confirmPassword" name="confirmPassword" type={showConfirmPassword ? 'text' : 'password'} required placeholder="Confirm password" value={formData.confirmPassword} onChange={handleChange} className="pr-12" />
+                      <button type="button" className="absolute inset-y-0 right-0 pr-3 flex items-center" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
+                        {showConfirmPassword ? <EyeOff className="h-5 w-5 text-gray-400" /> : <Eye className="h-5 w-5 text-gray-400" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="referralCode" className="block text-sm font-medium text-gray-700 mb-1">Referral Code <span className="text-gray-400 text-xs">(Optional)</span></label>
+                  <Input id="referralCode" name="referralCode" type="text" placeholder="Enter referral code" value={formData.referralCode || urlReferralCode || ''} onChange={handleChange} className="uppercase" />
+                </div>
+
+                <div className="pt-2">
+                  <Button type="submit" className="w-full bg-[#160B53] hover:bg-[#160B53]/90 text-white h-10 text-base font-semibold" disabled={loading}>
+                    {loading ? 'Sending verification...' : 'Create Account'}
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <form className="space-y-6" onSubmit={handleVerifyOtp}>
+                <div className="text-center space-y-3">
+                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900">Verify Your Email</h3>
+                  <p className="text-gray-600">We've sent a 6-digit code to <span className="font-semibold text-gray-900">{formData.email}</span></p>
+                </div>
+
+                <div>
+                  <label htmlFor="otpCode" className="block text-sm font-medium text-gray-700 mb-2 text-center">Enter Verification Code</label>
+                  <Input id="otpCode" name="otpCode" type="text" required placeholder="000000" maxLength={6} className="text-center text-2xl tracking-[1em] font-bold h-16" value={formData.otpCode} onChange={handleChange} />
+                </div>
+
+                <div className="space-y-3">
+                  <Button type="submit" className="w-full bg-[#160B53] hover:bg-[#160B53]/90 text-white h-12 text-base font-semibold" disabled={loading}>
+                    {loading ? 'Verifying...' : 'Verify & Create Account'}
+                  </Button>
+                  <button type="button" className="w-full text-sm text-[#160B53] font-medium hover:underline" onClick={() => setCurrentStep(1)}>
+                    Back to edit details
+                  </button>
+                </div>
+              </form>
+            )}
+
+            <div className="mt-6 text-center pt-4 border-t border-gray-100">
+              <p className="text-sm text-gray-600">
+                Already have an account?{' '}
+                <Link to="/login" className="font-semibold text-[#160B53] hover:text-[#160B53]/80">Sign in</Link>
               </p>
-            </form>
+            </div>
           </Card>
         </div>
       </div>
 
       {/* Footer */}
       <Footer />
-    </div>
+    </div >
   );
 };
 

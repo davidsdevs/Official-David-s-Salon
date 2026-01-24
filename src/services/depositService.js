@@ -1,15 +1,15 @@
 // src/services/depositService.js
 import { db } from '../config/firebase';
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  doc, 
+import {
+  collection,
+  addDoc,
+  updateDoc,
+  doc,
   getDoc,
-  query, 
-  where, 
-  getDocs, 
-  orderBy, 
+  query,
+  where,
+  getDocs,
+  orderBy,
   serverTimestamp,
   Timestamp
 } from 'firebase/firestore';
@@ -68,46 +68,74 @@ class DepositService {
    */
   async getDailySalesTotal(branchId, date) {
     try {
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
+      let startOfDay, endOfDay;
 
-      // Convert to Firestore Timestamps for querying
+      if (date instanceof Date) {
+        startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        endOfDay = new Date(startOfDay);
+        endOfDay.setDate(endOfDay.getDate() + 1);
+      } else if (typeof date === 'string') {
+        const parts = date.split('-');
+        if (parts.length === 3) {
+          const year = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          const day = parseInt(parts[2], 10);
+          startOfDay = new Date(year, month, day, 0, 0, 0, 0);
+          endOfDay = new Date(year, month, day + 1, 0, 0, 0, 0);
+        } else {
+          startOfDay = new Date(date);
+          startOfDay.setHours(0, 0, 0, 0);
+          endOfDay = new Date(startOfDay);
+          endOfDay.setDate(endOfDay.getDate() + 1);
+        }
+      } else {
+        throw new Error('Invalid date format passed to getDailySalesTotal');
+      }
+
+      // Convert to Firestore Timestamps for logging
       const startTimestamp = Timestamp.fromDate(startOfDay);
       const endTimestamp = Timestamp.fromDate(endOfDay);
 
-      // Query transactions for the branch and date range
-      // Include both 'paid' and 'completed' statuses (some systems use different status names)
+      console.log(`[DepositService] Branch: ${branchId}`);
+      console.log(`[DepositService] Local Range: ${startOfDay.toLocaleString()} to ${endOfDay.toLocaleString()}`);
+      console.log(`[DepositService] UTC Range: ${startTimestamp.toDate().toISOString()} to ${endTimestamp.toDate().toISOString()}`);
+
+      // Query transactions for the branch ONLY to avoid index requirement for compound where
       const q = query(
         collection(db, 'transactions'),
-        where('branchId', '==', branchId),
-        where('createdAt', '>=', startTimestamp),
-        where('createdAt', '<=', endTimestamp)
+        where('branchId', '==', branchId)
       );
 
       const snapshot = await getDocs(q);
       let totalSales = 0;
+      let count = 0;
 
       snapshot.forEach((doc) => {
         const data = doc.data();
-        const status = (data.status || '').toLowerCase();
-        
-        // Include all transactions except voided, cancelled, or refunded
-        // Include: 'paid', 'completed', 'in_service' (all represent sales)
-        // Exclude: 'voided', 'cancelled', 'refunded'
-        if (status !== 'voided' && status !== 'cancelled' && status !== 'refunded') {
-          // Use the 'total' field from the transaction
-          const transactionTotal = Number(data.total || data.totalAmount || 0);
-          totalSales += transactionTotal;
+
+        // Handle Firestore Timestamps or other date formats
+        const docDate = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+
+        // Filter by date range in memory
+        if (docDate >= startOfDay && docDate < endOfDay) {
+          const status = (data.status || '').toLowerCase();
+
+          // Include all transactions except voided, cancelled, or refunded
+          if (status !== 'voided' && status !== 'cancelled' && status !== 'refunded') {
+            const transactionTotal = Number(data.total || data.totalAmount || 0);
+            totalSales += transactionTotal;
+            count++;
+          }
         }
       });
 
+      console.log(`[DepositService] Result: Found ${count} matching transactions. Total: ₱${totalSales.toLocaleString()}`);
       return totalSales;
     } catch (error) {
       console.error('Error getting daily sales total:', error);
-      throw new Error('Failed to get daily sales total');
+      // Throw the actual error so it can be toasted in the UI for debugging
+      throw error;
     }
   }
 
@@ -121,16 +149,16 @@ class DepositService {
   validateDepositAmount(depositAmount, dailySalesTotal, tolerance = 1) {
     const difference = Math.abs(depositAmount - dailySalesTotal);
     const isMatch = difference <= tolerance;
-    
+
     return {
       isValid: isMatch,
       difference: depositAmount - dailySalesTotal,
       status: isMatch ? 'match' : (difference > 100 ? 'mismatch' : 'manual_review'),
-      message: isMatch 
+      message: isMatch
         ? 'Amount matches daily sales'
         : difference > 100
-        ? `Significant difference: ₱${difference.toFixed(2)}`
-        : `Minor difference: ₱${difference.toFixed(2)} - requires review`
+          ? `Significant difference: ₱${difference.toFixed(2)}`
+          : `Minor difference: ₱${difference.toFixed(2)} - requires review`
     };
   }
 
@@ -183,7 +211,7 @@ class DepositService {
         message: error.message,
         stack: error.stack
       });
-      
+
       // Provide more specific error message
       if (error.code === 'permission-denied') {
         throw new Error('Permission denied: You do not have access to view deposits');
@@ -240,7 +268,7 @@ class DepositService {
         message: error.message,
         stack: error.stack
       });
-      
+
       // Provide more specific error message
       if (error.code === 'permission-denied') {
         throw new Error('Permission denied: You do not have access to view deposits');
@@ -294,7 +322,7 @@ class DepositService {
   async reviewDeposit(depositId, action, reviewData) {
     try {
       const depositRef = doc(db, this.collection, depositId);
-      
+
       await updateDoc(depositRef, {
         status: action === 'approve' ? 'approved' : 'rejected',
         reviewedBy: reviewData.reviewedBy,
