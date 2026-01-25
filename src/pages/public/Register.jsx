@@ -49,15 +49,17 @@ const Register = () => {
     length: false,
     number: false,
     special: false,
-    uppercase: false
+    uppercase: false,
+    lowercase: false
   });
 
   const checkPasswordStrength = (password) => {
     setPasswordStrength({
       length: password.length >= 8,
       number: /\d/.test(password),
-      special: /[!@#$%^&*(),.?":{}|<>]/.test(password),
-      uppercase: /[A-Z]/.test(password)
+      special: /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password),
+      uppercase: /[A-Z]/.test(password),
+      lowercase: /[a-z]/.test(password)
     });
   };
 
@@ -94,8 +96,9 @@ const Register = () => {
 
     const missingRequirements = [];
     if (!passwordStrength.length) missingRequirements.push('8+ characters');
-    if (!passwordStrength.number) missingRequirements.push('a number');
+    if (!passwordStrength.lowercase) missingRequirements.push('a lowercase letter');
     if (!passwordStrength.uppercase) missingRequirements.push('an uppercase letter');
+    if (!passwordStrength.number) missingRequirements.push('a number');
     if (!passwordStrength.special) missingRequirements.push('a special character');
 
     if (missingRequirements.length > 0) {
@@ -326,15 +329,18 @@ const Register = () => {
                     {/* Password Strength Indicators */}
                     <div className="mt-2 space-y-1">
                       <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Password Requirements:</p>
-                      <div className="grid grid-cols-4 gap-2 text-[9px] whitespace-nowrap">
+                      <div className="grid grid-cols-5 gap-2 text-[9px] whitespace-nowrap">
                         <div className={`flex items-center gap-1 ${passwordStrength.length ? 'text-green-600' : 'text-gray-400'}`}>
                           <CheckCircle className={`w-3 h-3 ${passwordStrength.length ? 'fill-green-50' : ''}`} /> 8+ chars
                         </div>
-                        <div className={`flex items-center gap-1 ${passwordStrength.number ? 'text-green-600' : 'text-gray-400'}`}>
-                          <CheckCircle className={`w-3 h-3 ${passwordStrength.number ? 'fill-green-50' : ''}`} /> 1+ number
+                        <div className={`flex items-center gap-1 ${passwordStrength.lowercase ? 'text-green-600' : 'text-gray-400'}`}>
+                          <CheckCircle className={`w-3 h-3 ${passwordStrength.lowercase ? 'fill-green-50' : ''}`} /> Lowercase
                         </div>
                         <div className={`flex items-center gap-1 ${passwordStrength.uppercase ? 'text-green-600' : 'text-gray-400'}`}>
                           <CheckCircle className={`w-3 h-3 ${passwordStrength.uppercase ? 'fill-green-50' : ''}`} /> Uppercase
+                        </div>
+                        <div className={`flex items-center gap-1 ${passwordStrength.number ? 'text-green-600' : 'text-gray-400'}`}>
+                          <CheckCircle className={`w-3 h-3 ${passwordStrength.number ? 'fill-green-50' : ''}`} /> Number
                         </div>
                         <div className={`flex items-center gap-1 ${passwordStrength.special ? 'text-green-600' : 'text-gray-400'}`}>
                           <CheckCircle className={`w-3 h-3 ${passwordStrength.special ? 'fill-green-50' : ''}`} /> Special

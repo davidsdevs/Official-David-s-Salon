@@ -53,6 +53,7 @@ export const getBranchServices = async (branchId) => {
       })
       .map(doc => {
         const data = doc.data();
+        const branchPrice = data.branchPricing[branchId];
         return {
           id: doc.id,
           ...data,
@@ -60,7 +61,9 @@ export const getBranchServices = async (branchId) => {
           serviceName: data.serviceName || data.name || 'Service',
           name: data.name || data.serviceName || 'Service',
           // Include branch-specific price at top level for convenience
-          price: data.branchPricing[branchId],
+          price: branchPrice !== undefined ? branchPrice : null,
+          // Add isOfferedByBranch flag for consistency with getAllServicesWithBranchConfig
+          isOfferedByBranch: branchPrice !== undefined,
           // Ensure enabled field exists (based on isActive and branchPricing)
           enabled: data.isActive && data.branchPricing && data.branchPricing[branchId] !== undefined
         };
@@ -96,14 +99,29 @@ export const getAllServicesWithBranchConfig = async (branchId) => {
     );
     const snapshot = await getDocs(q);
     
+    console.log('[getAllServicesWithBranchConfig] Fetching for branchId:', branchId);
+    
     return snapshot.docs.map(doc => {
       const data = doc.data();
       const branchPrice = data.branchPricing?.[branchId];
+      
+      // Debug logging for first service
+      if (doc.id === snapshot.docs[0].id) {
+        console.log('[getAllServicesWithBranchConfig] Sample service:', {
+          serviceId: doc.id,
+          serviceName: data.name,
+          branchPricing: data.branchPricing,
+          branchId: branchId,
+          branchPrice: branchPrice,
+          isOffered: branchPrice !== undefined
+        });
+      }
+      
       return {
         id: doc.id,
         ...data,
         // Include branch price if configured, otherwise null
-        price: branchPrice || null,
+        price: branchPrice !== undefined ? branchPrice : null,
         isOfferedByBranch: branchPrice !== undefined
       };
     });

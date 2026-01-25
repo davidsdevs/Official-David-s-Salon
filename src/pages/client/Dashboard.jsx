@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Clock, Star, Users, Gift, ChevronRight, Plus, ShoppingBag, ChevronDown, ChevronUp } from 'lucide-react';
+import { Calendar, Clock, Star, Users, Gift, ChevronRight, Plus, ShoppingBag, ChevronDown, ChevronUp, Tag } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getAppointmentsByClient,
@@ -13,6 +13,7 @@ import {
 } from '../../services/appointmentService';
 import { getAllBranchLoyaltyPoints } from '../../services/loyaltyService';
 import { getAllReferralCodes, getReferralStats } from '../../services/referralService';
+import { getActivePromotions } from '../../services/promotionService';
 import { formatDate, formatTime, getFullName } from '../../utils/helpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import AppointmentCard from '../../components/appointment/AppointmentCard';
@@ -31,6 +32,7 @@ const ClientDashboard = () => {
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedDetailAppointment, setSelectedDetailAppointment] = useState(null);
+  const [promotions, setPromotions] = useState([]);
 
   useEffect(() => {
     if (currentUser?.uid) {
@@ -43,10 +45,11 @@ const ClientDashboard = () => {
       setLoading(true);
       
       // Fetch all data in parallel
-      const [appointmentsData, pointsData, codesData] = await Promise.all([
+      const [appointmentsData, pointsData, codesData, promotionsData] = await Promise.all([
         getAppointmentsByClient(currentUser.uid),
         getAllBranchLoyaltyPoints(currentUser.uid),
-        getAllReferralCodes(currentUser.uid)
+        getAllReferralCodes(currentUser.uid),
+        getActivePromotions() // Fetch active promotions
       ]);
 
       // Handle both array and object response from getAppointmentsByClient
@@ -62,6 +65,9 @@ const ClientDashboard = () => {
 
       // Get referral count
       setReferralCount(codesData.length);
+
+      // Set promotions
+      setPromotions(promotionsData || []);
 
       // Find next appointment
       const now = new Date();
@@ -224,6 +230,45 @@ const ClientDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Active Promotions */}
+      {promotions.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+          <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <Tag className="w-5 h-5 text-primary-600" />
+              Active Promotions
+            </h2>
+            <span className="text-sm text-gray-500">{promotions.length} available</span>
+          </div>
+          
+          <div className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {promotions.map((promo) => (
+                <div key={promo.id} className="bg-gradient-to-br from-primary-50 to-primary-100 rounded-lg p-4 border border-primary-200 hover:shadow-md transition-shadow">
+                  <div className="flex items-start justify-between mb-2">
+                    <h3 className="font-semibold text-gray-900">{promo.name}</h3>
+                    <span className="px-2 py-1 bg-primary-600 text-white text-xs font-bold rounded">
+                      {promo.discountType === 'percentage' ? `${promo.discountValue}%` : `₱${promo.discountValue}`}
+                    </span>
+                  </div>
+                  {promo.description && (
+                    <p className="text-sm text-gray-600 mb-3">{promo.description}</p>
+                  )}
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>Valid until {new Date(promo.endDate).toLocaleDateString()}</span>
+                    {promo.code && (
+                      <span className="font-mono bg-white px-2 py-1 rounded border border-gray-300">
+                        {promo.code}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Next Appointment Card */}
       {nextAppointment && (

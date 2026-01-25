@@ -109,6 +109,7 @@ import StylistChangePassword from '../pages/stylist/ChangePassword';
 import ClientDashboard from '../pages/client/Dashboard';
 import ClientAppointments from '../pages/client/Appointments';
 import ClientProducts from '../pages/client/Products';
+import ClientPromotions from '../pages/client/Promotions';
 import ClientRewards from '../pages/client/Rewards';
 import ClientTransactions from '../pages/client/Transactions';
 import ClientProfile from '../pages/client/Profile';
@@ -374,6 +375,7 @@ const AppRoutes = () => {
               <Route index element={<ClientDashboard />} />
               <Route path="appointments" element={<ClientAppointments />} />
               <Route path="products" element={<ClientProducts />} />
+              <Route path="promotions" element={<ClientPromotions />} />
               <Route path="transactions" element={<ClientTransactions />} />
               <Route path="rewards" element={<ClientRewards />} />
               <Route path="profile" element={<ClientProfile />} />

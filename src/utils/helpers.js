@@ -78,10 +78,24 @@ export const snakeToTitleCase = (str) => {
 };
 
 /**
+ * Format a number with comma separators and 2 decimal places
+ * @param {number} num - Number to format
+ * @returns {string} Formatted number string with commas (e.g., "1,234.56")
+ */
+export const formatNumberWithCommas = (num) => {
+  if (typeof num !== 'number' || isNaN(num)) return '0.00';
+  
+  return num.toLocaleString('en-PH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
+/**
  * Format currency value
  * @param {number} amount - Amount to format
  * @param {string} currency - Currency code (default: 'PHP')
- * @returns {string} Formatted currency string
+ * @returns {string} Formatted currency string with comma separators
  */
 export const formatCurrency = (amount, currency = 'PHP') => {
   if (typeof amount !== 'number') return 'N/A';
@@ -89,6 +103,8 @@ export const formatCurrency = (amount, currency = 'PHP') => {
   return new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(amount);
 };
 
@@ -120,7 +136,7 @@ export const formatNumber = (num, decimals = 1) => {
  * @param {number} amount - Amount to format
  * @param {string} currency - Currency code (default: 'PHP')
  * @param {number} decimals - Number of decimal places for large numbers (default: 1)
- * @returns {string} Formatted currency string
+ * @returns {string} Formatted currency string with comma separators
  */
 export const formatCurrencyBigData = (amount, currency = 'PHP', decimals = 1) => {
   if (typeof amount !== 'number') return 'N/A';
@@ -139,6 +155,8 @@ export const formatCurrencyBigData = (amount, currency = 'PHP', decimals = 1) =>
     return new Intl.NumberFormat('en-PH', {
       style: 'currency',
       currency: currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   }
 };

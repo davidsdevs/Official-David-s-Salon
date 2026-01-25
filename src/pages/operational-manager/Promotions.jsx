@@ -1,12 +1,13 @@
 /**
- * Operational Manager System-Wide Promotions Management Page
- * Creates promotions that can be used in ANY branch across the system
+ * Operational Manager Branch Promotions Monitoring Page
+ * Monitor promotions across all branches
  */
 
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Calendar, Tag, Globe, Building2, Mail, Eye, Image as ImageIcon, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Calendar, Tag, Globe, Building2, Mail, Eye, Image as ImageIcon, X, ArrowLeft, TrendingUp } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getAllPromotions, createPromotion, updatePromotion, deletePromotion } from '../../services/promotionService';
+import { getAllBranches } from '../../services/branchService';
 import { getClients } from '../../services/clientService';
 import { sendPromotionEmail } from '../../services/emailService';
 import { cloudinaryService } from '../../services/cloudinaryService';
@@ -23,10 +24,15 @@ const OperationalManagerPromotions = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [promotions, setPromotions] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [clients, setClients] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedPromotion, setSelectedPromotion] = useState(null);
+  
+  // View state
+  const [viewMode, setViewMode] = useState('branch-list'); // 'branch-list' or 'branch-detail'
+  const [selectedBranch, setSelectedBranch] = useState(null);
 
   // Image upload states
   const [imageFile, setImageFile] = useState(null);
@@ -59,24 +65,24 @@ const OperationalManagerPromotions = () => {
   });
 
   useEffect(() => {
-    fetchPromotions();
+    fetchData();
     loadClients();
   }, []);
 
-  const fetchPromotions = async () => {
+  const fetchData = async () => {
     try {
       setLoading(true);
-      // Get all promotions, but filter for system-wide (branchId === null)
-      const allPromos = await getAllPromotions();
-      // Filter for active and system-wide promotions only (branchId is null)
-      const systemWidePromos = allPromos.filter(promo =>
-        (promo.branchId === null || promo.branchId === undefined) &&
-        (promo.isActive !== false)
-      );
-      setPromotions(systemWidePromos);
+      // Fetch all promotions and branches
+      const [allPromos, allBranches] = await Promise.all([
+        getAllPromotions(),
+        getAllBranches()
+      ]);
+      
+      setPromotions(allPromos);
+      setBranches(allBranches);
     } catch (error) {
-      console.error('Error fetching promotions:', error);
-      toast.error('Failed to load promotions');
+      console.error('Error fetching data:', error);
+      toast.error('Failed to load data');
     } finally {
       setLoading(false);
     }
@@ -388,7 +394,7 @@ const OperationalManagerPromotions = () => {
       setShowModal(false);
       setImageFile(null);
       setImagePreview('');
-      await fetchPromotions();
+      await fetchData();
     } catch (error) {
       console.error('Error saving promotion:', error);
       toast.error('Failed to save promotion');
@@ -400,7 +406,7 @@ const OperationalManagerPromotions = () => {
       await deletePromotion(selectedPromotion.id, currentUser);
       setShowDeleteModal(false);
       setSelectedPromotion(null);
-      await fetchPromotions();
+      await fetchData();
     } catch (error) {
       console.error('Error deleting promotion:', error);
       toast.error('Failed to delete promotion');
@@ -415,6 +421,33 @@ const OperationalManagerPromotions = () => {
     return now >= start && now <= end;
   };
 
+  // Get active promotions count for a branch
+  const getActivePromotionsCount = (branchId) => {
+    return promotions.filter(promo => {
+      const matchesBranch = promo.branchId === branchId || (branchId === null && (promo.branchId === null || promo.branchId === undefined));
+      return matchesBranch && isActive(promo);
+    }).length;
+  };
+
+  // Get all promotions for a branch (active + past)
+  const getBranchPromotions = (branchId) => {
+    return promotions.filter(promo => {
+      return promo.branchId === branchId || (branchId === null && (promo.branchId === null || promo.branchId === undefined));
+    });
+  };
+
+  // Handle branch card click
+  const handleBranchClick = (branch) => {
+    setSelectedBranch(branch);
+    setViewMode('branch-detail');
+  };
+
+  // Handle back to branch list
+  const handleBackToBranchList = () => {
+    setSelectedBranch(null);
+    setViewMode('branch-list');
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -423,142 +456,372 @@ const OperationalManagerPromotions = () => {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+  // Branch List View
+  if (viewMode === 'branch-list') {
+    // Add system-wide as a special "branch"
+    const systemWide = {
+      id: null,
+      name: 'System-Wide Promotions',
+      isSystemWide: true
+    };
+    const allBranchesWithSystemWide = [systemWide, ...branches];
+
+    return (
+      <div className="space-y-6">
+        {/* Header */}
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">System-Wide Promotions</h1>
-          <p className="text-gray-600">Create promotions that can be used across all branches</p>
+          <h1 className="text-2xl font-bold text-gray-900">Branch Promotions Monitoring</h1>
+          <p className="text-gray-600">Monitor active promotions across all branches</p>
         </div>
-        <Button onClick={handleCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create System-Wide Promotion
-        </Button>
-      </div>
 
-      {/* Info Banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
-        <Globe className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-        <div className="text-sm text-blue-800">
-          <p className="font-medium mb-1">System-Wide Promotions</p>
-          <p>These promotions are available in ALL branches. When you create a promotion here, it can be used by any branch in the system. Perfect for company-wide campaigns and special events.</p>
+        {/* Branch Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {allBranchesWithSystemWide.map((branch) => {
+            const activeCount = getActivePromotionsCount(branch.id);
+            const totalCount = getBranchPromotions(branch.id).length;
+            
+            return (
+              <Card
+                key={branch.id || 'system-wide'}
+                className="cursor-pointer hover:shadow-lg transition-all duration-300 group border-2 hover:border-primary-500"
+                onClick={() => handleBranchClick(branch)}
+              >
+                <div className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        {branch.isSystemWide ? (
+                          <Globe className="h-5 w-5 text-blue-600" />
+                        ) : (
+                          <Building2 className="h-5 w-5 text-purple-600" />
+                        )}
+                        <h3 className="text-lg font-bold text-gray-900 group-hover:text-primary-600 transition-colors">
+                          {branch.name || branch.branchName}
+                        </h3>
+                      </div>
+                      {branch.address && (
+                        <p className="text-xs text-gray-500 line-clamp-2">{branch.address}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {/* Active Promotions */}
+                    <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="h-5 w-5 text-green-600" />
+                        <span className="text-sm font-medium text-green-900">Active</span>
+                      </div>
+                      <span className="text-2xl font-bold text-green-600">{activeCount}</span>
+                    </div>
+
+                    {/* Total Promotions */}
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex items-center gap-2">
+                        <Tag className="h-5 w-5 text-gray-600" />
+                        <span className="text-sm font-medium text-gray-900">Total</span>
+                      </div>
+                      <span className="text-2xl font-bold text-gray-600">{totalCount}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <p className="text-xs text-gray-500 text-center">
+                      Click to view details
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
         </div>
-      </div>
 
-      {/* Promotions List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {promotions.length === 0 ? (
-          <div className="col-span-full text-center py-12 text-gray-500">
-            <Globe className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-            <p>No system-wide promotions created yet</p>
-            <p className="text-sm mt-2">Create your first system-wide promotion to get started</p>
+        {allBranchesWithSystemWide.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            <Building2 className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+            <p>No branches found</p>
           </div>
-        ) : (
-          promotions.map((promotion) => (
-            <Card
-              key={promotion.id}
-              className="overflow-hidden hover:shadow-xl transition-all duration-300 group relative min-h-[320px] flex flex-col border-0"
-              style={promotion.imageUrl ? {
-                backgroundImage: `url(${promotion.imageUrl})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center'
-              } : {}}
-            >
-              {/* Overlay for readability */}
-              <div className={`absolute inset-0 z-0 transition-opacity duration-300 ${promotion.imageUrl ? 'bg-black/60 group-hover:bg-black/50' : 'bg-gradient-to-br from-[#160B53] to-[#2D1B4E]'}`}></div>
-
-              <div className="p-6 flex flex-col h-full relative z-10 text-white">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Globe className="h-5 w-5 text-blue-400" />
-                      <h3 className="text-xl font-bold drop-shadow-md">{promotion.name}</h3>
-                    </div>
-                    {promotion.description && (
-                      <p className={`text-sm line-clamp-2 ${promotion.imageUrl ? 'text-gray-100' : 'text-blue-100'}`}>{promotion.description}</p>
-                    )}
-                  </div>
-                  <span className={`px-2 py-1 text-xs font-bold rounded-full backdrop-blur-md border ${isActive(promotion)
-                      ? 'bg-green-500/20 border-green-500/50 text-green-300'
-                      : 'bg-red-500/20 border-red-500/50 text-red-300'
-                    }`}>
-                    {isActive(promotion) ? 'Active' : 'Expired'}
-                  </span>
-                </div>
-
-                <div className="flex-1 space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white/10 rounded-lg backdrop-blur-md">
-                      <Tag className="h-5 w-5 text-green-400" />
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-2xl font-black tracking-tight drop-shadow-lg">
-                        {promotion.discountType === 'percentage' ? `${promotion.discountValue}% OFF` : `₱${promotion.discountValue} OFF`}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-2 border-l border-white/20 pl-4 mt-2">
-                    <div className="flex items-center gap-2 text-sm text-gray-200">
-                      <Tag className="h-4 w-4 text-purple-400" />
-                      <span className="font-mono bg-white/10 px-2 rounded">{promotion.promotionCode || 'N/A'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-200">
-                      <Calendar className="h-4 w-4 text-blue-400" />
-                      <span>
-                        {promotion.startDate?.toDate ? promotion.startDate.toDate().toLocaleDateString() : new Date(promotion.startDate).toLocaleDateString()} - {promotion.endDate?.toDate ? promotion.endDate.toDate().toLocaleDateString() : new Date(promotion.endDate).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-200">
-                      <Building2 className="h-4 w-4 text-orange-400" />
-                      <span>All Branches</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2 pt-4 mt-6 border-t border-white/10">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleEdit(promotion)}
-                    className="flex-1 bg-white/10 hover:bg-white/20 text-white border-0"
-                  >
-                    <Edit className="h-4 w-4 mr-1" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleOpenSendModal(promotion)}
-                    className="bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 border-0"
-                    title="Send to Clients"
-                  >
-                    <Mail className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleShowEmailPreview(promotion)}
-                    className="bg-purple-500/20 hover:bg-purple-500/40 text-purple-300 border-0"
-                    title="Preview Email"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(promotion)}
-                    className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border-0"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          ))
         )}
       </div>
+    );
+  }
+
+  // Branch Detail View
+  const branchPromotions = getBranchPromotions(selectedBranch?.id);
+  const activePromotions = branchPromotions.filter(isActive);
+  const pastPromotions = branchPromotions.filter(promo => !isActive(promo));
+
+  return (
+    <div className="space-y-6">
+      {/* Header with Back Button */}
+      <div className="flex items-center gap-4">
+        <Button
+          variant="outline"
+          onClick={handleBackToBranchList}
+          className="flex items-center gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Branches
+        </Button>
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            {selectedBranch?.isSystemWide ? (
+              <Globe className="h-6 w-6 text-blue-600" />
+            ) : (
+              <Building2 className="h-6 w-6 text-purple-600" />
+            )}
+            <h1 className="text-2xl font-bold text-gray-900">
+              {selectedBranch?.name || selectedBranch?.branchName}
+            </h1>
+          </div>
+          <p className="text-gray-600">
+            {activePromotions.length} active, {pastPromotions.length} past promotions
+          </p>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+          <div className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-green-900">Active Promotions</p>
+                <p className="text-3xl font-bold text-green-600 mt-2">{activePromotions.length}</p>
+              </div>
+              <TrendingUp className="h-12 w-12 text-green-600 opacity-50" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200">
+          <div className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-900">Past Promotions</p>
+                <p className="text-3xl font-bold text-gray-600 mt-2">{pastPromotions.length}</p>
+              </div>
+              <Calendar className="h-12 w-12 text-gray-600 opacity-50" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+          <div className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-900">Total Promotions</p>
+                <p className="text-3xl font-bold text-blue-600 mt-2">{branchPromotions.length}</p>
+              </div>
+              <Tag className="h-12 w-12 text-blue-600 opacity-50" />
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Active Promotions Section */}
+      {activePromotions.length > 0 && (
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-green-600" />
+            Active Promotions
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {activePromotions.map((promotion) => (
+              <Card
+                key={promotion.id}
+                className="overflow-hidden hover:shadow-xl transition-all duration-300 group relative min-h-[320px] flex flex-col border-0"
+                style={promotion.imageUrl ? {
+                  backgroundImage: `url(${promotion.imageUrl})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center'
+                } : {}}
+              >
+                {/* Overlay for readability */}
+                <div className={`absolute inset-0 z-0 transition-opacity duration-300 ${promotion.imageUrl ? 'bg-black/60 group-hover:bg-black/50' : 'bg-gradient-to-br from-green-600 to-green-700'}`}></div>
+
+                <div className="p-6 flex flex-col h-full relative z-10 text-white">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        {selectedBranch?.isSystemWide && <Globe className="h-5 w-5 text-blue-400" />}
+                        <h3 className="text-xl font-bold drop-shadow-md">{promotion.name}</h3>
+                      </div>
+                      {promotion.description && (
+                        <p className={`text-sm line-clamp-2 ${promotion.imageUrl ? 'text-gray-100' : 'text-green-100'}`}>{promotion.description}</p>
+                      )}
+                    </div>
+                    <span className="px-2 py-1 text-xs font-bold rounded-full backdrop-blur-md border bg-green-500/20 border-green-500/50 text-green-300">
+                      Active
+                    </span>
+                  </div>
+
+                  <div className="flex-1 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-white/10 rounded-lg backdrop-blur-md">
+                        <Tag className="h-5 w-5 text-green-400" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-2xl font-black tracking-tight drop-shadow-lg">
+                          {promotion.discountType === 'percentage' ? `${promotion.discountValue}% OFF` : `₱${promotion.discountValue} OFF`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 border-l border-white/20 pl-4 mt-2">
+                      <div className="flex items-center gap-2 text-sm text-gray-200">
+                        <Tag className="h-4 w-4 text-purple-400" />
+                        <span className="font-mono bg-white/10 px-2 rounded">{promotion.promotionCode || 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-gray-200">
+                        <Calendar className="h-4 w-4 text-blue-400" />
+                        <span>
+                          {promotion.startDate?.toDate ? promotion.startDate.toDate().toLocaleDateString() : new Date(promotion.startDate).toLocaleDateString()} - {promotion.endDate?.toDate ? promotion.endDate.toDate().toLocaleDateString() : new Date(promotion.endDate).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-4 mt-6 border-t border-white/10">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEdit(promotion)}
+                      className="flex-1 bg-white/10 hover:bg-white/20 text-white border-0"
+                    >
+                      <Edit className="h-4 w-4 mr-1" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleOpenSendModal(promotion)}
+                      className="bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 border-0"
+                      title="Send to Clients"
+                    >
+                      <Mail className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleShowEmailPreview(promotion)}
+                      className="bg-purple-500/20 hover:bg-purple-500/40 text-purple-300 border-0"
+                      title="Preview Email"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(promotion)}
+                      className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border-0"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Past Promotions Section */}
+      {pastPromotions.length > 0 && (
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-gray-600" />
+            Past Promotions
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pastPromotions.map((promotion) => (
+              <Card
+                key={promotion.id}
+                className="overflow-hidden hover:shadow-xl transition-all duration-300 group relative min-h-[320px] flex flex-col border-0 opacity-75"
+                style={promotion.imageUrl ? {
+                  backgroundImage: `url(${promotion.imageUrl})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center'
+                } : {}}
+              >
+                {/* Overlay for readability */}
+                <div className={`absolute inset-0 z-0 transition-opacity duration-300 ${promotion.imageUrl ? 'bg-black/70 group-hover:bg-black/60' : 'bg-gradient-to-br from-gray-600 to-gray-700'}`}></div>
+
+                <div className="p-6 flex flex-col h-full relative z-10 text-white">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        {selectedBranch?.isSystemWide && <Globe className="h-5 w-5 text-blue-400" />}
+                        <h3 className="text-xl font-bold drop-shadow-md">{promotion.name}</h3>
+                      </div>
+                      {promotion.description && (
+                        <p className={`text-sm line-clamp-2 ${promotion.imageUrl ? 'text-gray-100' : 'text-gray-300'}`}>{promotion.description}</p>
+                      )}
+                    </div>
+                    <span className="px-2 py-1 text-xs font-bold rounded-full backdrop-blur-md border bg-red-500/20 border-red-500/50 text-red-300">
+                      Expired
+                    </span>
+                  </div>
+
+                  <div className="flex-1 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-white/10 rounded-lg backdrop-blur-md">
+                        <Tag className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-2xl font-black tracking-tight drop-shadow-lg">
+                          {promotion.discountType === 'percentage' ? `${promotion.discountValue}% OFF` : `₱${promotion.discountValue} OFF`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 border-l border-white/20 pl-4 mt-2">
+                      <div className="flex items-center gap-2 text-sm text-gray-200">
+                        <Tag className="h-4 w-4 text-purple-400" />
+                        <span className="font-mono bg-white/10 px-2 rounded">{promotion.promotionCode || 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-gray-200">
+                        <Calendar className="h-4 w-4 text-blue-400" />
+                        <span>
+                          {promotion.startDate?.toDate ? promotion.startDate.toDate().toLocaleDateString() : new Date(promotion.startDate).toLocaleDateString()} - {promotion.endDate?.toDate ? promotion.endDate.toDate().toLocaleDateString() : new Date(promotion.endDate).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-4 mt-6 border-t border-white/10">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEdit(promotion)}
+                      className="flex-1 bg-white/10 hover:bg-white/20 text-white border-0"
+                    >
+                      <Edit className="h-4 w-4 mr-1" />
+                      View
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(promotion)}
+                      className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border-0"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* No Promotions Message */}
+      {branchPromotions.length === 0 && (
+        <div className="text-center py-12 text-gray-500">
+          <Tag className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+          <p>No promotions found for this branch</p>
+        </div>
+      )}
 
       {/* Create/Edit Modal */}
       <Modal

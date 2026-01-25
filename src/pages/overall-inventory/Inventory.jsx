@@ -60,9 +60,9 @@ const OverallInventoryControllerInventory = () => {
     stockId: '',
     productId: '',
     currentStock: '',
-    newStock: '',
-    adjustmentQuantity: '',
+    adjustmentQuantity: '', // Primary input: positive to add, negative to deduct
     reason: '',
+    customReason: '', // For "Other" reason option
     managerCode: '',
     notes: '',
     batchNumber: ''
@@ -830,9 +830,9 @@ const OverallInventoryControllerInventory = () => {
       productId: batch.productId,
       productName: selectedProductForAdjust.productName,
       currentStock: batch.computedStock?.toString() || '0',
-      newStock: '',
       adjustmentQuantity: '',
       reason: '',
+      customReason: '',
       managerCode: '',
       notes: '',
       batchNumber: batch.batchNumber || ''
@@ -852,9 +852,9 @@ const OverallInventoryControllerInventory = () => {
       stockId: '',
       productId: '',
       currentStock: '',
-      newStock: '',
       adjustmentQuantity: '',
       reason: '',
+      customReason: '',
       managerCode: '',
       notes: '',
       batchNumber: ''
@@ -947,6 +947,30 @@ const OverallInventoryControllerInventory = () => {
         updatedAt: serverTimestamp()
       });
 
+      // CRITICAL: Also update the corresponding product_batch record
+      if (forceAdjustForm.batchNumber) {
+        const batchQuery = query(
+          collection(db, 'product_batches'),
+          where('batchNumber', '==', forceAdjustForm.batchNumber),
+          where('branchId', '==', selectedBranch),
+          where('productId', '==', forceAdjustForm.productId)
+        );
+        const batchSnapshot = await getDocs(batchQuery);
+        
+        if (!batchSnapshot.empty) {
+          const batchDoc = batchSnapshot.docs[0];
+          const newStatus = parseInt(forceAdjustForm.newStock) <= 0 ? 'depleted' : 'active';
+          await updateDoc(doc(db, 'product_batches', batchDoc.id), {
+            remainingQuantity: parseInt(forceAdjustForm.newStock),
+            status: newStatus,
+            updatedAt: serverTimestamp()
+          });
+          console.log('✅ Updated product_batch:', batchDoc.id, 'to', forceAdjustForm.newStock);
+        } else {
+          console.warn('⚠️ No product_batch found for batch:', forceAdjustForm.batchNumber);
+        }
+      }
+
       // Get product name for logging
       const stockDoc = await getDoc(stockDocRef);
       const stockData = stockDoc.data();
@@ -980,7 +1004,7 @@ const OverallInventoryControllerInventory = () => {
       // Reload inventory to show updated stock
       loadInventory();
 
-      alert('Stock adjusted successfully!');
+      alert('Stock adjusted successfully! Both stocks and product_batches updated.');
 
     } catch (error) {
       console.error('Error adjusting stock:', error);
@@ -2065,6 +2089,10 @@ const OverallInventoryControllerInventory = () => {
                   onChange={(e) => {
                     setForceAdjustForm(prev => ({ ...prev, managerCode: e.target.value }));
                     setForceAdjustErrors(prev => ({ ...prev, managerCode: '' }));
+                    // Clear verified manager when code changes
+                    if (verifiedManager) {
+                      setVerifiedManager(null);
+                    }
                   }}
                   className={`w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                     forceAdjustErrors.managerCode ? 'border-red-500' : 'border-gray-300'
@@ -2075,6 +2103,15 @@ const OverallInventoryControllerInventory = () => {
               <p className="text-xs text-gray-500 mt-1">Enter the password of a branch manager assigned to this branch</p>
               {forceAdjustErrors.managerCode && (
                 <p className="text-red-500 text-xs mt-1">{forceAdjustErrors.managerCode}</p>
+              )}
+              {verifiedManager && forceAdjustStep === 'adjustStock' && (
+                <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-green-900">Authorized by:</p>
+                    <p className="text-sm text-green-800">{verifiedManager.managerName}</p>
+                  </div>
+                </div>
               )}
             </div>
 

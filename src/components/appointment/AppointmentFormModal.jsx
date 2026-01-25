@@ -9,6 +9,7 @@ import { APPOINTMENT_STATUS, getAvailableTimeSlots } from '../../services/appoin
 import { isBranchClosedOnDate } from '../../services/branchCloseUtils';
 import { getBranchCalendar } from '../../services/branchCalendarService';
 import { formatTime } from '../../utils/helpers';
+import { filterStylistsByAvailability } from '../../utils/scheduleValidator';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Modal from '../ui/Modal';
 
@@ -24,6 +25,7 @@ const AppointmentFormModal = ({
   loading = false,
   isGuest = false,
   userBranch = null, // Auto-select branch for staff
+  userRole = null, // User role to bypass booking restrictions
   isEditing = false,
   existingAppointments = [] // Appointments to check for duplicates
 }) => {
@@ -44,6 +46,7 @@ const AppointmentFormModal = ({
   const [availableSlots, setAvailableSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [showClosedModal, setShowClosedModal] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [closedReason, setClosedReason] = useState('');
   const [branchCalendar, setBranchCalendar] = useState([]);
   const [unavailableMessage, setUnavailableMessage] = useState(null);
@@ -53,6 +56,8 @@ const AppointmentFormModal = ({
   const [selectedClientName, setSelectedClientName] = useState('');
   const [serviceSearchTerm, setServiceSearchTerm] = useState('');
   const [showSelectedOnly, setShowSelectedOnly] = useState(false);
+  const [showAllStylists, setShowAllStylists] = useState(false); // Override to show unavailable stylists
+  const [stylistsWithAvailability, setStylistsWithAvailability] = useState([]); // Stylists with availability info
 
   // Filter stylists based on their ability to perform selected services
   const getAvailableStylistsForService = (serviceId) => {
@@ -68,6 +73,42 @@ const AppointmentFormModal = ({
       return stylistServices.includes(serviceId);
     });
   };
+
+  // Check stylist availability when date/time changes
+  useEffect(() => {
+    const checkStylistsAvailability = async () => {
+      if (!formData.appointmentDate || !formData.timeSlot || !formData.branchId) {
+        setStylistsWithAvailability([]);
+        return;
+      }
+
+      // Extract time from timeSlot
+      const timeSlot = formData.timeSlot.time;
+      const hours = timeSlot.getHours().toString().padStart(2, '0');
+      const minutes = timeSlot.getMinutes().toString().padStart(2, '0');
+      const timeString = `${hours}:${minutes}`;
+
+      // Calculate total duration
+      const totalDuration = formData.services.reduce((sum, svc) => {
+        const serviceData = services.find(s => s.id === svc.serviceId);
+        return sum + (svc.duration || serviceData?.duration || 60);
+      }, 0);
+
+      // Check availability for all stylists
+      const stylistsWithInfo = await filterStylistsByAvailability(
+        stylists,
+        formData.appointmentDate,
+        timeString,
+        totalDuration || 60,
+        formData.branchId,
+        true // Include unavailable stylists
+      );
+
+      setStylistsWithAvailability(stylistsWithInfo);
+    };
+
+    checkStylistsAvailability();
+  }, [formData.appointmentDate, formData.timeSlot, formData.branchId, formData.services, stylists, services]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -221,7 +262,8 @@ const AppointmentFormModal = ({
               null,
               formData.branchId,
               formData.appointmentDate,
-              totalDuration || 60
+              totalDuration || 60,
+              userRole // Pass user role to bypass 2-hour rule for receptionist
             );
             
             if (!isCancelled) {
@@ -259,7 +301,8 @@ const AppointmentFormModal = ({
                   stylistId,
                   formData.branchId,
                   formData.appointmentDate,
-                  totalDuration || 60
+                  totalDuration || 60,
+                  userRole // Pass user role to bypass 2-hour rule for receptionist
                 )
               )
             );
@@ -934,11 +977,47 @@ const AppointmentFormModal = ({
               <div className="bg-white border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs text-gray-500">{formData.services.length} service{formData.services.length !== 1 ? 's' : ''}</span>
+                  
+                  {/* Override checkbox - only show if date and time are selected */}
+                  {formData.appointmentDate && formData.timeSlot && stylistsWithAvailability.length > 0 && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showAllStylists}
+                        onChange={(e) => setShowAllStylists(e.target.checked)}
+                        className="w-4 h-4 text-[#2D1B4E] border-gray-300 rounded focus:ring-[#2D1B4E]"
+                      />
+                      <span className="text-xs text-gray-600">Show all stylists</span>
+                    </label>
+                  )}
                 </div>
                 <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2">
                   {formData.services.map((serviceObj) => {
                     const service = services && services.find(s => s && s.id === serviceObj.serviceId);
                     if (!service) return null;
+                    
+                    // Get stylists who can perform this service
+                    const serviceStylistsBase = getAvailableStylistsForService(serviceObj.serviceId);
+                    
+                    // Filter by availability if date/time selected and not showing all
+                    let serviceStylistsFiltered = serviceStylistsBase;
+                    if (formData.appointmentDate && formData.timeSlot && stylistsWithAvailability.length > 0) {
+                      if (showAllStylists) {
+                        // Show all but with availability info
+                        serviceStylistsFiltered = serviceStylistsBase.map(stylist => {
+                          const availInfo = stylistsWithAvailability.find(s => s.id === stylist.id);
+                          return availInfo || stylist;
+                        });
+                      } else {
+                        // Show only available
+                        serviceStylistsFiltered = serviceStylistsBase
+                          .map(stylist => {
+                            const availInfo = stylistsWithAvailability.find(s => s.id === stylist.id);
+                            return availInfo || stylist;
+                          })
+                          .filter(stylist => stylist.isAvailable !== false);
+                      }
+                    }
                     
                     return (
                       <div key={serviceObj.serviceId} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
@@ -960,9 +1039,22 @@ const AppointmentFormModal = ({
                           <select
                             value={serviceObj.stylistId || ''}
                             onChange={(e) => {
+                              const selectedStylistId = e.target.value;
+                              
+                              // Check if stylist is unavailable and warn user
+                              if (selectedStylistId && stylistsWithAvailability.length > 0) {
+                                const stylistInfo = stylistsWithAvailability.find(s => s.id === selectedStylistId);
+                                if (stylistInfo && !stylistInfo.isAvailable) {
+                                  const confirmMsg = `⚠️ Warning: This stylist is ${stylistInfo.unavailableReason}.\n\nDo you want to book anyway?`;
+                                  if (!confirm(confirmMsg)) {
+                                    return; // Don't assign if user cancels
+                                  }
+                                }
+                              }
+                              
                               const newServices = formData.services.map(s => 
                                 s.serviceId === serviceObj.serviceId 
-                                  ? { ...s, stylistId: e.target.value }
+                                  ? { ...s, stylistId: selectedStylistId }
                                   : s
                               );
                               setFormData({ ...formData, services: newServices, timeSlot: null });
@@ -970,12 +1062,40 @@ const AppointmentFormModal = ({
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2D1B4E] focus:border-[#2D1B4E] bg-white"
                           >
                             <option value="">Any Available Stylist</option>
-                            {getAvailableStylistsForService(serviceObj.serviceId).map(stylist => (
-                              <option key={stylist.id} value={stylist.id}>
-                                {stylist.firstName} {stylist.lastName}
-                              </option>
-                            ))}
+                            {serviceStylistsFiltered.map(stylist => {
+                              const isUnavailable = stylist.isAvailable === false;
+                              const displayName = `${stylist.firstName} ${stylist.lastName}`;
+                              const optionText = isUnavailable 
+                                ? `⚠️ ${displayName} (${stylist.unavailableReason})`
+                                : displayName;
+                              
+                              return (
+                                <option 
+                                  key={stylist.id} 
+                                  value={stylist.id}
+                                  className={isUnavailable ? 'text-amber-600' : ''}
+                                >
+                                  {optionText}
+                                </option>
+                              );
+                            })}
                           </select>
+                          
+                          {/* Show warning if unavailable stylist is selected */}
+                          {serviceObj.stylistId && stylistsWithAvailability.length > 0 && (() => {
+                            const selectedStylistInfo = stylistsWithAvailability.find(s => s.id === serviceObj.stylistId);
+                            if (selectedStylistInfo && !selectedStylistInfo.isAvailable) {
+                              return (
+                                <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                                  <p className="text-xs text-amber-800">
+                                    <span className="font-semibold">Warning:</span> {selectedStylistInfo.unavailableReason}
+                                  </p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
                     );
@@ -1025,8 +1145,8 @@ const AppointmentFormModal = ({
                     });
 
                     if (duplicateAppointment) {
-                      // Keep existing behavior: alert and don't set date
-                      alert('You already have an appointment on this date. Please choose a different date.');
+                      // Show modal instead of alert
+                      setShowDuplicateModal(true);
                       return;
                     }
                   }
@@ -1226,6 +1346,43 @@ const AppointmentFormModal = ({
                 <button
                   onClick={() => setShowClosedModal(false)}
                   className="w-full px-5 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 transition-all font-semibold shadow-md hover:shadow-lg"
+                >
+                  OK, I'll Choose Another Date
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Appointment Modal */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 animate-bounce-in">
+            <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-t-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">Existing Appointment</h3>
+                  <p className="text-orange-100 text-sm mt-1">Duplicate booking detected</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <p className="text-gray-700 text-base leading-relaxed mb-4">
+                You already have an appointment on this date.
+              </p>
+              <p className="text-sm text-gray-600">
+                Please choose a different date or cancel the existing appointment first.
+              </p>
+              
+              <div className="mt-6">
+                <button
+                  onClick={() => setShowDuplicateModal(false)}
+                  className="w-full px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all font-semibold shadow-md hover:shadow-lg"
                 >
                   OK, I'll Choose Another Date
                 </button>

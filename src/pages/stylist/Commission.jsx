@@ -535,7 +535,10 @@ const StylistCommission = () => {
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">Product Commission</p>
               <p className="text-xl font-bold text-gray-900">{formatCurrency(summary.productCommission)}</p>
-              <p className="text-xs text-gray-500">{summary.productCount} products (10%)</p>
+              <p className="text-xs text-gray-500">
+                {summary.productCount} product{summary.productCount !== 1 ? 's' : ''} 
+                {summary.productCount > 0 && ' (10%)'}
+              </p>
             </div>
           </div>
         </Card>

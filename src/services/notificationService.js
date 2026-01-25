@@ -156,12 +156,15 @@
             break;
 
         case NOTIFICATION_TYPES.APPOINTMENT_CANCELLED:
+            const cancelReason = appointmentData.cancelReason || appointmentData.cancellationReason || '';
+            const reasonText = cancelReason ? `. Reason: ${cancelReason}` : '';
+            
             if (isClient) {
             title = 'Appointment Cancelled';
-            message = `Your appointment for ${formattedDate} has been cancelled`;
+            message = `Your appointment for ${formattedDate} has been cancelled${reasonText}`;
             } else if (isStylist) {
             title = 'Appointment Cancelled';
-            message = `Appointment with ${appointmentData.clientName || 'client'} has been cancelled`;
+            message = `Appointment with ${appointmentData.clientName || 'client'} has been cancelled${reasonText}`;
             }
             break;
 

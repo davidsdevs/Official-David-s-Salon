@@ -56,6 +56,7 @@ const StylistLayout = () => {
 
   return (
     <div className="min-h-screen flex bg-gray-50 overflow-hidden">
+      {/* Sidebar - Hidden on mobile and tablet, shown on desktop */}
       <Sidebar 
         isOpen={sidebarOpen} 
         toggleSidebar={() => setSidebarOpen(false)} 
@@ -63,7 +64,8 @@ const StylistLayout = () => {
         bottomItems={bottomItems}
       />
       
-      <div className="flex-1 flex flex-col md:ml-64 min-w-0 overflow-hidden">
+      {/* Main Content - Full width on mobile/tablet, with margin on desktop */}
+      <div className="flex-1 flex flex-col lg:ml-64 min-w-0 overflow-hidden">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
         
         <div className="flex-1 flex flex-col overflow-y-auto min-h-0">

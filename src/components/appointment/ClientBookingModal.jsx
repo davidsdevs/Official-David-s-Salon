@@ -8,6 +8,7 @@ import { X, Calendar, Clock, MapPin, Scissors, User, ChevronRight, ChevronLeft, 
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { formatTime, formatTime12Hour } from '../../utils/helpers';
 import { getPortfoliosByStylist } from '../../services/portfolioService';
+import { filterStylistsByAvailability } from '../../utils/scheduleValidator';
 import toast from 'react-hot-toast';
 import { isBranchClosedOnDate } from '../../services/branchCloseUtils';
 import { APPOINTMENT_STATUS } from '../../utils/constants';
@@ -54,6 +55,10 @@ const ClientBookingModal = ({
   // Closed-date modal
   const [showClosedModal, setShowClosedModal] = useState(false);
   const [closedReason, setClosedReason] = useState('');
+  
+  // Schedule-aware stylist filtering
+  const [showAllStylists, setShowAllStylists] = useState(false);
+  const [stylistsWithAvailability, setStylistsWithAvailability] = useState([]);
 
   // Reset function when modal closes
   const handleClose = () => {
@@ -116,6 +121,40 @@ const ClientBookingModal = ({
     const day = String(now.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }, [selectedBranch]);
+
+  // Check stylist availability when date/time changes
+  useEffect(() => {
+    const checkStylistsAvailability = async () => {
+      // Don't filter if date or time not selected yet - show all stylists
+      if (!bookingData.date || !bookingData.timeSlot || !bookingData.branchId) {
+        setStylistsWithAvailability([]);
+        return;
+      }
+
+      // Extract time from timeSlot
+      const timeString = bookingData.timeSlot.time;
+
+      // Calculate total duration from selected services
+      const totalDuration = (bookingData.services || []).reduce((sum, svc) => {
+        const serviceData = services.find(s => s.id === svc.serviceId);
+        return sum + (serviceData?.duration || 60);
+      }, 0);
+
+      // Check availability for all stylists
+      const stylistsWithInfo = await filterStylistsByAvailability(
+        stylists,
+        bookingData.date,
+        timeString,
+        totalDuration || 60,
+        bookingData.branchId,
+        true // Include unavailable stylists
+      );
+
+      setStylistsWithAvailability(stylistsWithInfo);
+    };
+
+    checkStylistsAvailability();
+  }, [bookingData.date, bookingData.timeSlot, bookingData.branchId, bookingData.services, stylists, services]);
 
   if (!isOpen) return null;
 
@@ -599,7 +638,7 @@ const ClientBookingModal = ({
                           <p className="text-sm mt-1 text-gray-500">{svc.description ? (svc.description.length > 60 ? svc.description.slice(0,57) + '...' : svc.description) : ''}</p>
                         </div>
                         <div className="flex-shrink-0 text-sm font-semibold ml-2 text-gray-900">
-                          {svc.price ? `₱${svc.branchPricing?.[bookingData.branchId] || svc.price?.toLocaleString()}` : '—'}
+                          {svc.price ? `₱${(svc.branchPricing?.[bookingData.branchId] || svc.price).toLocaleString()}` : '—'}
                         </div>
                       </div>
                       <div className="w-full flex items-center justify-between text-xs mt-2">
@@ -1042,57 +1081,131 @@ const ClientBookingModal = ({
             
             {/* Content */}
             <div className="p-6 space-y-4">
-              <p className="text-sm text-gray-600">
-                Choose a stylist for this service:
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">
+                  Choose a stylist for this service:
+                </p>
+                
+                {/* Override checkbox - only show if date and time are selected */}
+                {bookingData.date && bookingData.timeSlot && stylistsWithAvailability.length > 0 && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showAllStylists}
+                      onChange={(e) => setShowAllStylists(e.target.checked)}
+                      className="w-4 h-4 text-[#160B53] border-gray-300 rounded focus:ring-[#160B53]"
+                    />
+                    <span className="text-xs text-gray-600">Show all stylists</span>
+                  </label>
+                )}
+              </div>
               
               <div className="space-y-2 max-h-80 overflow-y-auto">
-                {getStylistsForService(pendingService).map(stylist => (
-                  <div key={stylist.id} className="w-full flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => confirmStylistSelection(stylist.id)}
-                      className="flex-1 p-4 border-2 border-gray-200 rounded-lg hover:border-[#160B53] hover:bg-[#160B53]/5 transition-all text-left flex items-center gap-3 group"
-                    >
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#160B53] to-[#2D1B69] flex items-center justify-center text-white font-semibold group-hover:scale-110 transition-transform">
-                        {(stylist.firstName?.[0] || stylist.name?.[0] || 'S').toUpperCase()}
+                {(() => {
+                  // Get stylists who can perform this service
+                  let serviceStylistsBase = getStylistsForService(pendingService);
+                  
+                  // Filter by availability if date/time selected
+                  let serviceStylistsFiltered = serviceStylistsBase;
+                  
+                  // Only apply availability filtering if we have date, time, and availability data
+                  if (bookingData.date && bookingData.timeSlot && stylistsWithAvailability.length > 0) {
+                    if (showAllStylists) {
+                      // Show all but with availability info
+                      serviceStylistsFiltered = serviceStylistsBase.map(stylist => {
+                        const availInfo = stylistsWithAvailability.find(s => s.id === stylist.id);
+                        return availInfo || stylist;
+                      });
+                    } else {
+                      // Show only available
+                      serviceStylistsFiltered = serviceStylistsBase
+                        .map(stylist => {
+                          const availInfo = stylistsWithAvailability.find(s => s.id === stylist.id);
+                          return availInfo || stylist;
+                        })
+                        .filter(stylist => stylist.isAvailable !== false);
+                    }
+                  }
+                  // If no date/time selected, show all stylists without filtering
+                  
+                  return serviceStylistsFiltered.map(stylist => {
+                    const isUnavailable = stylist.isAvailable === false;
+                    
+                    return (
+                      <div key={stylist.id} className="w-full flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Warn if stylist is unavailable
+                            if (isUnavailable) {
+                              const confirmMsg = `⚠️ Warning: This stylist is ${stylist.unavailableReason}.\n\nDo you want to book anyway?`;
+                              if (!confirm(confirmMsg)) {
+                                return;
+                              }
+                            }
+                            confirmStylistSelection(stylist.id);
+                          }}
+                          className={`flex-1 p-4 border-2 rounded-lg transition-all text-left flex items-center gap-3 group ${
+                            isUnavailable
+                              ? 'border-amber-300 bg-amber-50 hover:border-amber-400'
+                              : 'border-gray-200 hover:border-[#160B53] hover:bg-[#160B53]/5'
+                          }`}
+                        >
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold group-hover:scale-110 transition-transform ${
+                            isUnavailable
+                              ? 'bg-gradient-to-br from-amber-500 to-amber-600'
+                              : 'bg-gradient-to-br from-[#160B53] to-[#2D1B69]'
+                          }`}>
+                            {(stylist.firstName?.[0] || stylist.name?.[0] || 'S').toUpperCase()}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className={`font-semibold ${isUnavailable ? 'text-amber-900' : 'text-gray-900'}`}>
+                                {stylist.firstName && stylist.lastName 
+                                  ? `${stylist.firstName} ${stylist.lastName}` 
+                                  : stylist.name || 'Stylist'}
+                              </p>
+                              {isUnavailable && (
+                                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                              )}
+                            </div>
+                            {stylist.specialization && (
+                              <p className="text-xs text-gray-500 mt-0.5">{stylist.specialization}</p>
+                            )}
+                            {isUnavailable && (
+                              <p className="text-xs text-amber-700 mt-1 font-medium">
+                                {stylist.unavailableReason}
+                              </p>
+                            )}
+                          </div>
+                          <ChevronRight className={`w-5 h-5 ${isUnavailable ? 'text-amber-600' : 'text-gray-400 group-hover:text-[#160B53]'}`} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setSelectedStylist(stylist);
+                            setShowPortfolioModal(true);
+                            setLoadingPortfolios(true);
+                            try {
+                              const portfolioData = await getPortfoliosByStylist(stylist.id);
+                              setPortfolios(portfolioData.filter(p => p.status === 'approved'));
+                            } catch (error) {
+                              console.error('Error loading portfolios:', error);
+                              setPortfolios([]);
+                            } finally {
+                              setLoadingPortfolios(false);
+                            }
+                          }}
+                          className="px-3 py-2 border-2 border-[#160B53] rounded-lg hover:bg-[#160B53] text-[#160B53] hover:text-white transition-all flex items-center justify-center gap-1 group"
+                          title="View Portfolio"
+                        >
+                          <Eye className="w-4 h-4" />
+                          <span className="text-xs font-medium">Portfolio</span>
+                        </button>
                       </div>
-                      <div className="flex-1">
-                        <p className="font-semibold text-gray-900">
-                          {stylist.firstName && stylist.lastName 
-                            ? `${stylist.firstName} ${stylist.lastName}` 
-                            : stylist.name || 'Stylist'}
-                        </p>
-                        {stylist.specialization && (
-                          <p className="text-xs text-gray-500 mt-0.5">{stylist.specialization}</p>
-                        )}
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-[#160B53]" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setSelectedStylist(stylist);
-                        setShowPortfolioModal(true);
-                        setLoadingPortfolios(true);
-                        try {
-                          const portfolioData = await getPortfoliosByStylist(stylist.id);
-                          setPortfolios(portfolioData.filter(p => p.status === 'approved'));
-                        } catch (error) {
-                          console.error('Error loading portfolios:', error);
-                          setPortfolios([]);
-                        } finally {
-                          setLoadingPortfolios(false);
-                        }
-                      }}
-                      className="px-3 py-2 border-2 border-[#160B53] rounded-lg hover:bg-[#160B53] text-[#160B53] hover:text-white transition-all flex items-center justify-center gap-1 group"
-                      title="View Portfolio"
-                    >
-                      <Eye className="w-4 h-4" />
-                      <span className="text-xs font-medium">Portfolio</span>
-                    </button>
-                  </div>
-                ))}
+                    );
+                  });
+                })()}
                 
                 {/* No preference option */}
                 <button

@@ -589,3 +589,129 @@ export const getUsersByRole = async (role) => {
     throw error;
   }
 };
+
+/**
+ * Check if client can cancel appointment (same-day cancellation limit)
+ * @param {string} clientId - Client user ID
+ * @param {Date} appointmentBookedAt - When the appointment was booked
+ * @returns {Promise<Object>} { canCancel: boolean, count: number, limit: number, reason: string }
+ */
+export const checkSameDayCancellationLimit = async (clientId, appointmentBookedAt) => {
+  const SAME_DAY_LIMIT = 3;
+  
+  try {
+    const userRef = doc(db, 'users', clientId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { canCancel: true, count: 0, limit: SAME_DAY_LIMIT, reason: '' };
+    }
+    
+    const userData = userSnap.data();
+    const sameDayCancellations = userData.sameDayCancellations || { count: 0, history: [] };
+    
+    // Get today's date (YYYY-MM-DD)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+    
+    // Get booking date (YYYY-MM-DD)
+    const bookedDate = new Date(appointmentBookedAt);
+    bookedDate.setHours(0, 0, 0, 0);
+    const bookedDateStr = bookedDate.toISOString().split('T')[0];
+    
+    // Check if cancellation is same-day as booking
+    if (todayStr !== bookedDateStr) {
+      // Not same-day cancellation, allow it
+      return { canCancel: true, count: sameDayCancellations.count, limit: SAME_DAY_LIMIT, reason: '' };
+    }
+    
+    // Count same-day cancellations for today
+    const todayCancellations = (sameDayCancellations.history || []).filter(entry => {
+      const entryDate = new Date(entry.cancelledAt);
+      entryDate.setHours(0, 0, 0, 0);
+      const entryDateStr = entryDate.toISOString().split('T')[0];
+      const entryBookedDate = new Date(entry.bookedAt);
+      entryBookedDate.setHours(0, 0, 0, 0);
+      const entryBookedDateStr = entryBookedDate.toISOString().split('T')[0];
+      
+      // Count if cancelled today and booked today
+      return entryDateStr === todayStr && entryBookedDateStr === todayStr;
+    });
+    
+    const currentCount = todayCancellations.length;
+    
+    if (currentCount >= SAME_DAY_LIMIT) {
+      return {
+        canCancel: false,
+        count: currentCount,
+        limit: SAME_DAY_LIMIT,
+        reason: `You have reached the limit of ${SAME_DAY_LIMIT} same-day cancellations for today. Please contact the salon if you need to cancel this appointment.`
+      };
+    }
+    
+    return {
+      canCancel: true,
+      count: currentCount,
+      limit: SAME_DAY_LIMIT,
+      reason: ''
+    };
+  } catch (error) {
+    console.error('Error checking same-day cancellation limit:', error);
+    // On error, allow cancellation to not block users
+    return { canCancel: true, count: 0, limit: SAME_DAY_LIMIT, reason: '' };
+  }
+};
+
+/**
+ * Track same-day cancellation
+ * @param {string} clientId - Client user ID
+ * @param {string} appointmentId - Appointment ID
+ * @param {Date} bookedAt - When the appointment was booked
+ * @returns {Promise<void>}
+ */
+export const trackSameDayCancellation = async (clientId, appointmentId, bookedAt) => {
+  try {
+    const userRef = doc(db, 'users', clientId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      console.warn('User not found for tracking cancellation:', clientId);
+      return;
+    }
+    
+    const userData = userSnap.data();
+    const sameDayCancellations = userData.sameDayCancellations || { count: 0, history: [] };
+    
+    // Add to history
+    const newEntry = {
+      appointmentId,
+      bookedAt: bookedAt instanceof Date ? bookedAt.toISOString() : bookedAt,
+      cancelledAt: new Date().toISOString(),
+      date: new Date().toISOString().split('T')[0]
+    };
+    
+    const updatedHistory = [...(sameDayCancellations.history || []), newEntry];
+    
+    // Keep only last 30 days of history to prevent bloat
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const filteredHistory = updatedHistory.filter(entry => {
+      const entryDate = new Date(entry.cancelledAt);
+      return entryDate >= thirtyDaysAgo;
+    });
+    
+    await updateDoc(userRef, {
+      sameDayCancellations: {
+        count: filteredHistory.length,
+        history: filteredHistory,
+        lastUpdated: Timestamp.now()
+      }
+    });
+    
+    console.log('✅ Tracked same-day cancellation for client:', clientId);
+  } catch (error) {
+    console.error('Error tracking same-day cancellation:', error);
+    // Don't throw - tracking failure shouldn't block cancellation
+  }
+};

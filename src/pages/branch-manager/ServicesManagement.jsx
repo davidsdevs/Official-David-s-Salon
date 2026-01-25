@@ -15,7 +15,6 @@ import {
   getServiceCategories
 } from '../../services/branchServicesService';
 import { getBranchById } from '../../services/branchService';
-import { getAppointments, APPOINTMENT_STATUS } from '../../services/appointmentService';
 import { getCatalogConfig, saveCatalogConfig } from '../../services/catalogService';
 import { uploadToCloudinary } from '../../services/imageService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -299,10 +298,12 @@ const ServicesManagement = () => {
       setLoading(true);
       // Get all services with branch config
       const allData = await getAllServicesWithBranchConfig(userBranch);
+      console.log('[ServicesManagement] First service from allData:', allData[0]);
       setAllServices(allData);
       
       // Get only offered services
       const offeredData = await getBranchServices(userBranch);
+      console.log('[ServicesManagement] First service from offeredData:', offeredData[0]);
       setOfferedServices(offeredData);
       
       // Fetch branch info for catalog
@@ -369,123 +370,14 @@ const ServicesManagement = () => {
     }
   };
 
-
-  const checkServiceInConfirmedAppointments = async (serviceId) => {
-    try {
-      // Get all appointments for this branch
-      const { appointments } = await getAppointments(
-        { branchId: userBranch, status: APPOINTMENT_STATUS.CONFIRMED },
-        'branch_manager',
-        currentUser?.uid,
-        1000 // Get up to 1000 appointments to check
-      );
-
-      // Convert serviceId to string for consistent comparison
-      const serviceIdStr = String(serviceId).trim();
-
-      // Check if any confirmed appointment uses this service
-      const matchingAppointments = [];
-      const hasConfirmedAppointments = appointments.some(appointment => {
-        let matches = false;
-        
-        // Check serviceStylistPairs array
-        if (appointment.serviceStylistPairs && Array.isArray(appointment.serviceStylistPairs)) {
-          const found = appointment.serviceStylistPairs.some(pair => {
-            const pairServiceId = pair?.serviceId ? String(pair.serviceId).trim() : null;
-            return pairServiceId === serviceIdStr;
-          });
-          if (found) {
-            matches = true;
-            matchingAppointments.push({
-              id: appointment.id,
-              format: 'serviceStylistPairs',
-              pairs: appointment.serviceStylistPairs
-            });
-          }
-        }
-        
-        // Check services array (newer format)
-        if (appointment.services && Array.isArray(appointment.services)) {
-          const found = appointment.services.some(svc => {
-            const svcServiceId = svc?.serviceId ? String(svc.serviceId).trim() : null;
-            return svcServiceId === serviceIdStr;
-          });
-          if (found) {
-            matches = true;
-            matchingAppointments.push({
-              id: appointment.id,
-              format: 'services',
-              services: appointment.services
-            });
-          }
-        }
-        
-        // Check serviceId field (older format)
-        if (appointment.serviceId) {
-          const aptServiceId = String(appointment.serviceId).trim();
-          if (aptServiceId === serviceIdStr) {
-            matches = true;
-            matchingAppointments.push({
-              id: appointment.id,
-              format: 'serviceId',
-              serviceId: appointment.serviceId
-            });
-          }
-        }
-        
-        // Check serviceIds array (older format)
-        if (appointment.serviceIds && Array.isArray(appointment.serviceIds)) {
-          const found = appointment.serviceIds.some(id => {
-            const idStr = String(id).trim();
-            return idStr === serviceIdStr;
-          });
-          if (found) {
-            matches = true;
-            matchingAppointments.push({
-              id: appointment.id,
-              format: 'serviceIds',
-              serviceIds: appointment.serviceIds
-            });
-          }
-        }
-        
-        return matches;
-      });
-
-      // Log for debugging
-      if (hasConfirmedAppointments) {
-        console.log(`Service ${serviceId} found in confirmed appointments:`, matchingAppointments);
-      } else {
-        console.log(`Service ${serviceId} NOT found in any confirmed appointments. Total appointments checked: ${appointments.length}`);
-      }
-
-      return hasConfirmedAppointments;
-    } catch (error) {
-      console.error('Error checking appointments:', error);
-      // If there's an error, be safe and prevent deletion
-      return true;
-    }
-  };
-
   const handleDisableService = async (service) => {
     try {
-      // Check if service is used in confirmed appointments
-      const hasConfirmedAppointments = await checkServiceInConfirmedAppointments(service.id);
-      
-      if (hasConfirmedAppointments) {
-        toast.error(
-          `Cannot remove "${service.name}". This service is used in confirmed appointments. Please cancel or complete those appointments first.`,
-          { duration: 5000 }
-        );
-        return;
-      }
-
-      // If no confirmed appointments, proceed with removal
+      // Allow removal regardless of appointments
       setServiceToDisable(service);
       setShowDisableModal(true);
     } catch (error) {
-      console.error('Error checking appointments:', error);
-      toast.error('Failed to check appointments. Please try again.');
+      console.error('Error preparing to disable service:', error);
+      toast.error('Failed to prepare service removal. Please try again.');
     }
   };
 
@@ -494,19 +386,6 @@ const ServicesManagement = () => {
     
     try {
       setSaving(true);
-      
-      // Double-check before removing (in case appointments were confirmed between modal open and confirm)
-      const hasConfirmedAppointments = await checkServiceInConfirmedAppointments(serviceToDisable.id);
-      
-      if (hasConfirmedAppointments) {
-        toast.error(
-          `Cannot remove "${serviceToDisable.name}". This service is used in confirmed appointments. Please cancel or complete those appointments first.`,
-          { duration: 5000 }
-        );
-        setShowDisableModal(false);
-        setServiceToDisable(null);
-        return;
-      }
 
       await disableBranchService(serviceToDisable.id, userBranch, currentUser);
       await fetchServices();
@@ -1326,6 +1205,9 @@ const ServicesManagement = () => {
                   Branch Price
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Commission
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1336,7 +1218,7 @@ const ServicesManagement = () => {
             <tbody className="bg-white divide-y divide-gray-200">
         {filteredServices.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
               {filterMode === 'offered' 
                       ? 'You haven\'t offered any services yet. Switch to "All Available" to add services.' 
                 : filterMode === 'all'
@@ -1393,6 +1275,11 @@ const ServicesManagement = () => {
                           Not set
                         </span>
                       )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm font-semibold text-purple-600">
+                        {service.commissionPercentage || 0}%
+                      </span>
                     </td>
                     <td className="px-6 py-4">
                       {service.isOfferedByBranch ? (

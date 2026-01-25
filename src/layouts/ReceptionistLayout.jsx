@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Calendar, Users, Receipt, CheckCircle, Clock, Scissors, Package, BarChart3, Bell, BellOff } from 'lucide-react';
+import { LayoutDashboard, Calendar, Users, Receipt, CheckCircle, Clock, Scissors, Package, BarChart3, Bell, BellOff, Tag } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';
@@ -136,13 +136,14 @@ const ReceptionistLayout = () => {
     { path: ROUTES.RECEPTIONIST_STAFF_SCHEDULE, label: 'Staff Schedule', icon: Clock },
     { path: ROUTES.RECEPTIONIST_SERVICES, label: 'Services', icon: Scissors },
     { path: ROUTES.RECEPTIONIST_PRODUCTS, label: 'Products', icon: Package },
+    { path: ROUTES.RECEPTIONIST_PROMOTIONS, label: 'Promotions', icon: Tag },
   ];
 
   return (
     <div className="min-h-screen flex bg-gray-50 overflow-hidden">
       <Sidebar isOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(false)} menuItems={menuItems} />
       
-      <div className="flex-1 flex flex-col md:ml-64 min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col lg:ml-64 min-w-0 overflow-hidden">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen}>
           {/* Notification Toggle Button */}
           <button

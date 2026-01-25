@@ -188,29 +188,10 @@ const Deposits = () => {
     setFilteredDeposits(filtered);
   }, [deposits, searchTerm, statusFilter, validationFilter, dateFrom, dateTo, sortBy, sortOrder]);
 
-  // Get daily sales total when deposit date changes and check for duplicates
+  // Get daily sales total when deposit date changes
   useEffect(() => {
     const fetchDailySales = async () => {
       if (!userData?.branchId || !depositDate) return;
-
-      // Check for duplicate deposit immediately when date changes
-      if (checkDuplicateDeposit(depositDate)) {
-        setError(`A deposit already exists for ${format(new Date(depositDate), 'MMMM dd, yyyy')}. You cannot submit another deposit for this date.`);
-        // Show modal immediately when duplicate date is selected
-        setShowDuplicateWarningModal(true);
-      } else {
-        // Clear duplicate error and close modal if date is valid (but keep other errors)
-        setError(prevError => {
-          if (prevError && prevError.includes('already exists')) {
-            return '';
-          }
-          return prevError;
-        });
-        // Close modal if it was open for duplicate
-        if (showDuplicateWarningModal) {
-          setShowDuplicateWarningModal(false);
-        }
-      }
 
       try {
         const salesTotal = await depositService.getDailySalesTotal(
@@ -219,15 +200,9 @@ const Deposits = () => {
         );
         console.log(`[Deposits] Fetched sales for ${depositDate}: ₱${salesTotal}`);
         setDailySalesTotal(salesTotal);
-
-        if (salesTotal === 0) {
-          toast.error(`No transactions found for ${format(new Date(depositDate), 'MMM dd')} in branch ${userData.branchId.substring(0, 6)}...`);
-        } else {
-          toast.success(`Loaded ₱${salesTotal.toLocaleString()} in daily sales`);
-        }
       } catch (err) {
         console.error('Error fetching daily sales:', err);
-        toast.error(`Failed to load sales: ${err.message}`);
+        // Only show toast on error, not on success or zero sales
       }
     };
 

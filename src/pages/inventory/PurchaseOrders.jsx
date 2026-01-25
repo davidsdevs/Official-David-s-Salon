@@ -95,6 +95,8 @@ const PurchaseOrders = () => {
   const [deliveryExpirationDates, setDeliveryExpirationDates] = useState({}); // { productId: expirationDate }
   const [isMarkingDelivered, setIsMarkingDelivered] = useState(false);
   const [isConfirmOrderModalOpen, setIsConfirmOrderModalOpen] = useState(false);
+  const [isConfirmSupplierModalOpen, setIsConfirmSupplierModalOpen] = useState(false);
+  const [orderToConfirm, setOrderToConfirm] = useState(null);
   const [isHighStockWarningModalOpen, setIsHighStockWarningModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -1825,11 +1827,23 @@ David's Salon`;
 
   // Handle marking order as confirmed by supplier (In Transit)
   const handleSupplierConfirmed = async (order) => {
+    // Show confirmation modal first
+    setOrderToConfirm(order);
+    setIsConfirmSupplierModalOpen(true);
+  };
+
+  // Actual confirmation after user confirms
+  const confirmSupplierConfirmed = async () => {
+    const order = orderToConfirm;
     try {
       if (!order.id) {
         toast.error('Invalid order ID');
         return;
       }
+
+      // Close modal
+      setIsConfirmSupplierModalOpen(false);
+      setOrderToConfirm(null);
 
       // Show loading toast
       const loadingToast = toast.loading('Updating order status...');
@@ -3650,6 +3664,93 @@ David's Salon`;
                   >
                     <AlertTriangle className="h-4 w-4" />
                     Proceed Anyway (Not Recommended)
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirm Supplier Order Modal */}
+        {isConfirmSupplierModalOpen && orderToConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all duration-300 scale-100">
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <CheckCircle className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold">Confirm Order</h2>
+                      <p className="text-white/90 text-sm">Mark as confirmed by supplier</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setIsConfirmSupplierModalOpen(false);
+                      setOrderToConfirm(null);
+                    }}
+                    className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6">
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-sm text-blue-900">
+                      Are you sure you want to mark this purchase order as confirmed by the supplier?
+                    </p>
+                  </div>
+
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Order ID:</span>
+                        <span className="font-medium text-gray-900">{orderToConfirm.orderId}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Supplier:</span>
+                        <span className="font-medium text-gray-900">{orderToConfirm.supplierName}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Total Amount:</span>
+                        <span className="font-medium text-gray-900">₱{orderToConfirm.totalAmount?.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-gray-600">
+                    This will change the order status to <strong className="text-green-600">In Transit</strong>.
+                  </p>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="border-t border-gray-200 p-6 bg-gray-50">
+                <div className="flex justify-end gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsConfirmSupplierModalOpen(false);
+                      setOrderToConfirm(null);
+                    }}
+                    className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={confirmSupplierConfirmed}
+                    className="bg-green-500 text-white hover:bg-green-600 transition-colors flex items-center gap-2"
+                  >
+                    <CheckCircle className="h-4 w-4" />
+                    Yes, Confirm Order
                   </Button>
                 </div>
               </div>

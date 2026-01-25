@@ -575,7 +575,7 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
         {/* Footer Actions */}
         <div className="bg-gradient-to-r from-gray-50 to-white px-6 py-4 border-t border-gray-200 flex-shrink-0">
           <div className="flex justify-end gap-3">
-            {onEdit && appointment.status !== APPOINTMENT_STATUS.CANCELLED && (
+            {onEdit && appointment.status !== APPOINTMENT_STATUS.CANCELLED && appointment.status !== APPOINTMENT_STATUS.COMPLETED && (
               <button
                 onClick={() => {
                   handleClose();

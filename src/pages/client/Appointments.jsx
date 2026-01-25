@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-  import { Plus, Calendar, Clock, MapPin, User, ChevronDown, ChevronUp, Search, Filter, RefreshCw } from 'lucide-react';
+  import { Plus, Calendar, Clock, MapPin, User, ChevronDown, ChevronUp, Search, Filter, RefreshCw, Sparkles, ExternalLink } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getAppointmentsByClient,
@@ -24,6 +24,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import AppointmentCard from '../../components/appointment/AppointmentCard';
 import AppointmentDetails from '../../components/appointment/AppointmentDetails';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import Modal from '../../components/ui/Modal';
 import ClientBookingModal from '../../components/appointment/ClientBookingModal';
 import RescheduleModal from '../../components/appointment/RescheduleModal';
 import toast from 'react-hot-toast';
@@ -63,6 +64,7 @@ const ClientAppointments = () => {
   const [booking, setBooking] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedDetailAppointment, setSelectedDetailAppointment] = useState(null);
+  const [showHairstyleModal, setShowHairstyleModal] = useState(false);
   
   const [bookingData, setBookingData] = useState({
     branchId: '',
@@ -379,6 +381,8 @@ const ClientAppointments = () => {
       setShowBookingModal(false);
       await fetchAppointments();
       toast.success('Appointment request submitted successfully! Please wait for confirmation.');
+      // Show hairstyle AI recommendation modal
+      setShowHairstyleModal(true);
     } catch (error) {
       console.error('Error creating appointment:', error);
       toast.error(error.message || 'Failed to create appointment. Please try again.');
@@ -890,6 +894,66 @@ const ClientAppointments = () => {
           onClose={() => { setShowDetailsModal(false); setSelectedDetailAppointment(null); }}
         />
       )}
+
+      {/* Hairstyle AI Recommendation Modal */}
+      <Modal
+        isOpen={showHairstyleModal}
+        onClose={() => setShowHairstyleModal(false)}
+        title="Try Our AI Hairstyle Recommendation!"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-center mb-4">
+            <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+              <Sparkles className="h-8 w-8 text-white" />
+            </div>
+          </div>
+          
+          <div className="text-center">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Discover Your Perfect Hairstyle!
+            </h3>
+            <p className="text-gray-600 mb-4">
+              While waiting for your appointment confirmation, why not explore hairstyles that would look great on you? Our AI-powered tool can help you visualize different looks!
+            </p>
+          </div>
+
+          <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <Sparkles className="h-5 w-5 text-purple-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-purple-900">
+                <p className="font-medium mb-1">What you can do:</p>
+                <ul className="list-disc list-inside space-y-1 text-purple-800">
+                  <li>Upload your photo</li>
+                  <li>Try different hairstyles with AI</li>
+                  <li>Get personalized recommendations</li>
+                  <li>Save your favorite looks</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={() => setShowHairstyleModal(false)}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Maybe Later
+            </button>
+            <a
+              href="https://ar-hairstyle.onrender.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setShowHairstyleModal(false)}
+              className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 transition-colors flex items-center justify-center gap-2 font-medium"
+            >
+              <Sparkles className="h-4 w-4" />
+              Try It Now
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

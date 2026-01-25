@@ -992,6 +992,13 @@ class InventoryService {
           status: newRemaining <= 0 ? 'depleted' : 'active',
           updatedAt: serverTimestamp()
         };
+        console.log(`📦 Updating product_batch: ${batchRecord.batchNumber}`, {
+          batchId: batchRecord.id,
+          previousRemaining: availableInBatch,
+          deducting: deductFromBatch,
+          newRemaining: newRemaining,
+          updateData
+        });
         batch.update(batchRef, updateData);
 
         // CRITICAL: Also update the batch_stock in stocks collection
@@ -1004,32 +1011,59 @@ class InventoryService {
         );
         const batchStockSnap = await getDocs(batchStockQuery);
         
-        // Filter client-side for stockType and status
+        console.log(`🔍 Looking for batch stock with batchId: ${batchRecord.id}`, {
+          batchNumber: batchRecord.batchNumber,
+          foundDocs: batchStockSnap.docs.length,
+          docs: batchStockSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        });
+        
+        // Filter client-side for stockType - don't filter by status since we need to update even depleted stocks
         const batchStockDoc = batchStockSnap.docs.find(doc => {
           const data = doc.data();
-          return (data.stockType === 'batch' || data.batchId) && (data.status === 'active' || !data.status);
+          return data.stockType === 'batch' || data.batchId;
         });
         
         if (batchStockDoc) {
           const batchStockRef = batchStockDoc.ref;
           const batchStockData = batchStockDoc.data();
           const currentRealTimeStock = Number(batchStockData.realTimeStock) || 0;
+          const currentRemainingQuantity = Number(batchStockData.remainingQuantity) || 0;
           const newRealTimeStock = Math.max(0, currentRealTimeStock - deductFromBatch);
+          const newRemainingQuantity = Math.max(0, currentRemainingQuantity - deductFromBatch);
           
           console.log(`📦 Updating batch_stock: ${batchRecord.batchNumber}`, {
             batchId: batchRecord.id,
             stockId: batchStockDoc.id,
             currentRealTimeStock,
+            currentRemainingQuantity,
             deducting: deductFromBatch,
-            newRealTimeStock
+            newRealTimeStock,
+            newRemainingQuantity
           });
+          
+          // Determine status based on new stock level
+          const newStatus = newRealTimeStock <= 0 ? 'Out of Stock' : 
+                           newRealTimeStock <= (batchStockData.minStock || 0) ? 'Low Stock' : 
+                           'In Stock';
           
           batch.update(batchStockRef, {
             realTimeStock: newRealTimeStock,
+            remainingQuantity: newRemainingQuantity,
+            status: newStatus,
             updatedAt: serverTimestamp()
+          });
+          
+          console.log(`✅ Batch stock update queued:`, {
+            stockId: batchStockDoc.id,
+            updates: {
+              realTimeStock: newRealTimeStock,
+              remainingQuantity: newRemainingQuantity,
+              status: newStatus
+            }
           });
         } else {
           console.warn(`⚠️ Batch stock not found for batchId: ${batchRecord.id}, batchNumber: ${batchRecord.batchNumber}`);
+          console.warn('Query returned docs:', batchStockSnap.docs.map(d => ({ id: d.id, data: d.data() })));
         }
 
         updatedBatches.push({
@@ -1043,6 +1077,16 @@ class InventoryService {
       if (remainingToDeduct > 0) {
         return { success: false, message: `Insufficient stock. Only ${quantity - remainingToDeduct} units available.` };
       }
+
+      // Get current stock before deduction for tracking
+      let previousTotalStock = 0;
+      let newTotalStock = 0;
+      
+      // Calculate total stock from batches
+      batchesToUse.forEach(b => {
+        previousTotalStock += (b.remainingQuantity || 0);
+      });
+      newTotalStock = previousTotalStock - quantity;
 
       // Update main stock record
       const stockQuery = query(
@@ -1066,30 +1110,42 @@ class InventoryService {
         });
       }
 
-      // Create inventory movement record
+      // Create inventory movement record with previous/new stock tracking
       const movementRef = doc(collection(db, this.inventoryMovementsCollection));
-      batch.set(movementRef, {
+      const movementData = {
         branchId: String(branchId),
         productId: String(productId),
         productName: String(deductionData.productName || ''),
         type: 'stock_out',
         quantity: quantity,
+        previousStock: previousTotalStock, // Track stock before deduction
+        newStock: newTotalStock, // Track stock after deduction
         reason: String(deductionData.reason || 'Stock reduced'),
         notes: String(deductionData.notes || ''),
         createdBy: String(deductionData.createdBy || ''),
         batchDeductions: updatedBatches, // Track which batches were used
         createdAt: serverTimestamp()
-      });
+      };
+      console.log('📝 Creating inventory movement record:', movementData);
+      batch.set(movementRef, movementData);
 
+      console.log('💾 Committing batch write...');
       await batch.commit();
+      console.log('✅ Batch write committed successfully');
+      
       return { 
         success: true, 
         message: 'Stock deducted successfully using FIFO',
         batchesUsed: updatedBatches
       };
     } catch (error) {
-      console.error('Error deducting stock FIFO:', error);
-      return { success: false, message: error.message };
+      console.error('❌ Error deducting stock FIFO:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+      return { success: false, message: error.message || 'Failed to deduct stock' };
     }
   }
 

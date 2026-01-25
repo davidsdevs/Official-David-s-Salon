@@ -120,8 +120,11 @@ const Stocks = () => {
 
   // Allocated quantities from transactions (for computed stock display)
   const [allocatedQuantities, setAllocatedQuantities] = useState(new Map()); // batchId -> total allocated
-  const [adjustmentDateFilter, setAdjustmentDateFilter] = useState('all'); // 'all', '7days', '30days', '90days', '1year'
+  const [adjustmentStartDate, setAdjustmentStartDate] = useState('');
+  const [adjustmentEndDate, setAdjustmentEndDate] = useState('');
   const [adjustmentSearchTerm, setAdjustmentSearchTerm] = useState('');
+  const [adjustmentsPage, setAdjustmentsPage] = useState(1);
+  const adjustmentsPerPage = 5;
   
   // Manual salon-use deduction states
   const [isSalonUseDeductionModalOpen, setIsSalonUseDeductionModalOpen] = useState(false);
@@ -190,7 +193,8 @@ const Stocks = () => {
     stockRange: { min: '', max: '' },
     lowStock: false,
     usageType: 'all', // 'all', 'otc', 'salon-use'
-    batchNumber: '' // Filter by batch number
+    batchNumber: '', // Filter by batch number
+    condition: 'all' // 'all', 'good', 'expired', 'depleted'
   });
 
   // Mock stock data - in real app, this would come from API
@@ -451,6 +455,15 @@ const Stocks = () => {
   const getComputedStock = (stock) => {
     // Use same priority as Branch Manager: remainingQuantity || realTimeStock || beginningStock
     const baseStock = stock.remainingQuantity || stock.realTimeStock || stock.beginningStock || 0;
+    // Debug logging for salon-use stocks
+    if (stock.usageType === 'salon-use' && stock.batchNumber) {
+      console.log(`📊 Computing stock for ${stock.batchNumber}:`, {
+        remainingQuantity: stock.remainingQuantity,
+        realTimeStock: stock.realTimeStock,
+        beginningStock: stock.beginningStock,
+        computed: baseStock
+      });
+    }
     // Don't subtract allocated quantities - use raw remaining stock
     return Math.max(0, baseStock);
   };
@@ -765,7 +778,27 @@ const Stocks = () => {
         const matchesBatch = !filters.batchNumber ||
           stockBatchNumber.toLowerCase().includes(filters.batchNumber.toLowerCase());
 
-        return matchesSearch && matchesStatus && matchesCategory && matchesUsageType && matchesStockRange && matchesLowStock && matchesBatch;
+        // Condition filter - good, expired, or depleted
+        let matchesCondition = true;
+        if (filters.condition !== 'all') {
+          const now = new Date();
+          const expirationDate = stock.expirationDate ? new Date(stock.expirationDate) : null;
+          const isExpired = expirationDate && expirationDate < now;
+          const isDepleted = currentStock <= 0 || stock.status === 'Out of Stock';
+          
+          if (filters.condition === 'good') {
+            // Good = Active, not expired, has stock
+            matchesCondition = !isExpired && !isDepleted && stock.status !== 'Out of Stock';
+          } else if (filters.condition === 'expired') {
+            // Expired = Past expiration date
+            matchesCondition = isExpired;
+          } else if (filters.condition === 'depleted') {
+            // Depleted = Zero stock or Out of Stock status
+            matchesCondition = isDepleted;
+          }
+        }
+
+        return matchesSearch && matchesStatus && matchesCategory && matchesUsageType && matchesStockRange && matchesLowStock && matchesBatch && matchesCondition;
       })
       .sort((a, b) => {
         const aStock = a.productName || a.product?.name || '';
@@ -954,10 +987,19 @@ const Stocks = () => {
 
   // Handle salon-use deduction
   const handleDeductSalonUse = (stock) => {
-    console.log('handleDeductSalonUse called with stock:', stock);
+    console.log('🔍 handleDeductSalonUse called with stock:', stock);
     try {
       const currentStock = getComputedStock(stock);
-      console.log('Current stock calculated:', currentStock);
+      console.log('🔍 Current stock calculated:', currentStock);
+      console.log('🔍 Stock details:', {
+        id: stock.id,
+        stockId: stock.stockId,
+        batchId: stock.batchId,
+        productId: stock.productId,
+        productName: stock.productName,
+        batchNumber: stock.batchNumber,
+        usageType: stock.usageType
+      });
       
       setSalonUseDeductionForm({
         stockId: stock.id || stock.stockId || '',
@@ -970,11 +1012,20 @@ const Stocks = () => {
         reason: '',
         notes: ''
       });
+      
+      console.log('🔍 Form data set:', {
+        stockId: stock.id || stock.stockId || '',
+        productId: stock.productId || '',
+        batchId: stock.batchId || stock.id || '',
+        batchNumber: stock.batchNumber || 'N/A',
+        currentStock: currentStock.toString()
+      });
+      
       setSalonUseDeductionErrors({});
       setIsSalonUseDeductionModalOpen(true);
-      console.log('Modal should be open now, isSalonUseDeductionModalOpen:', true);
+      console.log('✅ Modal should be open now');
     } catch (error) {
-      console.error('Error in handleDeductSalonUse:', error);
+      console.error('❌ Error in handleDeductSalonUse:', error);
       toast.error('Failed to open deduction modal. Please try again.');
     }
   };
@@ -2310,28 +2361,24 @@ const Stocks = () => {
     
     try {
       setLoadingAdjustments(true);
+      setAdjustmentsPage(1); // Reset to first page
       const allAdjustments = [];
-      const now = new Date();
-      let startDate = new Date();
       
-      // Calculate start date for filter
-      if (adjustmentDateFilter !== 'all') {
-        switch (adjustmentDateFilter) {
-          case '7days':
-            startDate.setDate(now.getDate() - 7);
-            break;
-          case '30days':
-            startDate.setDate(now.getDate() - 30);
-            break;
-          case '90days':
-            startDate.setDate(now.getDate() - 90);
-            break;
-          case '1year':
-            startDate.setFullYear(now.getFullYear() - 1);
-            break;
-        }
+      // Use custom date range if provided
+      let startTimestamp = null;
+      let endTimestamp = null;
+      
+      if (adjustmentStartDate) {
+        const start = new Date(adjustmentStartDate);
+        start.setHours(0, 0, 0, 0);
+        startTimestamp = Timestamp.fromDate(start);
       }
-      const startTimestamp = adjustmentDateFilter !== 'all' ? Timestamp.fromDate(startDate) : null;
+      
+      if (adjustmentEndDate) {
+        const end = new Date(adjustmentEndDate);
+        end.setHours(23, 59, 59, 999);
+        endTimestamp = Timestamp.fromDate(end);
+      }
 
       // 1. Load Force Adjustments (from stockAdjustments collection)
       try {
@@ -2409,16 +2456,23 @@ const Stocks = () => {
         const movementsSnapshot = await getDocs(movementsQuery);
         movementsSnapshot.forEach((doc) => {
           const data = doc.data();
+          
+          // Determine if this is a salon-use deduction or transaction sale
+          const reason = data.reason || '';
+          const isSalonUse = reason.toLowerCase().includes('salon') || 
+                            reason.toLowerCase().includes('salon-use') ||
+                            reason.toLowerCase().includes('salon use');
+          
           allAdjustments.push({
             id: doc.id,
-            type: 'transaction',
-            adjustmentType: 'Transaction Sale',
+            type: isSalonUse ? 'salon_use' : 'transaction',
+            adjustmentType: isSalonUse ? 'Salon Use Deduction' : 'Transaction Sale',
             productId: data.productId,
             previousStock: null, // Transactions don't track previous stock
             newStock: null,
             adjustmentQuantity: -data.quantity, // Negative for deductions
-            reason: data.reason || 'Transaction Sale',
-            notes: data.notes || `Transaction: ${data.transactionId || 'N/A'}`,
+            reason: data.reason || (isSalonUse ? 'Salon Use' : 'Transaction Sale'),
+            notes: data.notes || (data.transactionId ? `Transaction: ${data.transactionId}` : ''),
             adjustedBy: data.createdBy,
             transactionId: data.transactionId,
             batchesUsed: data.batchDeductions,
@@ -2545,12 +2599,90 @@ const Stocks = () => {
     }
   };
 
+  // Paginated adjustments
+  const paginatedAdjustments = useMemo(() => {
+    const startIndex = (adjustmentsPage - 1) * adjustmentsPerPage;
+    const endIndex = startIndex + adjustmentsPerPage;
+    return stockAdjustments.slice(startIndex, endIndex);
+  }, [stockAdjustments, adjustmentsPage, adjustmentsPerPage]);
+
+  // Print adjustments function
+  const handlePrintAdjustments = () => {
+    const branchName = userData?.branchName || 'Branch';
+    const dateRange = adjustmentStartDate && adjustmentEndDate 
+      ? `${format(new Date(adjustmentStartDate), 'MMM dd, yyyy')} - ${format(new Date(adjustmentEndDate), 'MMM dd, yyyy')}`
+      : 'All Time';
+    
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Stock Adjustments History - ${branchName}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            h1 { color: #160B53; margin-bottom: 5px; }
+            .subtitle { color: #666; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 11px; }
+            th { background-color: #160B53; color: white; font-weight: bold; }
+            tr:nth-child(even) { background-color: #f9f9f9; }
+            .positive { color: green; font-weight: bold; }
+            .negative { color: red; font-weight: bold; }
+            .print-date { text-align: right; color: #666; font-size: 12px; margin-bottom: 10px; }
+            @media print {
+              @page { margin: 0.5in; }
+            }
+          </style>
+        </head>
+        <body onload="window.print(); window.close();">
+          <div class="print-date">Printed: ${format(new Date(), 'MMM dd, yyyy hh:mm a')}</div>
+          <h1>Stock Adjustments History</h1>
+          <div class="subtitle">${branchName} | ${dateRange}</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 12%;">Date & Time</th>
+                <th style="width: 12%;">Type</th>
+                <th style="width: 20%;">Product</th>
+                <th style="width: 8%;">Previous</th>
+                <th style="width: 8%;">New</th>
+                <th style="width: 8%;">Adjustment</th>
+                <th style="width: 18%;">Reason</th>
+                <th style="width: 14%;">Adjusted By</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${stockAdjustments.map(adj => `
+                <tr>
+                  <td>${format(adj.createdAt, 'MMM dd, yyyy')}<br/><small>${format(adj.createdAt, 'hh:mm a')}</small></td>
+                  <td>${adj.adjustmentType || 'Adjustment'}</td>
+                  <td><strong>${adj.productName}</strong><br/><small>SKU: ${adj.productSku}</small></td>
+                  <td style="text-align: center;"><strong>${adj.previousStock !== null && adj.previousStock !== undefined && adj.previousStock !== '-' ? adj.previousStock : '-'}</strong></td>
+                  <td style="text-align: center;"><strong>${adj.newStock !== null && adj.newStock !== undefined && adj.newStock !== '-' ? adj.newStock : '-'}</strong></td>
+                  <td style="text-align: center;" class="${(adj.adjustmentQuantity || 0) >= 0 ? 'positive' : 'negative'}">
+                    <strong>${(adj.adjustmentQuantity || 0) >= 0 ? '+' : ''}${adj.adjustmentQuantity || 0}</strong>
+                  </td>
+                  <td>${adj.reason || 'N/A'}</td>
+                  <td>${adj.adjustedBy || 'Unknown'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+  };
+
   // Load adjustments when showing history or filters change
   useEffect(() => {
     if (showAdjustmentsHistory) {
       loadStockAdjustments();
     }
-  }, [showAdjustmentsHistory, adjustmentDateFilter, userData?.branchId, products, adjustmentSearchTerm]);
+  }, [showAdjustmentsHistory, adjustmentStartDate, adjustmentEndDate, userData?.branchId, products, adjustmentSearchTerm]);
 
   // Load activity logs when history modal opens
   useEffect(() => {
@@ -2657,18 +2789,25 @@ const Stocks = () => {
                 <h2 className="text-base md:text-lg lg:text-xl font-bold text-gray-900">Stock Adjustments History</h2>
                 <p className="text-gray-600 text-xs md:text-sm mt-1 hidden md:block">View all stock movements: Force Adjustments, Transactions (Sales), and Stock Transfers</p>
               </div>
-              <div className="flex items-center gap-2 md:gap-3">
-                <select
-                  value={adjustmentDateFilter}
-                  onChange={(e) => setAdjustmentDateFilter(e.target.value)}
-                  className="px-2 md:px-3 py-1.5 md:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-xs md:text-sm"
-                >
-                  <option value="all">All Time</option>
-                  <option value="7days">Last 7 Days</option>
-                  <option value="30days">Last 30 Days</option>
-                  <option value="90days">Last 90 Days</option>
-                  <option value="1year">Last Year</option>
-                </select>
+              <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+                {/* Custom Date Range */}
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={adjustmentStartDate}
+                    onChange={(e) => setAdjustmentStartDate(e.target.value)}
+                    className="text-xs md:text-sm w-36"
+                    placeholder="Start Date"
+                  />
+                  <span className="text-gray-500">to</span>
+                  <Input
+                    type="date"
+                    value={adjustmentEndDate}
+                    onChange={(e) => setAdjustmentEndDate(e.target.value)}
+                    className="text-xs md:text-sm w-36"
+                    placeholder="End Date"
+                  />
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -2678,6 +2817,15 @@ const Stocks = () => {
                 >
                   <RefreshCw className={`h-3.5 w-3.5 md:h-4 md:w-4 ${loadingAdjustments ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">Refresh</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrintAdjustments}
+                  className="flex items-center gap-1 md:gap-2 text-xs md:text-sm"
+                >
+                  <Printer className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                  <span className="hidden sm:inline">Print</span>
                 </Button>
               </div>
             </div>
@@ -2708,136 +2856,170 @@ const Stocks = () => {
                 <p className="text-gray-600">No stock adjustments found for the selected period</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Date & Time
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Type
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Product
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Previous Stock
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        New Stock
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Adjustment
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Reason / Details
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Adjusted By
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {stockAdjustments.map((adjustment) => {
-                      const typeColors = {
-                        'force_adjustment': 'bg-orange-100 text-orange-800 border-orange-200',
-                        'transaction': 'bg-blue-100 text-blue-800 border-blue-200',
-                        'transfer_out': 'bg-purple-100 text-purple-800 border-purple-200',
-                        'transfer_in': 'bg-green-100 text-green-800 border-green-200'
-                      };
-                      const typeIcons = {
-                        'force_adjustment': <AlertTriangle className="h-3 w-3" />,
-                        'transaction': <ShoppingCart className="h-3 w-3" />,
-                        'transfer_out': <ArrowRight className="h-3 w-3" />,
-                        'transfer_in': <ArrowRightLeft className="h-3 w-3" />
-                      };
-                      
-                      return (
-                        <tr key={adjustment.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">
-                              {format(adjustment.createdAt, 'MMM dd, yyyy')}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {format(adjustment.createdAt, 'hh:mm a')}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${typeColors[adjustment.type] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
-                              {typeIcons[adjustment.type]}
-                              {adjustment.adjustmentType || 'Adjustment'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="text-sm font-medium text-gray-900">
-                              {adjustment.productName}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              SKU: {adjustment.productSku}
-                            </div>
-                            {adjustment.batchesUsed && adjustment.batchesUsed.length > 0 && (
-                              <div className="text-xs text-blue-600 mt-1">
-                                Batches: {adjustment.batchesUsed.map(b => b.batchNumber || b.batchId).slice(0, 2).join(', ')}
-                                {adjustment.batchesUsed.length > 2 && ` +${adjustment.batchesUsed.length - 2} more`}
+              <>
+                <div className="overflow-x-auto max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Date & Time
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Type
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Product
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Previous Stock
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          New Stock
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Adjustment
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Reason / Details
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Adjusted By
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {paginatedAdjustments.map((adjustment) => {
+                        const typeColors = {
+                          'force_adjustment': 'bg-orange-100 text-orange-800 border-orange-200',
+                          'transaction': 'bg-blue-100 text-blue-800 border-blue-200',
+                          'salon_use': 'bg-teal-100 text-teal-800 border-teal-200',
+                          'transfer_out': 'bg-purple-100 text-purple-800 border-purple-200',
+                          'transfer_in': 'bg-green-100 text-green-800 border-green-200'
+                        };
+                        const typeIcons = {
+                          'force_adjustment': <AlertTriangle className="h-3 w-3" />,
+                          'transaction': <ShoppingCart className="h-3 w-3" />,
+                          'salon_use': <Package className="h-3 w-3" />,
+                          'transfer_out': <ArrowRight className="h-3 w-3" />,
+                          'transfer_in': <ArrowRightLeft className="h-3 w-3" />
+                        };
+                        
+                        return (
+                          <tr key={adjustment.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm text-gray-900">
+                                {format(adjustment.createdAt, 'MMM dd, yyyy')}
                               </div>
-                            )}
-                            {adjustment.batchesReceived && adjustment.batchesReceived.length > 0 && (
-                              <div className="text-xs text-green-600 mt-1">
-                                Received Batches: {adjustment.batchesReceived.map(b => b.batchNumber || b.batchId).slice(0, 2).join(', ')}
-                                {adjustment.batchesReceived.length > 2 && ` +${adjustment.batchesReceived.length - 2} more`}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm text-gray-900 font-medium">
-                              {adjustment.previousStock !== null && adjustment.previousStock !== undefined ? adjustment.previousStock : '-'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm text-gray-900 font-medium">
-                              {adjustment.newStock !== null && adjustment.newStock !== undefined ? adjustment.newStock : '-'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              (adjustment.adjustmentQuantity || 0) >= 0 
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-red-100 text-red-800'
-                            }`}>
-                              {(adjustment.adjustmentQuantity || 0) >= 0 ? '+' : ''}{adjustment.adjustmentQuantity || 0}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="text-sm text-gray-900 max-w-xs" title={adjustment.reason || adjustment.notes}>
-                              <div className="font-medium">{adjustment.reason || 'N/A'}</div>
-                              {adjustment.notes && (
-                                <div className="text-xs text-gray-600 mt-1 truncate">{adjustment.notes}</div>
-                              )}
-                              {adjustment.transferId && (
-                                <div className="text-xs text-gray-500 mt-1">ID: {adjustment.transferId.slice(-8)}</div>
-                              )}
-                              {adjustment.transactionId && (
-                                <div className="text-xs text-gray-500 mt-1">Txn: {adjustment.transactionId.slice(-8)}</div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="text-sm text-gray-600">
-                              {adjustment.adjustedBy || 'Unknown'}
-                            </div>
-                            {adjustment.managerCode && (
                               <div className="text-xs text-gray-500">
-                                Code: {adjustment.managerCode}
+                                {format(adjustment.createdAt, 'hh:mm a')}
                               </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${typeColors[adjustment.type] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+                                {typeIcons[adjustment.type]}
+                                {adjustment.adjustmentType || 'Adjustment'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm font-medium text-gray-900">
+                                {adjustment.productName}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                SKU: {adjustment.productSku}
+                              </div>
+                              {adjustment.batchesUsed && adjustment.batchesUsed.length > 0 && (
+                                <div className="text-xs text-blue-600 mt-1">
+                                  Batches: {adjustment.batchesUsed.map(b => b.batchNumber || b.batchId).slice(0, 2).join(', ')}
+                                  {adjustment.batchesUsed.length > 2 && ` +${adjustment.batchesUsed.length - 2} more`}
+                                </div>
+                              )}
+                              {adjustment.batchesReceived && adjustment.batchesReceived.length > 0 && (
+                                <div className="text-xs text-green-600 mt-1">
+                                  Received Batches: {adjustment.batchesReceived.map(b => b.batchNumber || b.batchId).slice(0, 2).join(', ')}
+                                  {adjustment.batchesReceived.length > 2 && ` +${adjustment.batchesReceived.length - 2} more`}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className="text-sm text-gray-900 font-medium">
+                                {adjustment.previousStock !== null && adjustment.previousStock !== undefined ? adjustment.previousStock : '-'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className="text-sm text-gray-900 font-medium">
+                                {adjustment.newStock !== null && adjustment.newStock !== undefined ? adjustment.newStock : '-'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                (adjustment.adjustmentQuantity || 0) >= 0 
+                                  ? 'bg-green-100 text-green-800' 
+                                  : 'bg-red-100 text-red-800'
+                              }`}>
+                                {(adjustment.adjustmentQuantity || 0) >= 0 ? '+' : ''}{adjustment.adjustmentQuantity || 0}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm text-gray-900 max-w-xs" title={adjustment.reason || adjustment.notes}>
+                                <div className="font-medium">{adjustment.reason || 'N/A'}</div>
+                                {adjustment.notes && (
+                                  <div className="text-xs text-gray-600 mt-1 truncate">{adjustment.notes}</div>
+                                )}
+                                {adjustment.transferId && (
+                                  <div className="text-xs text-gray-500 mt-1">ID: {adjustment.transferId.slice(-8)}</div>
+                                )}
+                                {adjustment.transactionId && (
+                                  <div className="text-xs text-gray-500 mt-1">Txn: {adjustment.transactionId.slice(-8)}</div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm text-gray-600">
+                                {adjustment.adjustedBy || 'Unknown'}
+                              </div>
+                              {adjustment.managerCode && (
+                                <div className="text-xs text-gray-500">
+                                  Code: {adjustment.managerCode}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                
+                {/* Pagination */}
+                {stockAdjustments.length > adjustmentsPerPage && (
+                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                    <div className="text-sm text-gray-600">
+                      Showing {((adjustmentsPage - 1) * adjustmentsPerPage) + 1} to {Math.min(adjustmentsPage * adjustmentsPerPage, stockAdjustments.length)} of {stockAdjustments.length} adjustments
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAdjustmentsPage(prev => Math.max(1, prev - 1))}
+                        disabled={adjustmentsPage === 1}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="text-sm text-gray-600">
+                        Page {adjustmentsPage} of {Math.ceil(stockAdjustments.length / adjustmentsPerPage)}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAdjustmentsPage(prev => Math.min(Math.ceil(stockAdjustments.length / adjustmentsPerPage), prev + 1))}
+                        disabled={adjustmentsPage >= Math.ceil(stockAdjustments.length / adjustmentsPerPage)}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </Card>
         )}
@@ -3090,7 +3272,7 @@ const Stocks = () => {
               className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
                 (filters.status !== 'all' || filters.category !== 'all' || 
                  filters.stockRange.min || filters.stockRange.max || 
-                 filters.lowStock || filters.usageType !== 'all' || filters.batchNumber)
+                 filters.lowStock || filters.usageType !== 'all' || filters.batchNumber || filters.condition !== 'all')
                   ? 'bg-[#160B53]/10 border-[#160B53]/30 text-[#160B53] hover:bg-[#160B53]/20'
                   : 'border-gray-300 hover:bg-gray-50'
               }`}
@@ -3390,8 +3572,8 @@ const Stocks = () => {
                         <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <div>
-                              <div className="text-sm font-medium text-gray-900">{firstBatchStock}</div>
-                              <div className="text-xs text-gray-500">Batch 1</div>
+                              <div className="text-sm font-medium text-green-600">{firstBatchStock}</div>
+                              <div className="text-xs text-green-600">Current</div>
                             </div>
                             {hasMultipleBatches && (
                               <div className="ml-2 pl-2 border-l border-gray-300">
@@ -3475,7 +3657,7 @@ const Stocks = () => {
                             </td>
                             <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                               <div className="text-sm font-medium text-gray-900">{batchStock}</div>
-                              <div className="text-xs text-gray-500">Batch {idx + 2}</div>
+                              <div className="text-xs text-gray-500">Current</div>
                             </td>
                             <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                               <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(batch.status || 'In Stock')}`}>
@@ -3722,31 +3904,20 @@ const Stocks = () => {
                       Received: {format(new Date(selectedStock.receivedDate), 'MMM dd, yyyy')}
                     </p>
                   )}
-                  <p className="text-sm text-blue-600 mt-2 font-medium">
-                    {selectedStock.startPeriod ? format(new Date(selectedStock.startPeriod), 'MMMM yyyy') : 'No period set'}
-                  </p>
                 </div>
               </div>
 
               {/* Monthly Stock Information */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h4 className="font-semibold text-blue-900 mb-3">Monthly Stock Record</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-medium text-blue-700">Beginning Stock</label>
                     <p className="text-lg font-bold text-blue-900">{selectedStock.beginningStock || 0} units</p>
                   </div>
                   <div>
                     <label className="text-xs font-medium text-blue-700">Current Stock</label>
-                    <p className="text-lg font-bold text-green-600">{selectedStock.realTimeStock || selectedStock.remainingQuantity || 0} units</p>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs font-medium text-blue-700">Period</label>
-                    <p className="text-sm text-blue-900">
-                      {selectedStock.startPeriod 
-                        ? `${format(new Date(selectedStock.startPeriod), 'MMM dd, yyyy')} - ${selectedStock.endPeriod ? format(new Date(selectedStock.endPeriod), 'MMM dd, yyyy') : 'Ongoing'}`
-                        : 'No period set'}
-                    </p>
+                    <p className="text-lg font-bold text-green-600">{getComputedStock(selectedStock)} units</p>
                   </div>
                 </div>
               </div>
@@ -3788,20 +3959,16 @@ const Stocks = () => {
                     <p className="text-gray-900">{branchName || 'Unknown Branch'}</p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-500">Location</label>
-                    <p className="text-gray-900">{selectedStock.location || selectedStock.storageLocation || 'Not specified'}</p>
-                  </div>
-                  <div>
                     <label className="text-sm font-medium text-gray-500">Tracking Mode</label>
                     <p className="text-gray-900 capitalize">{selectedStock.weekTrackingMode || selectedStock.trackingMode || 'Manual'}</p>
                   </div>
-                </div>
-
-                <div className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-gray-500">End Stock Mode</label>
                     <p className="text-gray-900 capitalize">{selectedStock.endStockMode || 'Manual'}</p>
                   </div>
+                </div>
+
+                <div className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-gray-500">Created At</label>
                     <p className="text-gray-900">
@@ -4455,6 +4622,21 @@ const Stocks = () => {
                   </select>
                 </div>
 
+                {/* Stock Condition */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Stock Condition</label>
+                  <select
+                    value={filters.condition}
+                    onChange={(e) => setFilters(prev => ({ ...prev, condition: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-[#160B53]"
+                  >
+                    <option value="all">All Conditions</option>
+                    <option value="good">Good (Active, Not Expired, Has Stock)</option>
+                    <option value="expired">Expired</option>
+                    <option value="depleted">Depleted (Zero Stock)</option>
+                  </select>
+                </div>
+
                 {/* Batch Number */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Batch Number</label>
@@ -4493,7 +4675,8 @@ const Stocks = () => {
                       stockRange: { min: '', max: '' },
                       lowStock: false,
                       usageType: 'all',
-                      batchNumber: ''
+                      batchNumber: '',
+                      condition: 'all'
                     });
                   }}
                 >
@@ -4664,6 +4847,15 @@ const Stocks = () => {
                       setSalonUseDeductionErrors({});
                       
                       // Deduct using inventoryService
+                      console.log('🔍 Deduction data being sent:', {
+                        branchId: userData?.branchId,
+                        productId: salonUseDeductionForm.productId,
+                        quantity: parseInt(salonUseDeductionForm.quantity),
+                        usageType: 'salon-use',
+                        batchId: salonUseDeductionForm.batchId,
+                        batches: salonUseDeductionForm.batchId ? [{ batchId: salonUseDeductionForm.batchId }] : undefined
+                      });
+                      
                       const deductionResult = await inventoryService.deductStockFIFO({
                         branchId: userData?.branchId,
                         productId: salonUseDeductionForm.productId,
@@ -4676,7 +4868,10 @@ const Stocks = () => {
                         batches: salonUseDeductionForm.batchId ? [{ batchId: salonUseDeductionForm.batchId }] : undefined
                       });
                       
+                      console.log('🔍 Deduction result:', deductionResult);
+                      
                       if (!deductionResult.success) {
+                        console.error('❌ Deduction failed:', deductionResult.message);
                         setSalonUseDeductionErrors({ general: deductionResult.message || 'Failed to deduct stock. Please try again.' });
                         setIsSubmittingDeduction(false);
                         return;
@@ -4715,10 +4910,19 @@ const Stocks = () => {
                       });
                       setIsSalonUseDeductionModalOpen(false);
                       
-                      // Reload stocks
-                      await reloadStocks();
-                      
                       toast.success(`Successfully deducted ${salonUseDeductionForm.quantity} units from salon-use stock`);
+                      
+                      // Force reload stocks to show updated values
+                      // Add delay to ensure Firestore has propagated the change
+                      console.log('🔄 Reloading stocks after deduction...');
+                      setTimeout(async () => {
+                        setStocks([]); // Clear current stocks to force fresh load
+                        setCurrentPage(1);
+                        setLastVisible(null);
+                        setHasMore(true);
+                        await loadData(); // Use loadData instead of reloadStocks to ensure fresh fetch
+                        console.log('✅ Stocks reloaded');
+                      }, 1000); // 1000ms delay to ensure Firestore propagation
                     } catch (error) {
                       console.error('Error deducting salon-use stock:', error);
                       setSalonUseDeductionErrors({ general: 'Failed to deduct stock. Please try again.' });

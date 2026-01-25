@@ -918,297 +918,422 @@ const OperationalManagerDeposits = () => {
         </div>
       )}
 
-      {/* Deposit Details Modal */}
+      {/* Enhanced Deposit Details Modal - Mobile Responsive */}
       {showDetailsModal && selectedDeposit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-[#160B53] to-[#12094A] text-white p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold">Deposit Details</h2>
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowDetailsModal(false)}
-                  className="text-white hover:bg-white/20"
-                >
-                  <X className="h-5 w-5" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Amount Comparison Card - Simplified (No OCR) */}
-              <Card className="p-6 bg-gradient-to-r from-blue-50 to-green-50 border-2 border-blue-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Amount Comparison</h3>
-                <div className="space-y-4">
-                  {/* Daily Sales Total */}
-                  <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-blue-200">
-                    <div className="flex items-center gap-3">
-                      <div className="w-3 h-3 rounded-full bg-blue-600"></div>
-                      <div>
-                        <span className="font-medium text-gray-700 block">Daily Sales Total</span>
-                        <span className="text-xs text-gray-500">(From Transactions)</span>
-                      </div>
-                    </div>
-                    <span className="text-2xl font-bold text-blue-600">
-                      ₱{(selectedDeposit.dailySalesTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4">
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-6xl h-[95vh] sm:h-[92vh] flex flex-col overflow-hidden">
+            {/* Sticky Header */}
+            <div className="bg-gradient-to-r from-[#160B53] to-[#2A1B70] text-white px-3 sm:px-6 py-3 sm:py-5 flex-shrink-0 relative overflow-hidden">
+              <div className="absolute inset-0 bg-white/5 opacity-20"></div>
+              <div className="relative flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+                  <div className="p-2 sm:p-3 bg-white/10 rounded-lg sm:rounded-xl backdrop-blur-md flex-shrink-0">
+                    <Banknote className="h-4 w-4 sm:h-6 sm:w-6 text-blue-200" />
                   </div>
-
-                  {/* Manual Deposit Amount */}
-                  <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-green-200">
-                    <div className="flex items-center gap-3">
-                      <div className="w-3 h-3 rounded-full bg-green-600"></div>
-                      <div>
-                        <span className="font-medium text-gray-700 block">Manual Deposit Amount</span>
-                        <span className="text-xs text-gray-500">(Submitted by Branch)</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl font-bold text-green-600">
-                        ₱{(selectedDeposit.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                      {selectedDeposit.dailySalesTotal > 0 && (
-                        <span className={`text-sm font-semibold px-3 py-1 rounded-full ${
-                          Math.abs(selectedDeposit.amount - selectedDeposit.dailySalesTotal) <= 1 
-                            ? 'bg-green-100 text-green-700' 
-                            : 'bg-red-100 text-red-700'
-                        }`}>
-                          {Math.abs(selectedDeposit.amount - selectedDeposit.dailySalesTotal) <= 1 
-                            ? '✓ Match' 
-                            : `Diff: ₱${Math.abs(selectedDeposit.amount - selectedDeposit.dailySalesTotal).toFixed(2)}`}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Difference Summary */}
-                  <div className="mt-4 p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-300">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-700">Total Difference</p>
-                        <p className="text-xs text-gray-600 mt-1">Deposit Amount vs Daily Sales</p>
-                      </div>
-                      <div className="text-right">
-                        <p className={`text-2xl font-bold ${
-                          Math.abs(selectedDeposit.difference || 0) <= 1 
-                            ? 'text-green-600' 
-                            : Math.abs(selectedDeposit.difference || 0) > 100
-                            ? 'text-red-600'
-                            : 'text-yellow-600'
-                        }`}>
-                          {selectedDeposit.difference >= 0 ? '+' : ''}₱{Math.abs(selectedDeposit.difference || 0).toFixed(2)}
-                        </p>
-                        <p className={`text-xs font-medium mt-1 ${
-                          Math.abs(selectedDeposit.difference || 0) <= 1 
-                            ? 'text-green-600' 
-                            : Math.abs(selectedDeposit.difference || 0) > 100
-                            ? 'text-red-600'
-                            : 'text-yellow-600'
-                        }`}>
-                          {Math.abs(selectedDeposit.difference || 0) <= 1 
-                            ? '✓ Acceptable' 
-                            : Math.abs(selectedDeposit.difference || 0) > 100
-                            ? '✗ Large Discrepancy'
-                            : '⚠ Minor Difference'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              {/* Expenses/Deductions Section */}
-              {(selectedDeposit.expenses?.length > 0 || selectedDeposit.totalExpenses > 0) && (
-                <Card className="p-6 bg-gradient-to-r from-orange-50 to-red-50 border-2 border-orange-200">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-orange-600" />
-                    Expenses / Deductions
-                  </h3>
-                  
-                  {/* Total Expenses */}
-                  <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-orange-200 mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-3 h-3 rounded-full bg-orange-600"></div>
-                      <span className="font-medium text-gray-700">Total Expenses</span>
-                    </div>
-                    <span className="text-2xl font-bold text-orange-600">
-                      ₱{(selectedDeposit.totalExpenses || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-
-                  {/* Expense Items */}
-                  {selectedDeposit.expenses?.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-gray-600 mb-2">Expense Breakdown:</p>
-                      <div className="bg-white rounded-lg border border-orange-200 divide-y divide-orange-100">
-                        {selectedDeposit.expenses.map((expense, index) => (
-                          <div key={index} className="p-3 flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <p className="font-medium text-gray-800">{expense.description || expense.category || 'Expense'}</p>
-                                {(expense.imageUrl || expense.receiptUrl || expense.image) && (
-                                  <button
-                                    onClick={() => setExpenseImageUrl(expense.imageUrl || expense.receiptUrl || expense.image)}
-                                    className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
-                                    title="View Receipt"
-                                  >
-                                    <ImageIcon className="h-4 w-4" />
-                                  </button>
-                                )}
-                              </div>
-                              {expense.justification && (
-                                <p className="text-sm text-gray-600 mt-1">
-                                  <span className="font-medium">Justification:</span> {expense.justification}
-                                </p>
-                              )}
-                              {expense.category && expense.description && (
-                                <p className="text-xs text-gray-500 mt-1">Category: {expense.category}</p>
-                              )}
-                            </div>
-                            <span className="font-semibold text-orange-600 ml-4">
-                              ₱{(expense.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Expected vs Actual Calculation */}
-                  <div className="mt-4 p-4 bg-white rounded-lg border border-orange-200">
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Daily Sales:</span>
-                        <span className="font-medium">₱{(selectedDeposit.dailySalesTotal || 0).toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between text-orange-600">
-                        <span>Less: Expenses:</span>
-                        <span className="font-medium">- ₱{(selectedDeposit.totalExpenses || 0).toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between pt-2 border-t border-gray-200 font-semibold">
-                        <span className="text-gray-700">Expected Deposit:</span>
-                        <span className="text-blue-600">₱{((selectedDeposit.dailySalesTotal || 0) - (selectedDeposit.totalExpenses || 0)).toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-700">Actual Deposit:</span>
-                        <span className="text-green-600 font-medium">₱{(selectedDeposit.amount || 0).toLocaleString()}</span>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              )}
-
-              {/* Receipt Image */}
-              {selectedDeposit.receiptImageUrl && (
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <ImageIcon className="h-5 w-5 text-gray-600" />
-                    Receipt Image
-                  </h3>
-                  <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                    <img 
-                      src={selectedDeposit.receiptImageUrl} 
-                      alt="Deposit receipt" 
-                      className="max-w-full rounded-lg shadow-md"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Deposit Information */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-sm font-medium text-gray-500 mb-1">Deposit Date</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {format(new Date(selectedDeposit.depositDate), 'MMMM dd, yyyy')}
-                  </p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-sm font-medium text-gray-500 mb-1">Branch</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {branches[selectedDeposit.branchId] || 'Unknown Branch'}
-                  </p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-sm font-medium text-gray-500 mb-1">Validation Status</p>
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getValidationColor(selectedDeposit.validationStatus)}`}>
-                    {selectedDeposit.validationStatus === 'match' ? '✓ Match' :
-                     selectedDeposit.validationStatus === 'mismatch' ? '✗ Mismatch' :
-                     selectedDeposit.validationStatus === 'manual_review' ? '⚠ Review' : 'Pending'}
-                  </span>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-sm font-medium text-gray-500 mb-1">Review Status</p>
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(selectedDeposit.status)}`}>
-                    {selectedDeposit.status === 'approved' ? '✓ Approved' :
-                     selectedDeposit.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}
-                  </span>
-                </div>
-                {selectedDeposit.bankName && (
-                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <p className="text-sm font-medium text-gray-500 mb-1">Bank</p>
-                    <p className="text-lg font-semibold text-gray-900">{selectedDeposit.bankName}</p>
-                  </div>
-                )}
-                {selectedDeposit.referenceNumber && (
-                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <p className="text-sm font-medium text-gray-500 mb-1">Reference Number</p>
-                    <p className="text-lg font-semibold text-gray-900">{selectedDeposit.referenceNumber}</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Submitted By */}
-              <div className="border-t border-gray-200 pt-4">
-                <p className="text-sm font-medium text-gray-500 mb-2">Submitted By</p>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-[#160B53] text-white flex items-center justify-center font-semibold">
-                    {(selectedDeposit.submittedByName || 'U')[0].toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="text-gray-900 font-medium">{selectedDeposit.submittedByName || 'Unknown'}</p>
-                    <p className="text-xs text-gray-500">
-                      {format(new Date(selectedDeposit.submittedAt), 'MMM dd, yyyy HH:mm')}
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-base sm:text-2xl font-bold tracking-tight truncate">Deposit Review</h2>
+                    <p className="text-blue-100 text-xs sm:text-sm opacity-90 truncate">
+                      {branches[selectedDeposit.branchId] || 'Unknown Branch'}
+                    </p>
+                    <p className="text-blue-100 text-xs opacity-90 sm:hidden">
+                      {format(new Date(selectedDeposit.depositDate), 'MMM dd, yyyy')}
+                    </p>
+                    <p className="text-blue-100 text-xs sm:text-sm opacity-90 hidden sm:block">
+                      {format(new Date(selectedDeposit.depositDate), 'MMMM dd, yyyy')}
                     </p>
                   </div>
                 </div>
+                <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handlePrintDeposit(selectedDeposit)}
+                    className="text-white hover:bg-white/20 hidden sm:flex items-center gap-2 px-3"
+                  >
+                    <Printer className="h-4 w-4" />
+                    <span className="hidden md:inline">Print</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handlePrintDeposit(selectedDeposit)}
+                    className="text-white hover:bg-white/20 sm:hidden p-2"
+                  >
+                    <Printer className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowDetailsModal(false)}
+                    className="text-white hover:bg-white/20 rounded-full p-1.5 sm:p-2"
+                  >
+                    <X className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gray-50/50">
+              {/* Financial Summary - Mobile Responsive */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                {/* Daily Sales */}
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg sm:rounded-xl p-4 sm:p-5 border-2 border-blue-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-2 rounded-full bg-blue-600"></div>
+                    <p className="text-xs font-bold text-blue-900 uppercase tracking-wide">Daily Sales</p>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-extrabold text-blue-700">
+                    ₱{(selectedDeposit.dailySalesTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">From transactions</p>
+                </div>
+
+                {/* Deposited Amount */}
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg sm:rounded-xl p-4 sm:p-5 border-2 border-green-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-2 rounded-full bg-green-600"></div>
+                    <p className="text-xs font-bold text-green-900 uppercase tracking-wide">Deposited</p>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-extrabold text-green-700">
+                    ₱{(selectedDeposit.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-green-600 mt-1">Bank deposit</p>
+                </div>
+
+                {/* Difference */}
+                <div className={`rounded-lg sm:rounded-xl p-4 sm:p-5 border-2 shadow-sm sm:col-span-2 lg:col-span-1 ${
+                  Math.abs(selectedDeposit.difference || 0) <= 1 
+                    ? 'bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200' 
+                    : Math.abs(selectedDeposit.difference || 0) > 100
+                    ? 'bg-gradient-to-br from-red-50 to-red-100 border-red-200'
+                    : 'bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200'
+                }`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      Math.abs(selectedDeposit.difference || 0) <= 1 ? 'bg-emerald-600' :
+                      Math.abs(selectedDeposit.difference || 0) > 100 ? 'bg-red-600' : 'bg-amber-600'
+                    }`}></div>
+                    <p className={`text-xs font-bold uppercase tracking-wide ${
+                      Math.abs(selectedDeposit.difference || 0) <= 1 ? 'text-emerald-900' :
+                      Math.abs(selectedDeposit.difference || 0) > 100 ? 'text-red-900' : 'text-amber-900'
+                    }`}>Difference</p>
+                  </div>
+                  <p className={`text-2xl sm:text-3xl font-extrabold ${
+                    Math.abs(selectedDeposit.difference || 0) <= 1 ? 'text-emerald-700' :
+                    Math.abs(selectedDeposit.difference || 0) > 100 ? 'text-red-700' : 'text-amber-700'
+                  }`}>
+                    {selectedDeposit.difference >= 0 ? '+' : ''}₱{Math.abs(selectedDeposit.difference || 0).toFixed(2)}
+                  </p>
+                  <p className={`text-xs mt-1 font-semibold ${
+                    Math.abs(selectedDeposit.difference || 0) <= 1 ? 'text-emerald-600' :
+                    Math.abs(selectedDeposit.difference || 0) > 100 ? 'text-red-600' : 'text-amber-600'
+                  }`}>
+                    {Math.abs(selectedDeposit.difference || 0) <= 1 ? '✓ Acceptable' :
+                     Math.abs(selectedDeposit.difference || 0) > 100 ? '✗ Large Gap' : '⚠ Minor Gap'}
+                  </p>
+                </div>
               </div>
 
-              {/* Review Information */}
-              {selectedDeposit.reviewedByName && (
-                <div className="border-t border-gray-200 pt-4">
-                  <p className="text-sm font-medium text-gray-500 mb-2">Reviewed By</p>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-white ${
-                      selectedDeposit.status === 'approved' ? 'bg-green-600' : 'bg-red-600'
-                    }`}>
-                      {(selectedDeposit.reviewedByName || 'U')[0].toUpperCase()}
+              {/* Adjustments Section - Mobile Responsive */}
+              {(selectedDeposit.expenses?.length > 0 || selectedDeposit.totalExpenses > 0 || selectedDeposit.totalAdditions > 0) && (
+                <div className="bg-white rounded-lg sm:rounded-xl border-2 border-orange-200 shadow-sm overflow-hidden">
+                  <div className="bg-gradient-to-r from-orange-50 to-amber-50 px-3 sm:px-5 py-3 sm:py-4 border-b border-orange-200">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                        <div className="p-1.5 sm:p-2 bg-orange-100 rounded-lg flex-shrink-0">
+                          <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-sm sm:text-base font-bold text-gray-900 truncate">Deposit Adjustments</h3>
+                          <p className="text-xs text-gray-600 hidden sm:block">Deductions and additions affecting final deposit</p>
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        {selectedDeposit.totalAdditions > 0 && (
+                          <p className="text-xs sm:text-sm font-bold text-green-700">+₱{selectedDeposit.totalAdditions.toLocaleString()}</p>
+                        )}
+                        {selectedDeposit.totalExpenses > 0 && (
+                          <p className="text-xs sm:text-sm font-bold text-red-700">-₱{selectedDeposit.totalExpenses.toLocaleString()}</p>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-gray-900 font-medium">{selectedDeposit.reviewedByName}</p>
-                      {selectedDeposit.reviewedAt && (
-                        <p className="text-xs text-gray-500">
-                          {format(new Date(selectedDeposit.reviewedAt), 'MMM dd, yyyy HH:mm')}
+                  </div>
+
+                  <div className="p-3 sm:p-5 space-y-3 sm:space-y-4">
+                    {/* Calculation Breakdown */}
+                    <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-3 sm:p-4 border border-gray-200">
+                      <div className="space-y-2 text-xs sm:text-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-700 font-medium">Daily Sales Total</span>
+                          <span className="font-bold text-blue-700">₱{(selectedDeposit.dailySalesTotal || 0).toLocaleString()}</span>
+                        </div>
+                        {selectedDeposit.totalAdditions > 0 && (
+                          <div className="flex justify-between items-center text-green-700">
+                            <span className="font-medium">+ Additions</span>
+                            <span className="font-bold">+₱{selectedDeposit.totalAdditions.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {selectedDeposit.totalExpenses > 0 && (
+                          <div className="flex justify-between items-center text-red-700">
+                            <span className="font-medium">- Deductions</span>
+                            <span className="font-bold">-₱{selectedDeposit.totalExpenses.toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center pt-2 border-t-2 border-gray-300">
+                          <span className="text-gray-900 font-bold">Expected</span>
+                          <span className="font-extrabold text-base sm:text-lg text-purple-700">
+                            ₱{((selectedDeposit.dailySalesTotal || 0) + (selectedDeposit.totalAdditions || 0) - (selectedDeposit.totalExpenses || 0)).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-900 font-bold">Actual</span>
+                          <span className="font-extrabold text-base sm:text-lg text-green-700">₱{(selectedDeposit.amount || 0).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Adjustment Items with Justifications */}
+                    {selectedDeposit.expenses?.length > 0 && (
+                      <div className="space-y-2 sm:space-y-3">
+                        <p className="text-xs sm:text-sm font-bold text-gray-700 flex items-center gap-2">
+                          <span className="w-1 h-4 bg-orange-500 rounded"></span>
+                          Details ({selectedDeposit.expenses.length})
                         </p>
+                        <div className="space-y-2">
+                          {selectedDeposit.expenses.map((expense, index) => (
+                            <div key={index} className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 hover:shadow-md transition-shadow">
+                              <div className="flex items-start justify-between gap-2 sm:gap-4">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${
+                                      expense.type === 'addition' 
+                                        ? 'bg-green-100 text-green-700' 
+                                        : 'bg-red-100 text-red-700'
+                                    }`}>
+                                      {expense.type === 'addition' ? '+ Addition' : '- Deduction'}
+                                    </span>
+                                    <span className="text-xs text-gray-500">#{index + 1}</span>
+                                  </div>
+                                  <p className="font-bold text-sm sm:text-base text-gray-900 mb-1 break-words">
+                                    {expense.description || expense.category || 'Adjustment'}
+                                  </p>
+                                  {expense.justification && (
+                                    <div className="mt-2 p-2 sm:p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                      <p className="text-xs font-semibold text-blue-900 mb-1 flex items-center gap-1">
+                                        <span className="w-1 h-3 bg-blue-500 rounded"></span>
+                                        Justification
+                                      </p>
+                                      <p className="text-xs sm:text-sm text-blue-800 leading-relaxed break-words">{expense.justification}</p>
+                                    </div>
+                                  )}
+                                  {expense.category && expense.description && (
+                                    <p className="text-xs text-gray-500 mt-1">Category: {expense.category}</p>
+                                  )}
+                                </div>
+                                <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 sm:gap-3 flex-shrink-0">
+                                  <span className={`text-lg sm:text-xl font-extrabold whitespace-nowrap ${
+                                    expense.type === 'addition' ? 'text-green-600' : 'text-red-600'
+                                  }`}>
+                                    {expense.type === 'addition' ? '+' : '-'}₱{(expense.amount || 0).toLocaleString()}
+                                  </span>
+                                  {(expense.imageUrl || expense.receiptUrl || expense.receiptImageUrl || expense.image) && (
+                                    <button
+                                      onClick={() => setExpenseImageUrl(expense.imageUrl || expense.receiptUrl || expense.receiptImageUrl || expense.image)}
+                                      className="p-1.5 sm:p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
+                                      title="View Receipt"
+                                    >
+                                      <ImageIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Receipt & Additional Info - Mobile Responsive */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                {/* Left: Receipt Image */}
+                {selectedDeposit.receiptImageUrl && (
+                  <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="bg-gray-50 px-3 sm:px-5 py-2 sm:py-3 border-b border-gray-200">
+                      <h3 className="text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-2">
+                        <ImageIcon className="h-3 w-3 sm:h-4 sm:w-4 text-gray-600" />
+                        Deposit Receipt
+                      </h3>
+                    </div>
+                    <div className="p-3 sm:p-4">
+                      <img 
+                        src={selectedDeposit.receiptImageUrl} 
+                        alt="Deposit receipt" 
+                        className="w-full rounded-lg shadow-md cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => window.open(selectedDeposit.receiptImageUrl, '_blank')}
+                      />
+                      <p className="text-xs text-center text-gray-500 mt-2">Tap to view full size</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Right: Deposit Information */}
+                <div className="space-y-3 sm:space-y-4">
+                  <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-3 sm:p-5">
+                    <h3 className="text-xs sm:text-sm font-bold text-gray-900 mb-3 sm:mb-4 flex items-center gap-2">
+                      <Building className="h-3 w-3 sm:h-4 sm:w-4 text-gray-600" />
+                      Deposit Information
+                    </h3>
+                    <div className="space-y-2 sm:space-y-3">
+                      <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-gray-100">
+                        <span className="text-xs sm:text-sm text-gray-600">Date</span>
+                        <span className="text-xs sm:text-sm font-semibold text-gray-900">
+                          {format(new Date(selectedDeposit.depositDate), 'MMM dd, yyyy')}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-gray-100">
+                        <span className="text-xs sm:text-sm text-gray-600">Branch</span>
+                        <span className="text-xs sm:text-sm font-semibold text-gray-900 text-right">
+                          {branches[selectedDeposit.branchId] || 'Unknown'}
+                        </span>
+                      </div>
+                      {selectedDeposit.bankName && (
+                        <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-gray-100">
+                          <span className="text-xs sm:text-sm text-gray-600">Bank</span>
+                          <span className="text-xs sm:text-sm font-semibold text-gray-900">{selectedDeposit.bankName}</span>
+                        </div>
+                      )}
+                      {selectedDeposit.referenceNumber && (
+                        <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-gray-100">
+                          <span className="text-xs sm:text-sm text-gray-600">Reference #</span>
+                          <span className="text-xs sm:text-sm font-mono font-semibold text-gray-900 break-all text-right">{selectedDeposit.referenceNumber}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center py-1.5 sm:py-2">
+                        <span className="text-xs sm:text-sm text-gray-600">Validation</span>
+                        <span className={`inline-flex items-center px-2 py-0.5 sm:py-1 rounded-full text-xs font-bold ${getValidationColor(selectedDeposit.validationStatus)}`}>
+                          {selectedDeposit.validationStatus === 'match' ? '✓ Match' :
+                           selectedDeposit.validationStatus === 'mismatch' ? '✗ Mismatch' : '⚠ Review'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Status & Review Info */}
+                  <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-3 sm:p-5">
+                    <h3 className="text-xs sm:text-sm font-bold text-gray-900 mb-3 sm:mb-4">Review Status</h3>
+                    <div className="space-y-3 sm:space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs sm:text-sm text-gray-600">Current Status</span>
+                        <span className={`inline-flex items-center px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-xs font-bold border ${getStatusColor(selectedDeposit.status)}`}>
+                          {selectedDeposit.status === 'approved' ? '✓ Approved' :
+                           selectedDeposit.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}
+                        </span>
+                      </div>
+
+                      {/* Submitted By */}
+                      <div className="pt-2 sm:pt-3 border-t border-gray-100">
+                        <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Submitted By</p>
+                        <div className="flex items-center gap-2 sm:gap-3">
+                          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#160B53] text-white flex items-center justify-center font-bold text-xs sm:text-sm flex-shrink-0">
+                            {(selectedDeposit.submittedByName || 'U')[0].toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs sm:text-sm font-semibold text-gray-900 truncate">{selectedDeposit.submittedByName || 'Unknown'}</p>
+                            <p className="text-xs text-gray-500">
+                              {selectedDeposit.submittedAt && format(new Date(selectedDeposit.submittedAt), 'MMM dd, yyyy HH:mm')}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Reviewed By */}
+                      {selectedDeposit.reviewedByName && (
+                        <div className="pt-2 sm:pt-3 border-t border-gray-100">
+                          <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Reviewed By</p>
+                          <div className="flex items-center gap-2 sm:gap-3">
+                            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold text-xs sm:text-sm text-white flex-shrink-0 ${
+                              selectedDeposit.status === 'approved' ? 'bg-green-600' : 'bg-red-600'
+                            }`}>
+                              {(selectedDeposit.reviewedByName || 'U')[0].toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs sm:text-sm font-semibold text-gray-900 truncate">{selectedDeposit.reviewedByName}</p>
+                              <p className="text-xs text-gray-500">
+                                {selectedDeposit.reviewedAt && format(new Date(selectedDeposit.reviewedAt), 'MMM dd, yyyy HH:mm')}
+                              </p>
+                            </div>
+                          </div>
+                          {selectedDeposit.reviewNotes && (
+                            <div className="mt-2 sm:mt-3 p-2 sm:p-3 bg-blue-50 rounded-lg border border-blue-200">
+                              <p className="text-xs font-semibold text-blue-900 mb-1">Review Notes:</p>
+                              <p className="text-xs sm:text-sm text-blue-800 leading-relaxed break-words">{selectedDeposit.reviewNotes}</p>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
-                  {selectedDeposit.reviewNotes && (
-                    <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                      <p className="text-sm font-medium text-blue-900 mb-1">Review Notes:</p>
-                      <p className="text-sm text-blue-800">{selectedDeposit.reviewNotes}</p>
-                    </div>
-                  )}
                 </div>
-              )}
+              </div>
 
-              {/* Notes */}
-              {selectedDeposit.notes && (
-                <div className="border-t border-gray-200 pt-4">
-                  <p className="text-sm font-medium text-gray-500 mb-2">Additional Notes</p>
-                  <p className="text-gray-900 bg-gray-50 p-3 rounded-lg border border-gray-200">{selectedDeposit.notes}</p>
+              {/* Anomaly Warning - Mobile Responsive */}
+              {selectedDeposit.hasAnomaly && selectedDeposit.anomalyDescription && (
+                <div className="bg-red-50 border-2 border-red-200 rounded-lg sm:rounded-xl p-3 sm:p-5">
+                  <div className="flex items-start gap-2 sm:gap-4">
+                    <div className="p-1.5 sm:p-2 bg-red-100 rounded-lg flex-shrink-0">
+                      <AlertTriangle className="h-5 w-5 sm:h-6 sm:w-6 text-red-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm sm:text-base font-bold text-red-900 mb-1 sm:mb-2">Anomaly Detected</h3>
+                      <p className="text-xs sm:text-sm text-red-800 leading-relaxed break-words">{selectedDeposit.anomalyDescription}</p>
+                    </div>
+                  </div>
                 </div>
               )}
+            </div>
+
+            {/* Sticky Footer with Actions - Mobile Responsive */}
+            <div className="bg-white border-t-2 border-gray-200 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between flex-shrink-0 shadow-lg gap-2">
+              <div className="text-xs text-gray-500 hidden sm:block">
+                {selectedDeposit.status === 'submitted' ? 'Pending your review' : 'Review completed'}
+              </div>
+              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                {selectedDeposit.status === 'submitted' && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setShowReviewModal(true);
+                        setShowDetailsModal(false);
+                      }}
+                      className="border-red-300 text-red-700 hover:bg-red-50 px-3 sm:px-6 flex-1 sm:flex-none text-sm"
+                    >
+                      <XCircle className="h-4 w-4 sm:mr-2" />
+                      <span className="hidden sm:inline">Reject</span>
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShowReviewModal(true);
+                        setShowDetailsModal(false);
+                      }}
+                      className="bg-green-600 text-white hover:bg-green-700 px-3 sm:px-6 flex-1 sm:flex-none text-sm"
+                    >
+                      <CheckCircle className="h-4 w-4 sm:mr-2" />
+                      <span className="hidden sm:inline">Approve</span>
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDetailsModal(false)}
+                  className="px-4 sm:px-8 flex-1 sm:flex-none text-sm"
+                >
+                  Close
+                </Button>
+              </div>
             </div>
           </div>
         </div>

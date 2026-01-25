@@ -36,24 +36,46 @@ const ClientRewards = () => {
     try {
       setLoading(true);
       
-      // Fetch all data in parallel
-      const [pointsData, codesData, branchesData, appointmentsData] = await Promise.all([
-        getAllBranchLoyaltyPoints(currentUser.uid),
-        getAllReferralCodes(currentUser.uid),
-        getAllBranches(),
-        getAppointmentsByClient(currentUser.uid)
-      ]);
+      // Fetch data with individual error handling
+      let pointsData = [];
+      let codesData = [];
+      let branchesData = [];
+      let appointmentsData = [];
 
-      setBranchPoints(pointsData);
-      setReferralCodes(codesData);
-      setBranches(branchesData.filter(b => b.isActive));
+      try {
+        pointsData = await getAllBranchLoyaltyPoints(currentUser.uid);
+      } catch (error) {
+        console.error('Error fetching loyalty points:', error);
+      }
+
+      try {
+        codesData = await getAllReferralCodes(currentUser.uid);
+      } catch (error) {
+        console.error('Error fetching referral codes:', error);
+      }
+
+      try {
+        branchesData = await getAllBranches();
+      } catch (error) {
+        console.error('Error fetching branches:', error);
+      }
+
+      try {
+        appointmentsData = await getAppointmentsByClient(currentUser.uid);
+      } catch (error) {
+        console.error('Error fetching appointments:', error);
+      }
+
+      setBranchPoints(pointsData || []);
+      setReferralCodes(codesData || []);
+      setBranches((branchesData || []).filter(b => b.isActive));
 
       // Calculate total points
-      const total = pointsData.reduce((sum, item) => sum + (item.loyaltyPoints || 0), 0);
+      const total = (pointsData || []).reduce((sum, item) => sum + (item.loyaltyPoints || 0), 0);
       setTotalPoints(total);
 
       // Calculate total visits (completed appointments)
-      const completed = appointmentsData.filter(apt => apt.status === 'completed');
+      const completed = (appointmentsData || []).filter(apt => apt.status === 'completed');
       setTotalVisits(completed.length);
 
       // Fetch referral stats
@@ -62,6 +84,7 @@ const ClientRewards = () => {
         setReferralStats(stats || { totalReferrals: 0, totalRewards: 0 });
       } catch (error) {
         console.error('Error fetching referral stats:', error);
+        setReferralStats({ totalReferrals: 0, totalRewards: 0 });
       }
 
       // Fetch recent loyalty history
@@ -70,6 +93,7 @@ const ClientRewards = () => {
         setLoyaltyHistory(history || []);
       } catch (error) {
         console.error('Error fetching loyalty history:', error);
+        setLoyaltyHistory([]);
       }
 
     } catch (error) {

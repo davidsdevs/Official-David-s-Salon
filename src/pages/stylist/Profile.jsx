@@ -37,7 +37,8 @@ const StylistProfile = () => {
     firstName: '',
     middleName: '',
     lastName: '',
-    phone: ''
+    phone: '',
+    availableAnytime: false // Can be bothered checkbox
   });
 
   useEffect(() => {
@@ -46,7 +47,8 @@ const StylistProfile = () => {
         firstName: userData.firstName || '',
         middleName: userData.middleName || '',
         lastName: userData.lastName || '',
-        phone: userData.phone || userData.phoneNumber || ''
+        phone: userData.phone || userData.phoneNumber || '',
+        availableAnytime: userData.availableAnytime || false
       });
       setImagePreview(userData.photoURL || userData.imageURL || null);
     }
@@ -196,10 +198,10 @@ const StylistProfile = () => {
   };
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: type === 'checkbox' ? checked : value
     }));
   };
 
@@ -227,7 +229,8 @@ const StylistProfile = () => {
       firstName: userData?.firstName || '',
       middleName: userData?.middleName || '',
       lastName: userData?.lastName || '',
-      phone: userData?.phone || userData?.phoneNumber || ''
+      phone: userData?.phone || userData?.phoneNumber || '',
+      availableAnytime: userData?.availableAnytime || false
     });
     setImagePreview(userData?.photoURL || userData?.imageURL || null);
     setIsEditing(false);
@@ -539,6 +542,38 @@ const StylistProfile = () => {
                   </p>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Availability Settings */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Availability Settings</h3>
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="availableAnytime"
+                  checked={formData.availableAnytime}
+                  onChange={handleChange}
+                  disabled={!isEditing}
+                  className="mt-1 h-5 w-5 text-primary-600 focus:ring-primary-500 border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-primary-600" />
+                    <span className="font-medium text-gray-900">Available Anytime</span>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Allow clients to book appointments with you even outside your regular schedule. 
+                    When enabled, you can be booked at any time during branch operating hours.
+                  </p>
+                  {formData.availableAnytime && (
+                    <div className="mt-2 p-2 bg-primary-50 border border-primary-200 rounded text-xs text-primary-700">
+                      ✓ You are currently available for bookings anytime
+                    </div>
+                  )}
+                </div>
+              </label>
             </div>
           </div>
 

@@ -52,7 +52,7 @@ const ReceptionistAppointments = () => {
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'calendar'
   const [calendarDate, setCalendarDate] = useState(new Date()); // Current month/year for calendar view
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null); // Selected day for detail view { date, appointments }
-  // Get today's date in YYYY-MM-DD format
+  
   const getTodayDate = () => {
     const today = new Date();
     return today.toISOString().split('T')[0];
@@ -785,6 +785,12 @@ const ReceptionistAppointments = () => {
     // Prevent editing cancelled appointments
     if (appointment.status === APPOINTMENT_STATUS.CANCELLED) {
       toast.error('Cannot edit cancelled appointments');
+      return;
+    }
+
+    // Prevent editing completed appointments
+    if (appointment.status === APPOINTMENT_STATUS.COMPLETED) {
+      toast.error('Cannot edit completed appointments');
       return;
     }
 
@@ -2188,6 +2194,7 @@ const ReceptionistAppointments = () => {
         loading={saving}
         isGuest={false}
         userBranch={userBranch}
+        userRole="receptionist" // Pass receptionist role to bypass 2-hour booking restriction
         isEditing={!!selectedAppointment && !isRescheduling} // Disable client editing only when editing (not rescheduling)
         existingAppointments={appointments}
       />

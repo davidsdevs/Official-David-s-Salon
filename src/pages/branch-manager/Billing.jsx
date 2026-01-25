@@ -32,7 +32,7 @@ import { getBIRReceiptBatches, getActiveBIRReceiptBatch } from '../../services/b
 import { useReactToPrint } from 'react-to-print';
 import toast from 'react-hot-toast';
 import { exportToExcel } from '../../utils/excelExport';
-import { formatDate, formatTime } from '../../utils/helpers';
+import { formatDate, formatTime, formatNumberWithCommas } from '../../utils/helpers';
 
 const BranchManagerBilling = () => {
   const { currentUser, userBranch, userBranchData, userData } = useAuth();
@@ -1235,7 +1235,7 @@ const BranchManagerBilling = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Net Revenue</p>
-                <p className="text-2xl font-bold text-green-600 mt-1">₱{filteredSummary.netRevenue?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl font-bold text-green-600 mt-1">₱{formatNumberWithCommas(filteredSummary.netRevenue || 0)}</p>
               </div>
               <div className="p-3 bg-green-100 rounded-lg">
                 <Banknote className="w-6 h-6 text-green-600" />
@@ -1259,7 +1259,7 @@ const BranchManagerBilling = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Gross Revenue</p>
-                <p className="text-2xl font-bold text-purple-600 mt-1">₱{filteredSummary.grossRevenue?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl font-bold text-purple-600 mt-1">₱{formatNumberWithCommas(filteredSummary.grossRevenue || 0)}</p>
               </div>
               <div className="p-3 bg-purple-100 rounded-lg">
                 <Banknote className="w-6 h-6 text-purple-600" />
@@ -1271,7 +1271,7 @@ const BranchManagerBilling = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Discounts</p>
-                <p className="text-2xl font-bold text-yellow-600 mt-1">₱{filteredSummary.totalDiscounts?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl font-bold text-yellow-600 mt-1">₱{formatNumberWithCommas(filteredSummary.totalDiscounts || 0)}</p>
               </div>
               <div className="p-3 bg-yellow-100 rounded-lg">
                 <Banknote className="w-6 h-6 text-yellow-600" />
@@ -1283,7 +1283,7 @@ const BranchManagerBilling = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Total Voided</p>
-                <p className="text-2xl font-bold text-red-600 mt-1">₱{filteredSummary.totalVoided?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl font-bold text-red-600 mt-1">₱{formatNumberWithCommas(filteredSummary.totalVoided || 0)}</p>
               </div>
               <div className="p-3 bg-red-100 rounded-lg">
                 <XCircle className="w-6 h-6 text-red-600" />
@@ -1533,9 +1533,9 @@ const BranchManagerBilling = () => {
                       <p className="text-sm text-gray-600">{getPaymentMethodLabel(bill.paymentMethod)}</p>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <p className="text-sm font-semibold text-gray-900">₱{bill.total?.toFixed(2)}</p>
+                      <p className="text-sm font-semibold text-gray-900">₱{formatNumberWithCommas(bill.total || 0)}</p>
                       {bill.discount > 0 && (
-                        <p className="text-xs text-green-600">-₱{bill.discount?.toFixed(2)}</p>
+                        <p className="text-xs text-green-600">Discount: ₱{formatNumberWithCommas(bill.discount)}</p>
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">

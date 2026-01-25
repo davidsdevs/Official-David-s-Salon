@@ -457,6 +457,7 @@ const BillingModalPOS = ({
             ...product,
             stock: totalStock,
             stockId: stock?.id || null,
+            unitCost: stock?.unitCost || 0, // Add unitCost from stock data
             stockStatus: totalStock > 10 ? 'High Stock' :
               totalStock > 0 ? 'Low Stock' : 'Out of Stock',
             allBatches: productAllBatches // Store all non-salon-use batches for display
@@ -598,6 +599,21 @@ const BillingModalPOS = ({
               const fullService = services.find(s => s.id === svc.serviceId);
               const serviceMappings = Array.isArray(fullService?.productMappings) ? fullService.productMappings : [];
 
+              // Calculate commission points if stylist is assigned
+              const commissionPercentage = fullService?.commissionPercentage || 0;
+              const commissionPoints = (svc.stylistId && commissionPercentage > 0) 
+                ? adjustedPrice * (commissionPercentage / 100) 
+                : 0;
+
+              console.log('💰 Service commission calculated:', {
+                serviceName: svc.serviceName,
+                stylistId: svc.stylistId,
+                stylistName: svc.stylistName,
+                price: adjustedPrice,
+                commissionPercentage,
+                commissionPoints
+              });
+
               return {
                 type: 'service',
                 id: svc.serviceId,
@@ -614,7 +630,12 @@ const BillingModalPOS = ({
                 adjustmentReason: svc.adjustmentReason || '', // Read from appointment
                 productMappings: serviceMappings,
                 // Start with empty usages - user will click "Add Product" to add them
-                serviceProductUsages: []
+                serviceProductUsages: [],
+                // Commission fields for services
+                commissionPercentage: commissionPercentage,
+                commissionerId: svc.stylistId || '', // Default to service stylist
+                commissionerName: svc.stylistName || '',
+                commissionPoints: commissionPoints // Calculated based on price and percentage
               };
             })
             : appointment.serviceName
@@ -622,13 +643,29 @@ const BillingModalPOS = ({
                 // Look up the full service from the services prop to get productMappings
                 const fullService = services.find(s => s.id === appointment.serviceId);
                 const serviceMappings = Array.isArray(fullService?.productMappings) ? fullService.productMappings : [];
+                
+                // Calculate commission points if stylist is assigned
+                const commissionPercentage = fullService?.commissionPercentage || 0;
+                const servicePrice = appointment.adjustedPrice || appointment.servicePrice || 0;
+                const commissionPoints = (appointment.stylistId && commissionPercentage > 0) 
+                  ? servicePrice * (commissionPercentage / 100) 
+                  : 0;
+
+                console.log('💰 Service commission calculated (single):', {
+                  serviceName: appointment.serviceName,
+                  stylistId: appointment.stylistId,
+                  stylistName: appointment.stylistName,
+                  price: servicePrice,
+                  commissionPercentage,
+                  commissionPoints
+                });
 
                 return [{
                   type: 'service',
                   id: appointment.serviceId || '',
                   name: appointment.serviceName,
                   basePrice: appointment.servicePrice || appointment.basePrice || 0,
-                  price: appointment.adjustedPrice || appointment.servicePrice || 0,
+                  price: servicePrice,
                   quantity: 1,
                   stylistId: appointment.stylistId,
                   stylistName: appointment.stylistName,
@@ -639,7 +676,12 @@ const BillingModalPOS = ({
                   adjustmentReason: appointment.adjustmentReason || '',
                   productMappings: serviceMappings,
                   // Start with empty usages - user will click "Add Product" to add them
-                  serviceProductUsages: []
+                  serviceProductUsages: [],
+                  // Commission fields for services
+                  commissionPercentage: commissionPercentage,
+                  commissionerId: appointment.stylistId || '', // Default to service stylist
+                  commissionerName: appointment.stylistName || '',
+                  commissionPoints: commissionPoints // Calculated based on price and percentage
                 }];
               })()
               : [];
@@ -681,6 +723,11 @@ const BillingModalPOS = ({
                     receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
                   }));
 
+                  // Fetch product data for commission info
+                  const productDocRef = doc(db, 'products', prod.productId);
+                  const productDoc = await getDoc(productDocRef);
+                  const productData = productDoc.exists() ? productDoc.data() : {};
+
                   // For billing mode, we don't need to pre-allocate batches since user can modify quantities
                   let allocatedBatches = [];
 
@@ -694,8 +741,8 @@ const BillingModalPOS = ({
                     stock: stock,
                     batches: allocatedBatches,
                     allBatches: allBatches,
-                    unitCost: 0,
-                    commissionPercentage: 0,
+                    unitCost: stockData?.unitCost || 0,
+                    commissionPercentage: productData?.commissionPercentage || 0,
                     commissionerId: '',
                     commissionerName: '',
                     commissionPoints: 0
@@ -825,39 +872,68 @@ const BillingModalPOS = ({
       if (productsToUpdate.length > 0) {
         console.log('🔄 Updating product stock info with loaded stocksData');
 
-        setFormData(prev => ({
-          ...prev,
-          items: prev.items.map(item => {
-            if (item.type === 'product') {
-              // Get all OTC batches for this product from stocksData
-              const productOtcBatches = stocksData.filter(stockItem =>
-                stockItem.productId === item.id &&
-                stockItem.status === 'active' &&
-                stockItem.usageType !== 'salon-use' &&
-                (stockItem.realTimeStock || stockItem.remainingQuantity || 0) > 0
-              );
+        // Fetch product data for commission info
+        const updateProductsWithCommission = async () => {
+          const updatedItems = await Promise.all(
+            formData.items.map(async (item) => {
+              if (item.type === 'product') {
+                // Get all OTC batches for this product from stocksData
+                const productOtcBatches = stocksData.filter(stockItem =>
+                  stockItem.productId === item.id &&
+                  stockItem.status === 'active' &&
+                  stockItem.usageType !== 'salon-use' &&
+                  (stockItem.realTimeStock || stockItem.remainingQuantity || 0) > 0
+                );
 
-              // Calculate total available stock from all OTC batches
-              const stock = productOtcBatches.reduce((total, batch) => total + (batch.realTimeStock || batch.remainingQuantity || 0), 0);
+                // Calculate total available stock from all OTC batches
+                const stock = productOtcBatches.reduce((total, batch) => total + (batch.realTimeStock || batch.remainingQuantity || 0), 0);
 
-              // Store all batch information for display
-              const allBatches = productOtcBatches.map(batch => ({
-                id: batch.id,
-                batchNumber: batch.batchNumber,
-                remainingQuantity: batch.realTimeStock || batch.remainingQuantity || 0,
-                expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
-                receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
-              }));
+                // Get unitCost from first available stock
+                const stockData = productOtcBatches[0];
+                const unitCost = stockData?.unitCost || 0;
 
-              return {
-                ...item,
-                stock: stock,
-                allBatches: allBatches
-              };
-            }
-            return item;
-          })
-        }));
+                // Fetch product data for commission percentage
+                let commissionPercentage = item.commissionPercentage || 0;
+                if (commissionPercentage === 0) {
+                  try {
+                    const productDocRef = doc(db, 'products', item.id);
+                    const productDoc = await getDoc(productDocRef);
+                    if (productDoc.exists()) {
+                      commissionPercentage = productDoc.data()?.commissionPercentage || 0;
+                    }
+                  } catch (error) {
+                    console.error('Error fetching product commission:', error);
+                  }
+                }
+
+                // Store all batch information for display
+                const allBatches = productOtcBatches.map(batch => ({
+                  id: batch.id,
+                  batchNumber: batch.batchNumber,
+                  remainingQuantity: batch.realTimeStock || batch.remainingQuantity || 0,
+                  expirationDate: batch.expirationDate?.toDate ? batch.expirationDate.toDate() : batch.expirationDate,
+                  receivedDate: batch.receivedDate?.toDate ? batch.receivedDate.toDate() : batch.receivedDate
+                }));
+
+                return {
+                  ...item,
+                  stock: stock,
+                  allBatches: allBatches,
+                  unitCost: unitCost,
+                  commissionPercentage: commissionPercentage
+                };
+              }
+              return item;
+            })
+          );
+
+          setFormData(prev => ({
+            ...prev,
+            items: updatedItems
+          }));
+        };
+
+        updateProductsWithCommission();
       }
     }
   }, [stocksData, formData.items.length]);
@@ -983,7 +1059,12 @@ const BillingModalPOS = ({
           adjustmentReason: '',
           productMappings: serviceMappings,
           // Start with empty usages - user will click "Add Product" to add them
-          serviceProductUsages: []
+          serviceProductUsages: [],
+          // Commission fields for services
+          commissionPercentage: service.commissionPercentage || 0,
+          commissionerId: '',
+          commissionerName: '',
+          commissionPoints: 0
         }]
       }));
     }
@@ -1532,6 +1613,13 @@ const BillingModalPOS = ({
       updatedItems[index].adjustment = parseFloat(value) || 0;
       // Recalculate final price: basePrice + adjustment
       updatedItems[index].price = updatedItems[index].basePrice + (parseFloat(value) || 0);
+      
+      // Recalculate service commission if commissioner is selected
+      if (updatedItems[index].type === 'service' && updatedItems[index].commissionerId) {
+        const servicePrice = Number(updatedItems[index].price) || 0;
+        const commissionPercentage = Number(updatedItems[index].commissionPercentage) || 0;
+        updatedItems[index].commissionPoints = servicePrice * (commissionPercentage / 100);
+      }
     } else if (field === 'quantity') {
       // For products, update quantity (price remains as basePrice, calculation will multiply)
       const quantity = parseInt(value) || 1;
@@ -1628,17 +1716,25 @@ const BillingModalPOS = ({
         }
       }
     } else if (field === 'commissionerId') {
-      // Handle commissioner selection for products
+      // Handle commissioner selection for both products and services
       const commissioner = stylists.find(s => s.id === value);
       updatedItems[index].commissionerId = value;
       updatedItems[index].commissionerName = commissioner ? `${commissioner.firstName} ${commissioner.lastName}` : '';
 
-      // Calculate commission points: (unitCost * quantity) * (commissionPercentage / 100)
-      if (updatedItems[index].type === 'product' && value) {
-        const unitCost = Number(updatedItems[index].unitCost) || 0;
-        const quantity = Number(updatedItems[index].quantity) || 1;
-        const commissionPercentage = Number(updatedItems[index].commissionPercentage) || 0;
-        updatedItems[index].commissionPoints = (unitCost * quantity) * (commissionPercentage / 100);
+      // Calculate commission points based on item type
+      if (value) {
+        if (updatedItems[index].type === 'product') {
+          // Product commission: (unitCost * quantity) * (commissionPercentage / 100)
+          const unitCost = Number(updatedItems[index].unitCost) || 0;
+          const quantity = Number(updatedItems[index].quantity) || 1;
+          const commissionPercentage = Number(updatedItems[index].commissionPercentage) || 0;
+          updatedItems[index].commissionPoints = (unitCost * quantity) * (commissionPercentage / 100);
+        } else if (updatedItems[index].type === 'service') {
+          // Service commission: price * (commissionPercentage / 100)
+          const servicePrice = Number(updatedItems[index].price) || 0;
+          const commissionPercentage = Number(updatedItems[index].commissionPercentage) || 0;
+          updatedItems[index].commissionPoints = servicePrice * (commissionPercentage / 100);
+        }
       } else {
         updatedItems[index].commissionPoints = 0;
       }
@@ -1953,6 +2049,9 @@ const BillingModalPOS = ({
       return;
     }
 
+    // Calculate effective discount (promotion overrides manual discount)
+    const effectiveDiscount = appliedPromotion ? 0 : (parseFloat(formData.discount) || 0);
+
     // Step 2: Process payment (existing validation logic)
     // Validate client name for service transactions
     // For product-only transactions, allow empty client name (will default to Guest)
@@ -2066,6 +2165,7 @@ const BillingModalPOS = ({
       stylistName: appointment?.stylistName || formData.items[0]?.stylistName,
       items: formData.items,
       subtotal: totals?.subtotal || 0,
+      discountValue: effectiveDiscount, // Store original discount value (percentage or fixed amount)
       discount: totals?.discount || 0, // Store calculated discount amount
       discountType: formData.discountType,
       promotionCode: appliedPromotion ? promotionCode.trim().toUpperCase() : null,
@@ -2084,6 +2184,19 @@ const BillingModalPOS = ({
       change: formData.paymentMethod === PAYMENT_METHODS.CASH ? Math.max(0, (parseFloat(formData.amountReceived) || 0) - (totals?.total || 0)) : 0,
       notes: formData.notes || (isWalkIn ? 'Walk-in customer' : '')
     };
+
+    // Log service commissions for debugging
+    const serviceItems = formData.items.filter(item => item.type === 'service');
+    if (serviceItems.length > 0) {
+      console.log('💰 Service commissions in transaction:', serviceItems.map(item => ({
+        name: item.name,
+        price: item.price,
+        commissionPercentage: item.commissionPercentage,
+        commissionerId: item.commissionerId,
+        commissionerName: item.commissionerName,
+        commissionPoints: item.commissionPoints
+      })));
+    }
 
     console.log('🏪 BillingModalPOS - billData branchName:', billData.branchName, 'sources:', {
       appointmentBranchName: appointment?.branchName,
@@ -3452,7 +3565,7 @@ const BillingModalPOS = ({
                             </div>
                           )}
 
-                          {(totals?.tax || 0) > 0 && (
+                          {mode !== 'checkin' && (totals?.tax || 0) > 0 && (
                             <div className="flex justify-between text-gray-600">
                               <span>VAT</span>
                               <span>+₱{formatCurrency(totals?.tax)}</span>

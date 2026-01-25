@@ -29,7 +29,7 @@ const SystemAdminLayout = () => {
     <div className="min-h-screen flex bg-gray-50">
       <Sidebar isOpen={sidebarOpen} toggleSidebar={() => setSidebarOpen(false)} menuItems={menuItems} />
       
-      <div className="flex-1 flex flex-col md:ml-64">
+      <div className="flex-1 flex flex-col lg:ml-64">
         <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
         
         <div className="flex-1 flex flex-col overflow-y-auto">

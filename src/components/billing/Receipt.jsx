@@ -231,10 +231,10 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
           <div className="flex justify-between text-green-600">
             <span>
               Discount
-              {bill.discountType === 'percent' && ` (${bill.discount}%)`}
+              {(bill.discountType === 'percent' || bill.discountType === 'percentage') && bill.discountValue && ` (${bill.discountValue}%)`}
               {bill.promotionCode && ` - ${bill.promotionCode}`}:
             </span>
-            <span>-₱{formatCurrency(bill.discountType === 'percent' ? (bill.subtotal * bill.discount / 100) : bill.discount)}</span>
+            <span>-₱{formatCurrency(bill.discount)}</span>
           </div>
         )}
 

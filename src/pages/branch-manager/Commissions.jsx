@@ -10,7 +10,7 @@ import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/
 import { db } from '../../config/firebase';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import PDFPreviewModal from '../../components/ui/PDFPreviewModal';
-import { formatDate, formatCurrencyBigData } from '../../utils/helpers';
+import { formatDate, formatCurrency, formatNumberWithCommas } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 
 const Commissions = () => {
@@ -27,11 +27,14 @@ const Commissions = () => {
   const [maxCommission, setMaxCommission] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [allServices, setAllServices] = useState([]); // All branch services
+  const [allProducts, setAllProducts] = useState([]); // All branch products
   const printRef = useRef(null);
 
   useEffect(() => {
     if (userBranch) {
       fetchTransactions();
+      fetchServicesAndProducts();
     }
   }, [userBranch]);
 
@@ -138,6 +141,7 @@ const Commissions = () => {
                     id: `${doc.id}-${item.id}-${batchIndex}`,
                     billId: doc.id,
                     transactionDate: billData.createdAt,
+                    itemType: 'product',
                     productName: item.name || 'Unknown Product',
                     productId: item.id,
                     serviceName: billData.serviceName || 'N/A',
@@ -163,6 +167,7 @@ const Commissions = () => {
                   id: `${doc.id}-${item.id}`,
                   billId: doc.id,
                   transactionDate: billData.createdAt,
+                  itemType: 'product',
                   productName: item.name || 'Unknown Product',
                   productId: item.id,
                   serviceName: billData.serviceName || 'N/A',
@@ -183,6 +188,35 @@ const Commissions = () => {
                 transactionsData.push(transaction);
               }
             }
+          } else if (item.type === 'service') {
+            // Service commissions
+            const hasCommissionData = item.commissionerId && item.commissionPoints != null && item.commissionPoints > 0;
+            
+            if (hasCommissionData) {
+              const transaction = {
+                id: `${doc.id}-service-${item.id || itemIndex}`,
+                billId: doc.id,
+                transactionDate: billData.createdAt,
+                itemType: 'service',
+                productName: 'N/A',
+                productId: '',
+                serviceName: item.name || 'Unknown Service',
+                serviceId: item.id || '',
+                batchId: '',
+                batchNumber: '',
+                quantity: item.quantity || 1,
+                unitCost: item.price || 0,
+                commissionPercentage: item.commissionPercentage || 0,
+                commissionerId: item.commissionerId,
+                commissionerName: item.commissionerName || 'Unknown',
+                commissionPoints: item.commissionPoints || 0,
+                clientName: billData.clientName || 'Walk-in',
+                receiptNumber: billData.receiptNumber || 'N/A',
+                totalAmount: (item.price || 0) * (item.quantity || 1)
+              };
+              
+              transactionsData.push(transaction);
+            }
           }
         });
       });
@@ -193,6 +227,62 @@ const Commissions = () => {
       toast.error('Failed to load commission data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchServicesAndProducts = async () => {
+    try {
+      // Fetch all active services for this branch
+      const servicesRef = collection(db, 'services');
+      const servicesQuery = query(
+        servicesRef,
+        where('isActive', '==', true)
+      );
+      const servicesSnapshot = await getDocs(servicesQuery);
+      console.log('[Commissions] Total services in DB:', servicesSnapshot.size);
+      
+      const services = servicesSnapshot.docs
+        .filter(doc => {
+          const data = doc.data();
+          const hasPrice = data.branchPricing && data.branchPricing[userBranch] !== undefined;
+          if (!hasPrice) {
+            console.log('[Commissions] Service without price:', data.name);
+          }
+          return hasPrice;
+        })
+        .map(doc => ({
+          id: doc.id,
+          name: doc.data().name || doc.data().serviceName || 'Unknown Service'
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      
+      console.log('[Commissions] Services with branch pricing:', services.length, services);
+      setAllServices(services);
+
+      // Fetch all products that belong to this branch
+      const productsRef = collection(db, 'products');
+      const productsQuery = query(
+        productsRef,
+        where('branches', 'array-contains', userBranch)
+      );
+      const productsSnapshot = await getDocs(productsQuery);
+      console.log('[Commissions] Total products for branch:', productsSnapshot.size);
+      
+      const products = productsSnapshot.docs
+        .filter(doc => {
+          const data = doc.data();
+          return data.status === 'Active' || !data.status; // Include active or products without status
+        })
+        .map(doc => ({
+          id: doc.id,
+          name: doc.data().name || 'Unknown Product'
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      
+      console.log('[Commissions] Active products for branch:', products.length, products);
+      setAllProducts(products);
+    } catch (error) {
+      console.error('Error fetching services and products:', error);
     }
   };
 
@@ -220,27 +310,15 @@ const Commissions = () => {
     return count;
   }, [searchTerm, selectedStylists, selectedItems, minCommission, maxCommission, startDate, endDate]);
 
-  // Get unique services for filter dropdown
+  // Get unique services for filter dropdown (from branch services)
   const uniqueServices = useMemo(() => {
-    const services = new Set();
-    transactions.forEach(t => {
-      if (t.serviceName && t.serviceName !== 'N/A') {
-        services.add(t.serviceName);
-      }
-    });
-    return Array.from(services).sort();
-  }, [transactions]);
+    return allServices.map(s => s.name);
+  }, [allServices]);
 
-  // Get unique products for filter dropdown
+  // Get unique products for filter dropdown (from branch products)
   const uniqueProducts = useMemo(() => {
-    const products = new Set();
-    transactions.forEach(t => {
-      if (t.productName) {
-        products.add(t.productName);
-      }
-    });
-    return Array.from(products).sort();
-  }, [transactions]);
+    return allProducts.map(p => p.name);
+  }, [allProducts]);
 
   // Filter transactions
   const filteredTransactions = useMemo(() => {
@@ -353,17 +431,13 @@ const Commissions = () => {
     // Commission Summary Section
     if (commissionSummary.length > 0) {
       csvContent += 'Commission Summary\n';
-      const summaryHeaders = ['Stylist', 'Transactions', 'Total Sales (₱)', 'Total Commission (₱)', 'Avg Commission %'];
+      const summaryHeaders = ['Stylist', 'Transactions', 'Total Sales (₱)', 'Total Commission (₱)'];
       const summaryRows = commissionSummary.map(summary => {
-        const avgCommissionPercent = summary.totalSales > 0
-          ? (summary.totalCommission / summary.totalSales) * 100
-          : 0;
         return [
           summary.stylistName,
           summary.transactionCount,
-          summary.totalSales.toFixed(2),
-          summary.totalCommission.toFixed(2),
-          `${avgCommissionPercent.toFixed(1)}%`
+          formatNumberWithCommas(summary.totalSales),
+          formatNumberWithCommas(summary.totalCommission)
         ];
       });
 
@@ -373,18 +447,20 @@ const Commissions = () => {
     // Commission Transaction Section
     if (filteredTransactions.length > 0) {
       csvContent += 'Commission Transaction\n';
-      const transactionHeaders = ['Date', 'Stylist', 'Product', 'Quantity', 'Unit Cost (₱)', 'Commission %', 'Commission Amount (₱)', 'Total Sale (₱)', 'Client', 'Receipt #'];
+      const transactionHeaders = ['Date', 'Stylist', 'Type', 'Service/Product', 'Quantity', 'Unit Cost (₱)', 'Commission %', 'Commission Amount (₱)', 'Total Sale (₱)', 'Client', 'Receipt #'];
       const transactionRows = filteredTransactions.map(t => {
       const date = t.transactionDate?.toDate ? formatDate(t.transactionDate.toDate(), 'MMM dd, yyyy HH:mm') : 'N/A';
+      const itemName = t.itemType === 'service' ? t.serviceName : t.productName;
       return [
         date,
         t.commissionerName,
-        t.productName,
+        t.itemType === 'service' ? 'Service' : 'Product',
+        itemName,
         t.quantity,
-          t.unitCost.toFixed(2),
+        formatNumberWithCommas(t.unitCost),
         `${t.commissionPercentage}%`,
-          t.commissionPoints.toFixed(2),
-          t.totalAmount.toFixed(2),
+        formatNumberWithCommas(t.commissionPoints),
+        formatNumberWithCommas(t.totalAmount),
         t.clientName,
         t.receiptNumber
       ];
@@ -479,7 +555,7 @@ const Commissions = () => {
             <Banknote className="h-6 w-6 text-purple-600" />
             Commissions
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Track stylist commissions from product sales</p>
+          <p className="text-sm text-gray-500 mt-1">Track stylist commissions from services and product sales</p>
         </div>
       </div>
 
@@ -490,7 +566,7 @@ const Commissions = () => {
             <div>
               <p className="text-sm text-gray-500">Total Commissions</p>
               <p className="text-2xl font-bold text-purple-600 mt-1">
-                {formatCurrencyBigData(totalCommission)}
+                {formatCurrency(totalCommission)}
               </p>
             </div>
             <Banknote className="h-10 w-10 text-purple-200" />
@@ -502,7 +578,7 @@ const Commissions = () => {
             <div>
               <p className="text-sm text-gray-500">Total Sales</p>
               <p className="text-2xl font-bold text-green-600 mt-1">
-                {formatCurrencyBigData(totalSales)}
+                {formatCurrency(totalSales)}
               </p>
             </div>
             <ArrowUp className="h-10 w-10 text-green-200" />
@@ -536,13 +612,12 @@ const Commissions = () => {
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Transactions</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sales</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Commission</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Commission %</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {commissionSummary.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-12 text-center">
+                  <td colSpan="4" className="px-6 py-12 text-center">
                     <User className="h-12 w-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-500">No commission data available</p>
                     <p className="text-sm text-gray-400 mt-1">Filtered results show no commissions</p>
@@ -550,10 +625,6 @@ const Commissions = () => {
                 </tr>
               ) : (
                 commissionSummary.map((summary) => {
-                  const avgCommissionPercent = summary.totalSales > 0
-                    ? (summary.totalCommission / summary.totalSales) * 100
-                    : 0;
-
                   return (
                     <tr key={summary.stylistId} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -568,13 +639,10 @@ const Commissions = () => {
                         {summary.transactionCount}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
-                        {formatCurrencyBigData(summary.totalSales)}
+                        {formatCurrency(summary.totalSales)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-semibold text-purple-600">
-                        {formatCurrencyBigData(summary.totalCommission)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
-                        {avgCommissionPercent.toFixed(1)}%
+                        {formatCurrency(summary.totalCommission)}
                       </td>
                     </tr>
                   );
@@ -654,8 +722,8 @@ const Commissions = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stylist</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service/Product</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Cost</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commission %</th>
@@ -691,15 +759,25 @@ const Commissions = () => {
                           </span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{transaction.serviceName}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{transaction.productName}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          transaction.itemType === 'service' 
+                            ? 'bg-blue-100 text-blue-800' 
+                            : 'bg-green-100 text-green-800'
+                        }`}>
+                          {transaction.itemType === 'service' ? 'Service' : 'Product'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {transaction.itemType === 'service' ? transaction.serviceName : transaction.productName}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">{transaction.quantity}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">₱{transaction.unitCost.toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">₱{formatNumberWithCommas(transaction.unitCost)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">{transaction.commissionPercentage}%</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-semibold text-purple-600">
-                        ₱{transaction.commissionPoints.toFixed(2)}
+                        ₱{formatNumberWithCommas(transaction.commissionPoints)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">₱{transaction.totalAmount.toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">₱{formatNumberWithCommas(transaction.totalAmount)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{transaction.clientName}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{transaction.receiptNumber}</td>
                     </tr>
@@ -762,11 +840,11 @@ const Commissions = () => {
           {/* Summary Stats */}
           <div className="mb-4 grid grid-cols-3 gap-3 print-avoid-break" style={{ fontSize: '12px', marginBottom: '16px', gap: '12px' }}>
             <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
-              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>₱{totalCommission.toFixed(2)}</div>
+              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>₱{formatNumberWithCommas(totalCommission)}</div>
               <div style={{ fontSize: '11px' }}>Total Commissions</div>
             </div>
             <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
-              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>₱{totalSales.toFixed(2)}</div>
+              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>₱{formatNumberWithCommas(totalSales)}</div>
               <div style={{ fontSize: '11px' }}>Total Sales</div>
             </div>
             <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
@@ -793,8 +871,8 @@ const Commissions = () => {
                     <tr key={summary.stylistId} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #000' }}>
                       <td className="border border-black font-medium" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{summary.stylistName}</td>
                       <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{summary.transactionCount}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>₱{summary.totalSales.toFixed(2)}</td>
-                      <td className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{summary.totalCommission.toFixed(2)}</td>
+                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(summary.totalSales)}</td>
+                      <td className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{formatNumberWithCommas(summary.totalCommission)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -810,7 +888,8 @@ const Commissions = () => {
                 <tr style={{ borderBottom: '2px solid #000' }}>
                   <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Date</th>
                   <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Stylist</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Product</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Type</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Service/Product</th>
                   <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Qty</th>
                   <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Unit Cost</th>
                   <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Comm %</th>
@@ -825,17 +904,19 @@ const Commissions = () => {
                   const date = transaction.transactionDate?.toDate 
                     ? formatDate(transaction.transactionDate.toDate(), 'MMM dd, yyyy HH:mm')
                     : formatDate(transaction.transactionDate, 'MMM dd, yyyy HH:mm');
+                  const itemName = transaction.itemType === 'service' ? transaction.serviceName : transaction.productName;
                   
                   return (
                     <tr key={transaction.id} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #000' }}>
                       <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{date}</td>
                       <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.commissionerName}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.productName}</td>
+                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.itemType === 'service' ? 'Service' : 'Product'}</td>
+                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{itemName}</td>
                       <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.quantity}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>₱{transaction.unitCost.toFixed(2)}</td>
+                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(transaction.unitCost)}</td>
                       <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.commissionPercentage}%</td>
-                      <td className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{transaction.commissionPoints.toFixed(2)}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>₱{transaction.totalAmount.toFixed(2)}</td>
+                      <td className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{formatNumberWithCommas(transaction.commissionPoints)}</td>
+                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(transaction.totalAmount)}</td>
                       <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.clientName}</td>
                       <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.receiptNumber}</td>
                     </tr>
@@ -847,7 +928,7 @@ const Commissions = () => {
           
           {/* Footer */}
           <div className="mt-4 pt-2 border-t border-black text-center" style={{ fontSize: '11px', marginTop: '16px', paddingTop: '8px', borderTop: '1px solid #000' }}>
-            <p>Total Commissions: ₱{totalCommission.toFixed(2)} | Total Sales: ₱{totalSales.toFixed(2)} | Transactions: {filteredTransactions.length}</p>
+            <p>Total Commissions: ₱{formatNumberWithCommas(totalCommission)} | Total Sales: ₱{formatNumberWithCommas(totalSales)} | Transactions: {filteredTransactions.length}</p>
           </div>
         </div>
       </div>

@@ -1397,6 +1397,37 @@ export const cancelAppointment = async (appointmentId, reason, currentUser, bypa
     const appointmentRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
     const appointment = await getAppointmentById(appointmentId);
     
+    // Check same-day cancellation limit for clients
+    if (appointment.clientId && !bypassValidation) {
+      const { checkSameDayCancellationLimit, trackSameDayCancellation } = await import('./userService');
+      
+      const bookedAt = appointment.createdAt?.toDate?.() || new Date(appointment.createdAt);
+      const limitCheck = await checkSameDayCancellationLimit(appointment.clientId, bookedAt);
+      
+      if (!limitCheck.canCancel) {
+        toast.error(limitCheck.reason);
+        throw new Error(limitCheck.reason);
+      }
+      
+      // If this is a same-day cancellation, track it
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const bookedDate = new Date(bookedAt);
+      bookedDate.setHours(0, 0, 0, 0);
+      
+      if (today.getTime() === bookedDate.getTime()) {
+        // Track after successful cancellation
+        await trackSameDayCancellation(appointment.clientId, appointmentId, bookedAt);
+        
+        // Show warning if approaching limit
+        if (limitCheck.count + 1 >= limitCheck.limit) {
+          toast.warning(`You have used ${limitCheck.count + 1} of ${limitCheck.limit} same-day cancellations today.`, {
+            duration: 5000
+          });
+        }
+      }
+    }
+    
     // Build history entry
     const historyEntry = {
       action: 'status_changed_to_cancelled',
@@ -1444,7 +1475,9 @@ export const cancelAppointment = async (appointmentId, reason, currentUser, bypa
     }
   } catch (error) {
     console.error('Error cancelling appointment:', error);
-    toast.error('Failed to cancel appointment');
+    if (!error.message.includes('same-day cancellation')) {
+      toast.error('Failed to cancel appointment');
+    }
     throw error;
   }
 };
@@ -1565,7 +1598,7 @@ export const checkStylistAvailability = async (stylistId, appointmentDate, durat
  * Now integrated with branch operating hours and calendar
  * @returns {Object} { slots: Array, message: string|null }
  */
-export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDuration = 60) => {
+export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDuration = 60, userRole = null) => {
   try {
     // Get branch data for operating hours (fallback)
     const branch = await getBranchById(branchId);
@@ -1686,6 +1719,9 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
     const now = new Date();
     const isToday = selectedDate.toDateString() === now.toDateString();
 
+    // Check if user is receptionist or branch manager (can bypass 2-hour rule)
+    const canBypassAdvanceBooking = userRole === 'receptionist' || userRole === 'branchManager';
+
     // OPTIMIZATION: Fetch ALL appointments for the day at once
     const dayStart = new Date(selectedDate);
     dayStart.setHours(0, 0, 0, 0);
@@ -1722,6 +1758,8 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
       selectedDate: selectedDate.toLocaleString(),
       currentTime: now.toLocaleString(),
       minBookingTime: minBookingTime.toLocaleString(),
+      userRole,
+      canBypassAdvanceBooking,
       branchHours: {
         open: `${startHour}:${startMinute.toString().padStart(2, '0')}`,
         close: `${endHour}:${endMinute.toString().padStart(2, '0')}`
@@ -1741,8 +1779,8 @@ export const getAvailableTimeSlots = async (stylistId, branchId, date, serviceDu
       let isAvailable = true;
       let disabledReason = null;
       
-      // If it's today, check if slot is at least 2 hours from now
-      if (isToday && slotDate.getTime() < minBookingTime.getTime()) {
+      // If it's today, check if slot is at least 2 hours from now (unless user can bypass)
+      if (isToday && !canBypassAdvanceBooking && slotDate.getTime() < minBookingTime.getTime()) {
         isAvailable = false;
         disabledReason = 'within 2-hour window';
         

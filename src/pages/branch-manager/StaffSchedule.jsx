@@ -193,7 +193,8 @@ const StaffSchedule = ({ onEditTrigger }) => {
             if (existingShift) {
               initialEditableShifts[memberId][day.key] = {
                 start: existingShift.start || '',
-                end: existingShift.end || ''
+                end: existingShift.end || '',
+                type: existingShift.type || 'regular'
               };
             }
           });
@@ -487,7 +488,8 @@ const StaffSchedule = ({ onEditTrigger }) => {
                         end: schedule.endTime,
                         date: schedule.date,
                         isDateSpecific: true,
-                        scheduleId: schedule.id
+                        scheduleId: schedule.id,
+                        type: schedule.type // Add type for on-call shifts
                       };
                     }
                   });
@@ -682,7 +684,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
       if (member.dateSpecificShifts[dateStr]) {
         return {
           ...member.dateSpecificShifts[dateStr],
-          type: member.dateSpecificShifts[dateStr].type || (member.dateSpecificShifts[dateStr].isDateSpecific ? 'oncall' : 'regular')
+          type: member.dateSpecificShifts[dateStr].type || 'oncall' // Date-specific shifts default to oncall
         };
       }
     }
@@ -956,7 +958,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
       start: existingShift?.start || savedShift?.start || '',
       end: existingShift?.end || savedShift?.end || '',
       date: date ? formatDateLocal(date) : '',
-      type: existingShift?.type || savedShift?.type || (savedShift || existingShift?.isDateSpecific ? 'oncall' : 'regular')
+      type: existingShift?.type || savedShift?.type || (savedShift ? 'oncall' : 'regular') // Date-specific shifts default to oncall
     });
     setIsAddingShift(false);
     setShowEditShiftModal(true);
@@ -2658,7 +2660,22 @@ const StaffSchedule = ({ onEditTrigger }) => {
                               // Edit Mode - Show shifts from editableShifts or Add button
                               (() => {
                                 const memberId = member.id || member.uid;
-                                const editableShift = editableShifts[memberId]?.[dayKey];
+                                let editableShift = editableShifts[memberId]?.[dayKey];
+                                
+                                // Check for date-specific shift (these override recurring shifts)
+                                if (date && member.dateSpecificShifts) {
+                                  const dateStr = formatDateLocal(date);
+                                  const dateSpecificShift = member.dateSpecificShifts[dateStr];
+                                  if (dateSpecificShift) {
+                                    // Use date-specific shift instead of editable shift
+                                    editableShift = {
+                                      start: dateSpecificShift.start,
+                                      end: dateSpecificShift.end,
+                                      type: dateSpecificShift.type || 'oncall',
+                                      isDateSpecific: true
+                                    };
+                                  }
+                                }
 
                                 // Check if staff is on leave on this date
                                 const onLeave = date && isStaffOnLeave(memberId, date);

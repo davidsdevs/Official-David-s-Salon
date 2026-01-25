@@ -102,28 +102,14 @@ export const getActivePromotions = async (branchId = null) => {
     const promotionsRef = collection(db, PROMOTIONS_COLLECTION);
     const now = Timestamp.now();
     
-    let q;
-    if (branchId) {
-      q = query(
-        promotionsRef,
-        where('isActive', '==', true),
-        where('startDate', '<=', now),
-        where('endDate', '>=', now),
-        where('branchId', 'in', [branchId, null]), // Branch-specific or global
-        orderBy('createdAt', 'desc')
-      );
-    } else {
-      q = query(
-        promotionsRef,
-        where('isActive', '==', true),
-        where('startDate', '<=', now),
-        where('endDate', '>=', now),
-        orderBy('createdAt', 'desc')
-      );
-    }
+    // Simple query - just get active promotions (no range filters to avoid index requirement)
+    const q = query(
+      promotionsRef,
+      where('isActive', '==', true)
+    );
     
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({
+    let allPromotions = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       startDate: doc.data().startDate?.toDate(),
@@ -131,6 +117,37 @@ export const getActivePromotions = async (branchId = null) => {
       createdAt: doc.data().createdAt?.toDate(),
       updatedAt: doc.data().updatedAt?.toDate()
     }));
+    
+    // Filter in memory for date range and branch
+    allPromotions = allPromotions.filter(promo => {
+      // Check if promotion has started
+      const startDate = promo.startDate;
+      if (!startDate) return false;
+      
+      const startTimestamp = startDate instanceof Date ? Timestamp.fromDate(startDate) : promo.startDate;
+      const hasStarted = startTimestamp <= now;
+      
+      // Check if promotion hasn't ended
+      const endDate = promo.endDate;
+      if (!endDate) return false;
+      
+      const endTimestamp = endDate instanceof Date ? Timestamp.fromDate(endDate) : promo.endDate;
+      const isNotExpired = endTimestamp >= now;
+      
+      // Check branch filter
+      const matchesBranch = branchId ? (promo.branchId === branchId || promo.branchId === null) : true;
+      
+      return hasStarted && isNotExpired && matchesBranch;
+    });
+    
+    // Sort by creation date descending
+    allPromotions.sort((a, b) => {
+      const aTime = b.createdAt?.getTime() || 0;
+      const bTime = a.createdAt?.getTime() || 0;
+      return aTime - bTime;
+    });
+    
+    return allPromotions;
   } catch (error) {
     console.error('Error fetching active promotions:', error);
     return [];
