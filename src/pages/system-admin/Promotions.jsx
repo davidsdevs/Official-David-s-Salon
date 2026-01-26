@@ -965,7 +965,7 @@ const Promotions = () => {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Target Segment
+              Target Audience
             </label>
             <select
               value={formData.targetSegment}
@@ -973,10 +973,6 @@ const Promotions = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2D1B4E] focus:border-transparent"
             >
               <option value="all">All Clients</option>
-              <option value="bronze">Bronze</option>
-              <option value="silver">Silver</option>
-              <option value="gold">Gold</option>
-              <option value="platinum">Platinum</option>
             </select>
           </div>
 

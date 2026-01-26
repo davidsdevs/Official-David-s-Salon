@@ -137,15 +137,6 @@ const ClientDashboard = () => {
     return 'Good Evening';
   };
 
-  const getMembershipTier = (points) => {
-    if (points >= 10000) return { name: 'Platinum', color: 'bg-purple-100 text-purple-700', icon: '👑' };
-    if (points >= 5000) return { name: 'Gold', color: 'bg-yellow-100 text-yellow-700', icon: '⭐' };
-    if (points >= 2000) return { name: 'Silver', color: 'bg-gray-100 text-gray-700', icon: '✨' };
-    return { name: 'Bronze', color: 'bg-orange-100 text-orange-700', icon: '🌟' };
-  };
-
-  const membershipTier = getMembershipTier(totalPoints);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -181,7 +172,6 @@ const ClientDashboard = () => {
             <div>
               <p className="text-sm text-gray-500">Loyalty Points</p>
               <p className="text-2xl font-bold text-gray-900">{totalPoints.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 mt-1">{membershipTier.icon} {membershipTier.name}</p>
             </div>
             <div className="p-3 bg-primary-100 rounded-full">
               <Star className="w-6 h-6 text-primary-600" />

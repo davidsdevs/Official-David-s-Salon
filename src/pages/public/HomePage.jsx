@@ -7,6 +7,7 @@ import { useState, useEffect, useRef } from "react"
 import { collection, getCountFromServer, query, where } from "firebase/firestore"
 import Navigation from "../../components/landing/Navigation"
 import Footer from "../../components/landing/Footer"
+import ChatbotWidget from "../../components/chatbot/ChatbotWidget"
 import { marketingContentService } from "../../services/marketingContentService"
 import { getAllBranches } from "../../services/branchService"
 import { useAuth } from "../../context/AuthContext"
@@ -900,6 +901,9 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
       </section>
       {!embedded && <Footer />}
       {embedded && <Footer embedded={true} cmsEditMode={cmsEditMode} />}
+      
+      {/* Chatbot Widget */}
+      {!embedded && <ChatbotWidget />}
     </div>
   )
 }

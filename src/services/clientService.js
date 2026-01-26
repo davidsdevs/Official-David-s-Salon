@@ -625,8 +625,8 @@ export const getClientSegmentation = async (clientId) => {
     const visitFrequency = history.length;
     const avgSpend = visitFrequency > 0 ? profile.totalSpent / visitFrequency : 0;
     
-    // Determine tier
-    let tier = 'Bronze';
+    // Determine tier (no Bronze tier)
+    let tier = 'Silver';
     if (visitFrequency >= 20 || profile.totalSpent >= 50000) {
       tier = 'Platinum';
     } else if (visitFrequency >= 10 || profile.totalSpent >= 25000) {

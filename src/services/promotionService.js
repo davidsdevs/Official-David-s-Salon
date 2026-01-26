@@ -45,7 +45,7 @@ export const createPromotion = async (promotionData, currentUser) => {
       discountValue: promotionData.discountValue || 0,
       // Targeting
       branchId: promotionData.branchId !== undefined ? promotionData.branchId : null, // null = all branches (system-wide)
-      targetSegment: promotionData.targetSegment || 'all', // 'all', 'bronze', 'silver', 'gold', 'platinum'
+      targetSegment: promotionData.targetSegment || 'all', // 'all', 'silver', 'gold', 'platinum'
       applicableTo: promotionData.applicableTo || 'all',
       applicableServices: promotionData.applicableServices || [], // Empty = all services
       specificServices: promotionData.specificServices || [],

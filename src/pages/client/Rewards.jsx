@@ -116,15 +116,6 @@ const ClientRewards = () => {
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
-  const getMembershipTier = (points) => {
-    if (points >= 10000) return { name: 'Platinum', color: 'bg-purple-100 text-purple-700', icon: '👑' };
-    if (points >= 5000) return { name: 'Gold', color: 'bg-yellow-100 text-yellow-700', icon: '⭐' };
-    if (points >= 2000) return { name: 'Silver', color: 'bg-gray-100 text-gray-700', icon: '✨' };
-    return { name: 'Bronze', color: 'bg-orange-100 text-orange-700', icon: '🌟' };
-  };
-
-  const membershipTier = getMembershipTier(totalPoints);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -142,15 +133,14 @@ const ClientRewards = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-gradient-to-br from-primary-600 to-primary-700 rounded-xl p-6 text-white">
           <div className="flex items-center justify-between mb-2">
             <Star className="w-8 h-8" />
-            <span className="text-2xl">{membershipTier.icon}</span>
+            <span className="text-2xl">⭐</span>
           </div>
           <p className="text-primary-100 text-sm mb-1">Total Points</p>
           <p className="text-3xl font-bold">{totalPoints.toLocaleString()}</p>
-          <p className="text-primary-100 text-xs mt-2">{membershipTier.name} Member</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">

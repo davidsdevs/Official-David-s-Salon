@@ -24,12 +24,6 @@ const ClientAnalytics = () => {
   const { userBranch, userData } = useAuth();
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState([]);
-  const [segmentation, setSegmentation] = useState({
-    bronze: 0,
-    silver: 0,
-    gold: 0,
-    platinum: 0
-  });
   const [feedbackStats, setFeedbackStats] = useState(null);
   const [topClients, setTopClients] = useState([]);
   const [avgMetrics, setAvgMetrics] = useState({
@@ -99,7 +93,6 @@ const ClientAnalytics = () => {
       // Process client data
       const branchClients = [];
       const clientSegments = [];
-      const segCounts = { bronze: 0, silver: 0, gold: 0, platinum: 0 };
       let totalSpent = 0;
       let totalVisits = 0;
       
@@ -177,18 +170,7 @@ const ClientAnalytics = () => {
           const branchSpent = clientTxns.reduce((sum, t) => sum + (t.total || 0), 0);
           const branchVisits = clientTxns.length;
           
-          // Determine tier
-          let tier = 'Bronze';
-          if (branchVisits >= 20 || branchSpent >= 50000) {
-            tier = 'Platinum';
-          } else if (branchVisits >= 10 || branchSpent >= 25000) {
-            tier = 'Gold';
-          } else if (branchVisits >= 5 || branchSpent >= 10000) {
-            tier = 'Silver';
-          }
-          
           const seg = {
-            tier,
             visitFrequency: branchVisits,
             avgSpend: branchVisits > 0 ? branchSpent / branchVisits : 0,
             totalSpent: branchSpent,
@@ -197,14 +179,12 @@ const ClientAnalytics = () => {
           };
           
           clientSegments.push({ client, segmentation: seg });
-          segCounts[tier.toLowerCase()]++;
           totalSpent += branchSpent;
           totalVisits += branchVisits;
         }
       }
       
       setClients(branchClients);
-      setSegmentation(segCounts);
       
       // Get top clients
       const sortedClients = clientSegments
@@ -672,31 +652,6 @@ const ClientAnalytics = () => {
               <p className="text-2xl font-bold text-purple-600">
                 ₱{spendingPatterns.avgTransactionValue.toFixed(2)}
               </p>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/* Client Segmentation */}
-      <Card>
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Client Segmentation</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center p-4 bg-amber-50 rounded-lg">
-              <div className="text-3xl font-bold text-amber-700">{segmentation.bronze}</div>
-              <div className="text-sm text-amber-600 mt-1">Bronze</div>
-            </div>
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <div className="text-3xl font-bold text-gray-700">{segmentation.silver}</div>
-              <div className="text-sm text-gray-600 mt-1">Silver</div>
-            </div>
-            <div className="text-center p-4 bg-yellow-50 rounded-lg">
-              <div className="text-3xl font-bold text-yellow-700">{segmentation.gold}</div>
-              <div className="text-sm text-yellow-600 mt-1">Gold</div>
-            </div>
-            <div className="text-center p-4 bg-purple-50 rounded-lg">
-              <div className="text-3xl font-bold text-purple-700">{segmentation.platinum}</div>
-              <div className="text-sm text-purple-600 mt-1">Platinum</div>
             </div>
           </div>
         </div>

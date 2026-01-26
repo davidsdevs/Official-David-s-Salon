@@ -215,10 +215,6 @@ const ClientProfile = () => {
     );
   }
 
-  // Get membership level
-  const membershipStat = userData?.membershipStat || userData?.membershipLevel || 'bronze';
-  const membershipLevel = membershipStat.charAt(0).toUpperCase() + membershipStat.slice(1);
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -281,7 +277,7 @@ const ClientProfile = () => {
             </div>
             <div className="text-white flex-1">
               <h2 className="text-2xl font-bold">{getFullName(userData)}</h2>
-              <p className="text-primary-100 mt-1">{membershipLevel} Member</p>
+              <p className="text-primary-100 mt-1">{userData?.email}</p>
               {isEditing && (
                 <button
                   type="button"
