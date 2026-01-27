@@ -43,7 +43,7 @@ import ContentManagement from '../pages/system-admin/ContentManagement';
 import HomepageContentManagement from '../pages/system-admin/HomepageContentManagement';
 import MasterProducts from '../pages/system-admin/MasterProducts';
 import LoyaltyCriteria from '../pages/system-admin/LoyaltyCriteria';
-import TaxConfiguration from '../pages/system-admin/TaxConfiguration';
+import DatabaseBackupRestore from '../pages/system-admin/DatabaseBackupRestore';
 import SeedServices from '../pages/admin/SeedServices';
 import SeedData from '../pages/admin/SeedData';
 import OperationalManagerDashboard from '../pages/operational-manager/Dashboard';
@@ -237,7 +237,7 @@ const AppRoutes = () => {
               <Route path="homepage-content" element={<HomepageContentManagement />} />
               <Route path="master-products" element={<MasterProducts />} />
               <Route path="loyalty-criteria" element={<LoyaltyCriteria />} />
-              <Route path="tax-configuration" element={<TaxConfiguration />} />
+              <Route path="database-backup" element={<DatabaseBackupRestore />} />
               <Route path="settings" element={<div className="p-6">Settings - Coming Soon</div>} />
         <Route path="profile" element={<Profile />} />
       </Route>

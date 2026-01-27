@@ -402,6 +402,18 @@ const EnhancedBillingModal = ({
                         <span>-₱{calculations.discount.toFixed(2)}</span>
                       </div>
                     )}
+                    {(calculations.promotionDiscount || 0) > 0 && (
+                      <div className="flex justify-between text-orange-600">
+                        <span>Promotions:</span>
+                        <span>-₱{calculations.promotionDiscount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {(calculations.loyaltyDiscount || 0) > 0 && (
+                      <div className="flex justify-between text-purple-600">
+                        <span>Loyalty Points:</span>
+                        <span>-₱{calculations.loyaltyDiscount.toFixed(2)}</span>
+                      </div>
+                    )}
                     {calculations.serviceCharge > 0 && (
                       <div className="flex justify-between">
                         <span>Service Charge ({taxConfig?.serviceCharge}%):</span>

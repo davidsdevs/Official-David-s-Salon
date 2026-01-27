@@ -645,7 +645,11 @@ const TwoStepCheckoutModal = ({
                             <div className="flex items-center gap-2">
                               <CheckCircle className="w-4 h-4 text-green-600" />
                               <span className="text-sm text-green-800 font-bold">
-                                {appliedPromotion.name} - ₱{formData.promotionDiscount.toFixed(2)} off
+                                {appliedPromotion.name}
+                                {appliedPromotion.discountType === 'percentage' && (
+                                  <span className="ml-1">({appliedPromotion.discountValue}%)</span>
+                                )}
+                                {' '}- ₱{formData.promotionDiscount.toFixed(2)} off
                               </span>
                             </div>
                           </div>
@@ -759,6 +763,44 @@ const TwoStepCheckoutModal = ({
                       <span className="text-2xl font-bold text-gray-900">₱{(calculations?.subtotal || 0).toFixed(2)}</span>
                     </div>
                     
+                    {/* Manual Discounts (Senior/PWD/Manual) - Only show if exists */}
+                    {(calculations?.discount || 0) > 0 && (
+                      <div className="bg-white rounded-lg p-4 border-2 border-red-200">
+                        <span className="text-sm text-gray-600 font-medium block mb-1">
+                          Discounts
+                          {formData.customerInfo?.isSeniorCitizen && ' (Senior)'}
+                          {formData.customerInfo?.isPwd && ' (PWD)'}
+                        </span>
+                        <span className="text-2xl font-bold text-red-600">-₱{(calculations?.discount || 0).toFixed(2)}</span>
+                      </div>
+                    )}
+                    
+                    {/* Promotions - Only show if exists */}
+                    {(calculations?.promotionDiscount || 0) > 0 && appliedPromotion && (
+                      <div className="bg-white rounded-lg p-4 border-2 border-orange-200">
+                        <span className="text-sm text-gray-600 font-medium block mb-1">
+                          Promotion
+                          {appliedPromotion.discountType === 'percentage' && (
+                            <span className="ml-1 text-orange-600">({appliedPromotion.discountValue}%)</span>
+                          )}
+                        </span>
+                        <span className="text-2xl font-bold text-orange-600">-₱{(calculations?.promotionDiscount || 0).toFixed(2)}</span>
+                        <span className="text-xs text-gray-500 block mt-1">{appliedPromotion.name}</span>
+                      </div>
+                    )}
+                    
+                    {/* Loyalty Points - Only show if exists */}
+                    {(calculations?.loyaltyDiscount || 0) > 0 && formData.loyaltyPointsUsed > 0 && (
+                      <div className="bg-white rounded-lg p-4 border-2 border-purple-200">
+                        <span className="text-sm text-gray-600 font-medium block mb-1">
+                          Loyalty ({formData.loyaltyPointsUsed.toLocaleString()} pts)
+                        </span>
+                        <span className="text-2xl font-bold text-purple-600">
+                          -₱{(calculations?.loyaltyDiscount || 0).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                    
                     {/* Tax - Only show if exists */}
                     {(calculations?.tax || 0) > 0 && (
                       <div className="bg-white rounded-lg p-4 border-2 border-gray-200">
@@ -776,34 +818,6 @@ const TwoStepCheckoutModal = ({
                           Service Charge ({taxConfig?.serviceCharge}%)
                         </span>
                         <span className="text-2xl font-bold text-green-600">+₱{(calculations?.serviceCharge || 0).toFixed(2)}</span>
-                      </div>
-                    )}
-                    
-                    {/* Discounts - Only show if exists */}
-                    {(calculations?.discount || 0) > 0 && (
-                      <div className="bg-white rounded-lg p-4 border-2 border-red-200">
-                        <span className="text-sm text-gray-600 font-medium block mb-1">Discounts</span>
-                        <span className="text-2xl font-bold text-red-600">-₱{(calculations?.discount || 0).toFixed(2)}</span>
-                      </div>
-                    )}
-                    
-                    {/* Promotions - Only show if exists */}
-                    {formData.promotionDiscount > 0 && (
-                      <div className="bg-white rounded-lg p-4 border-2 border-red-200">
-                        <span className="text-sm text-gray-600 font-medium block mb-1">Promotions</span>
-                        <span className="text-2xl font-bold text-red-600">-₱{formData.promotionDiscount.toFixed(2)}</span>
-                      </div>
-                    )}
-                    
-                    {/* Loyalty Points - Only show if exists */}
-                    {formData.loyaltyPointsUsed > 0 && (
-                      <div className="bg-white rounded-lg p-4 border-2 border-purple-200">
-                        <span className="text-sm text-gray-600 font-medium block mb-1">
-                          Loyalty ({formData.loyaltyPointsUsed.toLocaleString()} pts)
-                        </span>
-                        <span className="text-2xl font-bold text-purple-600">
-                          -₱{(formData.loyaltyPointsUsed * (loyaltyCriteria?.pointValue || 1)).toFixed(2)}
-                        </span>
                       </div>
                     )}
                   </div>

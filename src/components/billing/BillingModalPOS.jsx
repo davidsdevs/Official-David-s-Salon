@@ -3551,17 +3551,17 @@ const BillingModalPOS = ({
                             </div>
                           )}
 
-                          {promotionDiscount > 0 && (
-                            <div className="flex justify-between text-purple-600">
+                          {(totals?.promotionDiscount || 0) > 0 && (
+                            <div className="flex justify-between text-orange-600">
                               <span>Promotions</span>
-                              <span>-₱{formatCurrency(promotionDiscount)}</span>
+                              <span>-₱{formatCurrency(totals?.promotionDiscount)}</span>
                             </div>
                           )}
 
-                          {formData.loyaltyPointsUsed && parseInt(formData.loyaltyPointsUsed) > 0 && (
-                            <div className="flex justify-between text-yellow-600">
-                              <span>Loyalty Used</span>
-                              <span>-₱{formatCurrency(formData.loyaltyPointsUsed)}</span>
+                          {(totals?.loyaltyDiscount || 0) > 0 && (
+                            <div className="flex justify-between text-purple-600">
+                              <span>Loyalty Points</span>
+                              <span>-₱{formatCurrency(totals?.loyaltyDiscount)}</span>
                             </div>
                           )}
 

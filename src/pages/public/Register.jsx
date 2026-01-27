@@ -6,13 +6,13 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
-import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } from 'firebase/auth';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
-import { auth, db } from '../../config/firebase';
+import { doc, setDoc, Timestamp, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import { logActivity } from '../../services/activityService';
 import { sendWelcomeEmail, sendOTPEmail } from '../../services/emailService';
 import { processReferral, validateReferralCode } from '../../services/referralService';
 import { USER_ROLES } from '../../utils/constants';
+import { hashPassword } from '../../services/rolePasswordService';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
@@ -145,6 +145,11 @@ const Register = () => {
 
   const handleVerifyOtp = async (e) => {
     e.preventDefault();
+    
+    console.log('🔍 Verifying OTP...');
+    console.log('Entered OTP:', formData.otpCode);
+    console.log('Generated OTP:', generatedOtp);
+    
     if (formData.otpCode !== generatedOtp) {
       setError('Invalid verification code');
       return;
@@ -154,83 +159,92 @@ const Register = () => {
     setError('');
 
     try {
-      // Create Firebase Auth account
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        formData.email,
-        formData.password
-      );
+      console.log('✅ OTP verified! Creating account...');
+      
+      // Check if email already exists in Firestore
+      console.log('📝 Checking if email already exists:', formData.email);
+      const usersRef = collection(db, 'users');
+      const emailQuery = query(usersRef, where('email', '==', formData.email));
+      const emailSnapshot = await getDocs(emailQuery);
+      
+      if (!emailSnapshot.empty) {
+        console.log('❌ Email already exists');
+        setError('Email address is already registered. Please use a different email or try logging in.');
+        setLoading(false);
+        return;
+      }
+      console.log('✅ Email is available');
 
-      const user = userCredential.user;
+      // Generate a unique user ID
+      const userId = doc(collection(db, 'users')).id;
+      console.log('✅ Generated user ID:', userId);
 
-      // Build full name for Firebase Auth
+      // Build full name
       const fullName = `${formData.firstName}${formData.middleName ? ' ' + formData.middleName.charAt(0) + '.' : ''} ${formData.lastName}`.trim();
 
-      // Update display name in Firebase Auth
-      await updateProfile(user, {
-        displayName: fullName
-      });
-
-      // Send email verification
-      await sendEmailVerification(user);
-
-      // Create Firestore user document
-      await setDoc(doc(db, 'users', user.uid), {
+      // Create Firestore user document (NO Firebase Auth)
+      console.log('📝 Creating Firestore user document...');
+      await setDoc(doc(db, 'users', userId), {
         email: formData.email,
         firstName: formData.firstName,
         middleName: formData.middleName || '',
         lastName: formData.lastName,
+        displayName: fullName,
         phone: formData.phone,
-        roles: [USER_ROLES.CLIENT], // Use roles array instead of single role
+        roles: [USER_ROLES.CLIENT],
+        role: USER_ROLES.CLIENT, // Keep for backward compatibility
         branchId: null,
         isActive: true,
+        emailVerified: false, // Will be verified when they login
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
       });
+      console.log('✅ Firestore user document created');
 
       // Set up role password for CLIENT role (required for login)
       try {
+        console.log('🔐 Setting up role password...');
         const { initializeRolePasswords } = await import('../../services/rolePasswordService');
-        await initializeRolePasswords(user.uid, [USER_ROLES.CLIENT], formData.password);
+        await initializeRolePasswords(userId, [USER_ROLES.CLIENT], formData.password);
+        console.log('✅ Role password set up');
       } catch (passwordError) {
-        console.error('Error setting up role password:', passwordError);
-        // Don't fail registration if password setup fails, but log it
-        // The login flow will handle setting it up automatically if needed
+        console.error('⚠️ Error setting up role password:', passwordError);
+        // Don't fail registration if password setup fails
       }
 
-      // Process referral code if provided (branch ID is automatically determined from referral code)
+      // Process referral code if provided
       const referralCodeToProcess = formData.referralCode || urlReferralCode;
 
       if (referralCodeToProcess) {
         try {
-          // processReferral will automatically find the branch ID from the referral code
+          console.log('🎁 Processing referral code:', referralCodeToProcess);
           const referralResult = await processReferral(
-            user.uid,
+            userId,
             referralCodeToProcess,
-            null, // branchId will be determined from referral code
-            { uid: user.uid, displayName: fullName }
+            null,
+            { uid: userId, displayName: fullName }
           );
 
           if (referralResult.success) {
             console.log('✅ Referral processed successfully:', referralResult);
           } else {
             console.warn('⚠️ Referral processing failed:', referralResult.message);
-            // Don't fail registration if referral fails
           }
         } catch (referralError) {
-          console.error('Error processing referral:', referralError);
-          // Don't fail registration if referral fails
+          console.error('⚠️ Error processing referral:', referralError);
         }
       }
 
       // Send custom welcome email (async, don't wait)
+      console.log('📧 Sending welcome email...');
       sendWelcomeEmail({
         email: formData.email,
         displayName: fullName,
         role: 'Client'
-      }).catch(err => console.error('Welcome email error:', err));
+      }).catch(err => console.error('⚠️ Welcome email error:', err));
 
-      setSuccess('Account created successfully! Please check your email to verify your account.');
+      console.log('🎉 Registration complete!');
+      setSuccess('Account created successfully! You can now log in with your email and password.');
 
       // Redirect to login after a short delay
       setTimeout(() => {
@@ -238,16 +252,15 @@ const Register = () => {
       }, 3000);
 
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error('❌ Registration error:', error);
+      console.error('Error message:', error.message);
 
-      if (error.code === 'auth/email-already-in-use') {
-        setError('Email address is already registered');
-      } else if (error.code === 'auth/weak-password') {
-        setError('Password is too weak');
-      } else if (error.code === 'auth/invalid-email') {
-        setError('Invalid email address');
+      if (error.message?.includes('already exists')) {
+        setError('Email address is already registered. Please use a different email or try logging in.');
+      } else if (error.message?.includes('network')) {
+        setError('Network error. Please check your internet connection and try again.');
       } else {
-        setError('Registration failed. Please try again.');
+        setError(`Registration failed: ${error.message || 'Please try again.'}`);
       }
     } finally {
       setLoading(false);

@@ -35,6 +35,7 @@ const ClientRewards = () => {
   const fetchRewardsData = async () => {
     try {
       setLoading(true);
+      console.log('🔄 Fetching rewards data for user:', currentUser.uid);
       
       // Fetch data with individual error handling
       let pointsData = [];
@@ -43,27 +44,42 @@ const ClientRewards = () => {
       let appointmentsData = [];
 
       try {
+        console.log('📊 Fetching loyalty points...');
         pointsData = await getAllBranchLoyaltyPoints(currentUser.uid);
+        console.log('✅ Loyalty points fetched:', pointsData.length);
       } catch (error) {
-        console.error('Error fetching loyalty points:', error);
+        console.error('❌ Error fetching loyalty points:', error);
       }
 
       try {
+        console.log('🎁 Fetching referral codes...');
         codesData = await getAllReferralCodes(currentUser.uid);
+        console.log('✅ Referral codes fetched:', codesData.length);
       } catch (error) {
-        console.error('Error fetching referral codes:', error);
+        console.error('❌ Error fetching referral codes:', error);
       }
 
       try {
+        console.log('🏢 Fetching branches...');
         branchesData = await getAllBranches();
+        console.log('✅ Branches fetched:', branchesData.length);
       } catch (error) {
-        console.error('Error fetching branches:', error);
+        console.error('❌ Error fetching branches:', error);
       }
 
       try {
-        appointmentsData = await getAppointmentsByClient(currentUser.uid);
+        console.log('📅 Fetching appointments...');
+        const result = await getAppointmentsByClient(currentUser.uid);
+        // Handle both array and object response
+        if (result && !Array.isArray(result)) {
+          appointmentsData = result.appointments || [];
+        } else {
+          appointmentsData = result || [];
+        }
+        console.log('✅ Appointments fetched:', appointmentsData.length);
       } catch (error) {
-        console.error('Error fetching appointments:', error);
+        console.error('❌ Error fetching appointments:', error);
+        appointmentsData = [];
       }
 
       setBranchPoints(pointsData || []);
@@ -73,32 +89,43 @@ const ClientRewards = () => {
       // Calculate total points
       const total = (pointsData || []).reduce((sum, item) => sum + (item.loyaltyPoints || 0), 0);
       setTotalPoints(total);
+      console.log('💰 Total points:', total);
 
       // Calculate total visits (completed appointments)
       const completed = (appointmentsData || []).filter(apt => apt.status === 'completed');
       setTotalVisits(completed.length);
+      console.log('✅ Total visits:', completed.length);
 
       // Fetch referral stats
       try {
+        console.log('📈 Fetching referral stats...');
         const stats = await getReferralStats(currentUser.uid);
         setReferralStats(stats || { totalReferrals: 0, totalRewards: 0 });
+        console.log('✅ Referral stats fetched:', stats);
       } catch (error) {
-        console.error('Error fetching referral stats:', error);
+        console.error('❌ Error fetching referral stats:', error);
         setReferralStats({ totalReferrals: 0, totalRewards: 0 });
       }
 
       // Fetch recent loyalty history
       try {
+        console.log('📜 Fetching loyalty history...');
         const history = await getLoyaltyHistory(currentUser.uid, null, 10);
         setLoyaltyHistory(history || []);
+        console.log('✅ Loyalty history fetched:', history.length);
       } catch (error) {
-        console.error('Error fetching loyalty history:', error);
+        console.error('❌ Error fetching loyalty history:', error);
         setLoyaltyHistory([]);
       }
 
+      console.log('🎉 Rewards data loaded successfully!');
     } catch (error) {
-      console.error('Error fetching rewards data:', error);
-      toast.error('Failed to load rewards data');
+      console.error('❌ Error fetching rewards data:', error);
+      console.error('Error details:', error.message, error.stack);
+      // Only show error toast if it's a real error, not just empty data
+      if (error.message && !error.message.includes('filter is not a function')) {
+        toast.error('Failed to load rewards data. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

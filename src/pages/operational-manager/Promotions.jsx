@@ -1,10 +1,10 @@
 /**
- * Operational Manager Branch Promotions Monitoring Page
- * Monitor promotions across all branches
+ * Operational Manager Promotions Page
+ * Create and manage system-wide promotions across all branches
  */
 
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Calendar, Tag, Globe, Building2, Mail, Eye, Image as ImageIcon, X, ArrowLeft, TrendingUp } from 'lucide-react';
+import { Plus, Edit, Trash2, Calendar, Tag, Globe, Building2, Mail, Eye, Image as ImageIcon, X, ArrowLeft, TrendingUp, Sparkles } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getAllPromotions, createPromotion, updatePromotion, deletePromotion } from '../../services/promotionService';
 import { getAllBranches } from '../../services/branchService';
@@ -52,6 +52,7 @@ const OperationalManagerPromotions = () => {
     promotionCode: '',
     discountType: 'percentage',
     discountValue: '',
+    branchId: '', // Empty = system-wide
     targetSegment: 'all',
     applicableTo: 'all',
     specificServices: [],
@@ -305,6 +306,7 @@ const OperationalManagerPromotions = () => {
       promotionCode: code,
       discountType: 'percentage',
       discountValue: '',
+      branchId: '', // Empty string, will be converted to null for system-wide
       targetSegment: 'all',
       applicableTo: 'all',
       specificServices: [],
@@ -457,7 +459,7 @@ const OperationalManagerPromotions = () => {
   }
 
   // Branch List View
-  if (viewMode === 'branch-list') {
+  const renderBranchListView = () => {
     // Add system-wide as a special "branch"
     const systemWide = {
       id: null,
@@ -469,9 +471,18 @@ const OperationalManagerPromotions = () => {
     return (
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Branch Promotions Monitoring</h1>
-          <p className="text-gray-600">Monitor active promotions across all branches</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">System-Wide Promotions</h1>
+            <p className="text-gray-600">Create and manage promotions across all branches</p>
+          </div>
+          <Button
+            onClick={handleCreate}
+            className="flex items-center gap-2"
+          >
+            <Plus className="h-5 w-5" />
+            Create System-Wide Promotion
+          </Button>
         </div>
 
         {/* Branch Cards Grid */}
@@ -544,14 +555,14 @@ const OperationalManagerPromotions = () => {
         )}
       </div>
     );
-  }
+  };
 
   // Branch Detail View
   const branchPromotions = getBranchPromotions(selectedBranch?.id);
   const activePromotions = branchPromotions.filter(isActive);
   const pastPromotions = branchPromotions.filter(promo => !isActive(promo));
 
-  return (
+  const renderBranchDetailView = () => (
     <div className="space-y-6">
       {/* Header with Back Button */}
       <div className="flex items-center gap-4">
@@ -578,6 +589,15 @@ const OperationalManagerPromotions = () => {
             {activePromotions.length} active, {pastPromotions.length} past promotions
           </p>
         </div>
+        {selectedBranch?.isSystemWide && (
+          <Button
+            onClick={handleCreate}
+            className="flex items-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Create Promotion
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -822,6 +842,13 @@ const OperationalManagerPromotions = () => {
           <p>No promotions found for this branch</p>
         </div>
       )}
+    </div>
+  );
+
+  // Main render
+  return (
+    <>
+      {viewMode === 'branch-list' ? renderBranchListView() : renderBranchDetailView()}
 
       {/* Create/Edit Modal */}
       <Modal
@@ -1232,7 +1259,7 @@ const OperationalManagerPromotions = () => {
           </div>
         </div>
       </Modal>
-    </div>
+    </>
   );
 };
 

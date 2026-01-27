@@ -802,30 +802,36 @@ export const calculateBillTotals = async (billData, customerInfo = {}) => {
     return sum + (item.price * (item.quantity || 1));
   }, 0);
 
-  // Calculate discount amount
-  let discountAmount = 0;
+  // Calculate manual discount amount (senior/PWD/manual discounts)
+  let manualDiscountAmount = 0;
   if (discountType === 'percentage' || discountType === 'percent') {
-    discountAmount = (subtotal * discount) / 100;
+    manualDiscountAmount = (subtotal * discount) / 100;
   } else {
-    discountAmount = discount;
+    manualDiscountAmount = discount;
   }
 
-  // Add loyalty points discount (using loyalty criteria configuration)
+  // Calculate loyalty points discount separately (using loyalty criteria configuration)
   const loyaltyCriteria = await getLoyaltyCriteria();
-  discountAmount += (loyaltyPointsUsed * loyaltyCriteria.pointValue);
+  const loyaltyDiscountAmount = loyaltyPointsUsed * loyaltyCriteria.pointValue;
 
-  // Add promotion discount
-  discountAmount += (promotionDiscount || 0);
+  // Calculate promotion discount separately
+  const promotionDiscountAmount = promotionDiscount || 0;
+
+  // Total discount for tax calculation (all discounts combined)
+  const totalDiscountAmount = manualDiscountAmount + loyaltyDiscountAmount + promotionDiscountAmount;
 
   // Calculate tax using tax configuration
   const taxCalculation = await calculateTax({
     items,
-    subtotal: subtotal - discountAmount
+    subtotal: subtotal - totalDiscountAmount
   }, null, customerInfo);
 
   return {
     subtotal: parseFloat(subtotal.toFixed(2)),
-    discount: parseFloat(discountAmount.toFixed(2)),
+    discount: parseFloat(manualDiscountAmount.toFixed(2)), // Manual discounts only (senior/PWD/manual)
+    promotionDiscount: parseFloat(promotionDiscountAmount.toFixed(2)), // Promotion discount separate
+    loyaltyDiscount: parseFloat(loyaltyDiscountAmount.toFixed(2)), // Loyalty points discount separate
+    totalDiscount: parseFloat(totalDiscountAmount.toFixed(2)), // All discounts combined
     serviceCharge: parseFloat(taxCalculation.serviceChargeAmount.toFixed(2)),
     tax: parseFloat(taxCalculation.vatAmount.toFixed(2)),
     total: parseFloat(taxCalculation.total.toFixed(2)),

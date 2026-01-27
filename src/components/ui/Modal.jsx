@@ -29,10 +29,10 @@ const Modal = ({
         />
         
         {/* Modal */}
-        <div className={`relative w-full ${sizeClasses[size]} transform overflow-hidden rounded-lg bg-white shadow-xl transition-all`}>
+        <div className={`relative w-full ${sizeClasses[size]} transform rounded-lg bg-white shadow-xl transition-all max-h-[90vh] flex flex-col`}>
           {/* Header */}
           {title && (
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 flex-shrink-0">
               <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
               <button
                 onClick={onClose}
@@ -43,8 +43,8 @@ const Modal = ({
             </div>
           )}
           
-          {/* Content */}
-          <div className="px-6 py-4">
+          {/* Content - Scrollable */}
+          <div className="px-6 py-4 overflow-y-auto flex-1">
             {children}
           </div>
         </div>

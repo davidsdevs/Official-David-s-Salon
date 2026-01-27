@@ -940,31 +940,46 @@ const BranchProducts = () => {
         margin: 1cm;
       }
       @media print {
-        body * {
-          visibility: hidden;
-        }
-        .print-content, .print-content * {
-          visibility: visible;
-        }
-        .print-content {
-          position: absolute;
-          left: 0;
-          top: 0;
-          width: 100%;
-          background: white !important;
-        }
-        .print-content * {
-          background: white !important;
+        body {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
       }
     `,
     onBeforeGetContent: () => {
+      console.log('Preparing print content...');
       return Promise.resolve();
+    },
+    onAfterPrint: () => {
+      console.log('Print dialog closed');
+      toast.success('Print completed');
+    },
+    onPrintError: (error) => {
+      console.error('Print error:', error);
+      toast.error('Failed to print. Please try again.');
     }
   });
 
   const handleDownloadPDF = () => {
-    handlePrint();
+    if (!catalogData || catalogData.length === 0) {
+      toast.error('No products to print');
+      return;
+    }
+    
+    if (!printRef.current) {
+      toast.error('Print content not ready. Please try again.');
+      return;
+    }
+    
+    console.log('Triggering print...');
+    toast.loading('Preparing print preview...', { duration: 1000 });
+    
+    try {
+      handlePrint();
+    } catch (error) {
+      console.error('Print trigger error:', error);
+      toast.error('Failed to open print dialog');
+    }
   };
 
   const handleAddColumn = () => {
@@ -1749,29 +1764,31 @@ const BranchProducts = () => {
                   <p className="text-gray-500 text-lg">No products available. Please add products to your branch first.</p>
                 </div>
               ) : (
-                <div className="bg-white rounded-lg shadow-lg p-12 print-content" ref={printRef}>
-                  <div className="text-center mb-12 border-b-2 border-gray-300 pb-8">
-                    <h1 className="text-4xl font-bold text-gray-900 mb-3">David Salon</h1>
-                    <h2 className="text-2xl font-semibold text-[#160B53] mb-4">
-                      {branch?.name || branch?.branchName || 'Branch'} - Product Catalog
-                    </h2>
-                  </div>
-                  {isEditMode ? (
-                    <DndContext
-                      sensors={sensors}
-                      collisionDetection={closestCenter}
-                      onDragEnd={handleBrandDragEnd}
-                    >
-                      <SortableContext
-                        items={catalogData.map(brand => brand.id)}
-                        strategy={brandSortingStrategy}
+                <div ref={printRef}>
+                  <div className="bg-white rounded-lg shadow-lg p-12">
+                    <div className="text-center mb-12 border-b-2 border-gray-300 pb-8">
+                      <h1 className="text-4xl font-bold text-gray-900 mb-3">David Salon</h1>
+                      <h2 className="text-2xl font-semibold text-[#160B53] mb-4">
+                        {branch?.name || branch?.branchName || 'Branch'} - Product Catalog
+                      </h2>
+                    </div>
+                    {isEditMode ? (
+                      <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={handleBrandDragEnd}
                       >
-                        {renderBrandGrid()}
-                      </SortableContext>
-                    </DndContext>
-                  ) : (
-                    renderBrandGrid()
-                  )}
+                        <SortableContext
+                          items={catalogData.map(brand => brand.id)}
+                          strategy={brandSortingStrategy}
+                        >
+                          {renderBrandGrid()}
+                        </SortableContext>
+                      </DndContext>
+                    ) : (
+                      renderBrandGrid()
+                    )}
+                  </div>
                 </div>
               )}
             </div>

@@ -30,6 +30,7 @@
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
+    "crypto-js": "^4.2.0",
     "date-fns": "^3.0.0",
     "dotenv": "^17.2.3",
     "firebase": "^10.7.1",
