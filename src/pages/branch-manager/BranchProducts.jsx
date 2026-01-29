@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { formatCurrency } from '../../utils/helpers';
 import { useNavigate } from 'react-router-dom';
 import { Search, ArrowLeft, Package, Filter, Eye, Image as ImageIcon, Plus, Trash2, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Download, FileText, Sparkles, Grid3x3, Columns, Rows, Minus, Save, Edit2, Upload, Eye as EyeIcon } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -1476,7 +1477,7 @@ const BranchProducts = () => {
                     {selectedProduct.salonUsePrice && (
                       <div>
                         <p className="text-xs text-gray-500 mb-1">Salon Use Price</p>
-                        <p className="text-sm font-semibold text-gray-900">₱{selectedProduct.salonUsePrice.toLocaleString()}</p>
+                        <p className="text-sm font-semibold text-gray-900">{formatCurrency(selectedProduct.salonUsePrice)}</p>
                       </div>
                     )}
                     {selectedProduct.commissionPercentage && (

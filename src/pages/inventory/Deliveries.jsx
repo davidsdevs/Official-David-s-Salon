@@ -333,13 +333,18 @@ const Deliveries = () => {
       return;
     }
 
+    // Format currency with commas
+    const formatCurrency = (amount) => {
+      return amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    };
+
     const itemsHtml = (data.items || []).map(item => `
       <tr>
-        <td style="padding:8px;border:1px solid #ddd">${item.productName}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:right">${item.orderedQuantity || 0}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:right">${item.receivedQuantity || 0}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:right">₱${(item.unitPrice || 0).toFixed(2)}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:right">₱${((item.unitPrice || 0) * (item.receivedQuantity || 0)).toFixed(2)}</td>
+        <td style="padding:8px 6px;border:1px solid #333;font-size:10px">${item.productName || 'Unknown Item'}</td>
+        <td style="padding:8px 6px;border:1px solid #333;text-align:center;font-size:10px">${item.orderedQuantity || 0}</td>
+        <td style="padding:8px 6px;border:1px solid #333;text-align:center;font-size:10px">${item.receivedQuantity || 0}</td>
+        <td style="padding:8px 6px;border:1px solid #333;text-align:right;font-size:10px">₱${formatCurrency(item.unitPrice || 0)}</td>
+        <td style="padding:8px 6px;border:1px solid #333;text-align:right;font-size:10px;font-weight:600">₱${formatCurrency((item.unitPrice || 0) * (item.receivedQuantity || 0))}</td>
       </tr>
     `).join('');
 
@@ -349,32 +354,148 @@ const Deliveries = () => {
         <head>
           <meta charset="utf-8" />
           <title>Delivery Receipt - ${data.receiptNumber || ''}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            body { font-family: Arial, sans-serif; color: #000; padding: 16px; }
-            h1 { text-align: center; }
-            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-            th, td { padding: 8px; border: 1px solid #ddd; }
-            th { background: #f3f4f6; text-align: left; }
-            .totals { margin-top: 12px; float: right; width: 320px; }
-            .notes { margin-top: 20px; }
+            @media print {
+              @page {
+                size: letter;
+                margin: 0.4in 0.5in;
+              }
+              * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+              }
+            }
+            body { 
+              font-family: 'Poppins', sans-serif; 
+              color: #000; 
+              padding: 0; 
+              margin: 0;
+              line-height: 1.5;
+            }
+            h1 { 
+              text-align: center; 
+              font-size: 24px; 
+              font-weight: 700; 
+              margin: 0 0 10px 0;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #000;
+            }
+            .header-section {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 15px;
+              font-size: 11px;
+            }
+            .header-left, .header-right {
+              flex: 1;
+            }
+            .header-left {
+              text-align: left;
+            }
+            .header-right {
+              text-align: right;
+            }
+            .info-row {
+              margin-bottom: 4px;
+            }
+            table { 
+              width: 100%; 
+              border-collapse: collapse; 
+              margin-top: 15px; 
+              border: 1px solid #333;
+              font-size: 10px;
+            }
+            th, td { 
+              padding: 8px 6px; 
+              border: 1px solid #333; 
+            }
+            th { 
+              background: #fff; 
+              text-align: left; 
+              font-weight: 700;
+              font-size: 11px;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+            }
+            tbody tr {
+              background: #fff;
+            }
+            .totals { 
+              margin-top: 15px; 
+              float: right; 
+              width: 350px; 
+            }
+            .totals table {
+              margin-top: 0;
+            }
+            .totals td {
+              font-size: 11px;
+              padding: 8px;
+            }
+            .totals .total-row {
+              font-weight: 700;
+              font-size: 12px;
+            }
+            .notes { 
+              margin-top: 20px; 
+              font-size: 11px;
+              clear: both;
+            }
+            .notes-title {
+              font-weight: 700;
+              margin-bottom: 6px;
+              text-transform: uppercase;
+            }
+            .notes-content {
+              padding: 8px;
+              border: 1px solid #333;
+              background: #fff;
+              min-height: 60px;
+            }
+            .footer {
+              clear: both;
+              margin-top: 20px;
+              padding-top: 12px;
+              border-top: 1px solid #333;
+              text-align: center;
+              font-size: 10px;
+              color: #000;
+            }
           </style>
         </head>
         <body>
           <h1>DELIVERY RECEIPT</h1>
-          <div>
-            <strong>Receipt #:</strong> ${data.receiptNumber || ''}<br/>
-            <strong>Purchase Order:</strong> ${data.purchaseOrderId || ''}<br/>
-            <strong>Supplier:</strong> ${data.supplierName || ''}<br/>
-            <strong>Received Date:</strong> ${data.receivedDate || ''}<br/>
-            <strong>Received By:</strong> ${data.receivedBy || ''}
+          
+          <div class="header-section">
+            <div class="header-left">
+              <div class="info-row"><strong>Receipt #:</strong> ${data.receiptNumber || 'N/A'}</div>
+              <div class="info-row"><strong>Purchase Order:</strong> ${data.purchaseOrderId || 'N/A'}</div>
+              <div class="info-row"><strong>Supplier:</strong> ${data.supplierName || 'N/A'}</div>
+            </div>
+            <div class="header-right">
+              <div class="info-row"><strong>Received Date:</strong> ${data.receivedDate || 'N/A'}</div>
+              <div class="info-row"><strong>Received By:</strong> ${data.receivedBy || 'N/A'}</div>
+              <div class="info-row"><strong>Printed:</strong> ${new Date().toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}</div>
+            </div>
           </div>
 
           <table>
             <thead>
               <tr>
                 <th>Item</th>
-                <th style="text-align:right">Ordered</th>
-                <th style="text-align:right">Received</th>
+                <th style="text-align:center">Ordered</th>
+                <th style="text-align:center">Received</th>
                 <th style="text-align:right">Unit Price</th>
                 <th style="text-align:right">Total</th>
               </tr>
@@ -385,32 +506,34 @@ const Deliveries = () => {
           </table>
 
           <div class="totals">
-            <table style="width:100%;border-collapse:collapse">
+            <table>
               <tr>
-                <td style="padding:6px;border:1px solid #ddd">Ordered Total</td>
-                <td style="padding:6px;border:1px solid #ddd;text-align:right">₱${(data.orderedTotal || 0).toFixed(2)}</td>
+                <td>Ordered Total</td>
+                <td style="text-align:right">₱${formatCurrency(data.orderedTotal || 0)}</td>
               </tr>
               <tr>
-                <td style="padding:6px;border:1px solid #ddd">Received Total</td>
-                <td style="padding:6px;border:1px solid #ddd;text-align:right">₱${(data.receivedTotal || 0).toFixed(2)}</td>
+                <td>Received Total</td>
+                <td style="text-align:right">₱${formatCurrency(data.receivedTotal || 0)}</td>
               </tr>
               <tr>
-                <td style="padding:6px;border:1px solid #ddd">Discrepancy</td>
-                <td style="padding:6px;border:1px solid #ddd;text-align:right">₱${(data.discrepancyAmount || 0).toFixed(2)}</td>
+                <td>Discrepancy</td>
+                <td style="text-align:right">₱${formatCurrency(data.discrepancyAmount || 0)}</td>
               </tr>
-              <tr>
-                <td style="padding:6px;border:1px solid #ddd"><strong>Total Amount</strong></td>
-                <td style="padding:6px;border:1px solid #ddd;text-align:right"><strong>₱${(data.totalAmount || data.receivedTotal || 0).toFixed(2)}</strong></td>
+              <tr class="total-row">
+                <td>Total Amount</td>
+                <td style="text-align:right">₱${formatCurrency(data.totalAmount || data.receivedTotal || 0)}</td>
               </tr>
             </table>
           </div>
 
           <div class="notes">
-            <strong>Notes:</strong>
-            <div>${(data.notes || '').replace(/\n/g, '<br/>')}</div>
+            <div class="notes-title">Notes:</div>
+            <div class="notes-content">${(data.notes || 'No notes provided.').replace(/\n/g, '<br/>')}</div>
           </div>
 
-          <div style="clear:both;margin-top:30px;font-size:12px;color:#666">Printed from David's Salon Management System</div>
+          <div class="footer">
+            David's Salon Management System - Inventory Module
+          </div>
         </body>
       </html>
     `;

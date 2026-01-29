@@ -4,8 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-
-
+import { formatCurrency } from '../../utils/helpers';
 import { inventoryService } from '../../services/inventoryService';
 import { transactionApiService } from '../../services/transactionApiService';
 import { db } from '../../config/firebase';
@@ -385,106 +384,152 @@ const Inventory = () => {
       return;
     }
 
+    // Build filters display
+    const activeFilters = [];
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Products';
+
     // Create print content with only the table data
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Inventory Report - ${new Date().toLocaleDateString()}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
-            @media print {
-              body {
-                font-family: Arial, sans-serif;
-                margin: 0;
-                padding: 20px;
-              }
-              table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 0;
-                font-size: 12px;
-              }
-              th, td {
-                border: 1px solid #ddd;
-                padding: 8px;
-                text-align: left;
-                vertical-align: top;
-              }
-              th {
-                background-color: #f5f5f5 !important;
-                font-weight: bold;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-              tr:nth-child(even) {
-                background-color: #f9f9f9 !important;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-              .no-print {
-                display: none !important;
-              }
-              @page {
-                size: A4 landscape;
-                margin: 10mm;
-              }
-              h1 {
-                font-size: 18px;
-                margin-bottom: 20px;
-                text-align: center;
-                color: #333;
-              }
-              .print-header {
-                margin-bottom: 20px;
-                text-align: center;
-                font-size: 14px;
-                color: #666;
-              }
+            @page {
+              size: letter landscape;
+              margin: 0.5in;
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
             }
             body {
-              font-family: Arial, sans-serif;
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 10px;
+              color: #000;
+              font-size: 7px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 10px;
+              padding-bottom: 6px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0 0 2px 0;
+            }
+            .header h2 {
+              font-size: 14px;
+              font-weight: 600;
               margin: 0;
-              padding: 20px;
+            }
+            .filters {
+              background: #f8f9fa;
+              padding: 8px;
+              border: 2px solid #333;
+              margin: 8px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 9px;
+              font-weight: 700;
+              margin-bottom: 4px;
+              text-transform: uppercase;
+              letter-spacing: 0.4px;
+            }
+            .filters-content {
+              font-size: 8px;
+              font-weight: 600;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin: 0;
-              font-size: 12px;
+              margin-top: 8px;
+              font-size: 7px;
+              border: 1px solid #333;
             }
             th, td {
-              border: 1px solid #ddd;
-              padding: 8px;
+              border: 1px solid #333;
+              padding: 3px 2px;
               text-align: left;
               vertical-align: top;
             }
             th {
-              background-color: #f5f5f5;
-              font-weight: bold;
+              background-color: #fff;
+              font-weight: 700;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
             }
             tr:nth-child(even) {
               background-color: #f9f9f9;
             }
-            h1 {
-              font-size: 18px;
-              margin-bottom: 20px;
-              text-align: center;
-              color: #333;
+            .no-print {
+              display: none;
             }
-            .print-header {
-              margin-bottom: 20px;
+            .footer {
+              margin-top: 10px;
+              padding-top: 8px;
+              border-top: 2px solid #333;
+              font-size: 7px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 8px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
               text-align: center;
-              font-size: 14px;
+              margin-top: 6px;
+              padding-top: 6px;
+              border-top: 1px solid #ccc;
               color: #666;
             }
+            .footer-center p {
+              margin: 2px 0;
+            }
+            .text-right { text-align: right; }
           </style>
         </head>
         <body>
-          <h1>Inventory Report</h1>
-          <div class="print-header">
-            Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Inventory Report</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
           </div>
           ${printRef.current.innerHTML}
+          
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : currentUser?.displayName || 'Branch Manager'}<br>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600; font-size: 8px;">Page 1 of 1</p>
+              <p>Inventory Report - ${filteredProducts.length} Products</p>
+            </div>
+          </div>
         </body>
       </html>
     `;
@@ -1534,7 +1579,7 @@ const Inventory = () => {
                   <td>${order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}</td>
                   <td>${order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}</td>
                   <td>${order.status}</td>
-                  <td>₱${(order.totalAmount || 0).toLocaleString()}</td>
+                  <td>${formatCurrency((order.totalAmount || 0))}</td>
                   <td>${order.createdByName || 'Unknown'}</td>
                 </tr>
               `).join('')}
@@ -1998,7 +2043,7 @@ const Inventory = () => {
             severity: 'high',
             productId: product.id,
             productName: product.name,
-            description: `Very low profit margin: ${margin.toFixed(1)}% (Cost: ₱${product.unitCost}, Price: ₱${product.otcPrice})`,
+            description: `Very low profit margin: ${margin.toFixed(1)}% (Cost: ${formatCurrency(product.unitCost)}, Price: ${formatCurrency(product.otcPrice)})`,
             margin: margin,
             unitCost: product.unitCost,
             otcPrice: product.otcPrice
@@ -2009,7 +2054,7 @@ const Inventory = () => {
           severity: 'medium',
           productId: product.id,
           productName: product.name,
-            description: `Low profit margin: ${margin.toFixed(1)}% (Cost: ₱${product.unitCost}, Price: ₱${product.otcPrice})`,
+            description: `Low profit margin: ${margin.toFixed(1)}% (Cost: ${formatCurrency(product.unitCost)}, Price: ${formatCurrency(product.otcPrice)})`,
           margin: margin,
           unitCost: product.unitCost,
           otcPrice: product.otcPrice
@@ -2081,7 +2126,7 @@ const Inventory = () => {
         anomalies.push({
           type: 'sales_spike',
           severity: 'low',
-          description: `Unusual sales spike on ${date}: ₱${salesByDate[date].total.toLocaleString()} (Average: ₱${avgDailySales.toLocaleString()})`,
+          description: `Unusual sales spike on ${date}: ${formatCurrency(salesByDate[date].total)} (Average: ${formatCurrency(avgDailySales)})`,
           date: date,
           amount: salesByDate[date].total,
           averageAmount: avgDailySales
@@ -2259,7 +2304,7 @@ const Inventory = () => {
             <Banknote className="h-8 w-8 text-purple-600" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Value</p>
-                  <p className="text-2xl font-bold text-gray-900">₱{stats.totalValue.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatCurrency(stats.totalValue)}</p>
             </div>
           </div>
         </Card>
@@ -2481,8 +2526,8 @@ const Inventory = () => {
                               })()}
                     </span>
                   </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">₱{(product.unitCost || 0).toFixed(2)}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">₱{(product.otcPrice || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency((product.unitCost || 0))}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency((product.otcPrice || 0))}</td>
                           <td className="px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                             {(() => {
                               const productServices = services.filter(service => 
@@ -2512,7 +2557,7 @@ const Inventory = () => {
                             })()}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            ₱{((product.currentStock || 0) * (product.unitCost || 0)).toLocaleString()}
+                            {formatCurrency(((product.currentStock || 0) * (product.unitCost || 0)))}
                           </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium no-print">
                       <Button
@@ -2700,7 +2745,7 @@ const Inventory = () => {
                                         <span className="text-gray-600"> × {item.quantity}</span>
                                         {item.price && (
                                           <span className="text-gray-500 text-xs ml-1">
-                                            (₱{(item.price * item.quantity).toLocaleString()})
+                                            ({formatCurrency((item.price * item.quantity))})
                                           </span>
                                         )}
                                       </div>
@@ -2717,16 +2762,16 @@ const Inventory = () => {
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-right">
                                 <div className="text-sm font-medium text-gray-900">
-                                  ₱{(transaction.total || 0).toLocaleString()}
+                                  {formatCurrency((transaction.total || 0))}
                                 </div>
                                 {transaction.discount > 0 && (
                                   <div className="text-xs text-gray-500">
-                                    Discount: ₱{transaction.discount.toLocaleString()}
+                                    Discount: {formatCurrency(transaction.discount)}
                                   </div>
                                 )}
                                 {transaction.subtotal && transaction.subtotal !== transaction.total && (
                                   <div className="text-xs text-gray-500">
-                                    Subtotal: ₱{transaction.subtotal.toLocaleString()}
+                                    Subtotal: {formatCurrency(transaction.subtotal)}
                                   </div>
                                 )}
                               </td>
@@ -2819,7 +2864,7 @@ const Inventory = () => {
                 <Banknote className="h-8 w-8 text-purple-600" />
                 <div className="ml-3">
                   <p className="text-sm font-medium text-gray-600">Total Value</p>
-                  <p className="text-xl font-bold text-gray-900">₱{orderStats.totalValue.toLocaleString()}</p>
+                  <p className="text-xl font-bold text-gray-900">{formatCurrency(orderStats.totalValue)}</p>
                 </div>
               </div>
             </Card>
@@ -2999,7 +3044,7 @@ const Inventory = () => {
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">₱{(order.totalAmount || 0).toLocaleString()}</div>
+                            <div className="text-sm font-medium text-gray-900">{formatCurrency((order.totalAmount || 0))}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-900">{order.createdByName || 'Unknown'}</div>
@@ -3169,7 +3214,7 @@ const Inventory = () => {
                 <div>
                           <p className="text-sm font-medium text-gray-600">Total Revenue</p>
                   <p className="text-2xl font-bold text-gray-900">
-                            ₱{topSellingProducts.reduce((sum, p) => sum + p.revenue, 0).toLocaleString()}
+                            {formatCurrency(topSellingProducts.reduce((sum, p) => sum + p.revenue, 0))}
                   </p>
                           <p className="text-xs text-gray-500 mt-1">From top sellers</p>
                 </div>
@@ -3183,7 +3228,7 @@ const Inventory = () => {
                 <div>
                           <p className="text-sm font-medium text-gray-600">Total Profit</p>
                           <p className="text-2xl font-bold text-green-600">
-                            ₱{topSellingProducts.reduce((sum, p) => sum + p.profit, 0).toLocaleString()}
+                            {formatCurrency(topSellingProducts.reduce((sum, p) => sum + p.profit, 0))}
                           </p>
                           <p className="text-xs text-gray-500 mt-1">Net profit</p>
                 </div>
@@ -3224,8 +3269,8 @@ const Inventory = () => {
                                     <div className="font-medium text-gray-900">{product.productName}</div>
                                   </td>
                                   <td className="px-6 py-4 text-gray-900">{product.quantitySold}</td>
-                                  <td className="px-6 py-4 text-gray-900">₱{product.revenue.toLocaleString()}</td>
-                                  <td className="px-6 py-4 text-green-600 font-medium">₱{product.profit.toLocaleString()}</td>
+                                  <td className="px-6 py-4 text-gray-900">{formatCurrency(product.revenue)}</td>
+                                  <td className="px-6 py-4 text-green-600 font-medium">{formatCurrency(product.profit)}</td>
                                   <td className="px-6 py-4 text-gray-900">{product.margin.toFixed(1)}%</td>
                                   <td className="px-6 py-4 text-gray-900">{product.transactionCount}</td>
                                 </tr>
@@ -3309,7 +3354,7 @@ const Inventory = () => {
                                     <div className="font-medium text-gray-900">{product.productName}</div>
                                   </td>
                                   <td className="px-6 py-4 text-gray-900">{product.quantitySold || 0}</td>
-                                  <td className="px-6 py-4 text-gray-900">₱{product.revenue.toLocaleString()}</td>
+                                  <td className="px-6 py-4 text-gray-900">{formatCurrency(product.revenue)}</td>
                                   <td className="px-6 py-4 text-gray-900">
                                     {product.lastSoldDate ? format(product.lastSoldDate, 'MMM dd, yyyy') : 'Never'}
                                     {product.daysSinceLastSale !== undefined && product.daysSinceLastSale > 0 && (
@@ -3757,16 +3802,16 @@ const Inventory = () => {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-500">Unit Cost</p>
-                  <p className="text-lg font-semibold text-gray-900">₱{(selectedProduct.unitCost || 0).toFixed(2)}</p>
+                  <p className="text-lg font-semibold text-gray-900">{formatCurrency((selectedProduct.unitCost || 0))}</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-500">OTC Price</p>
-                  <p className="text-lg font-semibold text-gray-900">₱{(selectedProduct.otcPrice || 0).toFixed(2)}</p>
+                  <p className="text-lg font-semibold text-gray-900">{formatCurrency((selectedProduct.otcPrice || 0))}</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-500">Total Value</p>
                   <p className="text-lg font-semibold text-gray-900">
-                    ₱{((selectedProduct.currentStock || 0) * (selectedProduct.unitCost || 0)).toLocaleString()}
+                    {formatCurrency(((selectedProduct.currentStock || 0) * (selectedProduct.unitCost || 0)))}
                   </p>
                 </div>
                 <div>
@@ -3969,7 +4014,7 @@ const Inventory = () => {
                   <div className="space-y-4">
                     <div>
                       <label className="text-sm font-medium text-gray-500">Total Amount</label>
-                      <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-[#160B53]">{formatCurrency((selectedOrder.totalAmount || 0))}</p>
                     </div>
                     {selectedOrder.notes && (
                       <div>
@@ -4023,8 +4068,8 @@ const Inventory = () => {
                                     {item.usageType === 'salon-use' ? 'Salon Use' : 'OTC'}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-gray-900">{formatCurrency((item.unitPrice || 0))}</td>
+                                <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency((item.totalPrice || 0))}</td>
                               </tr>
                             );
                           })
@@ -4039,7 +4084,7 @@ const Inventory = () => {
                           <tr>
                             <td colSpan="6" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
                             <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
-                              ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
+                              {formatCurrency((selectedOrder.totalAmount || 0))}
                             </td>
                           </tr>
                         </tfoot>
@@ -4276,13 +4321,13 @@ const Inventory = () => {
                             )}
                             {poMinAmount && (
                               <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                                Min: ₱{parseFloat(poMinAmount).toLocaleString()}
+                                Min: {formatCurrency(parseFloat(poMinAmount))}
                                 <button onClick={() => setPoMinAmount('')} className="ml-1 hover:text-blue-600">×</button>
                               </span>
                             )}
                             {poMaxAmount && (
                               <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                                Max: ₱{parseFloat(poMaxAmount).toLocaleString()}
+                                Max: {formatCurrency(parseFloat(poMaxAmount))}
                                 <button onClick={() => setPoMaxAmount('')} className="ml-1 hover:text-blue-600">×</button>
                               </span>
                             )}

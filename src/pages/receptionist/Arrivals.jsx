@@ -46,6 +46,7 @@ import {
 import { getBranchServices } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
 import { USER_ROLES } from '../../utils/constants';
+import { formatCurrency } from '../../utils/helpers';
 import { createBill } from '../../services/billingService';
 import BillingModalPOS from '../../components/billing/BillingModalPOS';
 import Receipt from '../../components/billing/Receipt';
@@ -1844,7 +1845,7 @@ const ReceptionistArrivals = () => {
                       </div>
                       ${service.stylistName ? `<div class="item-detail">Stylist: ${service.stylistName}</div>` : ''}
                       ${service.clientType ? `<div class="item-detail">Client Type: ${getClientTypeLabel(service.clientType)}</div>` : ''}
-                      ${service.adjustment && service.adjustment !== 0 ? `<div class="item-detail">Adjustment: ${service.adjustment > 0 ? '+' : ''}₱${service.adjustment.toFixed(2)}${service.adjustmentReason ? ` (${service.adjustmentReason})` : ''}</div>` : ''}
+                      ${service.adjustment && service.adjustment !== 0 ? `<div class="item-detail">Adjustment: ${service.adjustment > 0 ? '+' : ''}${formatCurrency(service.adjustment)}${service.adjustmentReason ? ` (${service.adjustmentReason})` : ''}</div>` : ''}
                     `;
                   });
 
@@ -1869,7 +1870,7 @@ const ReceptionistArrivals = () => {
                       serviceProductChargesHtml += `
                         <div class="item">
                           <div class="item-name">${charge.productName}</div>
-                          <div class="item-price">₱${charge.charge?.toFixed(2) || '0.00'}</div>
+                          <div class="item-price">${formatCurrency(charge.charge || 0)}</div>
                         </div>
                         <div class="item-detail">${charge.usageDisplay || ''}</div>
                       `;
@@ -2125,35 +2126,35 @@ const ReceptionistArrivals = () => {
                         <div class="totals-section">
                           <div class="total-row">
                             <span>Subtotal:</span>
-                            <span>₱${(bill.subtotal || 0).toFixed(2)}</span>
+                            <span>${formatCurrency((bill.subtotal || 0))}</span>
                           </div>
                           ${bill.serviceProductChargeTotal > 0 ? `
                           <div class="total-row">
                             <span>Product Usage:</span>
-                            <span>₱${bill.serviceProductChargeTotal.toFixed(2)}</span>
+                            <span>${formatCurrency(bill.serviceProductChargeTotal)}</span>
                           </div>
                           ` : ''}
                           ${bill.promotionDiscount > 0 ? `
                           <div class="total-row discount">
                             <span>Promo (${bill.promotionCode}):</span>
-                            <span>-₱${bill.promotionDiscount.toFixed(2)}</span>
+                            <span>-${formatCurrency(bill.promotionDiscount)}</span>
                           </div>
                           ` : ''}
                           ${bill.discount > 0 ? `
                           <div class="total-row discount">
                             <span>Discount:</span>
-                            <span>-₱${bill.discount.toFixed(2)}</span>
+                            <span>-${formatCurrency(bill.discount)}</span>
                           </div>
                           ` : ''}
                           ${bill.loyaltyPointsUsed > 0 ? `
                           <div class="total-row discount">
                             <span>Points Used:</span>
-                            <span>-₱${bill.loyaltyPointsUsed.toFixed(2)}</span>
+                            <span>-${formatCurrency(bill.loyaltyPointsUsed)}</span>
                           </div>
                           ` : ''}
                           <div class="total-row grand-total">
                             <span>TOTAL:</span>
-                            <span>₱${(bill.total || 0).toFixed(2)}</span>
+                            <span>${formatCurrency((bill.total || 0))}</span>
                           </div>
                         </div>
 
@@ -2165,11 +2166,11 @@ const ReceptionistArrivals = () => {
                           ${bill.paymentMethod === 'cash' && bill.amountReceived ? `
                           <div class="total-row">
                             <span>Amount Received:</span>
-                            <span>₱${bill.amountReceived.toFixed(2)}</span>
+                            <span>${formatCurrency(bill.amountReceived)}</span>
                           </div>
                           <div class="total-row change-row">
                             <span>Change:</span>
-                            <span>₱${(bill.change || 0).toFixed(2)}</span>
+                            <span>${formatCurrency((bill.change || 0))}</span>
                           </div>
                           ` : ''}
                           ${bill.paymentReference ? `

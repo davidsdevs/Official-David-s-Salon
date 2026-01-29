@@ -6,7 +6,7 @@
 
 import { Calendar, Clock, CheckCircle2, MapPin, User, RefreshCw } from 'lucide-react';
 import { APPOINTMENT_STATUS } from '../../services/appointmentService';
-import { formatDate, formatTime, getTimeAgo } from '../../utils/helpers';
+import { formatDate, formatTime, getTimeAgo, formatCurrency } from '../../utils/helpers';
 import LoadingSpinner from '../ui/LoadingSpinner';
 
 const AppointmentCard = ({ appointment, onView, onEdit, onCancel, onReschedule, onUpdateStatus, showActions = true, processingStatus = null }) => {
@@ -111,7 +111,7 @@ const AppointmentCard = ({ appointment, onView, onEdit, onCancel, onReschedule, 
           </span>
           {appointment.totalPrice && (
             <span className="text-sm font-bold text-[#160B53]">
-              ₱{appointment.totalPrice.toLocaleString()}
+              {formatCurrency(appointment.totalPrice)}
             </span>
           )}
         </div>

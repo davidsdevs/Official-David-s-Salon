@@ -9,6 +9,7 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { Card } from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { formatCurrency } from '../../utils/helpers';
 import {
   Tag,
   Calendar,
@@ -288,7 +289,7 @@ const ReceptionistPromotions = () => {
                       <span className="text-3xl font-black text-white tracking-tight drop-shadow-lg">
                         {promotion.discountType === 'percentage'
                           ? `${promotion.discountValue}% OFF`
-                          : `₱${promotion.discountValue} OFF`}
+                          : `${formatCurrency(promotion.discountValue)} OFF`}
                       </span>
                     </div>
 
@@ -397,7 +398,7 @@ const ReceptionistPromotions = () => {
                   <p className="font-semibold text-primary-600">
                     {selectedPromotion.discountType === 'percentage'
                       ? `${selectedPromotion.discountValue}% OFF`
-                      : `₱${selectedPromotion.discountValue} OFF`}
+                      : `${formatCurrency(selectedPromotion.discountValue)} OFF`}
                   </p>
                 </div>
                 <div>

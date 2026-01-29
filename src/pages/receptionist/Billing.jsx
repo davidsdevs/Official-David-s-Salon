@@ -28,6 +28,8 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight,
   Receipt, XCircle
 } from 'lucide-react';
+import { formatCurrency } from '../../utils/helpers';
+import { format } from 'date-fns';
 
 const ReceptionistBilling = () => {
   const navigate = useNavigate();
@@ -53,6 +55,9 @@ const ReceptionistBilling = () => {
   const [sortDirection, setSortDirection] = useState('desc'); // Default to newest first
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10); // Fixed to 10 rows per page
+
+  // Format currency with commas
+  // Using formatCurrency from helpers instead of local function
 
   // Sort icon helper
   const getSortIcon = (field) => {
@@ -623,10 +628,9 @@ const ReceptionistBilling = () => {
             <div>
               <p className="text-sm text-gray-600">Today's Revenue</p>
               <p className="text-2xl font-bold text-green-600 mt-1">
-                ₱{filteredBills
+                {formatCurrency(filteredBills
                   .filter(b => b.status === BILL_STATUS.PAID)
-                  .reduce((sum, b) => sum + (b.total || 0), 0)
-                  .toFixed(2)}
+                  .reduce((sum, b) => sum + (b.total || 0), 0))}
               </p>
             </div>
             <div className="p-3 bg-green-100 rounded-lg">
@@ -654,10 +658,9 @@ const ReceptionistBilling = () => {
             <div>
               <p className="text-sm text-gray-600">Discounts Given</p>
               <p className="text-2xl font-bold text-yellow-600 mt-1">
-                ₱{filteredBills
+                {formatCurrency(filteredBills
                   .filter(b => b.status === BILL_STATUS.PAID)
-                  .reduce((sum, b) => sum + (b.discount || 0), 0)
-                  .toFixed(2)}
+                  .reduce((sum, b) => sum + (b.discount || 0), 0))}
               </p>
             </div>
             <div className="p-3 bg-yellow-100 rounded-lg">
@@ -671,10 +674,9 @@ const ReceptionistBilling = () => {
             <div>
               <p className="text-sm text-gray-600">Total Voided</p>
               <p className="text-2xl font-bold text-red-600 mt-1">
-                ₱{filteredBills
+                {formatCurrency(filteredBills
                   .filter(b => b.status === BILL_STATUS.VOIDED)
-                  .reduce((sum, b) => sum + (b.total || 0), 0)
-                  .toFixed(2)}
+                  .reduce((sum, b) => sum + (b.total || 0), 0))}
               </p>
             </div>
             <div className="p-3 bg-red-100 rounded-lg">
@@ -1147,9 +1149,9 @@ const ReceptionistBilling = () => {
                       <p className="text-sm text-gray-600">{getPaymentMethodLabel(bill.paymentMethod)}</p>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <p className="text-sm font-semibold text-gray-900">₱{bill.total?.toFixed(2)}</p>
+                      <p className="text-sm font-semibold text-gray-900">{formatCurrency(bill.total)}</p>
                       {bill.discount > 0 && (
-                        <p className="text-xs text-green-600">-₱{bill.discount?.toFixed(2)} discount</p>
+                        <p className="text-xs text-green-600">-{formatCurrency(bill.discount)} discount</p>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -1285,28 +1287,46 @@ const ReceptionistBilling = () => {
 
       {/* Printable Report (Hidden) */}
       <div ref={printRef} className="hidden print:block print:p-8">
-        <div className="text-center mb-6">
+        <style>{`
+          @media print {
+            @page {
+              size: A4;
+              margin: 1cm;
+            }
+            .page-break {
+              page-break-before: always;
+            }
+            .no-page-break {
+              page-break-inside: avoid;
+            }
+          }
+        `}</style>
+
+        {/* Header */}
+        <div className="text-center mb-6 no-page-break">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Billing Report</h1>
-          <p className="text-gray-600">Generated on {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString()}</p>
-          {branchData && <p className="text-gray-600">{branchData.name || branchData.branchName} - {branchData.address}</p>}
+          {branchData && <p className="text-gray-600">{branchData.name || branchData.branchName}</p>}
+          {branchData && branchData.address && <p className="text-sm text-gray-500">{branchData.address}</p>}
         </div>
 
         {/* Applied Filters Summary */}
-        {(searchTerm || statusFilter !== 'all' || paymentMethodFilter !== 'all' || saleTypeFilter !== 'all' || startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter) && (
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-            <h3 className="font-semibold text-gray-900 mb-2">Applied Filters:</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-              {searchTerm && <div><strong>Search:</strong> {searchTerm}</div>}
-              {statusFilter !== 'all' && <div><strong>Status:</strong> {statusFilter}</div>}
-              {paymentMethodFilter !== 'all' && <div><strong>Payment:</strong> {getPaymentMethodLabel(paymentMethodFilter)}</div>}
-              {saleTypeFilter !== 'all' && <div><strong>Type:</strong> {saleTypeFilter === 'service' ? 'Services Only' : saleTypeFilter === 'product' ? 'Products Only' : 'Mixed'}</div>}
-              {startDateFilter && <div><strong>From:</strong> {new Date(startDateFilter).toLocaleDateString()}</div>}
-              {endDateFilter && <div><strong>To:</strong> {new Date(endDateFilter).toLocaleDateString()}</div>}
-              {minAmountFilter && <div><strong>Min Amount:</strong> ₱{minAmountFilter}</div>}
-              {maxAmountFilter && <div><strong>Max Amount:</strong> ₱{maxAmountFilter}</div>}
-            </div>
+        <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200 no-page-break">
+          <h3 className="font-bold text-gray-900 mb-3 text-sm">FILTERS APPLIED:</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            {searchTerm && <div><strong>Search:</strong> {searchTerm}</div>}
+            {statusFilter !== 'all' && <div><strong>Status:</strong> {statusFilter.toUpperCase()}</div>}
+            {paymentMethodFilter !== 'all' && <div><strong>Payment:</strong> {getPaymentMethodLabel(paymentMethodFilter)}</div>}
+            {saleTypeFilter !== 'all' && <div><strong>Type:</strong> {saleTypeFilter === 'service' ? 'Services Only' : saleTypeFilter === 'product' ? 'Products Only' : 'Mixed'}</div>}
+            {startDateFilter && <div><strong>From:</strong> {new Date(startDateFilter).toLocaleDateString()}</div>}
+            {endDateFilter && <div><strong>To:</strong> {new Date(endDateFilter).toLocaleDateString()}</div>}
+            {minAmountFilter && <div><strong>Min Amount:</strong> {formatCurrency(parseFloat(minAmountFilter))}</div>}
+            {maxAmountFilter && <div><strong>Max Amount:</strong> {formatCurrency(parseFloat(maxAmountFilter))}</div>}
+            {(!searchTerm && statusFilter === 'all' && paymentMethodFilter === 'all' && saleTypeFilter === 'all' && !startDateFilter && !endDateFilter && !minAmountFilter && !maxAmountFilter) && (
+              <div className="col-span-2"><strong>No filters applied</strong> - Showing all records</div>
+            )}
+            <div><strong>Total Records:</strong> {filteredBills.length}</div>
           </div>
-        )}
+        </div>
 
         <table className="w-full border-collapse border border-gray-300 text-sm">
           <thead>
@@ -1343,7 +1363,7 @@ const ReceptionistBilling = () => {
                   })()}
                 </td>
                 <td className="border border-gray-300 px-4 py-2">{getPaymentMethodLabel(bill.paymentMethod)}</td>
-                <td className="border border-gray-300 px-4 py-2 text-right">₱{bill.total?.toFixed(2)}</td>
+                <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(bill.total)}</td>
                 <td className="border border-gray-300 px-4 py-2">{bill.status}</td>
               </tr>
             ))}
@@ -1352,16 +1372,28 @@ const ReceptionistBilling = () => {
             <tr className="bg-gray-100 font-semibold">
               <td colSpan="5" className="border border-gray-300 px-4 py-2 text-right">Total:</td>
               <td className="border border-gray-300 px-4 py-2 text-right">
-                ₱{filteredBills.reduce((sum, bill) => sum + (bill.total || 0), 0).toFixed(2)}
+                {formatCurrency(filteredBills.reduce((sum, bill) => sum + (bill.total || 0), 0))}
               </td>
               <td className="border border-gray-300 px-4 py-2"></td>
             </tr>
           </tfoot>
         </table>
 
-        <div className="mt-6 text-center text-sm text-gray-600">
-          <p>Report generated by {currentUser?.email || 'System'}</p>
-          <p>Total records: {filteredBills.length}</p>
+        {/* Report Footer - Generator Info */}
+        <div className="mt-8 pt-4 border-t-2 border-gray-300 text-xs text-gray-600">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p><strong>Generated By:</strong> {userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : currentUser?.email || 'System'}</p>
+              <p><strong>Position:</strong> Receptionist</p>
+            </div>
+            <div className="text-right">
+              <p><strong>Generated On:</strong> {format(new Date(), 'MMMM dd, yyyy')}</p>
+              <p><strong>Time:</strong> {format(new Date(), 'hh:mm a')}</p>
+            </div>
+          </div>
+          <div className="text-center mt-4 text-gray-500">
+            <p>Page 1 of 1 | {branchData?.name || branchData?.branchName} - Billing Report</p>
+          </div>
         </div>
       </div>
 
@@ -1542,7 +1574,7 @@ const ReceptionistBilling = () => {
                   let servicesHtml = '';
                   services.forEach(service => {
                     const qty = service.quantity > 1 ? ` x${service.quantity}` : '';
-                    const price = (service.price * (service.quantity || 1)).toFixed(2);
+                    const price = formatCurrency(service.price * (service.quantity || 1));
                     servicesHtml += `
                       <div class="item">
                         <div class="item-name">${service.name}${qty}</div>
@@ -1550,7 +1582,7 @@ const ReceptionistBilling = () => {
                       </div>
                       ${service.stylistName ? `<div class="item-detail">Stylist: ${service.stylistName}</div>` : ''}
                       ${service.clientType ? `<div class="item-detail">Client Type: ${getClientTypeLabel(service.clientType)}</div>` : ''}
-                      ${service.adjustment && service.adjustment !== 0 ? `<div class="item-detail">Adjustment: ${service.adjustment > 0 ? '+' : ''}₱${service.adjustment.toFixed(2)}${service.adjustmentReason ? ` (${service.adjustmentReason})` : ''}</div>` : ''}
+                      ${service.adjustment && service.adjustment !== 0 ? `<div class="item-detail">Adjustment: ${service.adjustment > 0 ? '+' : ''}${formatCurrency(service.adjustment)}${service.adjustmentReason ? ` (${service.adjustmentReason})` : ''}</div>` : ''}
                     `;
                   });
 
@@ -1558,7 +1590,7 @@ const ReceptionistBilling = () => {
                   let productsHtml = '';
                   products.forEach(product => {
                     const qty = product.quantity > 1 ? ` x${product.quantity}` : '';
-                    const price = (product.price * (product.quantity || 1)).toFixed(2);
+                    const price = formatCurrency(product.price * (product.quantity || 1));
                     productsHtml += `
                       <div class="item">
                         <div class="item-name">${product.name}${qty}</div>
@@ -1575,7 +1607,7 @@ const ReceptionistBilling = () => {
                       serviceProductChargesHtml += `
                         <div class="item">
                           <div class="item-name">${charge.productName}</div>
-                          <div class="item-price">₱${charge.charge?.toFixed(2) || '0.00'}</div>
+                          <div class="item-price">${formatCurrency(charge.charge || 0)}</div>
                         </div>
                         <div class="item-detail">${charge.usageDisplay || ''}</div>
                       `;
@@ -1831,35 +1863,35 @@ const ReceptionistBilling = () => {
                         <div class="totals-section">
                           <div class="total-row">
                             <span>Subtotal:</span>
-                            <span>₱${(bill.subtotal || 0).toFixed(2)}</span>
+                            <span>${formatCurrency(bill.subtotal || 0)}</span>
                           </div>
                           ${bill.serviceProductChargeTotal > 0 ? `
                           <div class="total-row">
                             <span>Product Usage:</span>
-                            <span>₱${bill.serviceProductChargeTotal.toFixed(2)}</span>
+                            <span>${formatCurrency(bill.serviceProductChargeTotal)}</span>
                           </div>
                           ` : ''}
                           ${bill.promotionDiscount > 0 ? `
                           <div class="total-row discount">
                             <span>Promo (${bill.promotionCode}):</span>
-                            <span>-₱${bill.promotionDiscount.toFixed(2)}</span>
+                            <span>-${formatCurrency(bill.promotionDiscount)}</span>
                           </div>
                           ` : ''}
                           ${bill.discount > 0 ? `
                           <div class="total-row discount">
                             <span>Discount:</span>
-                            <span>-₱${bill.discount.toFixed(2)}</span>
+                            <span>-${formatCurrency(bill.discount)}</span>
                           </div>
                           ` : ''}
                           ${bill.loyaltyPointsUsed > 0 ? `
                           <div class="total-row discount">
                             <span>Points Used:</span>
-                            <span>-₱${bill.loyaltyPointsUsed.toFixed(2)}</span>
+                            <span>-${formatCurrency(bill.loyaltyPointsUsed)}</span>
                           </div>
                           ` : ''}
                           <div class="total-row grand-total">
                             <span>TOTAL:</span>
-                            <span>₱${(bill.total || 0).toFixed(2)}</span>
+                            <span>${formatCurrency(bill.total || 0)}</span>
                           </div>
                         </div>
 
@@ -1871,11 +1903,11 @@ const ReceptionistBilling = () => {
                           ${bill.paymentMethod === 'cash' && bill.amountReceived ? `
                           <div class="total-row">
                             <span>Amount Received:</span>
-                            <span>₱${bill.amountReceived.toFixed(2)}</span>
+                            <span>${formatCurrency(bill.amountReceived)}</span>
                           </div>
                           <div class="total-row change-row">
                             <span>Change:</span>
-                            <span>₱${(bill.change || 0).toFixed(2)}</span>
+                            <span>${formatCurrency(bill.change || 0)}</span>
                           </div>
                           ` : ''}
                           ${bill.paymentReference ? `

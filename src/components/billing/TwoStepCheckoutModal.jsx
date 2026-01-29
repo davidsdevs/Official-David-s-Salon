@@ -263,7 +263,9 @@ const TwoStepCheckoutModal = ({
       ...formData,
       ...calculations,
       loyaltyPointsEarned: loyaltyInfo.pointsToEarn,
-      appliedPromotion: appliedPromotion
+      appliedPromotion: appliedPromotion,
+      promotionId: appliedPromotion?.id || null,
+      promotionCode: appliedPromotion?.promotionCode || formData.promotionCode || null
     };
     
     onSubmit(submitData);

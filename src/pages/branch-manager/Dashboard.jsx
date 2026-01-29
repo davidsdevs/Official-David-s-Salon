@@ -23,7 +23,7 @@ import { getUsersByRole } from '../../services/userService';
 import { inventoryService } from '../../services/inventoryService';
 import { USER_ROLES } from '../../utils/constants';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import { formatTime12Hour, getFullName } from '../../utils/helpers';
+import { formatTime12Hour, getFullName, formatCurrency } from '../../utils/helpers';
 import { Link } from 'react-router-dom';
 import { db } from '../../config/firebase';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
@@ -539,7 +539,7 @@ const BranchManagerDashboard = () => {
             </div>
           </div>
           <p className="text-gray-600 text-xs font-medium">Monthly Revenue</p>
-          <p className="text-xl font-bold text-gray-900">₱{stats.monthlyRevenue.toLocaleString()}</p>
+          <p className="text-xl font-bold text-gray-900">{formatCurrency(stats.monthlyRevenue)}</p>
         </div>
 
         {/* Voided Services Card */}
@@ -555,7 +555,7 @@ const BranchManagerDashboard = () => {
           </p>
           {stats.voidedAmount > 0 && (
             <p className="text-xs text-red-500 mt-1">
-              Est. ₱{stats.voidedAmount.toLocaleString()} lost
+              Est. {formatCurrency(stats.voidedAmount)} lost
             </p>
           )}
         </div>
@@ -732,7 +732,7 @@ const BranchManagerDashboard = () => {
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-medium text-gray-900">{voided.clientName}</p>
                       <span className="text-xs text-red-600 font-medium">
-                        Est. ₱{voided.estimatedAmount.toLocaleString()}
+                        Est. {formatCurrency(voided.estimatedAmount)}
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5">
@@ -751,7 +751,7 @@ const BranchManagerDashboard = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">Total Estimated Loss</span>
                   <span className="text-lg font-bold text-red-600">
-                    ₱{stats.voidedAmount.toLocaleString()}
+                    {formatCurrency(stats.voidedAmount)}
                   </span>
                 </div>
               </div>

@@ -2005,7 +2005,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
             @media print {
               @page {
                 size: letter landscape;
-                margin: 0.75in;
+                margin: 0.3in 0.4in;
               }
               * {
                 color: #000 !important;
@@ -2021,7 +2021,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
             body {
               font-family: Arial, sans-serif;
               margin: 0;
-              padding: 20px;
+              padding: 0;
               background: white;
               color: #000;
             }
@@ -4068,7 +4068,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
           @media print {
             @page {
               size: letter landscape;
-              margin: 0.75in;
+              margin: 0.3in 0.4in;
             }
             * {
               color: #000 !important;
@@ -4080,38 +4080,40 @@ const StaffSchedule = ({ onEditTrigger }) => {
           fontFamily: "'Poppins', sans-serif",
           color: '#000',
           background: '#fff',
-          padding: '20px'
+          padding: '0'
         }}>
           {/* Header */}
           <div style={{
             textAlign: 'center',
-            marginBottom: '24px',
-            borderBottom: '1px solid #444',
-            paddingBottom: '12px'
+            marginBottom: '16px',
+            borderBottom: '2px solid #333',
+            paddingBottom: '10px'
           }}>
             <h1 style={{
-              fontSize: '22px',
+              fontSize: '26px',
               fontWeight: 700,
               marginBottom: '8px',
-              letterSpacing: '0.5px'
+              letterSpacing: '0.5px',
+              margin: '0 0 8px 0'
             }}>
               WEEKLY SCHEDULE
             </h1>
-            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
+            <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>
               {branchInfo?.branchName || branchInfo?.name || 'Branch'}
             </div>
             <div style={{
-              fontSize: '10px',
+              fontSize: '11px',
               marginTop: '8px',
               display: 'flex',
-              justifyContent: 'space-between'
+              justifyContent: 'space-between',
+              alignItems: 'flex-start'
             }}>
-              <div style={{ textAlign: 'left' }}>
-                <div>Week: {weekDates[0]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {weekDates[6]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                <div>Printed by: {currentUser ? getFullName(currentUser) : 'Manager'}</div>
+              <div style={{ textAlign: 'left', flex: 1 }}>
+                <div style={{ marginBottom: '3px' }}><strong>Week:</strong> {weekDates[0]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {weekDates[6]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                <div><strong>Printed by:</strong> {currentUser ? getFullName(currentUser) : 'Manager'}</div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div>Printed: {new Date().toLocaleString('en-US', {
+              <div style={{ textAlign: 'right', flex: 1 }}>
+                <div><strong>Printed:</strong> {new Date().toLocaleString('en-US', {
                   year: 'numeric',
                   month: 'short',
                   day: 'numeric',
@@ -4122,21 +4124,71 @@ const StaffSchedule = ({ onEditTrigger }) => {
             </div>
           </div>
 
+          {/* Applied Filters Section */}
+          {(filters.roles.length > 0 || filters.shiftStatus !== 'all' || filters.availabilityStatus !== 'all' || searchTerm.trim()) && (
+            <div style={{
+              marginBottom: '12px',
+              padding: '8px 12px',
+              background: '#f5f5f5',
+              border: '1px solid #ddd',
+              borderRadius: '4px',
+              fontSize: '11px'
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: '4px' }}>Applied Filters:</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {searchTerm.trim() && (
+                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                    <strong>Search:</strong> "{searchTerm}"
+                  </span>
+                )}
+                {filters.roles.length > 0 && (
+                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                    <strong>Roles:</strong> {filters.roles.map(role => {
+                      const roleLabels = {
+                        'branch-manager': 'Branch Manager',
+                        'stylist': 'Stylist',
+                        'receptionist': 'Receptionist',
+                        'inventory': 'Inventory'
+                      };
+                      return roleLabels[role] || role;
+                    }).join(', ')}
+                  </span>
+                )}
+                {filters.shiftStatus !== 'all' && (
+                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                    <strong>Shift Status:</strong> {filters.shiftStatus === 'withShifts' ? 'With Shifts' : 'Without Shifts'}
+                  </span>
+                )}
+                {filters.availabilityStatus !== 'all' && (
+                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                    <strong>Availability:</strong> {
+                      filters.availabilityStatus === 'available' ? 'Available' :
+                      filters.availabilityStatus === 'onLeave' ? 'On Leave' :
+                      filters.availabilityStatus === 'lentOut' ? 'Lent Out' :
+                      filters.availabilityStatus === 'lentIn' ? 'Lent In' : ''
+                    }
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Schedule Table */}
           <table style={{
             width: '100%',
             borderCollapse: 'collapse',
-            border: '1px solid #444',
-            fontSize: '10.5px'
+            border: '1px solid #333',
+            fontSize: '12px'
           }}>
             <thead>
               <tr>
                 <th style={{
-                  border: '1px solid #444',
-                  padding: '8px 6px',
+                  border: '1px solid #333',
+                  padding: '10px 8px',
                   textAlign: 'left',
-                  fontWeight: 600,
-                  background: '#f7f7f7'
+                  fontWeight: 700,
+                  background: '#f0f0f0',
+                  fontSize: '13px'
                 }}>
                   STAFF
                 </th>
@@ -4145,15 +4197,16 @@ const StaffSchedule = ({ onEditTrigger }) => {
                   const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                   return (
                     <th key={index} style={{
-                      border: '1px solid #444',
-                      padding: '8px 6px',
+                      border: '1px solid #333',
+                      padding: '10px 8px',
                       textAlign: 'center',
-                      fontWeight: 600,
+                      fontWeight: 700,
                       whiteSpace: 'nowrap',
-                      background: '#f7f7f7'
+                      background: '#f0f0f0',
+                      fontSize: '13px'
                     }}>
                       {dayName.toUpperCase()}<br />
-                      <span style={{ fontSize: '9px', fontWeight: 400 }}>{dateStr}</span>
+                      <span style={{ fontSize: '11px', fontWeight: 400 }}>{dateStr}</span>
                     </th>
                   );
                 })}
@@ -4162,7 +4215,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
             <tbody>
               {staffForPrint.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ border: '1px solid #444', padding: '10px 8px', textAlign: 'center' }}>
+                  <td colSpan={8} style={{ border: '1px solid #333', padding: '12px 10px', textAlign: 'center', fontSize: '12px' }}>
                     No staff with schedules for this week.
                   </td>
                 </tr>
@@ -4177,10 +4230,11 @@ const StaffSchedule = ({ onEditTrigger }) => {
                     background: idx % 2 === 0 ? '#fff' : '#fafafa'
                   }}>
                     <td style={{
-                      border: '1px solid #444',
-                      padding: '8px 6px',
+                      border: '1px solid #333',
+                      padding: '10px 8px',
                       textAlign: 'left',
-                      fontWeight: 600
+                      fontWeight: 600,
+                      fontSize: '12px'
                     }}>
                       {memberName}
                     </td>
@@ -4192,9 +4246,10 @@ const StaffSchedule = ({ onEditTrigger }) => {
 
                       let cellContent = '-';
                       let cellStyle = {
-                        border: '1px solid #444',
-                        padding: '8px 6px',
-                        textAlign: 'center'
+                        border: '1px solid #333',
+                        padding: '10px 8px',
+                        textAlign: 'center',
+                        fontSize: '12px'
                       };
 
                       // Check for leave
@@ -4211,18 +4266,18 @@ const StaffSchedule = ({ onEditTrigger }) => {
                         };
                         const leaveType = leaveInfo?.type ? leaveTypeLabels[leaveInfo.type] || leaveInfo.type : '';
                         cellContent = leaveType ? `ON LEAVE\n${leaveType}` : 'ON LEAVE';
-                        cellStyle = { ...cellStyle, fontStyle: 'italic', whiteSpace: 'pre-line' };
+                        cellStyle = { ...cellStyle, fontStyle: 'italic', whiteSpace: 'pre-line', fontSize: '11px' };
                       }
                       // Check if staff is lent out on this date (lent OUT FROM this branch)
                       else if (isStaffLentOut(memberId, date)) {
                         const lendingInfo = lentOutData[memberId];
                         cellContent = lendingInfo?.toBranchName ? `LENT OUT\nTo ${lendingInfo.toBranchName}` : 'LENT OUT';
-                        cellStyle = { ...cellStyle, fontStyle: 'italic', whiteSpace: 'pre-line' };
+                        cellStyle = { ...cellStyle, fontStyle: 'italic', whiteSpace: 'pre-line', fontSize: '11px' };
                       }
                       // Check for lending (staff lent OUT from this branch) - legacy check
                       else if (shift?.isLending) {
                         cellContent = 'LENT OUT';
-                        cellStyle = { ...cellStyle, fontStyle: 'italic' };
+                        cellStyle = { ...cellStyle, fontStyle: 'italic', fontSize: '11px' };
                       }
                       // Check if shift exists
                       else if (shift && shift.start && shift.end) {

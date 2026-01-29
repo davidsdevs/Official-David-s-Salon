@@ -6,7 +6,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Calendar, Clock, MapPin, Scissors, User, ChevronRight, ChevronLeft, Check, Plus, Trash2, FileText, AlertTriangle, Eye, Image as ImageIcon, Phone, CheckCircle2, Timer } from 'lucide-react';
 import LoadingSpinner from '../ui/LoadingSpinner';
-import { formatTime, formatTime12Hour } from '../../utils/helpers';
+import { formatTime, formatTime12Hour, formatCurrency } from '../../utils/helpers';
 import { getPortfoliosByStylist } from '../../services/portfolioService';
 import { filterStylistsByAvailability } from '../../utils/scheduleValidator';
 import toast from 'react-hot-toast';
@@ -638,7 +638,7 @@ const ClientBookingModal = ({
                           <p className="text-sm mt-1 text-gray-500">{svc.description ? (svc.description.length > 60 ? svc.description.slice(0,57) + '...' : svc.description) : ''}</p>
                         </div>
                         <div className="flex-shrink-0 text-sm font-semibold ml-2 text-gray-900">
-                          {svc.price ? `₱${(svc.branchPricing?.[bookingData.branchId] || svc.price).toLocaleString()}` : '—'}
+                          {svc.price ? formatCurrency(svc.branchPricing?.[bookingData.branchId] || svc.price) : '—'}
                         </div>
                       </div>
                       <div className="w-full flex items-center justify-between text-xs mt-2">
@@ -721,7 +721,7 @@ const ClientBookingModal = ({
                             <p className="text-xs text-gray-500 mb-2">Qty: {serviceItem.quantity}</p>
                           )}
                           
-                          <p className="text-lg font-bold text-[#160B53] mb-2">₱{itemTotal.toLocaleString()}</p>
+                          <p className="text-lg font-bold text-[#160B53] mb-2">{formatCurrency(itemTotal)}</p>
                           
                           <div className="flex items-center gap-1.5 mb-3">
                             <User className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
@@ -782,7 +782,7 @@ const ClientBookingModal = ({
                   </p>
                 </div>
                 <div className="text-right">
-                  <span className="text-3xl font-bold text-white">₱{total.toLocaleString()}</span>
+                  <span className="text-3xl font-bold text-white">{formatCurrency(total)}</span>
                 </div>
               </div>
             </div>
@@ -835,7 +835,7 @@ const ClientBookingModal = ({
                             </p>
                             {service?.price && (
                               <p className="text-sm text-[#160B53] font-bold mt-1">
-                                ₱{service.price.toLocaleString()}
+                                {formatCurrency(service.price)}
                               </p>
                             )}
                             {stylist && (
@@ -891,7 +891,7 @@ const ClientBookingModal = ({
                       <div className="pt-4 mt-4 border-t-2 border-gray-300 flex justify-between items-center bg-gradient-to-r from-[#160B53]/5 to-[#2D1B69]/5 p-4 rounded-lg">
                         <span className="text-base font-bold text-gray-900">Estimated Total</span>
                         <span className="text-2xl font-bold text-[#160B53]">
-                          ₱{totalPrice.toLocaleString()}
+                          {formatCurrency(totalPrice)}
                         </span>
                       </div>
                     );

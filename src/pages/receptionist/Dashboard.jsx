@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ROUTES } from '../../utils/constants';
+import { formatCurrency } from '../../utils/helpers';
 import { 
   getAppointmentsByDateRange, 
   APPOINTMENT_STATUS 
@@ -231,7 +232,7 @@ const ReceptionistDashboard = () => {
             <Banknote className="h-8 w-8 text-green-600" />
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">Today's Revenue</p>
-              <p className="text-xl font-bold text-gray-900">₱{stats.todaysRevenue?.toLocaleString() || '0'}</p>
+              <p className="text-xl font-bold text-gray-900">{formatCurrency(stats.todaysRevenue || 0)}</p>
             </div>
           </div>
         </Card>

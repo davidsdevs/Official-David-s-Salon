@@ -969,37 +969,41 @@ const CalendarManagement = () => {
           @media print {
             @page {
               size: A4 portrait;
-              margin: 0.5in;
+              margin: 0.3in 0.4in;
             }
             * {
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
+            body {
+              margin: 0;
+              padding: 0;
+            }
           }
           body {
             font-family: 'Poppins', sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 0;
             background: white;
             color: #000;
           }
           .day-item {
-            margin-bottom: 8px;
-            padding: 8px;
-            border: 1px solid #ddd;
+            margin-bottom: 10px;
+            padding: 12px;
+            border: 1px solid #333;
             border-radius: 4px;
           }
         </style>
       </head>
       <body>
-        <div style="text-align: center; margin-bottom: 30px; border-bottom: 2px solid #000; padding-bottom: 15px;">
-          <h1 style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">
+        <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 10px;">
+          <h1 style="font-size: 28px; font-weight: bold; margin: 0 0 8px 0;">
             ${branchInfo?.branchName || branchInfo?.name || 'Branch'} - Calendar Day
           </h1>
-          <h2 style="font-size: 18px; font-weight: 600; margin-bottom: 10px;">
+          <h2 style="font-size: 22px; font-weight: 600; margin: 0 0 10px 0;">
             ${dateStr}
           </h2>
-          <div style="font-size: 11px; color: #666;">
+          <div style="font-size: 13px; color: #666;">
             Printed: ${new Date().toLocaleString('en-US', { 
               year: 'numeric', 
               month: 'short', 
@@ -1010,13 +1014,13 @@ const CalendarManagement = () => {
           </div>
         </div>
 
-        <div style="max-width: 600px; margin: 0 auto;">
+        <div style="max-width: 100%; margin: 0;">
           ${holiday ? `
             <div class="day-item" style="background-color: ${holidayBg}; color: ${holidayText}; border-color: ${holidayBorder};">
-              <div style="font-weight: bold; font-size: 14px; margin-bottom: 5px;">
+              <div style="font-weight: bold; font-size: 16px; margin-bottom: 6px;">
                 ${holiday.localName || holiday.name}
               </div>
-              <div style="font-size: 12px;">
+              <div style="font-size: 14px;">
                 ${holidayLabel}
               </div>
             </div>
@@ -1029,10 +1033,10 @@ const CalendarManagement = () => {
             const borderColor = leave.status === 'pending' ? '#fef08a' : '#fed7aa';
             return `
               <div class="day-item" style="background-color: ${bgColor}; color: ${textColor}; border-color: ${borderColor};">
-                <div style="font-weight: bold; font-size: 14px; margin-bottom: 5px;">
+                <div style="font-weight: bold; font-size: 16px; margin-bottom: 6px;">
                   ${leave.name} - Leave
                 </div>
-                <div style="font-size: 12px;">
+                <div style="font-size: 14px;">
                   Type: ${leaveTypeInfo.label} | Status: ${leave.status}
                 </div>
               </div>
@@ -1045,26 +1049,26 @@ const CalendarManagement = () => {
               : '';
             return `
               <div class="day-item" style="background-color: #faf5ff; color: #7e22ce; border-color: #e9d5ff;">
-                <div style="font-weight: bold; font-size: 14px; margin-bottom: 5px;">
+                <div style="font-weight: bold; font-size: 16px; margin-bottom: 6px;">
                   ${stylist.name} - Scheduled
                 </div>
-                ${timeDisplay ? `<div style="font-size: 12px;">Shift: ${timeDisplay}</div>` : ''}
+                ${timeDisplay ? `<div style="font-size: 14px;">Shift: ${timeDisplay}</div>` : ''}
               </div>
             `;
           }).join('') : ''}
 
           ${dayEntries.length > 0 ? dayEntries.map(entry => `
             <div class="day-item" style="background-color: #eff6ff; color: #1e40af; border-color: #bfdbfe;">
-              <div style="font-weight: bold; font-size: 14px; margin-bottom: 5px;">
+              <div style="font-weight: bold; font-size: 16px; margin-bottom: 6px;">
                 ${entry.title}
               </div>
-              ${entry.description ? `<div style="font-size: 12px; margin-top: 5px;">${entry.description}</div>` : ''}
+              ${entry.description ? `<div style="font-size: 14px; margin-top: 6px;">${entry.description}</div>` : ''}
             </div>
           `).join('') : ''}
 
           ${!holiday && dayLeaves.length === 0 && scheduledStylists.length === 0 && dayEntries.length === 0 ? `
             <div style="text-align: center; padding: 40px; color: #999;">
-              <p>No events scheduled for this day</p>
+              <p style="font-size: 16px;">No events scheduled for this day</p>
             </div>
           ` : ''}
         </div>
@@ -1140,7 +1144,7 @@ const CalendarManagement = () => {
             @media print {
               @page {
                 size: A4 landscape;
-                margin: 0.25in;
+                margin: 0.3in 0.4in;
               }
               * {
                 -webkit-print-color-adjust: exact;
@@ -1154,7 +1158,7 @@ const CalendarManagement = () => {
             body {
               font-family: 'Poppins', sans-serif;
               margin: 0;
-              padding: 20px;
+              padding: 0;
               background: white;
               color: #000;
             }
@@ -1166,9 +1170,9 @@ const CalendarManagement = () => {
             }
             .print-calendar-day {
               border: 1px solid #000;
-              min-height: 70px;
-              padding: 3px;
-              font-size: 8px;
+              min-height: 80px;
+              padding: 4px;
+              font-size: 9px;
             }
             .print-calendar-header {
               display: grid;
@@ -1178,10 +1182,10 @@ const CalendarManagement = () => {
             }
             .print-calendar-header-cell {
               border: 1px solid #000;
-              padding: 8px;
+              padding: 10px;
               text-align: center;
               font-weight: bold;
-              font-size: 11px;
+              font-size: 13px;
             }
           </style>
         </head>
@@ -2145,7 +2149,7 @@ const CalendarManagement = () => {
           @media print {
             @page {
               size: letter landscape;
-              margin: 0.5in;
+              margin: 0.3in 0.4in;
             }
             * {
               color: #000 !important;
@@ -2157,41 +2161,42 @@ const CalendarManagement = () => {
           fontFamily: "'Poppins', sans-serif",
           color: '#000',
           background: '#fff',
-          padding: '10px'
+          padding: '0'
         }}>
           {/* Header */}
           <div style={{ 
             textAlign: 'center',
-            marginBottom: '8px',
-            borderBottom: '1px solid #000',
-            paddingBottom: '5px'
+            marginBottom: '10px',
+            borderBottom: '2px solid #000',
+            paddingBottom: '8px'
           }}>
             <h1 style={{ 
-              fontSize: '16px',
+              fontSize: '20px',
               fontWeight: 'bold',
-              marginBottom: '2px',
-              letterSpacing: '0.5px'
+              marginBottom: '4px',
+              letterSpacing: '0.5px',
+              margin: '0 0 4px 0'
             }}>
               {branchInfo?.branchName || branchInfo?.name || 'Branch'} - Calendar
             </h1>
             <div style={{ 
-              fontSize: '12px',
+              fontSize: '16px',
               fontWeight: '600',
-              marginBottom: '4px',
+              marginBottom: '6px',
               color: '#333'
             }}>
               {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
             </div>
             <div style={{ 
-              fontSize: '8px',
+              fontSize: '10px',
               display: 'flex',
               justifyContent: 'space-between'
             }}>
               <div style={{ textAlign: 'left' }}>
-                <div>Printed by: {currentUser ? getFullName(currentUser) : 'Manager'}</div>
+                <div><strong>Printed by:</strong> {currentUser ? getFullName(currentUser) : 'Manager'}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div>Printed: {new Date().toLocaleString('en-US', { 
+                <div><strong>Printed:</strong> {new Date().toLocaleString('en-US', { 
                   year: 'numeric', 
                   month: 'short', 
                   day: 'numeric', 
@@ -2206,16 +2211,16 @@ const CalendarManagement = () => {
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(7, 1fr)',
-            gap: '2px',
-            marginBottom: '2px'
+            gap: '3px',
+            marginBottom: '3px'
           }}>
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
               <div key={day} style={{
                 border: '1px solid #000',
-                padding: '4px',
+                padding: '6px',
                 textAlign: 'center',
                 fontWeight: 'bold',
-                fontSize: '9px'
+                fontSize: '11px'
               }}>
                 {day}
               </div>
@@ -2226,7 +2231,7 @@ const CalendarManagement = () => {
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(7, 1fr)',
-            gap: '2px'
+            gap: '3px'
           }}>
             {calendarDays.map(({ date, inCurrentMonth }, index) => {
               const dateKey = formatDateKey(date);
@@ -2242,27 +2247,27 @@ const CalendarManagement = () => {
                   key={`print-${dateKey}-${index}`}
                   style={{
                     border: '1px solid #000',
-                    minHeight: '65px',
-                    padding: '3px',
-                    fontSize: '7px',
+                    minHeight: '75px',
+                    padding: '4px',
+                    fontSize: '8px',
                     backgroundColor: !inCurrentMonth ? '#f5f5f5' : (isWeekend ? '#f9fafb' : '#fff'),
                     position: 'relative'
                   }}
                 >
                   {/* Date Number */}
                   <div style={{
-                    fontSize: '9px',
+                    fontSize: '11px',
                     fontWeight: 'bold',
-                    marginBottom: '2px',
+                    marginBottom: '3px',
                     color: !inCurrentMonth ? '#999' : (isToday ? '#000' : '#000'),
-                    borderBottom: isToday ? '1px solid #000' : 'none',
-                    paddingBottom: isToday ? '1px' : '0'
+                    borderBottom: isToday ? '2px solid #000' : 'none',
+                    paddingBottom: isToday ? '2px' : '0'
                   }}>
                     {date.getDate()}
                   </div>
 
                   {/* Content */}
-                  <div style={{ fontSize: '6px', lineHeight: '1.1' }}>
+                  <div style={{ fontSize: '7px', lineHeight: '1.2' }}>
                     {/* Holiday */}
                     {holiday && (() => {
                       const holidayCategory = categorizePhilippineHoliday(holiday);
@@ -2290,16 +2295,16 @@ const CalendarManagement = () => {
                       }
                       return (
                         <div style={{
-                          marginBottom: '1px',
-                          padding: '1px 2px',
+                          marginBottom: '2px',
+                          padding: '2px 3px',
                           border: `1px solid ${borderColor}`,
-                          fontSize: '6px',
+                          fontSize: '7px',
                           fontWeight: 'bold',
                           backgroundColor: bgColor,
                           color: textColor
                         }}>
-                          <div style={{ fontWeight: 'bold', fontSize: '6px' }}>{holiday.localName || holiday.name}</div>
-                          <div style={{ fontSize: '5px' }}>{holidayCategory.label}</div>
+                          <div style={{ fontWeight: 'bold', fontSize: '7px' }}>{holiday.localName || holiday.name}</div>
+                          <div style={{ fontSize: '6px' }}>{holidayCategory.label}</div>
                         </div>
                       );
                     })()}
@@ -2313,10 +2318,10 @@ const CalendarManagement = () => {
                       const borderColor = leave.status === 'pending' ? '#fef08a' : '#fed7aa'; // yellow-200 or orange-200
                       return (
                         <div key={`leave-${idx}`} style={{
-                          marginBottom: '1px',
-                          padding: '1px 2px',
+                          marginBottom: '2px',
+                          padding: '2px 3px',
                           border: `1px solid ${borderColor}`,
-                          fontSize: '5px',
+                          fontSize: '6px',
                           backgroundColor: bgColor,
                           color: textColor
                         }}>
@@ -2325,7 +2330,7 @@ const CalendarManagement = () => {
                       );
                     })}
                     {dayLeaves.length > 1 && (
-                      <div style={{ fontSize: '5px', color: '#666' }}>
+                      <div style={{ fontSize: '6px', color: '#666' }}>
                         +{dayLeaves.length - 1} leave{dayLeaves.length - 1 !== 1 ? 's' : ''}
                       </div>
                     )}
@@ -2338,10 +2343,10 @@ const CalendarManagement = () => {
                       // Match exact badge color: purple-50, purple-700, purple-200
                       return (
                         <div key={`stylist-${idx}`} style={{
-                          marginBottom: '1px',
-                          padding: '1px 2px',
+                          marginBottom: '2px',
+                          padding: '2px 3px',
                           border: '1px solid #e9d5ff', // purple-200
-                          fontSize: '5px',
+                          fontSize: '6px',
                           backgroundColor: '#faf5ff', // purple-50
                           color: '#7e22ce' // purple-700
                         }}>
@@ -2350,7 +2355,7 @@ const CalendarManagement = () => {
                       );
                     })}
                     {scheduledStylists.length > 1 && (
-                      <div style={{ fontSize: '5px', color: '#666' }}>
+                      <div style={{ fontSize: '6px', color: '#666' }}>
                         +{scheduledStylists.length - 1} stylist{scheduledStylists.length - 1 !== 1 ? 's' : ''}
                       </div>
                     )}
@@ -2358,10 +2363,10 @@ const CalendarManagement = () => {
                     {/* Reminders */}
                     {dayEntries.slice(0, 1).map(entry => (
                       <div key={entry.id} style={{
-                        marginBottom: '1px',
-                        padding: '1px 2px',
+                        marginBottom: '2px',
+                        padding: '2px 3px',
                         border: '1px solid #bfdbfe', // blue-200
-                        fontSize: '5px',
+                        fontSize: '6px',
                         backgroundColor: '#eff6ff', // blue-50
                         color: '#1e40af' // blue-800
                       }}>
@@ -2369,7 +2374,7 @@ const CalendarManagement = () => {
                       </div>
                     ))}
                     {dayEntries.length > 1 && (
-                      <div style={{ fontSize: '5px', color: '#666' }}>
+                      <div style={{ fontSize: '6px', color: '#666' }}>
                         +{dayEntries.length - 1} reminder{dayEntries.length - 1 !== 1 ? 's' : ''}
                       </div>
                     )}

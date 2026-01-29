@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Button from '../ui/Button';
 import { X, Calendar, Clock, User, MapPin, Scissors, FileText, History, RotateCcw, CheckCircle, XCircle, PartyPopper, Plus, Edit, Package } from 'lucide-react';
 import { APPOINTMENT_STATUS } from '../../services/appointmentService';
+import { formatCurrency } from '../../utils/helpers';
 
 const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
   const [isAnimating, setIsAnimating] = useState(false);
@@ -314,10 +315,10 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
                               </div>
                               <div className="text-right ml-3">
                                 <div className="text-sm font-semibold text-gray-900">
-                                  ₱{service.price.toLocaleString()} × {service.quantity}
+                                  {formatCurrency(service.price)} × {service.quantity}
                                 </div>
                                 <div className="text-xs text-gray-500">
-                                  ₱{(service.price * service.quantity).toLocaleString()}
+                                  {formatCurrency(service.price * service.quantity)}
                                 </div>
                               </div>
                             </div>
@@ -327,7 +328,7 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
                           <div className="pt-2 border-t border-gray-200">
                             <div className="flex justify-between items-center text-xs">
                               <span className="text-gray-600">Services Total:</span>
-                              <span className="font-semibold text-gray-900">₱{totalPrice.toLocaleString()}</span>
+                              <span className="font-semibold text-gray-900">{formatCurrency(totalPrice)}</span>
                             </div>
                           </div>
                         )}
@@ -365,10 +366,10 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
                               </div>
                               <div className="text-right ml-3">
                                 <div className="text-sm font-semibold text-gray-900">
-                                  ₱{(product.price * product.quantity).toLocaleString()}
+                                  {formatCurrency(product.price * product.quantity)}
                                 </div>
                                 <div className="text-xs text-gray-500">
-                                  ₱{product.price.toLocaleString()} each
+                                  {formatCurrency(product.price)} each
                                 </div>
                               </div>
                             </div>
@@ -378,7 +379,7 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
                           <div className="pt-2 border-t border-gray-200">
                             <div className="flex justify-between items-center text-xs">
                               <span className="text-gray-600">Products Total:</span>
-                              <span className="font-semibold text-gray-900">₱{totalProductsPrice.toLocaleString()}</span>
+                              <span className="font-semibold text-gray-900">{formatCurrency(totalProductsPrice)}</span>
                             </div>
                           </div>
                         )}
@@ -399,7 +400,7 @@ const AppointmentDetails = ({ appointment, onClose, onEdit }) => {
                         Grand Total
                       </div>
                       <div className="text-base font-semibold text-gray-900">
-                        ₱{totalItemsPrice.toLocaleString()}
+                        {formatCurrency(totalItemsPrice)}
                       </div>
                     </div>
                   </div>

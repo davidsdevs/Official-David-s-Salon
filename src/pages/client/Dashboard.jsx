@@ -14,7 +14,7 @@ import {
 import { getAllBranchLoyaltyPoints } from '../../services/loyaltyService';
 import { getAllReferralCodes, getReferralStats } from '../../services/referralService';
 import { getActivePromotions } from '../../services/promotionService';
-import { formatDate, formatTime, getFullName } from '../../utils/helpers';
+import { formatDate, formatTime, getFullName, formatCurrency } from '../../utils/helpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import AppointmentCard from '../../components/appointment/AppointmentCard';
 import AppointmentDetails from '../../components/appointment/AppointmentDetails';
@@ -239,7 +239,7 @@ const ClientDashboard = () => {
                   <div className="flex items-start justify-between mb-2">
                     <h3 className="font-semibold text-gray-900">{promo.name}</h3>
                     <span className="px-2 py-1 bg-primary-600 text-white text-xs font-bold rounded">
-                      {promo.discountType === 'percentage' ? `${promo.discountValue}%` : `₱${promo.discountValue}`}
+                      {promo.discountType === 'percentage' ? `${promo.discountValue}%` : formatCurrency(promo.discountValue)}
                     </span>
                   </div>
                   {promo.description && (

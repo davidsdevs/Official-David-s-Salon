@@ -22,7 +22,7 @@ import { getActiveLendingForBranch, getActiveLendingFromBranch, getLendingReques
 import { getActiveSchedulesByEmployee, getSchedulesByBranch } from '../../services/scheduleService';
 import { useAuth } from '../../context/AuthContext';
 import { USER_ROLES, ROLE_LABELS } from '../../utils/constants';
-import { formatDate, getFullName } from '../../utils/helpers';
+import { formatDate, getFullName, formatCurrency } from '../../utils/helpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 

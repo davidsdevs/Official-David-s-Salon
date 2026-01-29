@@ -1659,43 +1659,65 @@ const Stocks = () => {
               <div class="stat-label">Out of Stock</div>
             </div>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Product Name</th>
-                <th>Brand</th>
-                <th>Category</th>
-                <th>Batch</th>
-                <th>UPC</th>
-                <th>Beginning</th>
-                <th>Current</th>
-                <th>Status</th>
-                <th>Expires</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${filteredStocks.map(stock => {
-                const product = stock.product || {};
-                const currentStock = getComputedStock(stock);
-                const status = calculateStockStatus(stock);
-                const statusClass = status === 'In Stock' ? 'status-in-stock' :
-                                  status === 'Low Stock' ? 'status-low-stock' : 'status-out-of-stock';
-                return `
-                  <tr>
-                    <td style="font-weight: 600; color: #000;">${stock.productName || product.name || 'N/A'}</td>
-                    <td>${stock.brand || product.brand || 'N/A'}</td>
-                    <td>${stock.category || product.category || 'N/A'}</td>
-                    <td style="font-family: monospace;">${stock.batchNumber || 'N/A'}</td>
-                    <td style="font-family: monospace;">${stock.upc || product.upc || 'N/A'}</td>
-                    <td style="text-align: center; font-weight: 600;">${stock.beginningStock || 0}</td>
-                    <td style="text-align: center; font-weight: 700;">${currentStock}</td>
-                    <td class="${statusClass}">${status}</td>
-                    <td>${stock.expirationDate ? format(new Date(stock.expirationDate), 'MMM dd, yyyy') : 'N/A'}</td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
+          ${(() => {
+            // Split stocks into chunks of 10 per page
+            const itemsPerPage = 10;
+            const totalPages = Math.ceil(filteredStocks.length / itemsPerPage);
+            let html = '';
+            
+            for (let page = 0; page < totalPages; page++) {
+              const startIdx = page * itemsPerPage;
+              const endIdx = Math.min(startIdx + itemsPerPage, filteredStocks.length);
+              const pageStocks = filteredStocks.slice(startIdx, endIdx);
+              
+              html += `
+                <div class="avoid-break">
+                  ${page > 0 ? '<div style="margin-top: 30px;"></div>' : ''}
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Product Name</th>
+                        <th>Brand</th>
+                        <th>Category</th>
+                        <th>Batch</th>
+                        <th>UPC</th>
+                        <th>Beginning</th>
+                        <th>Current</th>
+                        <th>Status</th>
+                        <th>Expires</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${pageStocks.map(stock => {
+                        const product = stock.product || {};
+                        const currentStock = getComputedStock(stock);
+                        const status = calculateStockStatus(stock);
+                        const statusClass = status === 'In Stock' ? 'status-in-stock' :
+                                          status === 'Low Stock' ? 'status-low-stock' : 'status-out-of-stock';
+                        return `
+                          <tr>
+                            <td style="font-weight: 600; color: #000;">${stock.productName || product.name || 'N/A'}</td>
+                            <td>${stock.brand || product.brand || 'N/A'}</td>
+                            <td>${stock.category || product.category || 'N/A'}</td>
+                            <td style="font-family: monospace;">${stock.batchNumber || 'N/A'}</td>
+                            <td style="font-family: monospace;">${stock.upc || product.upc || 'N/A'}</td>
+                            <td style="text-align: center; font-weight: 600;">${stock.beginningStock || 0}</td>
+                            <td style="text-align: center; font-weight: 700;">${currentStock}</td>
+                            <td class="${statusClass}">${status}</td>
+                            <td>${stock.expirationDate ? format(new Date(stock.expirationDate), 'MMM dd, yyyy') : 'N/A'}</td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                  ${page < totalPages - 1 ? '<div style="text-align: center; margin-top: 15px; font-size: 11px; color: #666;">Page ' + (page + 1) + ' of ' + totalPages + '</div>' : ''}
+                </div>
+                ${page < totalPages - 1 ? '<div class="page-break"></div>' : ''}
+              `;
+            }
+            
+            return html;
+          })()}
           <div class="footer">
             <p><strong>Generated by:</strong> ${userData?.name || 'System User'} | <strong>Date:</strong> ${format(new Date(), 'MMMM dd, yyyy')}</p>
             <p>This professional stock report is for inventory management and branch operations.</p>

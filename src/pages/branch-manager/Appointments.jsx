@@ -15,7 +15,7 @@ import { getBranchServices } from '../../services/branchServicesService';
 import { getUsersByRole } from '../../services/userService';
 import { getBranchById } from '../../services/branchService';
 import { USER_ROLES } from '../../utils/constants';
-import { getFullName, formatDate, formatTime } from '../../utils/helpers';
+import { getFullName, formatDate, formatTime, formatCurrency } from '../../utils/helpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import AppointmentDetails from '../../components/appointment/AppointmentDetails';
 import toast from 'react-hot-toast';
@@ -631,6 +631,11 @@ const BranchManagerAppointments = () => {
       const confirmed = filteredAppointments.filter(a => a.status === APPOINTMENT_STATUS.CONFIRMED).length;
       const totalRevenue = filteredAppointments.reduce((sum, apt) => sum + (apt.totalAmount || 0), 0);
 
+      // Format currency with commas
+      const formatCurrency = (amount) => {
+        return amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      };
+
       // Create print window
       const printWindow = window.open('', '_blank', 'width=1200,height=800');
       if (!printWindow) {
@@ -664,11 +669,62 @@ const BranchManagerAppointments = () => {
             <td>${timeStr}</td>
             <td style="max-width: 200px; word-wrap: break-word;">${servicesList}</td>
             <td>${stylistsList}</td>
-            <td><span class="${statusClass}">${statusText}</span></td>
-            <td style="font-weight: 600; text-align: right;">₱${(apt.totalAmount || 0).toFixed(2)}</td>
+            <td style="text-align: center;"><span class="${statusClass}">${statusText}</span></td>
+            <td style="font-weight: 600; text-align: right;">${formatCurrency(apt.totalAmount || 0)}</td>
           </tr>
         `;
       }).join('');
+
+      // Build filters display
+      const activeFilters = [];
+      
+      // Always include date range
+      if (startDateFilter && endDateFilter) {
+        activeFilters.push(`Date Range: ${startDateFilter} to ${endDateFilter}`);
+      } else if (startDateFilter) {
+        activeFilters.push(`Date Range: From ${startDateFilter}`);
+      } else if (endDateFilter) {
+        activeFilters.push(`Date Range: Until ${endDateFilter}`);
+      } else {
+        // Calculate actual date range from filtered data
+        if (filteredAppointments.length > 0) {
+          const dates = filteredAppointments.map(apt => {
+            const date = apt.appointmentDate?.toDate ? apt.appointmentDate.toDate() : new Date(apt.appointmentDate);
+            return date;
+          }).sort((a, b) => a - b);
+          const minDate = dates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          const maxDate = dates[dates.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          activeFilters.push(`Date Range: ${minDate} to ${maxDate}`);
+        } else {
+          activeFilters.push(`Date Range: All Dates`);
+        }
+      }
+      
+      if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+      if (statusFilter !== 'all') {
+        const statusLabels = {
+          pending: 'Pending',
+          confirmed: 'Confirmed',
+          completed: 'Completed',
+          cancelled: 'Cancelled',
+          no_show: 'No Show'
+        };
+        activeFilters.push(`Status: ${statusLabels[statusFilter] || statusFilter}`);
+      }
+      if (stylistFilter.length > 0) {
+        const stylistNames = stylistFilter.map(id => {
+          const stylist = stylists.find(s => s.id === id || s.uid === id);
+          return stylist ? getFullName(stylist) : id;
+        }).join(', ');
+        activeFilters.push(`Stylist: ${stylistNames}`);
+      }
+      if (serviceFilter.length > 0) {
+        const serviceNames = serviceFilter.map(id => {
+          const service = services.find(s => s.id === id);
+          return service ? service.serviceName : id;
+        }).join(', ');
+        activeFilters.push(`Service: ${serviceNames}`);
+      }
 
       const printContent = `
         <!DOCTYPE html>
@@ -680,8 +736,12 @@ const BranchManagerAppointments = () => {
             @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
             @media print {
               @page {
-                size: A4;
-                margin: 1.5cm;
+                size: letter;
+                margin: 0.5in 0.5in;
+              }
+              body {
+                margin: 0;
+                padding: 0;
               }
             }
             * {
@@ -694,71 +754,60 @@ const BranchManagerAppointments = () => {
               padding: 0;
               color: #000000;
               background: #fff;
-              line-height: 1.6;
+              line-height: 1.5;
             }
             .header {
               text-align: center;
-              margin-bottom: 40px;
-              padding-bottom: 25px;
-              border-bottom: 3px solid #000000;
-              position: relative;
-            }
-            .header::after {
-              content: '';
-              position: absolute;
-              bottom: -3px;
-              left: 50%;
-              transform: translateX(-50%);
-              width: 100px;
-              height: 3px;
-              background: #000000;
+              margin-bottom: 20px;
+              padding-bottom: 15px;
+              border-bottom: 2px solid #000000;
             }
             .brand-section {
-              margin-bottom: 20px;
+              margin-bottom: 12px;
             }
             .brand-title {
               font-family: 'Poppins', sans-serif;
-              font-size: 32px;
+              font-size: 18px;
               font-weight: 700;
               color: #000000;
-              margin: 0;
-              letter-spacing: 1px;
+              margin: 0 0 2px 0;
+              letter-spacing: 0.8px;
             }
             .brand-subtitle {
               font-family: 'Poppins', sans-serif;
-              font-size: 14px;
+              font-size: 9px;
               font-weight: 400;
               color: #000000;
-              margin: 5px 0 0 0;
-              letter-spacing: 0.5px;
+              margin: 0;
+              letter-spacing: 0.3px;
             }
             .report-title {
               font-family: 'Poppins', sans-serif;
-              font-size: 28px;
+              font-size: 14px;
               font-weight: 700;
               color: #000000;
-              margin: 20px 0 10px 0;
-              letter-spacing: 0.5px;
+              margin: 6px 0 4px 0;
+              letter-spacing: 0.4px;
             }
             .branch-name {
               font-family: 'Poppins', sans-serif;
-              font-size: 18px;
+              font-size: 11px;
               font-weight: 600;
               color: #000000;
-              margin: 5px 0;
+              margin: 2px 0;
               text-transform: uppercase;
-              letter-spacing: 1px;
+              letter-spacing: 0.5px;
             }
             .header-meta {
               display: flex;
               justify-content: space-between;
-              font-size: 11px;
+              font-size: 10px;
               font-weight: 500;
               font-family: 'Poppins', sans-serif;
               color: #000000;
-              margin-top: 20px;
-              padding-top: 15px;
-              border-top: 1px solid #000000;
+              margin-top: 12px;
+              padding-top: 10px;
+              border-top: 1px solid #333;
             }
             .header-meta-left, .header-meta-right {
               flex: 1;
@@ -769,30 +818,47 @@ const BranchManagerAppointments = () => {
             .header-meta-right {
               text-align: right;
             }
-            .summary-grid {
-              display: grid;
-              grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-              gap: 20px;
-              margin: 30px 0;
-            }
-            .summary-card {
-              padding: 20px;
-              background: #ffffff;
-              border: 2px solid #000000;
-              border-radius: 12px;
+            .filters-section {
+              margin: 8px 0;
+              padding: 6px 8px;
+              border: 1px solid #333;
+              background: #f8f9fa;
               text-align: center;
             }
-            .summary-card .label {
-              font-size: 12px;
-              font-weight: 600;
-              font-family: 'Poppins', sans-serif;
-              color: #000000;
-              margin-bottom: 8px;
+            .filters-title {
+              font-size: 9px;
+              font-weight: 700;
+              margin-bottom: 4px;
               text-transform: uppercase;
               letter-spacing: 0.5px;
             }
+            .filters-content {
+              font-size: 8px;
+              font-weight: 600;
+            }
+            .summary-grid {
+              display: grid;
+              grid-template-columns: repeat(6, 1fr);
+              gap: 6px;
+              margin: 8px 0;
+            }
+            .summary-card {
+              padding: 6px 4px;
+              background: #ffffff;
+              border: 1px solid #333;
+              text-align: center;
+            }
+            .summary-card .label {
+              font-size: 7px;
+              font-weight: 600;
+              font-family: 'Poppins', sans-serif;
+              color: #000000;
+              margin-bottom: 3px;
+              text-transform: uppercase;
+              letter-spacing: 0.2px;
+            }
             .summary-card .value {
-              font-size: 24px;
+              font-size: 12px;
               font-weight: 700;
               font-family: 'Poppins', sans-serif;
               color: #000000;
@@ -801,69 +867,104 @@ const BranchManagerAppointments = () => {
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 25px;
-              font-size: 12px;
+              margin-top: 8px;
+              font-size: 7px;
               font-family: 'Poppins', sans-serif;
-              border: 2px solid #000000;
-              border-radius: 8px;
-              overflow: hidden;
+              border: 1px solid #333;
             }
             thead {
-              background: #000000;
-              color: white;
+              background: #fff;
+              color: #000;
+              border-bottom: 2px solid #000;
             }
             th {
-              padding: 15px 12px;
+              padding: 4px 3px;
               text-align: left;
               font-family: 'Poppins', sans-serif;
-              font-weight: 600;
-              font-size: 11px;
+              font-weight: 700;
+              font-size: 7px;
               text-transform: uppercase;
-              letter-spacing: 0.5px;
-              border-bottom: 2px solid #000000;
+              letter-spacing: 0.2px;
+              border: 1px solid #333;
             }
             td {
-              padding: 12px;
-              border-bottom: 1px solid #000000;
+              padding: 3px 2px;
+              border: 1px solid #333;
               font-family: 'Poppins', sans-serif;
               color: #000000;
+              font-size: 7px;
             }
             tbody tr:nth-child(even) {
-              background-color: #f9f9f9;
+              background-color: #fff;
             }
             .status-badge {
-              padding: 4px 8px;
-              border-radius: 12px;
-              font-size: 10px;
+              font-size: 7px;
               font-weight: 600;
               text-transform: uppercase;
-              letter-spacing: 0.5px;
-              background-color: #000000;
-              color: white;
+              letter-spacing: 0.2px;
+              color: #000;
+              text-align: center;
+            }
+            .filters-section {
+              margin: 20px 0;
+              padding: 15px;
+              background: #f8f9fa;
+              border: 2px solid #333;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 9px;
+              font-weight: 700;
+              font-family: 'Poppins', sans-serif;
+              color: #000000;
+              margin-bottom: 4px;
+              text-transform: uppercase;
+              letter-spacing: 0.4px;
+            }
+            .filters-content {
+              font-size: 8px;
+              font-weight: 600;
+              font-family: 'Poppins', sans-serif;
+              color: #000000;
             }
             .footer {
-              margin-top: 40px;
-              padding-top: 20px;
-              border-top: 2px solid #000000;
+              margin-top: 10px;
+              padding-top: 8px;
+              border-top: 2px solid #333;
+              font-size: 7px;
+              font-family: 'Poppins', sans-serif;
+              color: #000000;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 8px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
               text-align: center;
-              font-size: 11px;
-              font-weight: 500;
-              font-family: 'Poppins', sans-serif;
-              color: #000000;
+              margin-top: 10px;
+              padding-top: 10px;
+              border-top: 1px solid #ccc;
+              color: #666;
+              font-size: 9px;
             }
-            .footer p {
-              margin: 8px 0;
-              font-family: 'Poppins', sans-serif;
-            }
-            .footer .brand {
-              font-family: 'Poppins', sans-serif;
-              font-weight: 700;
-              color: #000000;
-              font-size: 14px;
+            .footer-center p {
+              margin: 3px 0;
             }
             @media print {
               .no-print {
                 display: none;
+              }
+              * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
               }
             }
           </style>
@@ -876,19 +977,12 @@ const BranchManagerAppointments = () => {
             </div>
             <h2 class="report-title">Appointment Report</h2>
             <div class="branch-name">${branchName}</div>
-            <div class="header-meta">
-              <div class="header-meta-left">
-                <div><strong>Generated by:</strong> ${currentUser && userData ? getFullName(userData) : (currentUser?.displayName || 'Manager')}</div>
-              </div>
-              <div class="header-meta-right">
-                <div><strong>Generated:</strong> ${new Date().toLocaleString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}</div>
-              </div>
+          </div>
+
+          <div class="filters-section">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">
+              ${activeFilters.join(' | ')}
             </div>
           </div>
 
@@ -915,7 +1009,7 @@ const BranchManagerAppointments = () => {
             </div>
             <div class="summary-card total">
               <div class="label">Total Revenue</div>
-              <div class="value">₱${totalRevenue.toFixed(2)}</div>
+              <div class="value">₱${formatCurrency(totalRevenue)}</div>
             </div>
           </div>
 
@@ -937,9 +1031,21 @@ const BranchManagerAppointments = () => {
           </table>
 
           <div class="footer">
-            <p class="brand">DAVID'S SALON</p>
-            <p>Professional Beauty & Wellness Management System</p>
-            <p>Report generated with ${totalAppointments} appointment record${totalAppointments !== 1 ? 's' : ''}</p>
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${currentUser && userData ? getFullName(userData) : (currentUser?.displayName || 'Branch Manager')}<br>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600; color: #333; font-size: 10px;">Page 1 of 1</p>
+              <p>${branchName} - Appointment Report</p>
+              <p>Total Records: ${totalAppointments} appointment${totalAppointments !== 1 ? 's' : ''}</p>
+            </div>
           </div>
 
           <script>
@@ -1159,7 +1265,7 @@ const BranchManagerAppointments = () => {
               <div>
                 <p className="text-sm text-gray-600">Total Revenue</p>
                 <p className="text-2xl font-bold text-purple-600 mt-1">
-                  ₱{filteredAppointments.reduce((sum, apt) => sum + (apt.totalAmount || 0), 0).toFixed(2)}
+                  {formatCurrency(filteredAppointments.reduce((sum, apt) => sum + (apt.totalAmount || 0), 0))}
                 </p>
               </div>
               <div className="p-3 bg-purple-100 rounded-lg">
@@ -1485,7 +1591,7 @@ const BranchManagerAppointments = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        ₱{(appointment.totalAmount || 0).toFixed(2)}
+                        {formatCurrency((appointment.totalAmount || 0))}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <button

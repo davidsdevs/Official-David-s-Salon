@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { formatCurrency } from '../../utils/helpers';
 import { useReactToPrint } from 'react-to-print';
 import { useAuth } from '../../context/AuthContext';
 
@@ -918,7 +919,7 @@ const Reports = () => {
                 <div>
                   <p className="text-sm text-gray-600">Total Revenue</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    ₱{summaryStats.totalRevenue.toLocaleString()}
+                    {formatCurrency(summaryStats.totalRevenue)}
                   </p>
                 </div>
               </div>
@@ -932,7 +933,7 @@ const Reports = () => {
                 <div>
                   <p className="text-sm text-gray-600">Service Revenue</p>
                   <p className="text-2xl font-bold text-blue-600">
-                    ₱{summaryStats.serviceRevenue.toLocaleString()}
+                    {formatCurrency(summaryStats.serviceRevenue)}
                   </p>
                 </div>
               </div>
@@ -946,7 +947,7 @@ const Reports = () => {
                 <div>
                   <p className="text-sm text-gray-600">Product Revenue</p>
                   <p className="text-2xl font-bold text-purple-600">
-                    ₱{summaryStats.productRevenue.toLocaleString()}
+                    {formatCurrency(summaryStats.productRevenue)}
                   </p>
                 </div>
               </div>
@@ -1137,15 +1138,15 @@ const Reports = () => {
                     <div className="grid grid-cols-3 gap-4 mb-8">
                       <div className="border border-gray-300 p-4 text-center">
                         <p className="text-sm text-gray-600 mb-1">Total Revenue</p>
-                        <p className="text-2xl font-bold text-gray-900">₱{filteredStats.totalRevenue.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-gray-900">{formatCurrency(filteredStats.totalRevenue)}</p>
                       </div>
                       <div className="border border-gray-300 p-4 text-center">
                         <p className="text-sm text-gray-600 mb-1">Service Revenue</p>
-                        <p className="text-2xl font-bold text-blue-600">₱{filteredStats.serviceRevenue.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-blue-600">{formatCurrency(filteredStats.serviceRevenue)}</p>
                       </div>
                       <div className="border border-gray-300 p-4 text-center">
                         <p className="text-sm text-gray-600 mb-1">Product Revenue</p>
-                        <p className="text-2xl font-bold text-purple-600">₱{filteredStats.productRevenue.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-purple-600">{formatCurrency(filteredStats.productRevenue)}</p>
                       </div>
                     </div>
                   ) : (
@@ -1160,15 +1161,15 @@ const Reports = () => {
                               <div className="flex gap-4">
                                 <div className="text-right">
                                   <p className="text-xs text-gray-500">Total</p>
-                                  <p className="text-xl font-bold text-gray-900">₱{yearData.total.toLocaleString()}</p>
+                                  <p className="text-xl font-bold text-gray-900">{formatCurrency(yearData.total)}</p>
                                 </div>
                                 <div className="text-right">
                                   <p className="text-xs text-gray-500">Service</p>
-                                  <p className="text-lg font-semibold text-blue-600">₱{yearData.service.toLocaleString()}</p>
+                                  <p className="text-lg font-semibold text-blue-600">{formatCurrency(yearData.service)}</p>
                                 </div>
                                 <div className="text-right">
                                   <p className="text-xs text-gray-500">Product</p>
-                                  <p className="text-lg font-semibold text-purple-600">₱{yearData.product.toLocaleString()}</p>
+                                  <p className="text-lg font-semibold text-purple-600">{formatCurrency(yearData.product)}</p>
                                 </div>
                               </div>
                             </div>
@@ -1181,15 +1182,15 @@ const Reports = () => {
                                     <div className="space-y-1 text-sm">
                                       <div className="flex justify-between">
                                         <span className="text-gray-600">Total:</span>
-                                        <span className="font-semibold">₱{monthData.total.toLocaleString()}</span>
+                                        <span className="font-semibold">{formatCurrency(monthData.total)}</span>
                                       </div>
                                       <div className="flex justify-between">
                                         <span className="text-gray-600">Service:</span>
-                                        <span className="font-semibold text-blue-600">₱{monthData.service.toLocaleString()}</span>
+                                        <span className="font-semibold text-blue-600">{formatCurrency(monthData.service)}</span>
                                       </div>
                                       <div className="flex justify-between">
                                         <span className="text-gray-600">Product:</span>
-                                        <span className="font-semibold text-purple-600">₱{monthData.product.toLocaleString()}</span>
+                                        <span className="font-semibold text-purple-600">{formatCurrency(monthData.product)}</span>
                                       </div>
                                     </div>
                                   </div>
@@ -1244,19 +1245,19 @@ const Reports = () => {
                 <div className="text-center p-4 bg-green-50 rounded-lg">
                   <p className="text-sm text-gray-600">Total Revenue</p>
                   <p className="text-3xl font-bold text-green-600 mt-2">
-                    ₱{summaryStats.totalRevenue.toLocaleString()}
+                    {formatCurrency(summaryStats.totalRevenue)}
                   </p>
                 </div>
                 <div className="text-center p-4 bg-blue-50 rounded-lg">
                   <p className="text-sm text-gray-600">Service Revenue</p>
                   <p className="text-3xl font-bold text-blue-600 mt-2">
-                    ₱{summaryStats.serviceRevenue.toLocaleString()}
+                    {formatCurrency(summaryStats.serviceRevenue)}
                   </p>
                 </div>
                 <div className="text-center p-4 bg-purple-50 rounded-lg">
                   <p className="text-sm text-gray-600">Product Revenue</p>
                   <p className="text-3xl font-bold text-purple-600 mt-2">
-                    ₱{summaryStats.productRevenue.toLocaleString()}
+                    {formatCurrency(summaryStats.productRevenue)}
                   </p>
                 </div>
               </div>
@@ -1274,19 +1275,19 @@ const Reports = () => {
                           <div className="text-right">
                             <p className="text-xs text-gray-500">Total</p>
                             <p className="text-xl font-bold text-gray-900">
-                              ₱{yearData.total.toLocaleString()}
+                              {formatCurrency(yearData.total)}
                             </p>
                           </div>
                           <div className="text-right">
                             <p className="text-xs text-gray-500">Service</p>
                             <p className="text-lg font-semibold text-blue-600">
-                              ₱{yearData.service.toLocaleString()}
+                              {formatCurrency(yearData.service)}
                             </p>
                           </div>
                           <div className="text-right">
                             <p className="text-xs text-gray-500">Product</p>
                             <p className="text-lg font-semibold text-purple-600">
-                              ₱{yearData.product.toLocaleString()}
+                              {formatCurrency(yearData.product)}
                             </p>
                           </div>
                         </div>
@@ -1302,19 +1303,19 @@ const Reports = () => {
                                 <div className="flex justify-between">
                                   <span className="text-sm text-gray-600">Total:</span>
                                   <span className="text-sm font-semibold text-gray-900">
-                                    ₱{monthData.total.toLocaleString()}
+                                    {formatCurrency(monthData.total)}
                                   </span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-sm text-gray-600">Service:</span>
                                   <span className="text-sm font-semibold text-blue-600">
-                                    ₱{monthData.service.toLocaleString()}
+                                    {formatCurrency(monthData.service)}
                                   </span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-sm text-gray-600">Product:</span>
                                   <span className="text-sm font-semibold text-purple-600">
-                                    ₱{monthData.product.toLocaleString()}
+                                    {formatCurrency(monthData.product)}
                                   </span>
                                 </div>
                               </div>
@@ -1401,7 +1402,7 @@ const Reports = () => {
                         {transaction.transactionType || transaction.type || 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        ₱{(transaction.total || transaction.totalAmount || 0).toLocaleString()}
+                        {formatCurrency((transaction.total || transaction.totalAmount || 0))}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
@@ -1703,10 +1704,10 @@ const Reports = () => {
                               {stats.count}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-blue-600">
-                              ₱{stats.revenue.toLocaleString()}
+                              {formatCurrency(stats.revenue)}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              ₱{(stats.revenue / stats.count).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                              {formatCurrency(stats.revenue / stats.count)}
                             </td>
                           </tr>
                         ))
@@ -1814,10 +1815,10 @@ const Reports = () => {
                               {stats.quantity}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-purple-600">
-                              ₱{stats.revenue.toLocaleString()}
+                              {formatCurrency(stats.revenue)}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              ₱{(stats.revenue / stats.quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                              {formatCurrency(stats.revenue / stats.quantity)}
                             </td>
                           </tr>
                         ))
@@ -1910,10 +1911,10 @@ const Reports = () => {
                             {stats.quantity}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-purple-600">
-                            ₱{stats.revenue.toLocaleString()}
+                            {formatCurrency(stats.revenue)}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            ₱{(stats.revenue / stats.quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            {formatCurrency(stats.revenue / stats.quantity)}
                           </td>
                         </tr>
                       ))
@@ -1981,7 +1982,7 @@ const Reports = () => {
                               </div>
                               <div className="text-right">
                                 <p className="text-xs text-gray-500">Total Revenue</p>
-                                <p className="text-xl font-bold text-purple-600">₱{yearData.revenue.toLocaleString()}</p>
+                                <p className="text-xl font-bold text-purple-600">{formatCurrency(yearData.revenue)}</p>
                               </div>
                             </div>
                           </div>
@@ -2001,7 +2002,7 @@ const Reports = () => {
                                     <div className="flex justify-between">
                                       <span className="text-sm text-gray-600">Revenue:</span>
                                       <span className="text-sm font-semibold text-purple-600">
-                                        ₱{monthData.revenue.toLocaleString()}
+                                        {formatCurrency(monthData.revenue)}
                                       </span>
                                     </div>
                                   </div>
@@ -2025,6 +2026,9 @@ const Reports = () => {
           )}
         </Card>
       )}
+
+      {/* Inventory Sales Report */}
+      {reportType === 'inventory' && (
         <Card className="overflow-hidden">
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between">
@@ -2077,12 +2081,12 @@ const Reports = () => {
                         {item.quantitySold || 0}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        ₱{(item.totalRevenue || 0).toLocaleString()}
+                        {formatCurrency((item.totalRevenue || 0))}
                       </td>
                       <td className={`px-6 py-4 whitespace-nowrap text-sm font-semibold ${
                         profit >= 0 ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        ₱{profit.toLocaleString()}
+                        {formatCurrency(profit)}
                       </td>
                       <td className={`px-6 py-4 whitespace-nowrap text-sm font-semibold ${
                         margin >= 0 ? 'text-green-600' : 'text-red-600'
@@ -2434,15 +2438,15 @@ const Reports = () => {
                     <div className="grid grid-cols-3 gap-4 text-sm">
                       <div>
                         <span className="text-gray-600">Total Revenue: </span>
-                        <span className="font-semibold">₱{previewStats.totalRevenue.toLocaleString()}</span>
+                        <span className="font-semibold">{formatCurrency(previewStats.totalRevenue)}</span>
                       </div>
                       <div>
                         <span className="text-gray-600">Service Revenue: </span>
-                        <span className="font-semibold text-blue-600">₱{previewStats.serviceRevenue.toLocaleString()}</span>
+                        <span className="font-semibold text-blue-600">{formatCurrency(previewStats.serviceRevenue)}</span>
                       </div>
                       <div>
                         <span className="text-gray-600">Product Revenue: </span>
-                        <span className="font-semibold text-purple-600">₱{previewStats.productRevenue.toLocaleString()}</span>
+                        <span className="font-semibold text-purple-600">{formatCurrency(previewStats.productRevenue)}</span>
                       </div>
                       <div className="col-span-3">
                         <span className="text-gray-600">Total Transactions: </span>

@@ -14,7 +14,7 @@ import { formatDate, formatCurrency, formatNumberWithCommas } from '../../utils/
 import toast from 'react-hot-toast';
 
 const Commissions = () => {
-  const { userBranch } = useAuth();
+  const { userBranch, userData, currentUser } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -794,7 +794,7 @@ const Commissions = () => {
         <style>{`
           @media print {
             @page {
-              margin: 1cm 1cm 1.5cm 1cm;
+              margin: 0.4in 0.5in;
               size: letter;
             }
             * {
@@ -803,6 +803,10 @@ const Commissions = () => {
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
+            body {
+              margin: 0;
+              padding: 0;
+            }
             .print-break {
               page-break-after: always;
             }
@@ -810,69 +814,139 @@ const Commissions = () => {
               page-break-inside: avoid;
             }
             table {
-              font-size: 12px;
+              font-size: 10px;
               border-collapse: collapse;
               line-height: 1.4;
             }
             th, td {
-              padding: 8px 10px !important;
-              border: 1px solid #000 !important;
+              padding: 6px 4px !important;
+              border: 1px solid #333 !important;
               background: transparent !important;
               text-align: center !important;
               vertical-align: middle !important;
             }
             thead th {
               border-bottom: 2px solid #000 !important;
-              font-weight: 600;
+              font-weight: 700;
             }
             tbody tr {
-              border-bottom: 1px solid #000 !important;
+              border-bottom: 1px solid #333 !important;
             }
           }
         `}</style>
-        <div className="p-4" style={{ fontSize: '12px', padding: '16px', lineHeight: '1.5' }}>
-          <div className="text-center mb-4 border-b border-black pb-3" style={{ marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #000' }}>
-            <h1 className="font-bold" style={{ fontSize: '18px', marginBottom: '4px' }}>Commissions Report</h1>
-            <p className="font-semibold" style={{ fontSize: '14px', marginBottom: '4px' }}>David's Salon Management System</p>
-            <p style={{ fontSize: '12px' }}>Generated: {formatDate(new Date(), 'MMM dd, yyyy')}</p>
+        <div className="p-4" style={{ fontSize: '10px', padding: '0', lineHeight: '1.4' }}>
+          <div className="text-center mb-4 border-b border-black pb-3" style={{ marginBottom: '12px', paddingBottom: '10px', borderBottom: '2px solid #000' }}>
+            <h1 className="font-bold" style={{ fontSize: '24px', marginBottom: '6px', margin: '0 0 6px 0', fontWeight: '700' }}>DAVID'S SALON</h1>
+            <h2 className="font-bold" style={{ fontSize: '18px', marginBottom: '6px', margin: '0 0 6px 0', fontWeight: '700' }}>Commissions Report</h2>
+            <p style={{ fontSize: '11px', margin: '0' }}><strong>Generated:</strong> {formatDate(new Date(), 'MMM dd, yyyy HH:mm')}</p>
+          </div>
+          
+          {/* Applied Filters Section */}
+          <div style={{ 
+            marginBottom: '12px', 
+            padding: '8px', 
+            border: '2px solid #333', 
+            background: '#f8f9fa',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '9px', fontWeight: '700', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>FILTERS APPLIED</div>
+            <div style={{ fontSize: '8px', fontWeight: '600' }}>
+              {(() => {
+                const filters = [];
+                
+                // Date Range - always show first
+                if (startDate && endDate) {
+                  filters.push(`Date Range: ${startDate} to ${endDate}`);
+                } else if (startDate) {
+                  filters.push(`Date Range: From ${startDate}`);
+                } else if (endDate) {
+                  filters.push(`Date Range: Until ${endDate}`);
+                } else {
+                  // Calculate from transactions
+                  if (filteredTransactions.length > 0) {
+                    const dates = filteredTransactions.map(t => {
+                      if (t.appointmentDate) {
+                        return t.appointmentDate.toDate ? t.appointmentDate.toDate() : new Date(t.appointmentDate);
+                      }
+                      if (t.createdAt) {
+                        return t.createdAt.toDate ? t.createdAt.toDate() : new Date(t.createdAt);
+                      }
+                      return new Date();
+                    }).filter(date => !isNaN(date.getTime())).sort((a, b) => a - b);
+                    
+                    if (dates.length > 0) {
+                      const minDate = dates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                      const maxDate = dates[dates.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                      filters.push(`Date Range: ${minDate} to ${maxDate}`);
+                    } else {
+                      filters.push('Date Range: All Dates');
+                    }
+                  } else {
+                    filters.push('Date Range: All Dates');
+                  }
+                }
+                
+                if (searchTerm) {
+                  filters.push(`Search: "${searchTerm}"`);
+                }
+                if (selectedStylists.length > 0) {
+                  const stylistNames = selectedStylists.map(id => {
+                    const stylist = uniqueStylists.find(s => s.id === id);
+                    return stylist ? stylist.name : id;
+                  }).join(', ');
+                  filters.push(`Stylists: ${stylistNames}`);
+                }
+                if (itemFilterType !== 'all') {
+                  filters.push(`Type: ${itemFilterType === 'services' ? 'Services Only' : 'Products Only'}`);
+                }
+                if (selectedItems.length > 0) {
+                  filters.push(`Items: ${selectedItems.length} selected`);
+                }
+                if (minCommission || maxCommission) {
+                  filters.push(`Commission: ${minCommission ? formatCurrency(parseFloat(minCommission)) : 'Any'} - ${maxCommission ? formatCurrency(parseFloat(maxCommission)) : 'Any'}`);
+                }
+                
+                return filters.join(' | ');
+              })()}
+            </div>
           </div>
           
           {/* Summary Stats */}
-          <div className="mb-4 grid grid-cols-3 gap-3 print-avoid-break" style={{ fontSize: '12px', marginBottom: '16px', gap: '12px' }}>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
-              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>₱{formatNumberWithCommas(totalCommission)}</div>
-              <div style={{ fontSize: '11px' }}>Total Commissions</div>
+          <div className="mb-4 grid grid-cols-3 gap-3 print-avoid-break" style={{ fontSize: '10px', marginBottom: '12px', gap: '10px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div className="border border-black p-2 text-center" style={{ border: '1px solid #333', padding: '10px 8px', textAlign: 'center', background: '#fff' }}>
+              <div className="font-bold" style={{ fontSize: '18px', marginBottom: '4px', fontWeight: '700' }}>₱{formatNumberWithCommas(totalCommission)}</div>
+              <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>Total Commissions</div>
             </div>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
-              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>₱{formatNumberWithCommas(totalSales)}</div>
-              <div style={{ fontSize: '11px' }}>Total Sales</div>
+            <div className="border border-black p-2 text-center" style={{ border: '1px solid #333', padding: '10px 8px', textAlign: 'center', background: '#fff' }}>
+              <div className="font-bold" style={{ fontSize: '18px', marginBottom: '4px', fontWeight: '700' }}>₱{formatNumberWithCommas(totalSales)}</div>
+              <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>Total Sales</div>
             </div>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
-              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>{filteredTransactions.length}</div>
-              <div style={{ fontSize: '11px' }}>Transactions</div>
+            <div className="border border-black p-2 text-center" style={{ border: '1px solid #333', padding: '10px 8px', textAlign: 'center', background: '#fff' }}>
+              <div className="font-bold" style={{ fontSize: '18px', marginBottom: '4px', fontWeight: '700' }}>{filteredTransactions.length}</div>
+              <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>Transactions</div>
             </div>
           </div>
 
           {/* Commission Summary */}
           {commissionSummary.length > 0 && (
-            <div className="mb-4 print-avoid-break" style={{ marginBottom: '16px' }}>
-              <h2 className="font-bold mb-2" style={{ fontSize: '14px', marginBottom: '8px' }}>Commission Summary</h2>
-              <table className="w-full" style={{ fontSize: '12px', borderCollapse: 'collapse', width: '100%', lineHeight: '1.5' }}>
+            <div className="mb-4 print-avoid-break" style={{ marginBottom: '12px' }}>
+              <h2 className="font-bold mb-2" style={{ fontSize: '13px', marginBottom: '6px', fontWeight: '700' }}>Commission Summary</h2>
+              <table className="w-full" style={{ fontSize: '10px', borderCollapse: 'collapse', width: '100%', lineHeight: '1.4', border: '1px solid #333' }}>
                 <thead>
-                  <tr style={{ borderBottom: '2px solid #000' }}>
-                    <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Stylist</th>
-                    <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Transactions</th>
-                    <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Total Sales</th>
-                    <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Total Commission</th>
+                  <tr style={{ borderBottom: '2px solid #000', background: '#fff' }}>
+                    <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>STYLIST</th>
+                    <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TRANSACTIONS</th>
+                    <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TOTAL SALES</th>
+                    <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TOTAL COMMISSION</th>
                   </tr>
                 </thead>
                 <tbody>
                   {commissionSummary.map((summary) => (
-                    <tr key={summary.stylistId} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #000' }}>
-                      <td className="border border-black font-medium" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{summary.stylistName}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{summary.transactionCount}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(summary.totalSales)}</td>
-                      <td className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{formatNumberWithCommas(summary.totalCommission)}</td>
+                    <tr key={summary.stylistId} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #333', background: '#fff' }}>
+                      <td className="border border-black font-medium" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{summary.stylistName}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{summary.transactionCount}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(summary.totalSales)}</td>
+                      <td className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{formatNumberWithCommas(summary.totalCommission)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -882,21 +956,21 @@ const Commissions = () => {
 
           {/* Transactions Table */}
           <div className="print-avoid-break" style={{ pageBreakInside: 'avoid' }}>
-            <h2 className="font-bold mb-2" style={{ fontSize: '14px', marginBottom: '8px' }}>Commission Transaction</h2>
-            <table className="w-full" style={{ fontSize: '12px', borderCollapse: 'collapse', width: '100%', lineHeight: '1.5' }}>
+            <h2 className="font-bold mb-2" style={{ fontSize: '13px', marginBottom: '6px', fontWeight: '700' }}>Commission Transaction</h2>
+            <table className="w-full" style={{ fontSize: '10px', borderCollapse: 'collapse', width: '100%', lineHeight: '1.4', border: '1px solid #333' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid #000' }}>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Date</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Stylist</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Type</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Service/Product</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Qty</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Unit Cost</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Comm %</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Commission</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Total Sale</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Client</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Receipt #</th>
+                <tr style={{ borderBottom: '2px solid #000', background: '#fff' }}>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>DATE</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>STYLIST</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TYPE</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>SERVICE/PRODUCT</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>QTY</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>UNIT COST</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>COMM %</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>COMMISSION</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TOTAL SALE</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>CLIENT</th>
+                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>RECEIPT #</th>
                 </tr>
               </thead>
               <tbody>
@@ -907,18 +981,18 @@ const Commissions = () => {
                   const itemName = transaction.itemType === 'service' ? transaction.serviceName : transaction.productName;
                   
                   return (
-                    <tr key={transaction.id} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #000' }}>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{date}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.commissionerName}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.itemType === 'service' ? 'Service' : 'Product'}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{itemName}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.quantity}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(transaction.unitCost)}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.commissionPercentage}%</td>
-                      <td className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{formatNumberWithCommas(transaction.commissionPoints)}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(transaction.totalAmount)}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.clientName}</td>
-                      <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.receiptNumber}</td>
+                    <tr key={transaction.id} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #333', background: '#fff' }}>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{date}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.commissionerName}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.itemType === 'service' ? 'Service' : 'Product'}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{itemName}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.quantity}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(transaction.unitCost)}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.commissionPercentage}%</td>
+                      <td className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{formatNumberWithCommas(transaction.commissionPoints)}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(transaction.totalAmount)}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.clientName}</td>
+                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.receiptNumber}</td>
                     </tr>
                   );
                 })}
@@ -926,9 +1000,22 @@ const Commissions = () => {
             </table>
           </div>
           
-          {/* Footer */}
-          <div className="mt-4 pt-2 border-t border-black text-center" style={{ fontSize: '11px', marginTop: '16px', paddingTop: '8px', borderTop: '1px solid #000' }}>
-            <p>Total Commissions: ₱{formatNumberWithCommas(totalCommission)} | Total Sales: ₱{formatNumberWithCommas(totalSales)} | Transactions: {filteredTransactions.length}</p>
+          {/* Footer - Report Info */}
+          <div className="mt-6 pt-4 border-t-2 border-black" style={{ fontSize: '10px', marginTop: '20px', paddingTop: '12px', borderTop: '2px solid #333' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
+              <div>
+                <strong>Generated By:</strong> {userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : userData?.email || 'Branch Manager'}<br/>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <strong>Generated On:</strong> {formatDate(new Date(), 'MMMM dd, yyyy')}<br/>
+                <strong>Time:</strong> {formatDate(new Date(), 'hh:mm a')}
+              </div>
+            </div>
+            <div style={{ textAlign: 'center', color: '#666', marginTop: '8px' }}>
+              <p>Page 1 of 1 | Commission Report</p>
+              <p style={{ marginTop: '4px' }}>Total Commissions: ₱{formatNumberWithCommas(totalCommission)} | Total Sales: ₱{formatNumberWithCommas(totalSales)} | Transactions: {filteredTransactions.length}</p>
+            </div>
           </div>
         </div>
       </div>

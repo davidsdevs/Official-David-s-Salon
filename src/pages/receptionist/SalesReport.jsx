@@ -28,6 +28,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { getBillsByBranch, getDailySalesSummary, BILL_STATUS } from '../../services/billingService';
 import { getBranchById } from '../../services/branchService';
+import { formatCurrency } from '../../utils/helpers';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -521,7 +522,7 @@ const ReceptionistSalesReport = () => {
             <div>
               <p className="text-sm font-medium text-gray-600">Total Revenue</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">
-                ₱{summaryStats.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(summaryStats.totalRevenue)}
               </p>
             </div>
             <div className="p-3 bg-green-100 rounded-lg">
@@ -529,7 +530,7 @@ const ReceptionistSalesReport = () => {
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Net: ₱{summaryStats.netRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            Net: {formatCurrency(summaryStats.netRevenue)}
           </p>
         </Card>
 
@@ -546,7 +547,7 @@ const ReceptionistSalesReport = () => {
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Avg: ₱{summaryStats.avgTransactionValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            Avg: {formatCurrency(summaryStats.avgTransactionValue)}
           </p>
         </Card>
 
@@ -555,7 +556,7 @@ const ReceptionistSalesReport = () => {
             <div>
               <p className="text-sm font-medium text-gray-600">Service Revenue</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">
-                ₱{summaryStats.serviceRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(summaryStats.serviceRevenue)}
               </p>
             </div>
             <div className="p-3 bg-purple-100 rounded-lg">
@@ -563,7 +564,7 @@ const ReceptionistSalesReport = () => {
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Product: ₱{summaryStats.productRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            Product: {formatCurrency(summaryStats.productRevenue)}
           </p>
         </Card>
 
@@ -572,7 +573,7 @@ const ReceptionistSalesReport = () => {
             <div>
               <p className="text-sm font-medium text-gray-600">Total Discounts</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">
-                ₱{summaryStats.totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(summaryStats.totalDiscounts)}
               </p>
             </div>
             <div className="p-3 bg-orange-100 rounded-lg">
@@ -580,7 +581,7 @@ const ReceptionistSalesReport = () => {
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Tax: ₱{summaryStats.totalTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            Tax: {formatCurrency(summaryStats.totalTax)}
           </p>
         </Card>
       </div>
@@ -596,7 +597,7 @@ const ReceptionistSalesReport = () => {
             <div>
               <p className="text-sm text-gray-600">Cash</p>
               <p className="text-lg font-semibold text-gray-900">
-                ₱{summaryStats.paymentBreakdown.cash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(summaryStats.paymentBreakdown.cash)}
               </p>
             </div>
           </div>
@@ -607,7 +608,7 @@ const ReceptionistSalesReport = () => {
             <div>
               <p className="text-sm text-gray-600">Card</p>
               <p className="text-lg font-semibold text-gray-900">
-                ₱{summaryStats.paymentBreakdown.card.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(summaryStats.paymentBreakdown.card)}
               </p>
             </div>
           </div>
@@ -618,7 +619,7 @@ const ReceptionistSalesReport = () => {
             <div>
               <p className="text-sm text-gray-600">Voucher</p>
               <p className="text-lg font-semibold text-gray-900">
-                ₱{summaryStats.paymentBreakdown.voucher.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(summaryStats.paymentBreakdown.voucher)}
               </p>
             </div>
           </div>
@@ -629,7 +630,7 @@ const ReceptionistSalesReport = () => {
             <div>
               <p className="text-sm text-gray-600">Gift Card</p>
               <p className="text-lg font-semibold text-gray-900">
-                ₱{summaryStats.paymentBreakdown.gift_card.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(summaryStats.paymentBreakdown.gift_card)}
               </p>
             </div>
           </div>
@@ -731,13 +732,13 @@ const ReceptionistSalesReport = () => {
                         {bill.stylistName || 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        ₱{(bill.subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatCurrency((bill.subtotal || 0))}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        ₱{(bill.discount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatCurrency((bill.discount || 0))}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                        ₱{(bill.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatCurrency((bill.total || 0))}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 capitalize">
@@ -886,8 +887,37 @@ const ReceptionistSalesReport = () => {
       {/* Hidden printable component for PDF export */}
       <div style={{ display: 'none' }}>
         <div ref={printRef} className="p-8 bg-white">
-          <div className="text-center mb-6">
+          <style>{`
+            @media print {
+              @page {
+                size: A4;
+                margin: 1cm;
+              }
+              .page-break {
+                page-break-before: always;
+              }
+              .no-page-break {
+                page-break-inside: avoid;
+              }
+              .print-footer {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                text-align: center;
+                font-size: 10px;
+                padding: 10px;
+                border-top: 1px solid #ddd;
+              }
+            }
+          `}</style>
+          
+          {/* Header */}
+          <div className="text-center mb-6 no-page-break">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Sales Report</h1>
+            {branchData && (
+              <p className="text-gray-600">{branchData.name || branchData.branchName}</p>
+            )}
             {(() => {
               let dateRangeText = '';
               switch (dateFilter) {
@@ -905,14 +935,28 @@ const ReceptionistSalesReport = () => {
                   break;
               }
               return (
-                <>
-                  <p className="text-gray-600">{dateRangeText}</p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Generated: {format(new Date(), 'MMMM dd, yyyy HH:mm')}
-                  </p>
-                </>
+                <p className="text-gray-600 mt-2">{dateRangeText}</p>
               );
             })()}
+          </div>
+
+          {/* Filters Applied Section */}
+          <div className="mb-6 p-4 bg-gray-50 rounded border border-gray-200 no-page-break">
+            <h3 className="font-bold text-gray-900 mb-3 text-sm">FILTERS APPLIED:</h3>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div><strong>Date Range:</strong> {(() => {
+                switch (dateFilter) {
+                  case 'today': return format(new Date(), 'MMMM dd, yyyy');
+                  case 'week': return `${format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'MMM dd')} - ${format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'MMM dd, yyyy')}`;
+                  case 'month': return format(new Date(), 'MMMM yyyy');
+                  case 'custom': return `${format(new Date(customStartDate), 'MMM dd, yyyy')} - ${format(new Date(customEndDate), 'MMM dd, yyyy')}`;
+                  default: return 'All';
+                }
+              })()}</div>
+              <div><strong>Status:</strong> {statusFilter === 'all' ? 'All Statuses' : statusFilter.toUpperCase()}</div>
+              {searchTerm && <div><strong>Search Term:</strong> {searchTerm}</div>}
+              <div><strong>Total Records:</strong> {filteredBills.filter(b => b.status === BILL_STATUS.PAID).length}</div>
+            </div>
           </div>
 
           {/* Summary Statistics */}
@@ -921,11 +965,11 @@ const ReceptionistSalesReport = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Total Revenue</p>
-                <p className="text-lg font-bold">₱{summaryStats.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.totalRevenue)}</p>
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Net Revenue</p>
-                <p className="text-lg font-bold">₱{summaryStats.netRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.netRevenue)}</p>
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Total Transactions</p>
@@ -933,23 +977,23 @@ const ReceptionistSalesReport = () => {
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Average Transaction</p>
-                <p className="text-lg font-bold">₱{summaryStats.avgTransactionValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.avgTransactionValue)}</p>
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Service Revenue</p>
-                <p className="text-lg font-bold">₱{summaryStats.serviceRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.serviceRevenue)}</p>
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Product Revenue</p>
-                <p className="text-lg font-bold">₱{summaryStats.productRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.productRevenue)}</p>
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Total Discounts</p>
-                <p className="text-lg font-bold">₱{summaryStats.totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.totalDiscounts)}</p>
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Total Tax</p>
-                <p className="text-lg font-bold">₱{summaryStats.totalTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.totalTax)}</p>
               </div>
             </div>
           </div>
@@ -960,19 +1004,19 @@ const ReceptionistSalesReport = () => {
             <div className="grid grid-cols-4 gap-4">
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Cash</p>
-                <p className="text-lg font-bold">₱{summaryStats.paymentBreakdown.cash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.paymentBreakdown.cash)}</p>
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Card</p>
-                <p className="text-lg font-bold">₱{summaryStats.paymentBreakdown.card.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.paymentBreakdown.card)}</p>
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Voucher</p>
-                <p className="text-lg font-bold">₱{summaryStats.paymentBreakdown.voucher.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.paymentBreakdown.voucher)}</p>
               </div>
               <div className="border p-3">
                 <p className="text-sm text-gray-600">Gift Card</p>
-                <p className="text-lg font-bold">₱{summaryStats.paymentBreakdown.gift_card.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-lg font-bold">{formatCurrency(summaryStats.paymentBreakdown.gift_card)}</p>
               </div>
             </div>
           </div>
@@ -1009,15 +1053,47 @@ const ReceptionistSalesReport = () => {
                       <td className="border border-gray-300 px-4 py-2 text-sm">
                         {(bill.items || []).map(item => `${item.name} (x${item.quantity || 1})`).join(', ')}
                       </td>
-                      <td className="border border-gray-300 px-4 py-2 text-sm text-right">₱{(bill.subtotal || 0).toFixed(2)}</td>
-                      <td className="border border-gray-300 px-4 py-2 text-sm text-right">₱{(bill.discount || 0).toFixed(2)}</td>
-                      <td className="border border-gray-300 px-4 py-2 text-sm text-right font-bold">₱{(bill.total || 0).toFixed(2)}</td>
+                      <td className="border border-gray-300 px-4 py-2 text-sm text-right">{formatCurrency(bill.subtotal || 0)}</td>
+                      <td className="border border-gray-300 px-4 py-2 text-sm text-right">{formatCurrency(bill.discount || 0)}</td>
+                      <td className="border border-gray-300 px-4 py-2 text-sm text-right font-bold">{formatCurrency(bill.total || 0)}</td>
                       <td className="border border-gray-300 px-4 py-2 text-sm text-center capitalize">{bill.paymentMethod || 'cash'}</td>
                     </tr>
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className="bg-gray-100 font-bold">
+                  <td colSpan="5" className="border border-gray-300 px-4 py-2 text-right text-sm">TOTAL:</td>
+                  <td className="border border-gray-300 px-4 py-2 text-sm text-right">
+                    {formatCurrency(filteredBills.filter(b => b.status === BILL_STATUS.PAID).reduce((sum, bill) => sum + (bill.subtotal || 0), 0))}
+                  </td>
+                  <td className="border border-gray-300 px-4 py-2 text-sm text-right">
+                    {formatCurrency(filteredBills.filter(b => b.status === BILL_STATUS.PAID).reduce((sum, bill) => sum + (bill.discount || 0), 0))}
+                  </td>
+                  <td className="border border-gray-300 px-4 py-2 text-sm text-right">
+                    {formatCurrency(filteredBills.filter(b => b.status === BILL_STATUS.PAID).reduce((sum, bill) => sum + (bill.total || 0), 0))}
+                  </td>
+                  <td className="border border-gray-300 px-4 py-2"></td>
+                </tr>
+              </tfoot>
             </table>
+          </div>
+
+          {/* Report Footer - Generator Info */}
+          <div className="mt-8 pt-4 border-t-2 border-gray-300 text-xs text-gray-600">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p><strong>Generated By:</strong> {userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : userData?.email || 'System'}</p>
+                <p><strong>Position:</strong> Receptionist</p>
+              </div>
+              <div className="text-right">
+                <p><strong>Generated On:</strong> {format(new Date(), 'MMMM dd, yyyy')}</p>
+                <p><strong>Time:</strong> {format(new Date(), 'hh:mm a')}</p>
+              </div>
+            </div>
+            <div className="text-center mt-4 text-gray-500">
+              <p>Page 1 of 1 | {branchData?.name || branchData?.branchName} - Sales Report</p>
+            </div>
           </div>
         </div>
       </div>

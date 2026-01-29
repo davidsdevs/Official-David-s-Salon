@@ -1,5 +1,6 @@
 // src/pages/04_BranchManager/Deposits.jsx
 import React, { useState, useEffect } from 'react';
+import { formatCurrency } from '../../utils/helpers';
 import { useAuth } from '../../context/AuthContext';
 
 import { Card } from '../../components/ui/Card';
@@ -268,14 +269,14 @@ const Deposits = () => {
             if (found) {
               setValidationResult({
                 isValid: true,
-                message: `✓ Daily sales total (₱${dailySalesTotal.toLocaleString()}) found in receipt`,
+                message: `✓ Daily sales total (${formatCurrency(dailySalesTotal)}) found in receipt`,
                 extractedAmount: result.amount,
                 expectedAmount: dailySalesTotal
               });
             } else {
               setValidationResult({
                 isValid: false,
-                message: `⚠ Daily sales total (₱${dailySalesTotal.toLocaleString()}) not found in receipt`,
+                message: `⚠ Daily sales total (${formatCurrency(dailySalesTotal)}) not found in receipt`,
                 extractedAmount: result.amount,
                 expectedAmount: dailySalesTotal
               });
@@ -331,14 +332,14 @@ const Deposits = () => {
           if (found) {
             setValidationResult({
               isValid: true,
-              message: `✓ Daily sales total (₱${dailySalesTotal.toLocaleString()}) found in receipt`,
+              message: `✓ Daily sales total (${formatCurrency(dailySalesTotal)}) found in receipt`,
               extractedAmount: result.amount,
               expectedAmount: dailySalesTotal
             });
           } else {
             setValidationResult({
               isValid: false,
-              message: `⚠ Daily sales total (₱${dailySalesTotal.toLocaleString()}) not found in receipt`,
+              message: `⚠ Daily sales total (${formatCurrency(dailySalesTotal)}) not found in receipt`,
               extractedAmount: result.amount,
               expectedAmount: dailySalesTotal
             });
@@ -377,7 +378,7 @@ const Deposits = () => {
 
       if (!found) {
         hasAnomaly = true;
-        anomalies.push(`Daily sales total (₱${salesTotal.toLocaleString()}) was not found in the receipt. The receipt may not match today's sales.`);
+        anomalies.push(`Daily sales total (${formatCurrency(salesTotal)}) was not found in the receipt. The receipt may not match today's sales.`);
       }
     }
 
@@ -387,9 +388,9 @@ const Deposits = () => {
       if (manualDifference > 1) {
         hasAnomaly = true;
         if (manualDifference > 100) {
-          anomalies.push(`Deposit amount (₱${manualAmount.toLocaleString()}) differs significantly from daily sales total (₱${salesTotal.toLocaleString()}) by ₱${manualDifference.toFixed(2)}`);
+          anomalies.push(`Deposit amount (${formatCurrency(manualAmount)}) differs significantly from daily sales total (${formatCurrency(salesTotal)}) by ${formatCurrency(manualDifference)}`);
         } else {
-          anomalies.push(`Deposit amount (₱${manualAmount.toLocaleString()}) differs from daily sales total (₱${salesTotal.toLocaleString()}) by ₱${manualDifference.toFixed(2)}`);
+          anomalies.push(`Deposit amount (${formatCurrency(manualAmount)}) differs from daily sales total (${formatCurrency(salesTotal)}) by ${formatCurrency(manualDifference)}`);
         }
       }
     }
@@ -397,7 +398,7 @@ const Deposits = () => {
     // Check if OCR failed to read receipt
     if (!ocrText && salesTotal > 0) {
       hasAnomaly = true;
-      anomalies.push(`Could not read receipt text. Unable to verify if receipt contains daily sales total (₱${salesTotal.toLocaleString()}). Please ensure receipt image is clear.`);
+      anomalies.push(`Could not read receipt text. Unable to verify if receipt contains daily sales total (${formatCurrency(salesTotal)}). Please ensure receipt image is clear.`);
     }
 
     // Check if no sales data available
@@ -856,10 +857,10 @@ const Deposits = () => {
         return `
           <tr>
             <td>${dateStr}</td>
-            <td>₱${(deposit.amount || 0).toLocaleString()}</td>
-            <td>₱${(deposit.dailySalesTotal || 0).toLocaleString()}</td>
-            <td>₱${(deposit.totalExpenses || 0).toLocaleString()}</td>
-            <td>${deposit.difference >= 0 ? '+' : ''}₱${Math.abs(deposit.difference || 0).toFixed(2)}</td>
+            <td>${formatCurrency((deposit.amount || 0))}</td>
+            <td>${formatCurrency((deposit.dailySalesTotal || 0))}</td>
+            <td>${formatCurrency((deposit.totalExpenses || 0))}</td>
+            <td>${deposit.difference >= 0 ? '+' : '-'}${formatCurrency(Math.abs(deposit.difference || 0))}</td>
             <td>${deposit.bankName || 'N/A'}</td>
             <td>${deposit.referenceNumber || 'N/A'}</td>
             <td>${validationStatus}</td>
@@ -1035,7 +1036,7 @@ const Deposits = () => {
             <div>
               <p className="text-sm text-gray-600">Total Amount</p>
               <p className="text-2xl font-bold text-purple-600 mt-1">
-                ₱{deposits.reduce((sum, d) => sum + (d.amount || 0), 0).toLocaleString()}
+                {formatCurrency(deposits.reduce((sum, d) => sum + (d.amount || 0), 0))}
               </p>
             </div>
             <div className="p-3 bg-purple-100 rounded-lg">
@@ -1152,16 +1153,16 @@ const Deposits = () => {
                         {format(new Date(deposit.depositDate), 'MMM dd, yyyy')}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap font-semibold">
-                        ₱{(deposit.amount || 0).toLocaleString()}
+                        {formatCurrency((deposit.amount || 0))}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        ₱{(deposit.dailySalesTotal || 0).toLocaleString()}
+                        {formatCurrency((deposit.dailySalesTotal || 0))}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {deposit.totalExpenses > 0 ? (
                           <div className="flex flex-col">
                             <span className="text-sm font-medium text-orange-700">
-                              ₱{(deposit.totalExpenses || 0).toLocaleString()}
+                              {formatCurrency((deposit.totalExpenses || 0))}
                             </span>
                             <span className="text-xs text-gray-500">
                               {deposit.expenses?.length || 0} item(s)
@@ -1178,7 +1179,7 @@ const Deposits = () => {
                             ? 'text-red-600'
                             : 'text-yellow-600'
                           }`}>
-                          {deposit.difference >= 0 ? '+' : ''}₱{Math.abs(deposit.difference || 0).toFixed(2)}
+                          {deposit.difference >= 0 ? '+' : ''}{formatCurrency(Math.abs(deposit.difference || 0))}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -1281,7 +1282,7 @@ const Deposits = () => {
                             Total Sales To Deposit
                           </p>
                           <p className={`text-3xl font-extrabold tracking-tight ${dailySalesTotal > 0 ? 'text-white' : 'text-gray-900'}`}>
-                            ₱{dailySalesTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatCurrency(dailySalesTotal)}
                           </p>
                           <div className={`flex items-center gap-2 mt-2 text-sm ${dailySalesTotal > 0 ? 'text-blue-100' : 'text-gray-500'}`}>
                             <Calendar className="h-4 w-4" />
@@ -1416,7 +1417,7 @@ const Deposits = () => {
                       <div className="flex items-center justify-between border-b border-gray-100 pb-3">
                         <h3 className="text-base font-bold text-gray-900">Deposit Details</h3>
                         <div className="text-xs text-gray-500 text-right">
-                          <p>Expected: <span className="font-semibold text-gray-900">₱{expectedDepositAmount.toLocaleString()}</span></p>
+                          <p>Expected: <span className="font-semibold text-gray-900">{formatCurrency(expectedDepositAmount)}</span></p>
                         </div>
                       </div>
 
@@ -1446,7 +1447,7 @@ const Deposits = () => {
                             }`}>
                             {Math.abs(parseFloat(amount) - expectedDepositAmount) <= 1
                               ? <><CheckCircle className="h-3 w-3" /> Amounts match</>
-                              : <><AlertTriangle className="h-3 w-3" /> Difference: ₱{Math.abs(parseFloat(amount) - expectedDepositAmount).toFixed(2)}</>}
+                              : <><AlertTriangle className="h-3 w-3" /> Difference: {formatCurrency(Math.abs(parseFloat(amount) - expectedDepositAmount))}</>}
                           </div>
                         )}
                       </div>
@@ -1574,8 +1575,8 @@ const Deposits = () => {
                         </div>
                       ))}
                       <div className="flex justify-end gap-4 text-sm font-bold mt-2">
-                        {totalAdditions > 0 && <span className="text-green-700">Total Additions: +₱{totalAdditions.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>}
-                        {totalDeductions > 0 && <span className="text-red-700">Total Deductions: -₱{totalDeductions.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>}
+                        {totalAdditions > 0 && <span className="text-green-700">Total Additions: +{formatCurrency(totalAdditions)}</span>}
+                        {totalDeductions > 0 && <span className="text-red-700">Total Deductions: -{formatCurrency(totalDeductions)}</span>}
                       </div>
                     </div>
                   ) : (
@@ -1682,19 +1683,19 @@ const Deposits = () => {
                       <div>
                         <p className="text-xs font-bold text-gray-500 uppercase mb-1">Amount</p>
                         <p className="text-lg font-bold text-[#160B53]">
-                          ₱{(selectedDeposit.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          {formatCurrency((selectedDeposit.amount || 0))}
                         </p>
                       </div>
                       <div>
                         <p className="text-xs font-bold text-gray-500 uppercase mb-1">Daily Sales</p>
                         <p className="text-lg font-semibold text-gray-900">
-                          ₱{(selectedDeposit.dailySalesTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          {formatCurrency((selectedDeposit.dailySalesTotal || 0))}
                         </p>
                       </div>
                       <div>
                         <p className="text-xs font-bold text-gray-500 uppercase mb-1">Difference</p>
                         <p className={`text-lg font-bold ${Math.abs(selectedDeposit.difference || 0) <= 1 ? 'text-green-600' : 'text-red-600'}`}>
-                          {selectedDeposit.difference >= 0 ? '+' : ''}₱{Math.abs(selectedDeposit.difference || 0).toFixed(2)}
+                          {selectedDeposit.difference >= 0 ? '+' : ''}{formatCurrency(Math.abs(selectedDeposit.difference || 0))}
                         </p>
                       </div>
                     </div>
@@ -1810,7 +1811,7 @@ const Deposits = () => {
                         <div className="flex items-start gap-4 mb-4">
                           <div className={`p-3 rounded-xl ${expense.type === 'addition' ? 'bg-green-50' : 'bg-red-50'}`}>
                             <span className={`text-lg font-black ${expense.type === 'addition' ? 'text-green-600' : 'text-red-600'}`}>
-                              {expense.type === 'addition' ? '+' : '-'}₱{(expense.amount || 0).toLocaleString()}
+                              {expense.type === 'addition' ? '+' : '-'}{formatCurrency((expense.amount || 0))}
                             </span>
                           </div>
                           <p className="text-sm text-gray-700 font-semibold flex-1 leading-snug">{expense.description}</p>

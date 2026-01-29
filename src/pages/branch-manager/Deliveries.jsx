@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { formatCurrency } from '../../utils/helpers';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -539,7 +540,7 @@ const Deliveries = () => {
             <Banknote className="h-8 w-8 text-green-600" />
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">Total Value</p>
-              <p className="text-xl font-bold text-gray-900">₱{deliveryStats.totalValue.toLocaleString()}</p>
+              <p className="text-xl font-bold text-gray-900">{formatCurrency(deliveryStats.totalValue)}</p>
             </div>
           </div>
         </Card>
@@ -702,7 +703,7 @@ const Deliveries = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">₱{(delivery.totalAmount || 0).toLocaleString()}</div>
+                      <div className="text-sm font-medium text-gray-900">{formatCurrency((delivery.totalAmount || 0))}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{delivery.items?.length || 0} items</div>
@@ -813,7 +814,7 @@ const Deliveries = () => {
                   <div className="space-y-4">
                     <div>
                       <label className="text-sm font-medium text-gray-500">Total Amount</label>
-                      <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-[#160B53]">{formatCurrency((selectedOrder.totalAmount || 0))}</p>
                     </div>
                     {selectedOrder.notes && (
                       <div>
@@ -848,8 +849,8 @@ const Deliveries = () => {
                                 )}
                               </td>
                               <td className="px-4 py-3 text-gray-900">{item.quantity}</td>
-                              <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
-                              <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
+                              <td className="px-4 py-3 text-gray-900">{formatCurrency((item.unitPrice || 0))}</td>
+                              <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency((item.totalPrice || 0))}</td>
                             </tr>
                           ))
                         ) : (
@@ -863,7 +864,7 @@ const Deliveries = () => {
                           <tr>
                             <td colSpan="3" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
                             <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
-                              ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
+                              {formatCurrency((selectedOrder.totalAmount || 0))}
                             </td>
                           </tr>
                         </tfoot>
@@ -958,7 +959,7 @@ const Deliveries = () => {
                       <p className="text-sm text-blue-700">Order Date: {selectedOrder.orderDate ? format(new Date(selectedOrder.orderDate), 'MMM dd, yyyy') : 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-blue-900">Total Amount: ₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                      <p className="text-sm font-medium text-blue-900">Total Amount: {formatCurrency((selectedOrder.totalAmount || 0))}</p>
                       <p className="text-sm text-blue-700">Items: {selectedOrder.items?.length || 0}</p>
                     </div>
                   </div>
@@ -1035,7 +1036,7 @@ const Deliveries = () => {
                                   {discrepancyText}
                                 </td>
                                 <td className="px-4 py-3 text-right">
-                                  <div className="text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</div>
+                                  <div className="text-gray-900">{formatCurrency((item.unitPrice || 0))}</div>
                                 </td>
                                 <td className="px-4 py-3">
                                   <Input
@@ -1194,7 +1195,7 @@ const Deliveries = () => {
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-blue-700">Total Amount</p>
-                      <p className="text-lg font-bold text-blue-900">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                      <p className="text-lg font-bold text-blue-900">{formatCurrency((selectedOrder.totalAmount || 0))}</p>
                     </div>
                   </div>
                 </div>
@@ -1214,7 +1215,7 @@ const Deliveries = () => {
                               )}
                               <div className="mt-2 flex items-center gap-4 text-sm text-gray-600">
                                 <span>Quantity: <strong>{item.quantity}</strong></span>
-                                <span>Unit Price: <strong>₱{(item.unitPrice || 0).toLocaleString()}</strong></span>
+                                <span>Unit Price: <strong>{formatCurrency((item.unitPrice || 0))}</strong></span>
                               </div>
                             </div>
                             <div className="flex-shrink-0">

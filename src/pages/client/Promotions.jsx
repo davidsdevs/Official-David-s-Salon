@@ -8,6 +8,7 @@ import { Tag, Calendar, Percent, Clock, Gift, Sparkles } from 'lucide-react';
 import { getActivePromotions } from '../../services/promotionService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { format } from 'date-fns';
+import { formatCurrency } from '../../utils/helpers';
 
 const ClientPromotions = () => {
   const [promotions, setPromotions] = useState([]);
@@ -33,7 +34,7 @@ const ClientPromotions = () => {
     if (promo.discountType === 'percentage') {
       return `${promo.discountValue}% OFF`;
     } else {
-      return `₱${promo.discountValue.toLocaleString()} OFF`;
+      return `${formatCurrency(promo.discountValue)} OFF`;
     }
   };
 
@@ -133,7 +134,7 @@ const ClientPromotions = () => {
                     <Percent className="w-4 h-4 text-primary-600 mt-0.5 flex-shrink-0" />
                     <div>
                       <span className="font-medium text-gray-700">Minimum purchase:</span>
-                      <span className="text-gray-600 ml-1">₱{promo.minimumPurchase.toLocaleString()}</span>
+                      <span className="text-gray-600 ml-1">{formatCurrency(promo.minimumPurchase)}</span>
                     </div>
                   </div>
                 )}

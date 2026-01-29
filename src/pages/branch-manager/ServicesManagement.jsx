@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { formatCurrency } from '../../utils/helpers';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Edit, Trash2, Package, ArrowLeft, Printer, Download, FileText, Sparkles, X, GripVertical, Image as ImageIcon, Save, Edit2, Upload, Grid3x3, Minus, ChevronDown, ChevronUp, EyeIcon } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -1268,7 +1269,7 @@ const ServicesManagement = () => {
                     <td className="px-6 py-4">
                       {service.isOfferedByBranch ? (
                         <span className="text-sm font-semibold text-gray-900">
-                          ₱{service.price?.toLocaleString()}
+                          {formatCurrency(service.price || 0)}
                         </span>
                       ) : (
                         <span className="text-sm text-gray-400">

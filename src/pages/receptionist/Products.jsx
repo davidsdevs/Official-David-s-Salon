@@ -12,6 +12,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { Card } from '../../components/ui/Card';
 import { SearchInput } from '../../components/ui/SearchInput';
 import toast from 'react-hot-toast';
+import { formatCurrency } from '../../utils/helpers';
 
 const ReceptionistProducts = () => {
   const { userBranch } = useAuth();
@@ -420,7 +421,7 @@ const ReceptionistProducts = () => {
                     {product.otcPrice && (
                       <div className="flex items-center gap-1 text-lg font-bold text-primary-600">
                         <Banknote className="w-4 h-4" />
-                        <span>₱{product.otcPrice?.toLocaleString() || '0'}</span>
+                        <span>{formatCurrency(product.otcPrice || 0)}</span>
                       </div>
                     )}
                   </div>
@@ -491,7 +492,7 @@ const ReceptionistProducts = () => {
                     <div>
                       <p className="text-sm text-gray-500">Price</p>
                       <p className="font-medium text-primary-600">
-                        ₱{selectedProduct.otcPrice?.toLocaleString() || '0'}
+                        {formatCurrency(selectedProduct.otcPrice || 0)}
                       </p>
                     </div>
                   )}

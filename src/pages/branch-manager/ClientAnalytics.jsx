@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { formatCurrency } from '../../utils/helpers';
 import { 
   TrendingUp, Users, Star, Banknote, Award, Clock, Calendar, 
   ShoppingBag, Scissors, CreditCard, Heart, AlertCircle, 
@@ -347,7 +348,7 @@ const ClientAnalytics = () => {
               <div>
                 <p className="text-sm text-gray-600">Total Revenue</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  ₱{avgMetrics.totalRevenue.toFixed(2)}
+                  {formatCurrency(avgMetrics.totalRevenue)}
                 </p>
               </div>
               <Banknote className="h-8 w-8 text-green-600 opacity-50" />
@@ -361,7 +362,7 @@ const ClientAnalytics = () => {
               <div>
                 <p className="text-sm text-gray-600">Avg. Spend</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  ₱{avgMetrics.avgSpend.toFixed(2)}
+                  {formatCurrency(avgMetrics.avgSpend)}
                 </p>
               </div>
               <TrendingUp className="h-8 w-8 text-blue-600 opacity-50" />
@@ -636,21 +637,21 @@ const ClientAnalytics = () => {
               <Scissors className="h-8 w-8 text-blue-600 mx-auto mb-2" />
               <p className="text-sm text-gray-600 mb-1">Service Revenue</p>
               <p className="text-2xl font-bold text-blue-600">
-                ₱{spendingPatterns.serviceRevenue.toFixed(2)}
+                {formatCurrency(spendingPatterns.serviceRevenue)}
               </p>
             </div>
             <div className="text-center p-4 bg-green-50 rounded-lg">
               <ShoppingBag className="h-8 w-8 text-green-600 mx-auto mb-2" />
               <p className="text-sm text-gray-600 mb-1">Product Revenue</p>
               <p className="text-2xl font-bold text-green-600">
-                ₱{spendingPatterns.productRevenue.toFixed(2)}
+                {formatCurrency(spendingPatterns.productRevenue)}
               </p>
             </div>
             <div className="text-center p-4 bg-purple-50 rounded-lg">
               <Banknote className="h-8 w-8 text-purple-600 mx-auto mb-2" />
               <p className="text-sm text-gray-600 mb-1">Avg. Transaction</p>
               <p className="text-2xl font-bold text-purple-600">
-                ₱{spendingPatterns.avgTransactionValue.toFixed(2)}
+                {formatCurrency(spendingPatterns.avgTransactionValue)}
               </p>
             </div>
           </div>

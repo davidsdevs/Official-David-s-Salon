@@ -13,7 +13,7 @@ import { getAllReferralCodes } from '../../services/referralService';
 import { getBranchById } from '../../services/branchService';
 import { updateUserProfile } from '../../services/userService';
 import { uploadToCloudinary, validateImageFile } from '../../services/imageService';
-import { formatDate, getFullName, getInitials } from '../../utils/helpers';
+import { formatDate, getFullName, getInitials, formatCurrency } from '../../utils/helpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 
@@ -480,7 +480,7 @@ const ClientProfile = () => {
               <div className="text-2xl font-bold text-gray-900">{profile?.visitCount || 0}</div>
               <div className="text-sm text-gray-500 mt-2">Total Spent</div>
               <div className="text-lg font-semibold text-gray-900">
-                ₱{profile?.totalSpent?.toFixed(2) || '0.00'}
+                {formatCurrency(profile?.totalSpent || 0)}
               </div>
             </div>
           </div>
@@ -585,7 +585,7 @@ const ClientProfile = () => {
                     </div>
                   </div>
                   <div className="text-lg font-semibold text-gray-900">
-                    ₱{entry.price?.toFixed(2)}
+                    {formatCurrency(entry.price || 0)}
                   </div>
                 </div>
               ))
