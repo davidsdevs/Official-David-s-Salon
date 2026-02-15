@@ -12,6 +12,7 @@ const EditableImage = ({
   className = '',
   wrapperClassName = '',
   children,
+  imageUrl, // Extract this to prevent it from being passed to DOM
   ...imgProps
 }) => {
   const inputRef = useRef(null);

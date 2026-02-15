@@ -297,7 +297,8 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
       {embedded && <Navigation embedded={true} cmsEditMode={cmsEditMode} />}
       <div className="min-h-screen bg-white" style={{ '--marketing-primary': primaryColor }}>
         {/* Promotion Popup - Only show when not embedded */}
-        {!embedded && <PromotionPopup />}
+        {/* Promotion popup disabled */}
+        {/* {!embedded && <PromotionPopup />} */}
       
       {/* Floating Save Button for System Admin */}
       {isSystemAdmin && (
@@ -318,7 +319,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
         onChange={(url) => handleContentUpdate('hero.backgroundImage', url)}
       >
         <section
-          className={`relative h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[122px]'}`}
+          className={`relative min-h-[500px] sm:min-h-[600px] md:min-h-[700px] lg:min-h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[80px]'} pb-6 sm:pb-8`}
           style={{
             backgroundImage: `linear-gradient(${hexToRgba(heroOverlayColor, heroOverlayOpacity)}, ${hexToRgba(heroOverlayColor, heroOverlayOpacity)}), url('${heroContent.backgroundImage}')`,
             backgroundSize: "cover",
@@ -353,9 +354,9 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
               </div>
             </div>
           )}
-          <div className="max-w-4xl px-6">
+          <div className="max-w-4xl px-4 sm:px-6">
             {isSystemAdmin ? (
-              <h1 className="font-bold mb-6 text-balance" style={{ fontSize: '50px' }}>
+              <h1 className="font-bold mb-4 sm:mb-6 text-balance text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
                 <InlineEditable
                   enabled={effectiveEditMode}
                   value={heroContent.title}
@@ -365,10 +366,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                 />
               </h1>
             ) : (
-              <h1 className="font-bold mb-6 text-balance" style={{ fontSize: '50px' }}>{heroContent.title}</h1>
+              <h1 className="font-bold mb-4 sm:mb-6 text-balance text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">{heroContent.title}</h1>
             )}
             {isSystemAdmin ? (
-              <p className="text-xl leading-relaxed text-pretty">
+              <p className="text-base sm:text-lg md:text-xl leading-relaxed text-pretty">
                 <InlineEditable
                   enabled={effectiveEditMode}
                   value={heroContent.subtitle}
@@ -379,7 +380,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                 />
               </p>
             ) : (
-              <p className="text-xl leading-relaxed text-pretty">
+              <p className="text-base sm:text-lg md:text-xl leading-relaxed text-pretty">
                 {heroContent.subtitle}
               </p>
             )}
@@ -388,13 +389,13 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
       </EditableImage>
 
       {/* Statistics Section */}
-      <section className="py-16 px-6 bg-white">
+      <section className="py-8 sm:py-12 md:py-16 px-4 sm:px-6 bg-white">
         <div className="max-w-6xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 md:gap-8 text-center">
             {stats.map((stat, index) => (
               <div key={index}>
                 {isSystemAdmin ? (
-                  <div className="text-4xl md:text-5xl font-bold text-[var(--marketing-primary)] mb-2">
+                  <div className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-[var(--marketing-primary)] mb-2">
                     <InlineEditable
                       enabled={effectiveEditMode}
                       value={stat.number}
@@ -404,10 +405,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                     />
                   </div>
                 ) : (
-                  <div className="text-4xl md:text-5xl font-bold text-[var(--marketing-primary)] mb-2">{stat.number}</div>
+                  <div className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-[var(--marketing-primary)] mb-2">{stat.number}</div>
                 )}
                 {isSystemAdmin ? (
-                  <div className="text-gray-600 font-medium">
+                  <div className="text-xs sm:text-sm md:text-base text-gray-600 font-medium">
                     <InlineEditable
                       enabled={effectiveEditMode}
                       value={stat.label}
@@ -417,7 +418,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                     />
                   </div>
                 ) : (
-                  <div className="text-gray-600 font-medium">{stat.label}</div>
+                  <div className="text-xs sm:text-sm md:text-base text-gray-600 font-medium">{stat.label}</div>
                 )}
               </div>
             ))}
@@ -426,23 +427,23 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
       </section>
 
       {/* Meet Our Founder Section */}
-      <section className="py-16 px-6 bg-gray-50">
+      <section className="py-8 sm:py-12 md:py-16 px-4 sm:px-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
           {isSystemAdmin ? (
-            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
               Meet Our Founder
             </h2>
           ) : (
-            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>Meet Our Founder</h2>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">Meet Our Founder</h2>
           )}
-          <p className="text-center text-gray-600 mb-12">
+          <p className="text-center text-gray-600 mb-8 sm:mb-12 text-sm sm:text-base">
             The visionary behind the integrated male grooming salon brand
           </p>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 items-center">
             <div className="order-2 lg:order-1">
               {isSystemAdmin ? (
-                <h3 className="text-3xl font-bold text-[var(--marketing-primary)] mb-4">
+                <h3 className="text-2xl sm:text-3xl font-bold text-[var(--marketing-primary)] mb-4">
                   <InlineEditable
                     enabled={effectiveEditMode}
                     value={founderContent.name}
@@ -452,10 +453,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                   />
                 </h3>
               ) : (
-                <h3 className="text-3xl font-bold text-[var(--marketing-primary)] mb-4">{founderContent.name}</h3>
+                <h3 className="text-2xl sm:text-3xl font-bold text-[var(--marketing-primary)] mb-4">{founderContent.name}</h3>
               )}
               {isSystemAdmin ? (
-                <p className="text-lg text-gray-600 mb-4">
+                <p className="text-base sm:text-lg text-gray-600 mb-4">
                   <InlineEditable
                     enabled={effectiveEditMode}
                     value={founderContent.role}
@@ -465,7 +466,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                   />
                 </p>
               ) : (
-                <p className="text-lg text-gray-600 mb-4">{founderContent.role}</p>
+                <p className="text-base sm:text-lg text-gray-600 mb-4">{founderContent.role}</p>
               )}
 
               <div className="space-y-4 text-gray-700 leading-relaxed">
@@ -539,10 +540,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
       </section>
 
       {/* Company Story Section */}
-      <section className="py-16 px-6 bg-[var(--marketing-primary)] text-white">
+      <section className="py-8 sm:py-12 md:py-16 px-4 sm:px-6 bg-[var(--marketing-primary)] text-white">
         <div className="max-w-6xl mx-auto">
           {isSystemAdmin ? (
-            <h2 className="text-3xl font-bold mb-8 whitespace-nowrap">
+            <h2 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8">
               <InlineEditable
                 enabled={effectiveEditMode}
                 value={companyStoryContent.title}
@@ -552,12 +553,12 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
               />
             </h2>
           ) : (
-            <h2 className="text-3xl font-bold mb-8 whitespace-nowrap">
+            <h2 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8">
               {companyStoryContent.title}
             </h2>
           )}
 
-          <div className="space-y-6 text-lg leading-relaxed">
+          <div className="space-y-4 sm:space-y-6 text-sm sm:text-base md:text-lg leading-relaxed">
             {companyStoryContent.paragraphs.slice(0, 2).map((para, index) => (
               isSystemAdmin ? (
                 <p key={index} className="text-justify">
@@ -629,9 +630,9 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
       </section>
 
       {/* Laura Charlton Section */}
-      <section className="py-16 px-6 bg-white">
+      <section className="py-8 sm:py-12 md:py-16 px-4 sm:px-6 bg-white">
         <div className="max-w-6xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 items-center">
             <div>
               <EditableImage
                 enabled={isSystemAdmin && effectiveEditMode}
@@ -645,7 +646,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
 
             <div>
               {isSystemAdmin ? (
-                <h3 className="text-3xl font-bold text-[var(--marketing-primary)] mb-4">
+                <h3 className="text-2xl sm:text-3xl font-bold text-[var(--marketing-primary)] mb-4">
                   <InlineEditable
                     enabled={effectiveEditMode}
                     value={ceoContent.name}
@@ -655,10 +656,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                   />
                 </h3>
               ) : (
-                <h3 className="text-3xl font-bold text-[var(--marketing-primary)] mb-4">{ceoContent.name}</h3>
+                <h3 className="text-2xl sm:text-3xl font-bold text-[var(--marketing-primary)] mb-4">{ceoContent.name}</h3>
               )}
               {isSystemAdmin ? (
-                <p className="text-lg text-gray-600 mb-4">
+                <p className="text-base sm:text-lg text-gray-600 mb-4">
                   <InlineEditable
                     enabled={effectiveEditMode}
                     value={ceoContent.role}
@@ -668,7 +669,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                   />
                 </p>
               ) : (
-                <p className="text-lg text-gray-600 mb-4">{ceoContent.role}</p>
+                <p className="text-base sm:text-lg text-gray-600 mb-4">{ceoContent.role}</p>
               )}
 
               <div className="space-y-4 text-gray-700 leading-relaxed">
@@ -699,10 +700,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
       </section>
 
       {/* Our Team Section */}
-      <section className="py-16 px-6 bg-gray-50">
+      <section className="py-8 sm:py-12 md:py-16 px-4 sm:px-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
           {isSystemAdmin ? (
-            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-12" style={{ fontSize: '50px' }}>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-8 sm:mb-12 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
               <InlineEditable
                 enabled={effectiveEditMode}
                 value={teamContent.title}
@@ -712,10 +713,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
               />
             </h2>
           ) : (
-            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-12" style={{ fontSize: '50px' }}>{teamContent.title}</h2>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-8 sm:mb-12 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">{teamContent.title}</h2>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 max-w-3xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 mb-6 sm:mb-8 max-w-3xl mx-auto">
             {teamContent.executive.map((member, index) => (
               <div 
                 key={index} 
@@ -735,7 +736,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
             {teamContent.management.map((member, index) => (
               <div 
                 key={index} 
@@ -747,9 +748,9 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                   alt={member.name}
                   className="w-full h-full object-cover"
                 />
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6 text-center">
-                  <h3 className="text-xl font-bold text-white mb-2">{member.name}</h3>
-                  <p className="text-gray-200 text-sm">{member.role}</p>
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 sm:p-6 text-center">
+                  <h3 className="text-lg sm:text-xl font-bold text-white mb-1 sm:mb-2">{member.name}</h3>
+                  <p className="text-gray-200 text-xs sm:text-sm">{member.role}</p>
                 </div>
               </div>
             ))}
@@ -758,10 +759,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
       </section>
 
       {/* Why Choose David's Salon Section */}
-      <section className="py-16 px-6 bg-[var(--marketing-primary)] text-white">
+      <section className="py-8 sm:py-12 md:py-16 px-4 sm:px-6 bg-[var(--marketing-primary)] text-white">
         <div className="max-w-6xl mx-auto">
           {isSystemAdmin ? (
-            <h2 className="font-bold text-center mb-4" style={{ fontSize: '50px' }}>
+            <h2 className="font-bold text-center mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
               <InlineEditable
                 enabled={effectiveEditMode}
                 value={whyChooseContent.title}
@@ -771,10 +772,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
               />
             </h2>
           ) : (
-            <h2 className="font-bold text-center mb-4" style={{ fontSize: '50px' }}>{whyChooseContent.title}</h2>
+            <h2 className="font-bold text-center mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">{whyChooseContent.title}</h2>
           )}
           {isSystemAdmin ? (
-            <p className="text-center text-xl mb-12 text-pretty">
+            <p className="text-center text-base sm:text-lg md:text-xl mb-8 sm:mb-12 text-pretty px-2">
               <InlineEditable
                 enabled={effectiveEditMode}
                 value={whyChooseContent.subtitle}
@@ -785,12 +786,12 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
               />
             </p>
           ) : (
-            <p className="text-center text-xl mb-12 text-pretty">
+            <p className="text-center text-base sm:text-lg md:text-xl mb-8 sm:mb-12 text-pretty px-2">
               {whyChooseContent.subtitle}
             </p>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
             {whyChooseContent.benefits.map((benefit, index) => (
               <div key={index} className="text-center">
                 <div className="flex justify-center mb-4">
@@ -799,7 +800,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                   </div>
                 </div>
                 {isSystemAdmin ? (
-                  <h3 className="text-xl font-bold mb-3">
+                  <h3 className="text-lg sm:text-xl font-bold mb-2 sm:mb-3">
                     <InlineEditable
                       enabled={effectiveEditMode}
                       value={benefit.title}
@@ -813,10 +814,10 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                     />
                   </h3>
                 ) : (
-                  <h3 className="text-xl font-bold mb-3">{benefit.title}</h3>
+                  <h3 className="text-lg sm:text-xl font-bold mb-2 sm:mb-3">{benefit.title}</h3>
                 )}
                 {isSystemAdmin ? (
-                  <p className="text-gray-200 leading-relaxed">
+                  <p className="text-sm sm:text-base text-gray-200 leading-relaxed">
                     <InlineEditable
                       enabled={effectiveEditMode}
                       value={benefit.description}
@@ -831,7 +832,7 @@ export default function AboutPage({ embedded = false, cmsEditMode }) {
                     />
                   </p>
                 ) : (
-                  <p className="text-gray-200 leading-relaxed">{benefit.description}</p>
+                  <p className="text-sm sm:text-base text-gray-200 leading-relaxed">{benefit.description}</p>
                 )}
               </div>
             ))}

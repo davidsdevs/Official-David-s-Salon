@@ -31,6 +31,19 @@ const ReceptionistProducts = () => {
     }
   }, [userBranch]);
 
+  // Add visibility change listener to refresh when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && userBranch) {
+        console.log('Tab became visible, refreshing products...');
+        fetchProducts();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [userBranch]);
+
   const fetchProducts = async () => {
     try {
       setLoading(true);
@@ -211,44 +224,36 @@ const ReceptionistProducts = () => {
     }
 
     // Filter stocks for this product, excluding salon-use stock
-    const allProductStocks = stocks.filter(stock => stock.productId === productId);
     const productStocks = stocks.filter(stock =>
       stock.productId === productId && stock.usageType !== 'salon-use'
     );
 
-    console.log(`Stock calculation for product ${productId}:`, {
-      allStocks: allProductStocks.map(s => ({
-        id: s.id,
-        usageType: s.usageType,
-        realTimeStock: s.realTimeStock,
-        remainingQuantity: s.remainingQuantity,
-        beginningStock: s.beginningStock,
-        quantity: s.quantity,
-        finalQuantity: s.realTimeStock || s.remainingQuantity || s.beginningStock || s.quantity || 0
-      })),
-      filteredStocks: productStocks.map(s => ({
-        id: s.id,
-        usageType: s.usageType,
-        realTimeStock: s.realTimeStock,
-        remainingQuantity: s.remainingQuantity,
-        beginningStock: s.beginningStock,
-        quantity: s.quantity,
-        finalQuantity: s.realTimeStock || s.remainingQuantity || s.beginningStock || s.quantity || 0
-      })),
-      filteringLogic: `stock.usageType !== 'salon-use'`,
-      totalFilteredQuantity: productStocks.reduce((total, stock) => {
-        const quantity = stock.realTimeStock || stock.remainingQuantity || stock.beginningStock || stock.quantity || 0;
-        return total + quantity;
-      }, 0)
-    });
+    if (productStocks.length === 0) {
+      console.log(`No retail stock found for product ${productId}`);
+      return 0;
+    }
 
-    if (productStocks.length === 0) return 0;
-
-    // Sum up all stock quantities for this product (simple sum like Stocks page)
-    return productStocks.reduce((total, stock) => {
-      const quantity = stock.realTimeStock || stock.remainingQuantity || stock.beginningStock || stock.quantity || 0;
+    // Sum up all stock quantities for this product
+    const totalStock = productStocks.reduce((total, stock) => {
+      // Use realTimeStock as the primary source of truth
+      const quantity = stock.realTimeStock ?? stock.remainingQuantity ?? stock.beginningStock ?? stock.quantity ?? 0;
       return total + quantity;
     }, 0);
+
+    console.log(`Stock for product ${productId}:`, {
+      stockRecords: productStocks.length,
+      totalStock,
+      details: productStocks.map(s => ({
+        id: s.id,
+        realTimeStock: s.realTimeStock,
+        remainingQuantity: s.remainingQuantity,
+        beginningStock: s.beginningStock,
+        quantity: s.quantity,
+        usedQuantity: s.realTimeStock ?? s.remainingQuantity ?? s.beginningStock ?? s.quantity ?? 0
+      }))
+    });
+
+    return totalStock;
   };
 
   // Get unique categories from products
@@ -273,11 +278,26 @@ const ReceptionistProducts = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Products</h1>
-        <p className="text-gray-600">
-          Products currently available in your branch inventory
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Products</h1>
+          <p className="text-gray-600">
+            Products currently available in your branch inventory
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            setLoading(true);
+            fetchProducts();
+          }}
+          disabled={loading}
+          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Refresh
+        </button>
       </div>
 
       {/* Search and Filters */}

@@ -38,31 +38,7 @@ export default function BranchFooter({
   return (
     <footer className="w-full bg-white" style={{ height: '360px', minHeight: '360px', borderTop: '1px solid #C4C4C4' }}>
       <div className="max-w-[1440px] mx-auto h-full flex flex-col justify-center px-2 sm:px-4 py-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-16 lg:gap-20 justify-items-center md:justify-items-start">
-          <div className="text-center md:text-left">
-            <Link to="/">
-              <img
-                src="/logo.jpg"
-                alt="David's Salon Logo"
-                className="h-12 sm:h-16 mb-4 mx-auto md:mx-0"
-              />
-            </Link>
-            <p className="text-gray-600 text-base leading-relaxed max-w-sm mx-auto md:mx-0">
-              {cmsEditable ? (
-                <InlineEditable
-                  enabled={cmsEditable}
-                  value={description}
-                  onSave={onContentUpdate}
-                  fieldPath="footer.description"
-                  multiline={true}
-                  className="text-gray-600"
-                />
-              ) : (
-                interpolate(description)
-              )}
-            </p>
-          </div>
-
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-16 lg:gap-20 justify-items-center md:justify-items-start">
           <div className="text-center md:text-left">
             <h3 className="font-semibold text-[#160B53] mb-4 text-base">
               {cmsEditable ? (

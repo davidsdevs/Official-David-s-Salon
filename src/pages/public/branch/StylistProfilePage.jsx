@@ -224,7 +224,7 @@ export default function StylistProfilePage() {
     return (
       <>
         <BranchNavigation branchName={`${branchName} Branch`} branchSlug={slug} />
-        <section className="py-12 px-6 bg-gray-50 mt-[122px]">
+        <section className="py-8 sm:py-12 px-4 sm:px-6 bg-gray-50 mt-[80px]">
           <div className="max-w-6xl mx-auto text-center">
             <h1 className="text-3xl font-poppins font-bold text-[#160B53]">Loading stylist...</h1>
           </div>
@@ -243,7 +243,7 @@ export default function StylistProfilePage() {
     return (
       <>
         <BranchNavigation branchName={`${branchName} Branch`} branchSlug={slug} />
-        <section className="py-12 px-6 bg-gray-50 mt-[122px]">
+        <section className="py-8 sm:py-12 px-4 sm:px-6 bg-gray-50 mt-[80px]">
           <div className="max-w-6xl mx-auto text-center">
             <h1 className="text-3xl font-poppins font-bold text-[#160B53]">Stylist not found</h1>
             <div className="mt-6">

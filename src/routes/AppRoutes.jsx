@@ -25,6 +25,7 @@ import Register from '../pages/public/Register';
 import ForgotPassword from '../pages/public/ForgotPassword';
 import HomePage from '../pages/public/HomePage';
 import AboutPage from '../pages/public/AboutPage';
+import ProductsPage from '../pages/public/Products';
 import BranchPage from '../pages/public/BranchPage';
 import BranchGalleryPage from '../pages/public/branch/BranchGalleryPage';
 import BranchServicesPage from '../pages/public/branch/BranchServicesPage';
@@ -168,6 +169,7 @@ const AppRoutes = () => {
       {/* Public landing pages - no auth required */}
       <Route path="/" element={<HomePage />} />
       <Route path="/about" element={<AboutPage />} />
+      <Route path="/products" element={<ProductsPage />} />
       <Route path="/branch/:slug" element={<BranchPage />} />
       <Route path="/branch/:slug/gallery" element={<BranchGalleryPage />} />
       <Route path="/branch/:slug/services" element={<BranchServicesPage />} />

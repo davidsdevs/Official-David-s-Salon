@@ -177,7 +177,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
               email: b?.email || "",
               operatingHours: b?.operatingHours || null,
               isActive: b?.isActive === true,
-              image: b?.image || b?.photoUrl || b?.bannerImage || "/logo.jpg",
+              imageUrl: b?.imageUrl || b?.image || b?.photoUrl || b?.bannerImage || "/logo.jpg",
             }
           })
 
@@ -379,7 +379,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
         wrapperClassName=""
       >
         <section
-          className={`relative h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[122px]'}`}
+          className={`relative min-h-[600px] sm:min-h-[650px] md:min-h-[700px] lg:min-h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[80px]'} pb-6 sm:pb-8`}
           style={{
             backgroundImage: `linear-gradient(rgba(0, 0, 0, ${heroContent.overlayOpacity || 0.6}), ${hexToRgba(heroOverlayBottomColor, heroOverlayBottomOpacity)}), url('${heroContent.backgroundImage}')`,
             backgroundSize: "cover",
@@ -419,9 +419,9 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
               />
             </div>
           )}
-          <div className={`max-w-4xl px-2 sm:px-4 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+          <div className={`max-w-4xl px-4 sm:px-6 md:px-8 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             {isSystemAdmin ? (
-              <h1 className="font-bold mb-6 text-balance animate-pulse-slow" style={{ fontSize: '50px' }}>
+              <h1 className="font-bold mb-4 sm:mb-6 text-balance animate-pulse-slow text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
                 <InlineEditable
                   enabled={effectiveEditMode}
                   value={heroContent.title}
@@ -431,10 +431,10 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
                 />
               </h1>
             ) : (
-              <h1 className="font-bold mb-6 text-balance animate-pulse-slow" style={{ fontSize: '50px' }}>{heroContent.title}</h1>
+              <h1 className="font-bold mb-4 sm:mb-6 text-balance animate-pulse-slow text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">{heroContent.title}</h1>
             )}
             {isSystemAdmin ? (
-              <p className="text-xl mb-8 text-pretty leading-relaxed">
+              <p className="text-base sm:text-lg md:text-xl mb-6 sm:mb-8 text-pretty leading-relaxed px-2">
                 <InlineEditable
                   enabled={effectiveEditMode}
                   value={heroContent.subtitle}
@@ -445,7 +445,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
                 />
               </p>
             ) : (
-              <p className="text-xl mb-8 text-pretty leading-relaxed">
+              <p className="text-base sm:text-lg md:text-xl mb-6 sm:mb-8 text-pretty leading-relaxed px-2">
                 {heroContent.subtitle}
               </p>
             )}
@@ -494,23 +494,23 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
               )}
             </Button>
 
-            <div className="max-w-4xl mx-auto mt-12">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
-                <Card className="p-6 border-0 bg-white" style={{ boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
+            <div className="max-w-4xl mx-auto mt-6 sm:mt-8 md:mt-12">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 md:gap-8 text-center px-2 sm:px-4">
+                <Card className="p-3 sm:p-4 md:p-6 border-0 bg-white" style={{ boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
                   <CardContent className="p-0">
-                    <div className="text-4xl font-bold text-[var(--marketing-primary)] mb-2">{typeof branchCount === 'number' ? branchCount : '—'}</div>
-                    <div className="text-gray-600">Branches</div>
+                    <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--marketing-primary)] mb-1 sm:mb-2">{typeof branchCount === 'number' ? branchCount : '—'}</div>
+                    <div className="text-xs sm:text-sm md:text-base text-gray-600">Branches</div>
                   </CardContent>
                 </Card>
-                <Card className="p-6 border-0 bg-white" style={{ boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
+                <Card className="p-3 sm:p-4 md:p-6 border-0 bg-white" style={{ boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
                   <CardContent className="p-0">
-                    <div className="text-4xl font-bold text-[var(--marketing-primary)] mb-2">{typeof clientCount === 'number' ? clientCount.toLocaleString() : '—'}</div>
-                    <div className="text-gray-600">Happy Clients</div>
+                    <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--marketing-primary)] mb-1 sm:mb-2">{typeof clientCount === 'number' ? clientCount.toLocaleString() : '—'}</div>
+                    <div className="text-xs sm:text-sm md:text-base text-gray-600">Happy Clients</div>
                   </CardContent>
                 </Card>
-                <Card className="p-6 border-0 bg-white" style={{ boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
+                <Card className="p-3 sm:p-4 md:p-6 border-0 bg-white" style={{ boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}>
                   <CardContent className="p-0">
-                    <div className="text-4xl font-bold text-[var(--marketing-primary)] mb-2">
+                    <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--marketing-primary)] mb-1 sm:mb-2">
                       {isSystemAdmin ? (
                         <InlineEditable
                           enabled={effectiveEditMode}
@@ -523,7 +523,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
                         statsContent.yearsExperience
                       )}
                     </div>
-                    <div className="text-gray-600">Years Experience</div>
+                    <div className="text-xs sm:text-sm md:text-base text-gray-600">Years Experience</div>
                   </CardContent>
                 </Card>
               </div>
@@ -532,11 +532,75 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
         </section>
       </EditableImage>
 
+      {/* Mobile App Installation Banner */}
+      <section className="bg-gradient-to-r from-[#160B53] to-[#2D1B8F] py-6 sm:py-8 md:py-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6 md:gap-8">
+            {/* Left side - Text content */}
+            <div className="flex-1 text-center md:text-left">
+              <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2 sm:mb-3">
+                Get the David's Salon App
+              </h3>
+              <p className="text-sm sm:text-base md:text-lg text-white/90 mb-4 sm:mb-0">
+                Book appointments, track rewards, and get exclusive offers on the go!
+              </p>
+            </div>
+
+            {/* Right side - Download buttons */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 w-full md:w-auto">
+              {/* Google Play Button */}
+              <a
+                href="#"
+                className="flex items-center justify-center gap-3 bg-black hover:bg-gray-900 text-white px-6 py-3 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg"
+                onClick={(e) => {
+                  e.preventDefault()
+                  alert('Android app coming soon! Stay tuned for the release.')
+                }}
+              >
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3,20.5V3.5C3,2.91 3.34,2.39 3.84,2.15L13.69,12L3.84,21.85C3.34,21.6 3,21.09 3,20.5M16.81,15.12L6.05,21.34L14.54,12.85L16.81,15.12M20.16,10.81C20.5,11.08 20.75,11.5 20.75,12C20.75,12.5 20.53,12.9 20.18,13.18L17.89,14.5L15.39,12L17.89,9.5L20.16,10.81M6.05,2.66L16.81,8.88L14.54,11.15L6.05,2.66Z"/>
+                </svg>
+                <div className="text-left">
+                  <div className="text-xs opacity-90">GET IT ON</div>
+                  <div className="text-lg font-semibold -mt-1">Google Play</div>
+                </div>
+              </a>
+
+              {/* App Store Button - Coming Soon */}
+              <a
+                href="#"
+                className="flex items-center justify-center gap-3 bg-black/50 text-white/50 px-6 py-3 rounded-lg shadow-lg cursor-not-allowed"
+                onClick={(e) => e.preventDefault()}
+              >
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.71,19.5C17.88,20.74 17,21.95 15.66,21.97C14.32,22 13.89,21.18 12.37,21.18C10.84,21.18 10.37,21.95 9.1,22C7.79,22.05 6.8,20.68 5.96,19.47C4.25,17 2.94,12.45 4.7,9.39C5.57,7.87 7.13,6.91 8.82,6.88C10.1,6.86 11.32,7.75 12.11,7.75C12.89,7.75 14.37,6.68 15.92,6.84C16.57,6.87 18.39,7.1 19.56,8.82C19.47,8.88 17.39,10.1 17.41,12.63C17.44,15.65 20.06,16.66 20.09,16.67C20.06,16.74 19.67,18.11 18.71,19.5M13,3.5C13.73,2.67 14.94,2.04 15.94,2C16.07,3.17 15.6,4.35 14.9,5.19C14.21,6.04 13.07,6.7 11.95,6.61C11.8,5.46 12.36,4.26 13,3.5Z"/>
+                </svg>
+                <div className="text-left">
+                  <div className="text-xs">Coming Soon</div>
+                  <div className="text-lg font-semibold -mt-1">App Store</div>
+                </div>
+              </a>
+
+              {/* Web App Badge */}
+              <div className="flex items-center justify-center gap-2 bg-white/10 backdrop-blur-sm text-white px-4 py-3 rounded-lg border border-white/20">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+                </svg>
+                <div className="text-left">
+                  <div className="text-xs opacity-90">Available on</div>
+                  <div className="text-sm font-semibold -mt-1">All Browsers</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Our Location Section */}
-      <section id="branches" className="py-16 px-2 sm:px-4">
+      <section id="branches" className="py-12 sm:py-16 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
           {isSystemAdmin ? (
-            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
               <InlineEditable
                 enabled={effectiveEditMode}
                 value={branchesContent.title}
@@ -546,7 +610,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
               />
             </h2>
           ) : (
-            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4" style={{ fontSize: '50px' }}>{branchesContent.title}</h2>
+            <h2 className="font-bold text-center text-[var(--marketing-primary)] mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">{branchesContent.title}</h2>
           )}
           {branchesContent.subtitle && (
             isSystemAdmin ? (
@@ -586,7 +650,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
             {currentBranches.map((branch, index) => (
               <Card 
                 key={index} 
@@ -595,10 +659,11 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
                   boxShadow: '0 2px 15px 0 rgba(0, 0, 0, 0.25)'
                 }}
               >
-                <div className="h-48 w-full overflow-hidden relative">
+                <div className="h-48 sm:h-56 w-full overflow-hidden relative">
                   <EditableImage
                     enabled={isSystemAdmin && effectiveEditMode}
-                    imageUrl={branch.imageUrl || branch.image || "/placeholder.svg"}
+                    src={branch.imageUrl || "/placeholder.svg"}
+                    alt={`${branch.name} branch`}
                     onChange={async (url) => {
                       // Update branch image in Firestore
                       const updatedBranches = branchesData.map(b => 
@@ -615,36 +680,29 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
                         console.error('❌ Error updating branch image:', error);
                       }
                     }}
+                    className="w-full h-full object-cover"
                     wrapperClassName="w-full h-full"
-                  >
-                    <img
-                      src={branch.imageUrl || branch.image || "/placeholder.svg"}
-                      alt={`${branch.name} branch`}
-                      className="w-full h-full object-cover"
-                      style={{ 
-                        objectPosition: 'center center',
-                        height: '192px',
-                        width: '100%',
-                        maxHeight: '192px',
-                        maxWidth: '100%'
-                      }}
-                    />
-                  </EditableImage>
+                    style={{ 
+                      objectPosition: 'center center',
+                      height: '100%',
+                      width: '100%'
+                    }}
+                  />
                 </div>
-                <CardContent className="p-6">
-                  <h3 className="text-xl font-bold mb-2 text-gray-800">
+                <CardContent className="p-4 sm:p-6">
+                  <h3 className="text-lg sm:text-xl font-bold mb-3 text-gray-800">
                     {branch.name}
                   </h3>
-                  <div className="flex items-center text-gray-600 mb-2">
-                    <MapPin className="w-4 h-4 mr-2 text-gray-400" />
-                    <span className="text-sm">{branch.location}</span>
+                  <div className="flex items-start text-gray-600 mb-3">
+                    <MapPin className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0 text-gray-400" />
+                    <span className="text-sm leading-relaxed">{branch.location}</span>
                   </div>
                   <div className="flex items-center text-gray-600 mb-4">
-                    <Phone className="w-4 h-4 mr-2 text-gray-400" />
+                    <Phone className="w-4 h-4 mr-2 flex-shrink-0 text-gray-400" />
                     <span className="text-sm">{branch.phone}</span>
                   </div>
                   <div className="text-sm text-gray-500 mb-4">
-                    <span className="inline-block px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">
+                    <span className="inline-block px-3 py-1.5 rounded-full text-xs bg-gray-100 text-gray-600">
                       Premium Services
                     </span>
                   </div>
@@ -652,7 +710,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
                     <Button
                       variant="ghost"
                       size="md"
-                      className="w-full text-white bg-[var(--marketing-primary)] hover:opacity-90 py-2"
+                      className="w-full text-white bg-[var(--marketing-primary)] hover:opacity-90 py-2.5 font-medium"
                     >
                       View Services
                     </Button>
@@ -664,11 +722,11 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex justify-center mt-8 space-x-2">
+            <div className="flex justify-center mt-8 sm:mt-12 gap-2">
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="w-8 h-8 p-0 bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 transition-all duration-300 hover:scale-110 hover:border-[var(--marketing-primary)]"
+                className="w-9 h-9 sm:w-10 sm:h-10 p-0 bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 transition-all duration-300 hover:scale-110 hover:border-[var(--marketing-primary)]"
                 onClick={() => handlePageChange(currentPage - 1)}
                 disabled={currentPage === 1}
               >
@@ -682,7 +740,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
                     key={page}
                     variant="outline" 
                     size="sm" 
-                    className={`w-8 h-8 p-0 transition-all duration-300 hover:scale-110 ${
+                    className={`w-9 h-9 sm:w-10 sm:h-10 p-0 transition-all duration-300 hover:scale-110 ${
                       currentPage === page
                         ? 'bg-[var(--marketing-primary)] text-white border-[var(--marketing-primary)]'
                         : 'bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-[var(--marketing-primary)]'
@@ -697,7 +755,7 @@ export default function HomePage({ embedded = false, cmsEditMode }) {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="w-8 h-8 p-0 bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 transition-all duration-300 hover:scale-110 hover:border-[var(--marketing-primary)]"
+                className="w-9 h-9 sm:w-10 sm:h-10 p-0 bg-transparent text-gray-700 border-gray-300 hover:bg-gray-50 transition-all duration-300 hover:scale-110 hover:border-[var(--marketing-primary)]"
                 onClick={() => handlePageChange(currentPage + 1)}
                 disabled={currentPage === totalPages}
               >

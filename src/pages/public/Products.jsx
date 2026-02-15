@@ -211,7 +211,7 @@ export default function Products({ embedded = false, cmsEditMode } = {}) {
 
       <main
         className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${
-          embedded ? "mt-0" : "mt-[122px]"
+          embedded ? "mt-0" : "mt-[80px]"
         }`}
       >
         <div
@@ -220,7 +220,7 @@ export default function Products({ embedded = false, cmsEditMode } = {}) {
           }`}
         >
           {isSystemAdmin ? (
-            <h1 className="font-poppins font-bold mb-6" style={{ fontSize: "50px", color: primaryColor }}>
+            <h1 className="font-poppins font-bold mb-4 sm:mb-6 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]" style={{ color: primaryColor }}>
               <InlineEditable
                 enabled={effectiveEditMode}
                 value={headerContent.title}
@@ -230,13 +230,13 @@ export default function Products({ embedded = false, cmsEditMode } = {}) {
               />
             </h1>
           ) : (
-            <h1 className="font-poppins font-bold mb-6" style={{ fontSize: "50px", color: primaryColor }}>
+            <h1 className="font-poppins font-bold mb-4 sm:mb-6 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]" style={{ color: primaryColor }}>
               {headerContent.title}
             </h1>
           )}
 
           {isSystemAdmin ? (
-            <p className="text-lg text-gray-600 mb-6">
+            <p className="text-base sm:text-lg text-gray-600 mb-4 sm:mb-6 px-2">
               <InlineEditable
                 enabled={effectiveEditMode}
                 value={headerContent.subtitle}
@@ -247,10 +247,10 @@ export default function Products({ embedded = false, cmsEditMode } = {}) {
               />
             </p>
           ) : (
-            <p className="text-lg text-gray-600 mb-6">{headerContent.subtitle}</p>
+            <p className="text-base sm:text-lg text-gray-600 mb-4 sm:mb-6 px-2">{headerContent.subtitle}</p>
           )}
 
-          <div className="flex flex-wrap justify-center gap-2 mb-6">
+          <div className="flex flex-wrap justify-center gap-2 mb-4 sm:mb-6 px-2">
             {categories.map((category) => (
               <button
                 key={category}
@@ -267,23 +267,23 @@ export default function Products({ embedded = false, cmsEditMode } = {}) {
             ))}
           </div>
 
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-            <p className="text-gray-600">
+          <div className="flex flex-col gap-4 mb-6">
+            <p className="text-gray-600 text-center sm:text-left">
               {loadingProducts
                 ? "Loading products..."
                 : `Showing ${filteredProducts.length} product${filteredProducts.length !== 1 ? "s" : ""}`}
               {!loadingProducts && searchTerm && ` for "${searchTerm}"`}
             </p>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full">
               <SearchInput
                 placeholder={headerContent.searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-80 font-poppins"
+                className="w-full sm:flex-1 font-poppins"
               />
               <button
                 style={{ backgroundColor: primaryColor }}
-                className="text-white px-4 py-2 rounded-lg font-poppins font-medium transition-all duration-300 hover:scale-105 flex items-center gap-2"
+                className="text-white px-4 py-2 rounded-lg font-poppins font-medium transition-all duration-300 hover:scale-105 flex items-center justify-center gap-2 whitespace-nowrap"
               >
                 <Filter className="h-4 w-4" />
                 Filter

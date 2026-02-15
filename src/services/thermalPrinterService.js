@@ -246,16 +246,15 @@ class ThermalPrinterService {
 
       const width = 32; // 58mm paper is typically 32 characters
 
-      // Header - Salon Name with styling
-      await this.printLine("DAVID'S SALON", { center: true, bold: true, doubleSize: true });
-
+      // Header - Salon Name
+      await this.printLine("David's Salon", { center: true, bold: true });
+      
       // Branch Name
       if (branchData?.name || branchData?.branchName) {
         await this.printLine(branchData.name || branchData.branchName, { center: true, bold: true });
       }
-      await this.feedPaper(1);
 
-      // Branch Address (if available)
+      // Branch Address
       if (branchData?.address) {
         const addressLines = this.wrapText(branchData.address, width);
         for (const line of addressLines) {
@@ -263,116 +262,215 @@ class ThermalPrinterService {
         }
       }
 
-      // Contact
-      if (branchData?.phone) {
-        await this.printLine(`Tel: ${branchData.phone}`, { center: true });
+      // Email
+      if (branchData?.email) {
+        await this.printLine(`Email: ${branchData.email}`, { center: true });
       }
 
-      await this.printSeparator('=', width);
-
-      // Receipt Info
-      await this.printLine('OFFICIAL RECEIPT', { center: true, bold: true });
-      await this.printSeparator('-', width);
-
-      // Receipt details
-      await this.printTwoColumns('Receipt #:', billData.receiptNumber || billData.id || 'N/A', width);
-      await this.printTwoColumns('Date:', this.formatDate(billData.createdAt), width);
-      await this.printTwoColumns('Time:', this.formatTime(billData.createdAt), width);
-      await this.printTwoColumns('Cashier:', billData.createdByName || 'Staff', width);
+      // TIN
+      await this.printLine('TIN: 123-456-777-898', { center: true });
+      await this.printLine('VAT Registered', { center: true, bold: true });
 
       await this.printSeparator('-', width);
 
-      // Customer
-      await this.printTwoColumns('Customer:', billData.clientName || 'Guest', width);
+      // TRANSACTION DETAILS
+      await this.printLine('TRANSACTION DETAILS', { bold: true });
+      await this.printTwoColumns('Receipt No:', billData.receiptNumber || billData.id, width);
+      await this.printTwoColumns('Invoice No:', billData.id || '', width);
+      await this.printTwoColumns('POS Terminal ID:', branchData?.posTerminalId || 'POS-001', width);
+      await this.printTwoColumns('Cashier Name / ID:', billData.createdByName || 'Staff', width);
+      await this.printTwoColumns('Date:', this.formatDateDetailed(billData.createdAt), width);
+      await this.printTwoColumns('Time:', this.formatTimeDetailed(billData.createdAt), width);
 
-      await this.printSeparator('=', width);
-
-      // Items Header
-      await this.printLine('ITEMS', { bold: true });
       await this.printSeparator('-', width);
 
-      // Print each item
-      for (const item of (billData.items || [])) {
-        const itemName = item.name || item.serviceName || 'Item';
-        const qty = item.quantity || 1;
-        const price = item.price || item.finalPrice || 0;
-        const total = qty * price;
+      // CUSTOMER INFORMATION
+      await this.printLine('CUSTOMER INFORMATION', { bold: true });
+      await this.printTwoColumns('Name:', billData.clientName || 'Guest', width);
+      if (billData.clientPhone) {
+        await this.printTwoColumns('Phone:', billData.clientPhone, width);
+      }
+      if (billData.clientEmail) {
+        await this.printTwoColumns('Email:', billData.clientEmail, width);
+      }
 
-        // Item name (may wrap)
-        const nameLines = this.wrapText(itemName, width - 2);
-        for (let i = 0; i < nameLines.length; i++) {
-          if (i === 0) {
-            await this.printLine(nameLines[i]);
-          } else {
-            await this.printLine('  ' + nameLines[i]);
+      await this.printSeparator('-', width);
+
+      // ITEMIZED PURCHASE
+      await this.printLine('ITEMIZED PURCHASE', { bold: true });
+      
+      // Header row
+      await this.printLine('Qty Item Description');
+      await this.printLine('    Unit Price      Total');
+
+      // Separate services and products
+      const services = (billData.items || []).filter(item => item.type === 'service');
+      const products = (billData.items || []).filter(item => item.type === 'product');
+
+      // Print services
+      if (services.length > 0) {
+        await this.printLine('SERVICES:', { bold: true });
+        for (const item of services) {
+          const itemName = item.name || item.serviceName || 'Service';
+          const qty = item.quantity || 1;
+          const price = item.price || item.finalPrice || 0;
+          const total = qty * price;
+
+          // Item name (may wrap)
+          const nameLines = this.wrapText(itemName, width - 2);
+          for (let i = 0; i < nameLines.length; i++) {
+            await this.printLine(`${qty} ${nameLines[i]}`);
+          }
+
+          // Price line
+          const priceLine = `    ${this.formatCurrency(price)}`;
+          await this.printTwoColumns(priceLine, this.formatCurrency(total), width);
+
+          // Stylist info
+          if (item.stylistName) {
+            await this.printLine(`    by ${item.stylistName}`);
+          }
+          if (item.clientType) {
+            await this.printLine(`    (${item.clientType})`);
           }
         }
-
-        // Quantity x Price = Total
-        const itemDetail = `  ${qty} x ${this.formatCurrency(price)}`;
-        await this.printTwoColumns(itemDetail, this.formatCurrency(total), width);
       }
 
-      await this.printSeparator('=', width);
+      // Print products
+      if (products.length > 0) {
+        await this.printLine('PRODUCTS:', { bold: true });
+        for (const item of products) {
+          const itemName = item.name || 'Product';
+          const qty = item.quantity || 1;
+          const price = item.price || 0;
+          const total = qty * price;
 
-      // Totals
+          // Item name (may wrap)
+          const nameLines = this.wrapText(itemName, width - 2);
+          for (let i = 0; i < nameLines.length; i++) {
+            await this.printLine(`${qty} ${nameLines[i]}`);
+          }
+
+          // Price line
+          const priceLine = `    ${this.formatCurrency(price)}`;
+          await this.printTwoColumns(priceLine, this.formatCurrency(total), width);
+        }
+      }
+
+      await this.printSeparator('-', width);
+
+      // COST BREAKDOWN
+      await this.printLine('COST BREAKDOWN', { bold: true });
       await this.printTwoColumns('Subtotal:', this.formatCurrency(billData.subtotal || 0), width);
 
-      if ((billData.serviceProductChargeTotal || 0) > 0) {
-        await this.printTwoColumns('Svc Prod Charges:', this.formatCurrency(billData.serviceProductChargeTotal), width);
+      // Discounts
+      const hasDiscounts = (billData.discount || 0) > 0 || (billData.promotionDiscount || 0) > 0 || (billData.loyaltyPointsUsed || 0) > 0;
+      
+      if (hasDiscounts) {
+        await this.printLine('Less: Discounts:', { bold: true });
+        
+        if (billData.discount > 0) {
+          // Show discount type if available
+          let discountLabel = '  Manual Discount:';
+          if (billData.discountReason === 'Senior') {
+            discountLabel = '  Senior Citizen (10%):';
+          } else if (billData.discountReason === 'PWD') {
+            discountLabel = '  PWD Discount (10%):';
+          }
+          await this.printTwoColumns(discountLabel, `-${this.formatCurrency(billData.discount)}`, width);
+          
+          // Show control number for Senior/PWD
+          if ((billData.discountReason === 'Senior' || billData.discountReason === 'PWD') && billData.controlNumber) {
+            await this.printTwoColumns('  ID/Control No:', billData.controlNumber, width);
+          }
+        }
+        if (billData.promotionDiscount > 0) {
+          await this.printTwoColumns('  Promotion Discount:', `-${this.formatCurrency(billData.promotionDiscount)}`, width);
+        }
+        if (billData.loyaltyPointsUsed > 0) {
+          await this.printTwoColumns(`  Loyalty (${billData.loyaltyPointsUsed} pts):`, `-${this.formatCurrency(billData.loyaltyPointsUsed)}`, width);
+        }
+        
+        const totalDiscounts = (billData.discount || 0) + (billData.promotionDiscount || 0) + (billData.loyaltyPointsUsed || 0);
+        await this.printTwoColumns('Total Discounts:', `-${this.formatCurrency(totalDiscounts)}`, width);
       }
 
-      if (billData.discount > 0) {
-        await this.printTwoColumns('Discount:', `-${this.formatCurrency(billData.discount)}`, width);
-      }
-
-      if (billData.promotionDiscount > 0) {
-        await this.printTwoColumns('Promo Code:', `-${this.formatCurrency(billData.promotionDiscount)}`, width);
-      }
-
-      if (billData.loyaltyPointsUsed > 0) {
-        await this.printTwoColumns('Loyalty Pts:', `-${this.formatCurrency(billData.loyaltyPointsUsed)}`, width);
-      }
-
-      if ((billData.serviceCharge || 0) > 0) {
-        await this.printTwoColumns('Service Charge:', this.formatCurrency(billData.serviceCharge), width);
-      }
-
-      if ((billData.tax || 0) > 0) {
-        await this.printTwoColumns('VAT / Tax:', this.formatCurrency(billData.tax), width);
-      }
+      // Net Sales
+      const netSales = (billData.subtotal || 0) - ((billData.discount || 0) + (billData.promotionDiscount || 0) + (billData.loyaltyPointsUsed || 0));
+      await this.printTwoColumns('Net Sales:', this.formatCurrency(netSales), width);
 
       await this.printSeparator('-', width);
 
-      // Grand Total
-      await this.printLine('');
-      await this.printTwoColumns('TOTAL:', this.formatCurrency(billData.total || billData.grandTotal || 0), width);
-      await this.printLine('', { bold: true, doubleSize: true });
+      // TAX BREAKDOWN
+      await this.printLine('TAX BREAKDOWN', { bold: true });
+      
+      // Calculate VAT (assuming VAT inclusive)
+      const vatRate = 0.12;
+      const vatAmount = netSales / (1 + vatRate) * vatRate;
+      const vatableSales = netSales - vatAmount;
+      
+      await this.printTwoColumns('VATable Sales:', this.formatCurrency(vatableSales), width);
+      await this.printTwoColumns('VAT Amount (12%):', this.formatCurrency(vatAmount), width);
 
       await this.printSeparator('-', width);
 
-      // Payment Info
-      await this.printTwoColumns('Payment:', (billData.paymentMethod || 'Cash').toUpperCase(), width);
+      // TOTAL AMOUNT DUE
+      await this.printLine('TOTAL AMOUNT DUE:', { bold: true });
+      await this.printTwoColumns('', this.formatCurrency(billData.total || billData.grandTotal || 0), width);
+
+      await this.printSeparator('-', width);
+
+      // PAYMENT DETAILS
+      await this.printLine('PAYMENT DETAILS', { bold: true });
+      await this.printTwoColumns('Payment Method:', (billData.paymentMethod || 'Cash').toUpperCase(), width);
 
       if (billData.paymentMethod === 'cash' || billData.paymentMethod === 'Cash') {
-        await this.printTwoColumns('Received:', this.formatCurrency(billData.amountReceived || 0), width);
+        await this.printTwoColumns('  Cash:', this.formatCurrency(billData.amountReceived || billData.total), width);
+        await this.printTwoColumns('Amount Tendered:', this.formatCurrency(billData.amountReceived || 0), width);
         await this.printTwoColumns('Change:', this.formatCurrency(billData.change || 0), width);
+      } else if (billData.paymentMethod === 'card' || billData.paymentMethod === 'Card') {
+        await this.printTwoColumns('  Card:', this.formatCurrency(billData.total), width);
+      } else if (billData.paymentMethod === 'voucher') {
+        await this.printTwoColumns('  E-Wallet:', this.formatCurrency(billData.total), width);
       }
 
-      await this.printSeparator('=', width);
+      // Notes
+      if (billData.notes) {
+        await this.printSeparator('-', width);
+        await this.printLine('Notes:', { bold: true });
+        const notesLines = this.wrapText(billData.notes, width);
+        for (const line of notesLines) {
+          await this.printLine(line);
+        }
+      }
 
-      // Footer
-      await this.feedPaper(1);
+      await this.printSeparator('-', width);
 
-      // Transaction ID at bottom
-      await this.printLine(`Trans ID: ${billData.id || 'N/A'}`, { center: true });
-      await this.feedPaper(1);
-
+      // FOOTER
+      await this.printLine('FOOTER', { bold: true });
       await this.printLine('Thank you for choosing', { center: true });
-      await this.printLine("DAVID'S SALON!", { center: true, bold: true });
+      await this.printLine("David's Salon!", { center: true, bold: true });
+      await this.printLine('This serves as your', { center: true });
+      await this.printLine('official receipt.', { center: true });
+      
       await this.feedPaper(1);
-      await this.printLine('This serves as your official receipt.', { center: true });
-      await this.printLine('Please keep this for your records.', { center: true });
+      await this.printLine('VAT Reg TIN: 123-456-777-898', { center: true });
+      await this.printLine('Accreditation No:', { center: true });
+      await this.printLine('ACC-12312512874', { center: true });
+      await this.printLine('Permit No: PER-1247124', { center: true });
+      
+      await this.feedPaper(1);
+      await this.printLine('Return / Exchange Policy:', { center: true });
+      await this.printLine('Products may be returned', { center: true });
+      await this.printLine('after 3 days', { center: true });
+      
+      await this.feedPaper(1);
+      await this.printLine(`Transaction ID: ${billData.id || ''}`, { center: true });
+      if (billData.receiptNumber) {
+        await this.printLine(`Receipt No: ${billData.receiptNumber}`, { center: true });
+      }
+      await this.printLine('Powered by David\'s Salon', { center: true });
+      await this.printLine('POS System', { center: true });
 
       // Feed and cut
       await this.feedPaper(4);
@@ -428,6 +526,19 @@ class ThermalPrinterService {
   }
 
   /**
+   * Format date (detailed for receipt)
+   */
+  formatDateDetailed(date) {
+    if (!date) return new Date().toLocaleDateString();
+    const d = date instanceof Date ? date : new Date(date);
+    return d.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  }
+
+  /**
    * Format time
    */
   formatTime(date) {
@@ -436,6 +547,20 @@ class ThermalPrinterService {
     return d.toLocaleTimeString('en-PH', {
       hour: '2-digit',
       minute: '2-digit',
+      hour12: true
+    });
+  }
+
+  /**
+   * Format time (detailed with seconds for receipt)
+   */
+  formatTimeDetailed(date) {
+    if (!date) return new Date().toLocaleTimeString();
+    const d = date instanceof Date ? date : new Date(date);
+    return d.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
       hour12: true
     });
   }

@@ -44,6 +44,8 @@ const BillingModalPOS = ({
     items: [], // Each item will have: { id, name, price, basePrice, stylistId, stylistName, clientType, adjustment, adjustmentReason }
     discountType: 'fixed',
     discount: '',
+    discountReason: '', // 'Senior', 'PWD', 'Other'
+    controlNumber: '', // Required for Senior/PWD discounts
     loyaltyPointsUsed: '',
     paymentMethod: PAYMENT_METHODS.CASH,
     paymentReference: '',
@@ -380,38 +382,34 @@ const BillingModalPOS = ({
         const productsRef = collection(db, 'products');
         const productsSnapshot = await getDocs(productsRef);
 
-        const branchProducts = [];
+        const allProducts = [];
         productsSnapshot.forEach((doc) => {
           const productData = doc.data();
-
-          // Check if product is available to this branch
-          const isAvailableToBranch = productData.branches &&
-            Array.isArray(productData.branches) &&
-            productData.branches.includes(userBranch);
-
-          if (isAvailableToBranch) {
-            branchProducts.push({
-              id: doc.id,
-              name: productData.name || 'Unknown Product',
-              price: productData.otcPrice || productData.salonUsePrice || productData.unitCost || 0,
-              basePrice: productData.otcPrice || productData.salonUsePrice || productData.unitCost || 0,
-              category: productData.category || '',
-              brand: productData.brand || '',
-              imageUrl: productData.imageUrl || '',
-              description: productData.description || '',
-              status: productData.status || 'Active',
-              stock: 0, // Will be updated with stock data
-              ...productData
-            });
-          }
+          
+          allProducts.push({
+            id: doc.id,
+            name: productData.name || 'Unknown Product',
+            price: productData.otcPrice || productData.salonUsePrice || productData.unitCost || 0,
+            basePrice: productData.otcPrice || productData.salonUsePrice || productData.unitCost || 0,
+            category: productData.category || '',
+            brand: productData.brand || '',
+            imageUrl: productData.imageUrl || '',
+            description: productData.description || '',
+            status: productData.status || 'Active',
+            stock: 0, // Will be updated with stock data
+            branches: productData.branches || [],
+            ...productData
+          });
         });
+
+        console.log('📦 Total products fetched:', allProducts.length);
 
         // Fetch stock information for this branch from stocks collection
         const stocksRef = collection(db, 'stocks');
         const stocksQuery = query(
           stocksRef,
-          where('branchId', '==', userBranch),
-          where('status', '==', 'active')
+          where('branchId', '==', userBranch)
+          // Removed status filter - status field contains "High Stock", "Low Stock", "Out of Stock", not "active"
         );
         const stocksSnapshot = await getDocs(stocksQuery);
 
@@ -423,32 +421,80 @@ const BillingModalPOS = ({
             productId: stockData.productId,
             productName: stockData.productName,
             realTimeStock: stockData.realTimeStock || 0,
-            status: stockData.status || 'active',
             ...stockData
           });
         });
 
+        console.log('📊 Total stock records fetched:', stocks.length);
+
+        // Get product IDs that have stock in this branch
+        const productsWithStockIds = new Set(stocks.map(s => s.productId).filter(Boolean));
+        console.log('🏪 Products with stock in this branch:', productsWithStockIds.size);
+
+        // Filter products: must either be in branches array OR have stock in this branch
+        const branchProducts = allProducts.filter(product => {
+          const isInBranchesArray = product.branches && 
+            Array.isArray(product.branches) && 
+            product.branches.includes(userBranch);
+          const hasStockInBranch = productsWithStockIds.has(product.id);
+          
+          const isAvailable = isInBranchesArray || hasStockInBranch;
+          
+          if (hasStockInBranch && !isInBranchesArray) {
+            console.log(`⚠️ Product "${product.name}" has stock but not in branches array - including anyway`);
+          }
+          
+          return isAvailable;
+        });
+
+        console.log('✅ Products available to this branch:', branchProducts.length);
+
         // THIRD: Merge products with stock data (using the local stocks variable)
         const productsWithStock = branchProducts.map((product) => {
           console.log('🔍 Processing product:', product.name, product.id);
-          console.log('📊 stocks:', stocks);
+          console.log('📊 All stocks for this branch:', stocks.length, 'records');
+          console.log('📊 Stocks for this product:', stocks.filter(s => s.productId === product.id));
 
           // Get ALL non-salon-use batches for this product from stocks collection
           const productAllBatches = stocks.filter(stock => {
-            const matches = stock.productId === product.id &&
-              stock.status === 'active' &&
-              stock.usageType !== 'salon-use' && // Exclude salon-use batches
-              (stock.realTimeStock || 0) > 0;
-            console.log('🔎 Stock check:', stock.productId, stock.realTimeStock, stock.status, stock.usageType, '→ matches:', matches);
+            const hasStock = (stock.realTimeStock ?? stock.remainingQuantity ?? stock.beginningStock ?? stock.quantity ?? 0) > 0;
+            const isMatchingProduct = stock.productId === product.id;
+            const isNotSalonUse = stock.usageType !== 'salon-use';
+            const matches = isMatchingProduct && isNotSalonUse && hasStock;
+            
+            // Log detailed info for debugging
+            if (isMatchingProduct) {
+              console.log(`🔎 Stock check for ${product.name}:`, {
+                stockId: stock.id,
+                productId: stock.productId,
+                realTimeStock: stock.realTimeStock,
+                remainingQuantity: stock.remainingQuantity,
+                beginningStock: stock.beginningStock,
+                quantity: stock.quantity,
+                calculatedStock: (stock.realTimeStock ?? stock.remainingQuantity ?? stock.beginningStock ?? stock.quantity ?? 0),
+                status: stock.status,
+                usageType: stock.usageType,
+                usageTypeCheck: `"${stock.usageType}" !== "salon-use" = ${isNotSalonUse}`,
+                isMatchingProduct,
+                isNotSalonUse,
+                hasStock,
+                matches
+              });
+            }
             return matches;
           });
 
-          console.log('✅ Filtered batches:', productAllBatches);
+          console.log('✅ Filtered batches for', product.name, ':', productAllBatches.length, 'batches');
+          console.log('✅ Batch details:', productAllBatches);
 
           // Calculate total stock (sum of all batches for this product)
-          const totalStock = productAllBatches.reduce((total, batch) => total + (batch.realTimeStock || 0), 0);
+          const totalStock = productAllBatches.reduce((total, batch) => {
+            const batchStock = batch.realTimeStock ?? batch.remainingQuantity ?? batch.beginningStock ?? batch.quantity ?? 0;
+            console.log(`   Adding batch stock: ${batchStock} (total now: ${total + batchStock})`);
+            return total + batchStock;
+          }, 0);
 
-          console.log('💰 Total stock for', product.name, ':', totalStock);
+          console.log('💰 FINAL Total stock for', product.name, ':', totalStock);
 
           // Get stock record for additional info
           const stock = stocks.find(s => s.productId === product.id);
@@ -706,7 +752,6 @@ const BillingModalPOS = ({
                   // Get all OTC batches for this product from stocksData
                   const productOtcBatches = stocksData.filter(stockItem =>
                     stockItem.productId === prod.productId &&
-                    stockItem.status === 'active' &&
                     stockItem.usageType !== 'salon-use' &&
                     (stockItem.realTimeStock || stockItem.remainingQuantity || 0) > 0
                   );
@@ -880,7 +925,6 @@ const BillingModalPOS = ({
                 // Get all OTC batches for this product from stocksData
                 const productOtcBatches = stocksData.filter(stockItem =>
                   stockItem.productId === item.id &&
-                  stockItem.status === 'active' &&
                   stockItem.usageType !== 'salon-use' &&
                   (stockItem.realTimeStock || stockItem.remainingQuantity || 0) > 0
                 );
@@ -1190,7 +1234,6 @@ const BillingModalPOS = ({
       if (product) {
         productOtcBatches = stocksData.filter(stockItem =>
           stockItem.productId === productId &&
-          stockItem.status === 'active' &&
           stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
           (stockItem.realTimeStock || 0) > 0
         );
@@ -1237,7 +1280,6 @@ const BillingModalPOS = ({
               // Try to get ALL non-salon-use batches for this manually loaded product
               productOtcBatches = stocksData.filter(stockItem =>
                 stockItem.productId === productId &&
-                stockItem.status === 'active' &&
                 stockItem.usageType !== 'salon-use' &&
                 (stockItem.realTimeStock || 0) > 0
               );
@@ -1529,7 +1571,6 @@ const BillingModalPOS = ({
       // Get ALL non-salon-use batches for this product from stocks collection
       const productAllBatches = stocksData.filter(stockItem =>
         stockItem.productId === product.id &&
-        stockItem.status === 'active' &&
         stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
         (stockItem.realTimeStock || 0) > 0
       );
@@ -1640,7 +1681,6 @@ const BillingModalPOS = ({
           // Get ALL non-salon-use batches from stocks collection
           const productOtcBatches = stocksData.filter(stockItem =>
             stockItem.productId === updatedItems[index].id &&
-            stockItem.status === 'active' &&
             stockItem.usageType !== 'salon-use' && // Exclude salon-use batches
             (stockItem.realTimeStock || 0) > 0
           );
@@ -2121,6 +2161,12 @@ const BillingModalPOS = ({
       }
     }
 
+    // Validate control number for Senior/PWD discounts
+    if (['Senior', 'PWD'].includes(formData.discountReason) && !formData.controlNumber.trim()) {
+      toast.error(`${formData.discountReason} ID/Control Number is required for ${formData.discountReason} discount`);
+      return;
+    }
+
     const isWalkIn = appointment?.isWalkIn || !appointment?.clientId;
 
     // Validate receipt number for billing and products-only modes
@@ -2168,6 +2214,8 @@ const BillingModalPOS = ({
       discountValue: effectiveDiscount, // Store original discount value (percentage or fixed amount)
       discount: totals?.discount || 0, // Store calculated discount amount
       discountType: formData.discountType,
+      discountReason: formData.discountReason || null, // 'Senior', 'PWD', 'Other', or null
+      controlNumber: formData.controlNumber || null, // Control number for Senior/PWD
       promotionCode: appliedPromotion ? promotionCode.trim().toUpperCase() : null,
       promotionId: appliedPromotion?.id || null,
       promotionDiscount: promotionDiscount || 0,
@@ -3765,6 +3813,23 @@ const BillingModalPOS = ({
                               </button>
                             </div>
 
+                            {/* Control Number Input - Show for Senior/PWD */}
+                            {['Senior', 'PWD'].includes(formData.discountReason) && (
+                              <div className="mt-2">
+                                <label className="block text-xs font-medium text-blue-900 mb-1">
+                                  {formData.discountReason} ID / Control Number <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  value={formData.controlNumber}
+                                  onChange={(e) => setFormData(prev => ({ ...prev, controlNumber: e.target.value }))}
+                                  className="w-full px-3 py-2 border border-blue-200 bg-white rounded-lg focus:ring-1 focus:ring-blue-500 text-sm"
+                                  placeholder={`Enter ${formData.discountReason} ID/Control Number`}
+                                  required
+                                />
+                              </div>
+                            )}
+
                             {/* Custom Discount Input - Hide for Senior/PWD */}
                             {!['Senior', 'PWD'].includes(formData.discountReason) && (
                               <div className="flex gap-2">
@@ -3785,6 +3850,21 @@ const BillingModalPOS = ({
                                   className="flex-1 px-3 py-2 border border-blue-200 bg-white rounded-lg focus:ring-1 focus:ring-blue-500 text-sm"
                                   placeholder="Enter amount"
                                 />
+                              </div>
+                            )}
+
+                            {/* Control Number Input - Show for Senior/PWD */}
+                            {['Senior', 'PWD'].includes(formData.discountReason) && (
+                              <div className="mt-2">
+                                <input
+                                  type="text"
+                                  value={formData.controlNumber}
+                                  onChange={(e) => setFormData(prev => ({ ...prev, controlNumber: e.target.value }))}
+                                  className="w-full px-3 py-2 border border-blue-200 bg-white rounded-lg focus:ring-1 focus:ring-blue-500 text-sm"
+                                  placeholder={`Enter ${formData.discountReason} ID/Control Number *`}
+                                  required
+                                />
+                                <p className="text-xs text-blue-600 mt-1">* Required for {formData.discountReason} discount</p>
                               </div>
                             )}
                           </div>

@@ -119,7 +119,7 @@ export default function Footer({ embedded = false, cmsEditMode } = {}) {
       <footer className="w-full bg-white" style={{ height: '360px', minHeight: '360px', borderTop: '1px solid #C4C4C4' }}>
         <div className="max-w-[1440px] mx-auto h-full flex flex-col justify-center px-2 sm:px-4 py-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-16 lg:gap-20 justify-items-center md:justify-items-start">
-            <div className="text-center md:text-left">
+            <div className="text-center md:text-left mt-48 md:mt-0">
               <Link to="/">
                 <img
                   src="/logo.jpg"
@@ -127,7 +127,7 @@ export default function Footer({ embedded = false, cmsEditMode } = {}) {
                   className="h-12 sm:h-16 mb-4 mx-auto md:mx-0"
                 />
               </Link>
-              <p className="text-gray-600 text-base leading-relaxed max-w-sm mx-auto md:mx-0">
+              <p className="text-gray-600 text-base leading-relaxed max-w-sm mx-auto md:mx-0 mt-8">
                 <InlineEditable
                   value={footer.description || 'Premium hair and beauty services at our Harbor Point Ayala location. We offer specialized services tailored for our local community.'}
                   onSave={handleContentUpdate}
@@ -237,7 +237,7 @@ export default function Footer({ embedded = false, cmsEditMode } = {}) {
           </div>
         </div>
 
-        <div className="mt-8 pt-8 pb-8 text-center text-base text-gray-500" style={{ borderTop: '1px solid #D4D4D4' }}>
+        <div className="mt-24 md:mt-8 pt-8 pb-8 text-center text-base text-gray-500" style={{ borderTop: '1px solid #D4D4D4' }}>
           <InlineEditable
             value={footer.copyright || "© 2025 David's Salon. All Rights Reserved."}
             onSave={handleContentUpdate}

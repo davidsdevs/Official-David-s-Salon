@@ -312,7 +312,7 @@ export default function BranchServicesPage({ embedded = false, cmsEditMode, cmsB
       )}
       
       {/* Header Section */}
-      <section className={`py-12 px-6 bg-gray-50 ${embedded ? '' : 'mt-[122px]'}`}>
+      <section className={`py-8 sm:py-12 px-4 sm:px-6 bg-gray-50 ${embedded ? '' : 'mt-[80px]'}`}>
         <div className={`max-w-6xl mx-auto text-center transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
           <h1 className="text-5xl font-poppins font-bold text-[var(--branch-primary)] mb-4">
             <InlineEditable

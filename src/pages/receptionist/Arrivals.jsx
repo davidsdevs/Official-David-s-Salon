@@ -226,13 +226,15 @@ const ReceptionistArrivals = () => {
       // Prepare bill data for printing
       const billData = {
         ...completedBill,
-        receiptNumber: completedBill.receiptNumber || 'N/A',
+        receiptNumber: completedBill.receiptNumber || completedBill.id,
         createdAt: completedBill.createdAt,
         createdByName: completedBill.createdByName || userData?.firstName || 'Staff',
         clientName: completedBill.clientName || 'Guest',
         items: completedBill.items || [],
         subtotal: completedBill.subtotal || 0,
         discount: completedBill.discount || 0,
+        discountReason: completedBill.discountReason || null,
+        controlNumber: completedBill.controlNumber || null,
         promotionDiscount: completedBill.promotionDiscount || 0,
         loyaltyDiscount: completedBill.loyaltyDiscount || 0,
         total: completedBill.total || completedBill.grandTotal || 0,
@@ -2076,11 +2078,11 @@ const ReceptionistArrivals = () => {
                         <div class="info-section">
                           <div class="info-row">
                             <span class="info-label">Receipt No:</span>
-                            <span class="info-value">#${bill.receiptNumber || 'N/A'}</span>
+                            <span class="info-value">#${bill.receiptNumber || bill.id}</span>
                           </div>
                           <div class="info-row">
                             <span class="info-label">Transaction ID:</span>
-                            <span class="info-value">${bill.id || 'N/A'}</span>
+                            <span class="info-value">${bill.id || ''}</span>
                           </div>
                           <div class="info-row">
                             <span class="info-label">Date:</span>
@@ -2142,9 +2144,15 @@ const ReceptionistArrivals = () => {
                           ` : ''}
                           ${bill.discount > 0 ? `
                           <div class="total-row discount">
-                            <span>Discount:</span>
+                            <span>${bill.discountReason === 'Senior' ? 'Senior Citizen (10%)' : bill.discountReason === 'PWD' ? 'PWD Discount (10%)' : 'Discount'}:</span>
                             <span>-${formatCurrency(bill.discount)}</span>
                           </div>
+                          ${(bill.discountReason === 'Senior' || bill.discountReason === 'PWD') && bill.controlNumber ? `
+                          <div class="total-row" style="font-size: 6pt; font-style: italic;">
+                            <span>  ID/Control No:</span>
+                            <span>${bill.controlNumber}</span>
+                          </div>
+                          ` : ''}
                           ` : ''}
                           ${bill.loyaltyPointsUsed > 0 ? `
                           <div class="total-row discount">
@@ -2192,8 +2200,8 @@ const ReceptionistArrivals = () => {
                           <div class="footer-note">This serves as your official receipt.</div>
                           <div class="footer-note">Please keep this for your records.</div>
                           <div class="footer-ids">
-                            <div>Transaction ID: ${bill.id || 'N/A'}</div>
-                            <div>Receipt No: ${bill.receiptNumber || 'N/A'}</div>
+                            <div>Transaction ID: ${bill.id || ''}</div>
+                            <div>Receipt No: ${bill.receiptNumber || bill.id}</div>
                           </div>
                         </div>
                       </div>

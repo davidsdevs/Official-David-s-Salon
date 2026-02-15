@@ -780,8 +780,8 @@ const Stocks = () => {
         const matchesStockRange = (!filters.stockRange.min || currentStock >= parseFloat(filters.stockRange.min)) &&
                                  (!filters.stockRange.max || currentStock <= parseFloat(filters.stockRange.max));
         
-        const minStock = stock.minStock || 0;
-        const matchesLowStock = !filters.lowStock || currentStock <= minStock;
+        const LOW_STOCK_THRESHOLD = 5;
+        const matchesLowStock = !filters.lowStock || stock.status === 'Low Stock';
         
         // Batch number filter - check if batch number matches (for batch stocks)
         const stockBatchNumber = stock.batchNumber || '';

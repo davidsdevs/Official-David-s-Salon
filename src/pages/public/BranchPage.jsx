@@ -604,7 +604,8 @@ export default function BranchPage({
       onClickCapture={handleEmbeddedClickCapture}
     >
       {/* Promotion Popup */}
-      {!embedded && <PromotionPopup />}
+      {/* Promotion popup disabled */}
+      {/* {!embedded && <PromotionPopup />} */}
       
       {/* Branch Navigation */}
       {!embedded && (
@@ -632,7 +633,7 @@ export default function BranchPage({
         onChange={(url) => handleContentUpdate('hero.backgroundImage', url)}
       >
         <section
-          className={`relative h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[122px]'}`}
+          className={`relative min-h-[500px] sm:min-h-[600px] md:min-h-[700px] lg:min-h-[800px] flex items-center justify-center text-center text-white ${embedded ? 'mt-0' : 'mt-[80px]'} pb-6 sm:pb-8`}
           style={{
             backgroundImage: `linear-gradient(rgba(0, 0, 0, ${heroContent.overlayOpacity || 0.6}), ${hexToRgba(heroOverlayBottomColor, heroOverlayBottomOpacity)}), url('${heroContent.backgroundImage}')`,
             backgroundSize: "cover",
@@ -675,8 +676,8 @@ export default function BranchPage({
               />
             </div>
           )}
-          <div className={`max-w-4xl px-2 sm:px-4 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-            <h1 className="font-bold mb-6 text-balance animate-pulse-slow" style={{ fontSize: '50px' }}>
+          <div className={`max-w-4xl px-4 sm:px-6 md:px-8 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+            <h1 className="font-bold mb-4 sm:mb-6 text-balance animate-pulse-slow text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
               {isSystemAdmin ? (
                 <InlineEditable
                   enabled={effectiveEditMode}
@@ -689,7 +690,7 @@ export default function BranchPage({
                 heroContent.title
               )}
             </h1>
-            <p className="text-xl mb-8 text-pretty leading-relaxed">
+            <p className="text-base sm:text-lg md:text-xl mb-6 sm:mb-8 text-pretty leading-relaxed px-2">
               {isSystemAdmin ? (
                 <InlineEditable
                   enabled={effectiveEditMode}
@@ -748,9 +749,9 @@ export default function BranchPage({
       </EditableImage>
 
       {/* Explore Our Services Section */}
-      <section id="services" className="py-16 px-6 bg-gray-50">
+      <section id="services" className="py-12 sm:py-16 px-4 sm:px-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
-          <h2 className="font-bold text-center text-[var(--branch-primary)] mb-4" style={{ fontSize: '50px' }}>
+          <h2 className="font-bold text-center text-[var(--branch-primary)] mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
             {isSystemAdmin ? (
               <InlineEditable
                 enabled={effectiveEditMode}
@@ -821,9 +822,9 @@ export default function BranchPage({
       </section>
 
       {/* Popular Services Section */}
-      <section className="py-16 px-6 bg-white">
+      <section className="py-12 sm:py-16 px-4 sm:px-6 bg-white">
         <div className="max-w-6xl mx-auto">
-          <h2 className="font-bold text-center text-[var(--branch-primary)] mb-4" style={{ fontSize: '50px' }}>
+          <h2 className="font-bold text-center text-[var(--branch-primary)] mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
             {isSystemAdmin ? (
               <InlineEditable
                 enabled={effectiveEditMode}
@@ -956,9 +957,9 @@ export default function BranchPage({
       </section>
 
       {/* Meet Our Top Stylists Section */}
-      <section id="stylists" className="py-16 px-6 bg-[var(--branch-primary)] text-white">
+      <section id="stylists" className="py-12 sm:py-16 px-4 sm:px-6 bg-[var(--branch-primary)] text-white">
         <div className="max-w-6xl mx-auto">
-          <h2 className="font-bold text-center mb-4" style={{ fontSize: '50px' }}>
+          <h2 className="font-bold text-center mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
             {isSystemAdmin ? (
               <InlineEditable
                 enabled={effectiveEditMode}
@@ -1108,9 +1109,9 @@ export default function BranchPage({
       </section>
 
       {/* Our Work Section */}
-      <section id="gallery" className="py-16 px-6 bg-gray-50">
+      <section id="gallery" className="py-12 sm:py-16 px-4 sm:px-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
-          <h2 className="font-bold text-center text-[var(--branch-primary)] mb-4" style={{ fontSize: '50px' }}>
+          <h2 className="font-bold text-center text-[var(--branch-primary)] mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
             {isSystemAdmin ? (
               <InlineEditable
                 enabled={effectiveEditMode}
@@ -1202,9 +1203,9 @@ export default function BranchPage({
       </section>
 
       {/* Testimonials Section */}
-      <section className="py-16 px-6 bg-white">
+      <section className="py-12 sm:py-16 px-4 sm:px-6 bg-white">
         <div className="max-w-6xl mx-auto">
-          <h2 className="font-bold text-center text-[var(--branch-primary)] mb-4" style={{ fontSize: '50px' }}>
+          <h2 className="font-bold text-center text-[var(--branch-primary)] mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
             {isSystemAdmin ? (
               <InlineEditable
                 enabled={effectiveEditMode}
@@ -1295,9 +1296,9 @@ export default function BranchPage({
       </section>
 
       {/* Visit Branch Section */}
-      <section className="py-16 px-6 bg-[var(--branch-cta-bg)] text-white">
+      <section className="py-12 sm:py-16 px-4 sm:px-6 bg-[var(--branch-cta-bg)] text-white">
         <div className="max-w-4xl mx-auto">
-          <h2 className="font-bold text-center mb-4" style={{ fontSize: '50px' }}>
+          <h2 className="font-bold text-center mb-4 text-3xl sm:text-4xl md:text-5xl lg:text-[50px]">
             {isSystemAdmin ? (
               <InlineEditable
                 enabled={effectiveEditMode}
@@ -1425,7 +1426,7 @@ export default function BranchPage({
       </section>
 
       {/* Contact Information Section */}
-      <section className="py-16 px-6 bg-gray-50">
+      <section className="py-12 sm:py-16 px-4 sm:px-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
           <h2 className="font-bold text-center text-[var(--branch-primary)] mb-4" style={{ fontSize: '50px' }}>
             {isSystemAdmin ? (

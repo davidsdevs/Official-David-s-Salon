@@ -284,7 +284,7 @@ export default function BranchProductsPage({ embedded = false, cmsEditMode, cmsB
       )}
       
       {/* Main Content */}
-      <main className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${embedded ? '' : 'mt-[122px]'}`}>
+      <main className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${embedded ? '' : 'mt-[80px]'}`}>
         {/* Page Header */}
         <div className={`text-center mb-8 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
           {isSystemAdmin && effectiveEditMode && (

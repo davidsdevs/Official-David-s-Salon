@@ -6,6 +6,7 @@ import { useAuth } from "../../context/AuthContext"
 import { USER_ROLES } from "../../utils/constants"
 import InlineEditable from "../cms/InlineEditable"
 import FloatingSaveButton from "../cms/FloatingSaveButton"
+import { Menu, X } from "lucide-react"
 
 export default function Navigation({ embedded = false, cmsEditMode } = {}) {
   const { userData, userRoles } = useAuth()
@@ -19,6 +20,7 @@ export default function Navigation({ embedded = false, cmsEditMode } = {}) {
   const location = useLocation()
   const navigate = useNavigate()
   const [isBranchActive, setIsBranchActive] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const [content, setContent] = useState(null)
   const [localContent, setLocalContent] = useState(null)
@@ -111,6 +113,18 @@ export default function Navigation({ embedded = false, cmsEditMode } = {}) {
   const links = nav.links || {}
   const buttons = nav.buttons || {}
 
+  // Close mobile menu when clicking outside or on link
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = 'unset'
+    }
+    return () => {
+      document.body.style.overflow = 'unset'
+    }
+  }, [isMobileMenuOpen])
+
   // Check if branches section is in view
   useEffect(() => {
     const handleScroll = () => {
@@ -186,118 +200,236 @@ export default function Navigation({ embedded = false, cmsEditMode } = {}) {
 
       <nav
         className={`w-full bg-white ${embedded ? '' : 'fixed top-0 z-50'}`}
-        style={{ height: '122px', minHeight: '122px', boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}
+        style={{ height: '80px', minHeight: '80px', boxShadow: '0 4px 4px 0 rgba(0, 0, 0, 0.25)' }}
       >
-        <div className="max-w-[1440px] mx-auto h-full flex items-center justify-between px-2 sm:px-4">
-        <div className="flex items-center">
-          <Link to="/">
+        <div className="max-w-[1440px] mx-auto h-full flex items-center justify-between px-4 sm:px-6 lg:px-8">
+          {/* Logo */}
+          <div className="flex items-center">
+            <Link to="/">
+              <img
+                src="/logo.jpg"
+                alt="David's Salon Logo"
+                className="h-10 sm:h-12 md:h-14"
+              />
+            </Link>
+          </div>
+
+          {/* Desktop Navigation Links */}
+          <div className="hidden lg:flex items-center gap-6 xl:gap-12">
+            <Link 
+              to="/" 
+              className={`font-poppins font-medium text-sm xl:text-base ${
+                isActive('/') 
+                  ? 'text-[#160B53] border-b-2 border-[#160B53] pb-1' 
+                  : 'text-gray-700 hover:text-[#160B53]'
+              }`}
+            >
+              <InlineEditable
+                value={links.home || 'HOME'}
+                onSave={handleContentUpdate}
+                fieldPath="navigation.links.home"
+                enabled={isSystemAdmin && effectiveEditMode}
+                className="font-poppins font-medium text-sm xl:text-base"
+              />
+            </Link>
+            <a 
+              href="#branches" 
+              onClick={handleBranchClick}
+              className={`font-poppins font-medium text-sm xl:text-base cursor-pointer ${
+                isBranchActive 
+                  ? 'text-[#160B53] border-b-2 border-[#160B53] pb-1' 
+                  : 'text-gray-700 hover:text-[#160B53]'
+              }`}
+            >
+              <InlineEditable
+                value={links.branch || 'BRANCH'}
+                onSave={handleContentUpdate}
+                fieldPath="navigation.links.branch"
+                enabled={isSystemAdmin && effectiveEditMode}
+                className="font-poppins font-medium text-sm xl:text-base"
+              />
+            </a>
+            <Link 
+              to="/about" 
+              className={`font-poppins font-medium text-sm xl:text-base ${
+                isActive('/about') 
+                  ? 'text-[#160B53] border-b-2 border-[#160B53] pb-1' 
+                  : 'text-gray-700 hover:text-[#160B53]'
+              }`}
+            >
+              <InlineEditable
+                value={links.about || 'ABOUT'}
+                onSave={handleContentUpdate}
+                fieldPath="navigation.links.about"
+                enabled={isSystemAdmin && effectiveEditMode}
+                className="font-poppins font-medium text-sm xl:text-base"
+              />
+            </Link>
+            <Link 
+              to="/products" 
+              className={`font-poppins font-medium text-sm xl:text-base ${
+                isActive('/products') 
+                  ? 'text-[#160B53] border-b-2 border-[#160B53] pb-1' 
+                  : 'text-gray-700 hover:text-[#160B53]'
+              }`}
+            >
+              <InlineEditable
+                value={links.products || 'PRODUCTS'}
+                onSave={handleContentUpdate}
+                fieldPath="navigation.links.products"
+                enabled={isSystemAdmin && effectiveEditMode}
+                className="font-poppins font-medium text-sm xl:text-base"
+              />
+            </Link>
+          </div>
+
+          {/* Desktop Buttons */}
+          <div className="hidden lg:flex items-center space-x-3">
+            <Link to="/register">
+              <Button 
+                variant="outline"
+                className="bg-white border-[#160B53] text-[#160B53] hover:bg-[#160B53] hover:text-white font-poppins font-semibold text-sm px-4 py-2"
+              >
+                <InlineEditable
+                  value={buttons.register || 'REGISTER'}
+                  onSave={handleContentUpdate}
+                  fieldPath="navigation.buttons.register"
+                  enabled={isSystemAdmin && effectiveEditMode}
+                  className="font-poppins font-semibold"
+                />
+              </Button>
+            </Link>
+            <Link to="/login">
+              <Button 
+                className="bg-[#160B53] hover:bg-[#160B53]/90 text-white font-poppins font-semibold text-sm px-4 py-2"
+              >
+                <InlineEditable
+                  value={buttons.login || 'LOGIN'}
+                  onSave={handleContentUpdate}
+                  fieldPath="navigation.buttons.login"
+                  enabled={isSystemAdmin && effectiveEditMode}
+                  className="font-poppins font-semibold"
+                />
+              </Button>
+            </Link>
+          </div>
+
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="lg:hidden p-2 rounded-md hover:bg-gray-100 transition-colors"
+            aria-label="Toggle menu"
+          >
+            {isMobileMenuOpen ? (
+              <X className="h-6 w-6 text-gray-700" />
+            ) : (
+              <Menu className="h-6 w-6 text-gray-700" />
+            )}
+          </button>
+        </div>
+      </nav>
+
+      {/* Mobile Menu Overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Mobile Menu Sidebar */}
+      <div
+        className={`fixed top-0 right-0 h-full w-64 sm:w-80 bg-white z-50 transform transition-transform duration-300 ease-in-out lg:hidden ${
+          isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+        style={{ boxShadow: '-4px 0 6px rgba(0, 0, 0, 0.1)' }}
+      >
+        <div className="flex flex-col h-full">
+          {/* Mobile Menu Header */}
+          <div className="flex items-center justify-between p-4 border-b">
             <img
               src="/logo.jpg"
               alt="David's Salon Logo"
-              className="h-12 sm:h-16"
+              className="h-10"
             />
-          </Link>
-        </div>
-
-        <div className="hidden md:flex items-center" style={{ gap: '50px' }}>
-          <Link 
-            to="/" 
-            className={`font-poppins font-medium text-base ${
-              isActive('/') 
-                ? 'text-[#160B53] border-b-2 border-[#160B53] pb-1' 
-                : 'text-gray-700 hover:text-[#160B53]'
-            }`}
-          >
-            <InlineEditable
-              value={links.home || 'HOME'}
-              onSave={handleContentUpdate}
-              fieldPath="navigation.links.home"
-              enabled={isSystemAdmin && effectiveEditMode}
-              className="font-poppins font-medium text-base"
-            />
-          </Link>
-          <a 
-            href="#branches" 
-            onClick={handleBranchClick}
-            className={`font-poppins font-medium text-base cursor-pointer ${
-              isBranchActive 
-                ? 'text-[#160B53] border-b-2 border-[#160B53] pb-1' 
-                : 'text-gray-700 hover:text-[#160B53]'
-            }`}
-          >
-            <InlineEditable
-              value={links.branch || 'BRANCH'}
-              onSave={handleContentUpdate}
-              fieldPath="navigation.links.branch"
-              enabled={isSystemAdmin && effectiveEditMode}
-              className="font-poppins font-medium text-base"
-            />
-          </a>
-          <Link 
-            to="/about" 
-            className={`font-poppins font-medium text-base ${
-              isActive('/about') 
-                ? 'text-[#160B53] border-b-2 border-[#160B53] pb-1' 
-                : 'text-gray-700 hover:text-[#160B53]'
-            }`}
-          >
-            <InlineEditable
-              value={links.about || 'ABOUT'}
-              onSave={handleContentUpdate}
-              fieldPath="navigation.links.about"
-              enabled={isSystemAdmin && effectiveEditMode}
-              className="font-poppins font-medium text-base"
-            />
-          </Link>
-          <Link 
-            to="/products" 
-            className={`font-poppins font-medium text-base ${
-              isActive('/products') 
-                ? 'text-[#160B53] border-b-2 border-[#160B53] pb-1' 
-                : 'text-gray-700 hover:text-[#160B53]'
-            }`}
-          >
-            <InlineEditable
-              value={links.products || 'PRODUCTS'}
-              onSave={handleContentUpdate}
-              fieldPath="navigation.links.products"
-              enabled={isSystemAdmin && effectiveEditMode}
-              className="font-poppins font-medium text-base"
-            />
-          </Link>
-        </div>
-
-        <div className="flex items-center space-x-4">
-          <Link to="/register">
-            <Button 
-              variant="outline"
-              className="bg-white border-[#160B53] text-[#160B53] hover:bg-[#160B53] hover:text-white font-poppins font-semibold"
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="p-2 rounded-md hover:bg-gray-100"
+              aria-label="Close menu"
             >
-              <InlineEditable
-                value={buttons.register || 'REGISTER'}
-                onSave={handleContentUpdate}
-                fieldPath="navigation.buttons.register"
-                enabled={isSystemAdmin && effectiveEditMode}
-                className="font-poppins font-semibold"
-              />
-            </Button>
-          </Link>
-          <Link to="/login">
-            <Button 
-              className="bg-[#160B53] hover:bg-[#160B53]/90 text-white font-poppins font-semibold"
-            >
-              <InlineEditable
-                value={buttons.login || 'LOGIN'}
-                onSave={handleContentUpdate}
-                fieldPath="navigation.buttons.login"
-                enabled={isSystemAdmin && effectiveEditMode}
-                className="font-poppins font-semibold"
-              />
-            </Button>
-          </Link>
+              <X className="h-6 w-6 text-gray-700" />
+            </button>
+          </div>
+
+          {/* Mobile Menu Links */}
+          <div className="flex-1 overflow-y-auto py-4">
+            <div className="flex flex-col space-y-1 px-4">
+              <Link
+                to="/"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`font-poppins font-medium text-base py-3 px-4 rounded-md transition-colors ${
+                  isActive('/')
+                    ? 'bg-[#160B53] text-white'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {links.home || 'HOME'}
+              </Link>
+              <a
+                href="#branches"
+                onClick={(e) => {
+                  setIsMobileMenuOpen(false)
+                  handleBranchClick(e)
+                }}
+                className="font-poppins font-medium text-base py-3 px-4 rounded-md text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                {links.branch || 'BRANCH'}
+              </a>
+              <Link
+                to="/about"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`font-poppins font-medium text-base py-3 px-4 rounded-md transition-colors ${
+                  isActive('/about')
+                    ? 'bg-[#160B53] text-white'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {links.about || 'ABOUT'}
+              </Link>
+              <Link
+                to="/products"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`font-poppins font-medium text-base py-3 px-4 rounded-md transition-colors ${
+                  isActive('/products')
+                    ? 'bg-[#160B53] text-white'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {links.products || 'PRODUCTS'}
+              </Link>
+            </div>
+          </div>
+
+          {/* Mobile Menu Footer - Login/Register */}
+          <div className="border-t p-4 space-y-3">
+            <Link to="/register" onClick={() => setIsMobileMenuOpen(false)} className="block">
+              <Button 
+                variant="outline"
+                className="w-full border-[#160B53] text-[#160B53] hover:bg-[#160B53] hover:text-white font-poppins font-semibold"
+              >
+                {buttons.register || 'REGISTER'}
+              </Button>
+            </Link>
+            <Link to="/login" onClick={() => setIsMobileMenuOpen(false)} className="block">
+              <Button 
+                className="w-full bg-[#160B53] hover:bg-[#160B53]/90 text-white font-poppins font-semibold"
+              >
+                {buttons.login || 'LOGIN'}
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
-    </nav>
     </>
   )
 }

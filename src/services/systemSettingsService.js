@@ -124,8 +124,11 @@ export const updateSystemSettings = async (settingsData, currentUser) => {
                     'Unknown User';
     
     // Convert date strings to Timestamps if present
+    // Remove fields that shouldn't be in Firestore update
+    const { id, createdAt, updatedAt: oldUpdatedAt, ...cleanSettingsData } = settingsData;
+    
     const updateData = {
-      ...settingsData,
+      ...cleanSettingsData,
       updatedBy: userId,
       updatedByName: userName,
       updatedAt: Timestamp.now()
@@ -134,11 +137,22 @@ export const updateSystemSettings = async (settingsData, currentUser) => {
     // Handle date fields
     if (settingsData.birPermitDateIssued && typeof settingsData.birPermitDateIssued === 'string') {
       updateData.birPermitDateIssued = Timestamp.fromDate(new Date(settingsData.birPermitDateIssued));
+    } else if (settingsData.birPermitDateIssued === '' || settingsData.birPermitDateIssued === undefined) {
+      delete updateData.birPermitDateIssued;
     }
     
     if (settingsData.dateEstablished && typeof settingsData.dateEstablished === 'string') {
       updateData.dateEstablished = Timestamp.fromDate(new Date(settingsData.dateEstablished));
+    } else if (settingsData.dateEstablished === '' || settingsData.dateEstablished === undefined) {
+      delete updateData.dateEstablished;
     }
+    
+    // Remove all undefined values from updateData
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
     
     if (snapshot.empty) {
       // Create new settings document
