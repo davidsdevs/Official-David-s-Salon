@@ -107,21 +107,35 @@ const Commissions = () => {
         const billData = doc.data();
         const items = billData.items || [];
         
-        // Extract product items with commissions
+        // Extract ALL items with commissions (services and products)
         items.forEach((item, itemIndex) => {
           
           if (item.type === 'product') {
-            // Commission data is stored at the ITEM level, not in batches
-            // Check if item has commission data
-            const hasCommissionData = item.commissionerId && item.commissionPoints != null && item.commissionPoints > 0;
+            // Check if this product has a commissioner
+            const hasCommissioner = item.commissionerId;
             
-            if (hasCommissionData) {
+            if (hasCommissioner) {
+              const totalItemQuantity = item.quantity || 1;
+              const itemPrice = item.price || 0;
+              const lineTotal = itemPrice * totalItemQuantity;
+              
+              // Calculate commission
+              let totalCommissionPoints;
+              if (item.commissionPoints != null && item.commissionPoints > 0) {
+                totalCommissionPoints = item.commissionPoints;
+              } else {
+                // Use the product's commission percentage (should be stored in item)
+                const commissionPercent = item.commissionPercentage || 0;
+                if (commissionPercent === 0) {
+                  console.warn('Product missing commissionPercentage:', item.name, item);
+                }
+                totalCommissionPoints = (lineTotal * commissionPercent) / 100;
+              }
+              
               // Commission data is stored at item level
               // If item has batches, distribute commission proportionally across batches
               // Otherwise, create a single commission record
               const batches = item.batches || [];
-              const totalItemQuantity = item.quantity || 1;
-              const totalCommissionPoints = item.commissionPoints || 0;
               
               if (batches.length > 0) {
                 // Calculate total quantity across all batches
@@ -150,7 +164,7 @@ const Commissions = () => {
                     batchNumber: batch.batchNumber || '',
                     quantity: batchQuantity,
                     unitCost: batch.unitCost || item.unitCost || 0,
-                    commissionPercentage: item.commissionPercentage || 0,
+                    commissionPercentage: item.commissionPercentage || 10,
                     commissionerId: item.commissionerId,
                     commissionerName: item.commissionerName || 'Unknown',
                     commissionPoints: Math.round(batchCommissionPoints * 100) / 100, // Round to 2 decimals
@@ -176,23 +190,40 @@ const Commissions = () => {
                   batchNumber: '',
                   quantity: totalItemQuantity,
                   unitCost: item.unitCost || 0,
-                  commissionPercentage: item.commissionPercentage || 0,
+                  commissionPercentage: item.commissionPercentage || 10,
                   commissionerId: item.commissionerId,
                   commissionerName: item.commissionerName || 'Unknown',
                   commissionPoints: totalCommissionPoints,
                   clientName: billData.clientName || 'Walk-in',
                   receiptNumber: billData.receiptNumber || 'N/A',
-                  totalAmount: item.price || 0
+                  totalAmount: itemPrice
                 };
                 
                 transactionsData.push(transaction);
               }
             }
           } else if (item.type === 'service') {
-            // Service commissions
-            const hasCommissionData = item.commissionerId && item.commissionPoints != null && item.commissionPoints > 0;
+            // Service commissions - check if stylist is assigned
+            const hasStylist = item.stylistId || billData.stylistId;
             
-            if (hasCommissionData) {
+            if (hasStylist) {
+              const quantity = item.quantity || 1;
+              const itemPrice = item.price || 0;
+              const lineTotal = itemPrice * quantity;
+              
+              // Calculate commission
+              let commissionPoints;
+              if (item.commissionPoints != null && item.commissionPoints > 0) {
+                commissionPoints = item.commissionPoints;
+              } else {
+                // Use the service's commission percentage (should be stored in item)
+                const commissionPercent = item.commissionPercentage || 0;
+                if (commissionPercent === 0) {
+                  console.warn('Service missing commissionPercentage:', item.name, item);
+                }
+                commissionPoints = (lineTotal * commissionPercent) / 100;
+              }
+              
               const transaction = {
                 id: `${doc.id}-service-${item.id || itemIndex}`,
                 billId: doc.id,
@@ -204,15 +235,15 @@ const Commissions = () => {
                 serviceId: item.id || '',
                 batchId: '',
                 batchNumber: '',
-                quantity: item.quantity || 1,
-                unitCost: item.price || 0,
-                commissionPercentage: item.commissionPercentage || 0,
-                commissionerId: item.commissionerId,
-                commissionerName: item.commissionerName || 'Unknown',
-                commissionPoints: item.commissionPoints || 0,
+                quantity: quantity,
+                unitCost: itemPrice,
+                commissionPercentage: item.commissionPercentage || 60,
+                commissionerId: item.stylistId || billData.stylistId,
+                commissionerName: item.stylistName || billData.stylistName || 'Unknown',
+                commissionPoints: commissionPoints,
                 clientName: billData.clientName || 'Walk-in',
                 receiptNumber: billData.receiptNumber || 'N/A',
-                totalAmount: (item.price || 0) * (item.quantity || 1)
+                totalAmount: lineTotal
               };
               
               transactionsData.push(transaction);

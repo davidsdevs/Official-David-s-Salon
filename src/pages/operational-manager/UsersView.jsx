@@ -316,53 +316,248 @@ const UsersView = () => {
       return;
     }
 
+    // Build filters display
+    const activeFilters = [];
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    if (filters.role !== 'all') activeFilters.push(`Role: ${ROLE_LABELS[filters.role] || filters.role}`);
+    if (filters.status !== 'all') activeFilters.push(`Status: ${filters.status === 'active' ? 'Active' : 'Inactive'}`);
+    if (filters.branch !== 'all') {
+      const branchName = branches.find(b => b.id === filters.branch)?.name || filters.branch;
+      activeFilters.push(`Branch: ${branchName}`);
+    }
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Users';
+
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Users Report</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            h1 { color: #1f2937; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
-            th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-            th { background-color: #f3f4f6; font-weight: bold; }
-            .badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; }
-            .active { background-color: #dcfce7; color: #166534; }
-            .inactive { background-color: #fee2e2; color: #991b1b; }
-            .footer { margin-top: 20px; font-size: 11px; color: #6b7280; }
+            @media print {
+              @page {
+                size: A4 portrait;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 0;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 14px;
+              font-weight: 600;
+              margin: 0 0 5px 0;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 16px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .user-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .user-header {
+              background: #fff;
+              padding: 8px 12px;
+              border-bottom: 1px solid #333;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .user-name {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .status-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+              border: 1px solid #333;
+              background: #fff;
+              color: #000;
+            }
+            .user-body {
+              padding: 10px 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+            }
+            .info-row {
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+              font-size: 9px;
+            }
+            .info-label {
+              font-weight: 600;
+              display: inline-block;
+              width: 80px;
+            }
+            .info-value {
+              color: #333;
+            }
+            .footer {
+              position: fixed;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              padding: 10px 0.4in;
+              border-top: 2px solid #333;
+              font-size: 8px;
+              background: #fff;
+            }
+            .footer-content {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+            }
+            .footer-left, .footer-right {
+              flex: 1;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
           </style>
         </head>
         <body>
-          <h1>Users Report</h1>
-          <p>Generated: ${new Date().toLocaleString()}</p>
-          <p>Total Users: ${users.length}</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Branch</th>
-                <th>Status</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${users.map(user => `
-                <tr>
-                  <td>${getFullName(user)}</td>
-                  <td>${user.email || 'N/A'}</td>
-                  <td>${ROLE_LABELS[user.role] || user.role || 'N/A'}</td>
-                  <td>${user.branchId ? (branches.find(b => b.id === user.branchId)?.name || user.branchId) : 'N/A'}</td>
-                  <td><span class="badge ${user.isActive ? 'active' : 'inactive'}">${user.isActive ? 'Active' : 'Inactive'}</span></td>
-                  <td>${formatDate(user.createdAt)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Users Report</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">${stats.total}</div>
+              <div class="stat-label">Total Users</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.active}</div>
+              <div class="stat-label">Active</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.inactive}</div>
+              <div class="stat-label">Inactive</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.staff}</div>
+              <div class="stat-label">Staff Members</div>
+            </div>
+          </div>
+          
+          ${users.map(user => `
+            <div class="user-card">
+              <div class="user-header">
+                <div class="user-name">${getFullName(user)}</div>
+                <span class="status-badge">${user.isActive ? 'Active' : 'Inactive'}</span>
+              </div>
+              
+              <div class="user-body">
+                <div class="info-grid">
+                  <div class="info-row">
+                    <span class="info-label">Email:</span>
+                    <span class="info-value">${user.email || 'N/A'}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Role:</span>
+                    <span class="info-value">${ROLE_LABELS[user.role] || user.role || 'N/A'}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Branch:</span>
+                    <span class="info-value">${user.branchId ? (branches.find(b => b.id === user.branchId)?.name || user.branchId) : 'N/A'}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">Created:</span>
+                    <span class="info-value">${formatDate(user.createdAt)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+          
           <div class="footer">
-            <p>Printed from DSMS - David's Salon Management System</p>
+            <div class="footer-content">
+              <div class="footer-left">
+                <strong>Generated By:</strong> Operational Manager<br>
+                <strong>Position:</strong> Operational Manager<br>
+                <strong>Branch:</strong> All Branches
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+              </div>
+            </div>
           </div>
         </body>
       </html>

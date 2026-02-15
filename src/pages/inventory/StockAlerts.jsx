@@ -311,75 +311,302 @@ const StockAlerts = () => {
   };
 
   // Print all alerts
-  const handlePrintAll = () => {
+  const handlePrintAll = async () => {
+    // Get branch name if not available in userData
+    let branchName = userData?.branchName || 'N/A';
+    if (branchName === 'N/A' && userData?.branchId) {
+      try {
+        const { getBranchById } = await import('../../services/branchService');
+        const branch = await getBranchById(userData.branchId);
+        branchName = branch?.name || branch?.branchName || 'N/A';
+      } catch (error) {
+        console.error('Error fetching branch name:', error);
+        branchName = 'N/A';
+      }
+    }
+
+    // Build filters display
+    const activeFilters = [];
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    if (filters.priority !== 'all') activeFilters.push(`Priority: ${filters.priority}`);
+    if (filters.status !== 'all') activeFilters.push(`Status: ${filters.status}`);
+    if (filters.branch !== 'all') {
+      const branch = branches.find(b => b.id === filters.branch);
+      if (branch) activeFilters.push(`Branch: ${branch.name || branch.branchName}`);
+    }
+    if (filters.alertType !== 'all') activeFilters.push(`Alert Type: ${filters.alertType}`);
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Stock Alerts';
+
     const printWindow = window.open('', '', 'height=600,width=800');
     
     let htmlContent = `
       <html>
         <head>
           <title>Stock Alerts Report</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h1 { text-align: center; color: #333; }
-            .alert-section { page-break-inside: avoid; margin-bottom: 20px; border: 1px solid #ddd; padding: 15px; }
-            .alert-header { background-color: #f5f5f5; padding: 10px; margin-bottom: 10px; border-radius: 4px; }
-            .alert-name { font-size: 16px; font-weight: bold; color: #333; }
-            .priority-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px; }
-            .priority-critical { background-color: #fee; color: #c33; }
-            .priority-high { background-color: #fef3cd; color: #856404; }
-            .priority-medium { background-color: #fff3cd; color: #856404; }
-            .priority-low { background-color: #d1ecf1; color: #0c5460; }
-            .info-row { margin: 8px 0; }
-            .info-label { font-weight: bold; color: #555; display: inline-block; width: 120px; }
-            .stock-critical { color: #c33; font-weight: bold; }
-            .stock-warning { color: #ff9800; font-weight: bold; }
+            @media print {
+              @page {
+                size: A4 portrait;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 10px;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 22px;
+              font-weight: 700;
+              margin: 0 0 5px 0;
+            }
+            .header h2 {
+              font-size: 16px;
+              font-weight: 600;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 16px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .alert-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .alert-header {
+              background: #f5f5f5;
+              padding: 8px 12px;
+              border-bottom: 1px solid #333;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .alert-name {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .priority-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+              border: 1px solid #333;
+              background: #fff;
+              color: #000;
+            }
+            .alert-body {
+              padding: 10px 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+            }
+            .info-row {
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+              font-size: 9px;
+            }
+            .info-label {
+              font-weight: 600;
+              display: inline-block;
+              width: 100px;
+            }
+            .info-value {
+              color: #333;
+            }
+            .stock-critical {
+              color: #000;
+              font-weight: 700;
+            }
+            .stock-warning {
+              color: #000;
+              font-weight: 700;
+            }
+            .footer {
+              margin-top: 20px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
+              color: #666;
+            }
+            .footer-center p {
+              margin: 3px 0;
+            }
           </style>
         </head>
         <body>
-          <h1>Stock Alerts Report</h1>
-          <p style="text-align: center; color: #666;">Generated on ${format(new Date(), 'MMMM dd, yyyy HH:mm:ss')}</p>
-          <p style="text-align: center; color: #999; font-size: 12px;">Total Active Alerts: ${filteredAlerts.length}</p>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Stock Alerts Report</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">${alertStats.totalAlerts}</div>
+              <div class="stat-label">Total Alerts</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${alertStats.criticalAlerts}</div>
+              <div class="stat-label">Critical</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${alertStats.highPriorityAlerts}</div>
+              <div class="stat-label">High Priority</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">₱${alertStats.totalValue.toLocaleString()}</div>
+              <div class="stat-label">Total Value</div>
+            </div>
+          </div>
     `;
 
     filteredAlerts.forEach(alert => {
-      const priorityClass = `priority-${alert.priority.toLowerCase()}`;
       const stockClass = alert.currentStock === 0 ? 'stock-critical' : 'stock-warning';
       
       htmlContent += `
-        <div class="alert-section">
+        <div class="alert-card">
           <div class="alert-header">
-            <div class="alert-name">
-              ${alert.productName}
-              <span class="priority-badge ${priorityClass}">${alert.priority}</span>
-            </div>
+            <div class="alert-name">${alert.productName}</div>
+            <span class="priority-badge">${alert.priority}</span>
           </div>
           
-          <div class="info-row">
-            <span class="info-label">Current Stock:</span> <span class="${stockClass}">${alert.currentStock} units</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Minimum Stock:</span> ${alert.minStock} units
-          </div>
-          <div class="info-row">
-            <span class="info-label">Maximum Stock:</span> ${alert.maxStock} units
-          </div>
-          <div class="info-row">
-            <span class="info-label">Branch:</span> ${alert.branchName || getBranchName(alert.branchId)}
-          </div>
-          <div class="info-row">
-            <span class="info-label">Alert Type:</span> ${alert.alertType}
-          </div>
-          <div class="info-row">
-            <span class="info-label">Total Value:</span> ₱${alert.totalValue.toLocaleString()}
-          </div>
-          <div class="info-row">
-            <span class="info-label">Created:</span> ${format(new Date(alert.createdAt), 'MMM dd, yyyy HH:mm')}
+          <div class="alert-body">
+            <div class="info-grid">
+              <div class="info-row">
+                <span class="info-label">Current Stock:</span>
+                <span class="${stockClass}">${alert.currentStock} units</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Min Stock:</span>
+                <span class="info-value">${alert.minStock} units</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Max Stock:</span>
+                <span class="info-value">${alert.maxStock} units</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Branch:</span>
+                <span class="info-value">${alert.branchName || getBranchName(alert.branchId)}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Alert Type:</span>
+                <span class="info-value">${alert.alertType}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Total Value:</span>
+                <span class="info-value">₱${alert.totalValue.toLocaleString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Brand:</span>
+                <span class="info-value">${alert.brand || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Created:</span>
+                <span class="info-value">${format(new Date(alert.createdAt), 'MMM dd, yyyy HH:mm')}</span>
+              </div>
+            </div>
           </div>
         </div>
       `;
     });
 
     htmlContent += `
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Inventory Controller'}<br>
+                <strong>Position:</strong> Inventory Controller<br>
+                <strong>Branch:</strong> ${branchName}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm')}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600;">Stock Alerts Report - ${filteredAlerts.length} Alerts Total</p>
+            </div>
+          </div>
         </body>
       </html>
     `;

@@ -327,32 +327,216 @@ const ExpiryTracker = () => {
   };
 
   // Print all batches
-  const handlePrintAll = () => {
+  const handlePrintAll = async () => {
+    // Get branch name if not available in userData
+    let branchName = userData?.branchName || 'N/A';
+    if (branchName === 'N/A' && userData?.branchId) {
+      try {
+        const { getBranchById } = await import('../../services/branchService');
+        const branch = await getBranchById(userData.branchId);
+        branchName = branch?.name || branch?.branchName || 'N/A';
+      } catch (error) {
+        console.error('Error fetching branch name:', error);
+        branchName = 'N/A';
+      }
+    }
+
+    // Build filters display
+    const activeFilters = [];
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    if (selectedStatus !== 'all') activeFilters.push(`Status: ${selectedStatus}`);
+    if (selectedDaysAhead) activeFilters.push(`Days Ahead: ${selectedDaysAhead} days`);
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Batches';
+
     const printWindow = window.open('', '', 'height=600,width=800');
     
     let htmlContent = `
+      <!DOCTYPE html>
       <html>
         <head>
           <title>Batch Expiration Report</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h1 { text-align: center; color: #333; }
-            .batch-section { page-break-inside: avoid; margin-bottom: 20px; border: 1px solid #ddd; padding: 15px; }
-            .batch-header { background-color: #f5f5f5; padding: 10px; margin-bottom: 10px; border-radius: 4px; }
-            .batch-name { font-size: 16px; font-weight: bold; color: #333; }
-            .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px; }
-            .status-good { background-color: #d4edda; color: #155724; }
-            .status-expiring { background-color: #fff3cd; color: #856404; }
-            .status-critical { background-color: #ffe5e5; color: #c33; }
-            .status-expired { background-color: #f8d7da; color: #721c24; }
-            .info-row { margin: 8px 0; }
-            .info-label { font-weight: bold; color: #555; display: inline-block; width: 140px; }
+            @media print {
+              @page {
+                size: letter;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 0;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+            }
+            .header h1 {
+              font-size: 14px;
+              font-weight: 600;
+              margin: 0 0 5px 0;
+              letter-spacing: 1px;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 8px;
+              border: 1px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 16px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .batch-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .batch-header {
+              background: #fff;
+              padding: 8px 12px;
+              border-bottom: 1px solid #333;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .batch-name {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .status-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+              border: 1px solid #333;
+              background: #fff;
+              color: #000;
+            }
+            .batch-body {
+              padding: 10px 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+            }
+            .info-row {
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+              font-size: 9px;
+            }
+            .info-label {
+              font-weight: 600;
+              display: inline-block;
+              width: 110px;
+            }
+            .info-value {
+              color: #333;
+            }
+            .footer {
+              position: fixed;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              padding: 10px 0.4in;
+              border-top: 2px solid #333;
+              font-size: 8px;
+              background: #fff;
+            }
+            .footer-content {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+            }
+            .footer-left, .footer-right {
+              flex: 1;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
           </style>
         </head>
         <body>
-          <h1>Batch Expiration Report</h1>
-          <p style="text-align: center; color: #666;">Generated on ${format(new Date(), 'MMMM dd, yyyy HH:mm:ss')}</p>
-          <p style="text-align: center; color: #999; font-size: 12px;">Total Batches: ${filteredBatches.length}</p>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Batch Expiration Report</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">${stats.totalBatches}</div>
+              <div class="stat-label">Total Batches</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.goodBatches}</div>
+              <div class="stat-label">Good</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.expiringSoon}</div>
+              <div class="stat-label">Expiring Soon</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.expired}</div>
+              <div class="stat-label">Expired</div>
+            </div>
+          </div>
     `;
 
     filteredBatches.forEach(batch => {
@@ -361,46 +545,68 @@ const ExpiryTracker = () => {
         ? differenceInDays(batch.expirationDate, new Date())
         : null;
       const batchValue = (batch.remainingQuantity || 0) * (batch.unitCost || 0);
-      const statusClass = `status-${status.toLowerCase().replace(/\s+/g, '-')}`;
       
       htmlContent += `
-        <div class="batch-section">
+        <div class="batch-card">
           <div class="batch-header">
-            <div class="batch-name">
-              ${batch.productName || productsMap[batch.productId] || 'Unknown Product'}
-              <span class="status-badge ${statusClass}">${status}</span>
-            </div>
+            <div class="batch-name">${batch.productName || productsMap[batch.productId] || 'Unknown Product'}</div>
+            <span class="status-badge">${status}</span>
           </div>
           
-          <div class="info-row">
-            <span class="info-label">Batch Number:</span> ${batch.batchNumber || 'N/A'}
-          </div>
-          <div class="info-row">
-            <span class="info-label">Purchase Order:</span> ${batch.purchaseOrderId || 'N/A'}
-          </div>
-          <div class="info-row">
-            <span class="info-label">Quantity:</span> ${batch.remainingQuantity || 0} / ${batch.quantity || 0} units
-          </div>
-          <div class="info-row">
-            <span class="info-label">Expiration Date:</span> ${batch.expirationDate ? format(new Date(batch.expirationDate), 'MMM dd, yyyy') : 'No Expiry'}
-          </div>
-          <div class="info-row">
-            <span class="info-label">Days Left:</span> ${daysLeft === null ? 'N/A' : daysLeft < 0 ? 'Expired' : `${daysLeft} days`}
-          </div>
-          <div class="info-row">
-            <span class="info-label">Unit Cost:</span> ₱${(batch.unitCost || 0).toLocaleString()}
-          </div>
-          <div class="info-row">
-            <span class="info-label">Total Value:</span> ₱${batchValue.toLocaleString()}
-          </div>
-          <div class="info-row">
-            <span class="info-label">Received Date:</span> ${batch.receivedDate ? format(new Date(batch.receivedDate), 'MMM dd, yyyy') : 'N/A'}
+          <div class="batch-body">
+            <div class="info-grid">
+              <div class="info-row">
+                <span class="info-label">Batch Number:</span>
+                <span class="info-value">${batch.batchNumber || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Purchase Order:</span>
+                <span class="info-value">${batch.purchaseOrderId || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Quantity:</span>
+                <span class="info-value">${batch.remainingQuantity || 0} / ${batch.quantity || 0} units</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Expiration Date:</span>
+                <span class="info-value">${batch.expirationDate ? format(new Date(batch.expirationDate), 'MMM dd, yyyy') : 'No Expiry'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Days Left:</span>
+                <span class="info-value">${daysLeft === null ? 'N/A' : daysLeft < 0 ? 'Expired' : `${daysLeft} days`}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Unit Cost:</span>
+                <span class="info-value">₱${(batch.unitCost || 0).toLocaleString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Total Value:</span>
+                <span class="info-value">₱${batchValue.toLocaleString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Received Date:</span>
+                <span class="info-value">${batch.receivedDate ? format(new Date(batch.receivedDate), 'MMM dd, yyyy') : 'N/A'}</span>
+              </div>
+            </div>
           </div>
         </div>
       `;
     });
 
     htmlContent += `
+          <div class="footer">
+            <div class="footer-content">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Inventory Controller'}<br>
+                <strong>Position:</strong> Inventory Controller<br>
+                <strong>Branch:</strong> ${branchName}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
+          </div>
         </body>
       </html>
     `;

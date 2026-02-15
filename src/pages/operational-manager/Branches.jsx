@@ -156,6 +156,306 @@ const OperationalManagerBranches = () => {
     fetchBranches();
   };
 
+  const handlePrint = () => {
+    if (filteredBranches.length === 0) {
+      toast.error('No branches to print');
+      return;
+    }
+
+    // Build filters display
+    const activeFilters = [];
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    if (statusFilter !== 'all') activeFilters.push(`Status: ${statusFilter === 'active' ? 'Active' : 'Inactive'}`);
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Branches';
+
+    const printWindow = window.open('', '', 'height=600,width=800');
+    
+    let htmlContent = `
+      <html>
+        <head>
+          <title>Branch Management Report</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            @media print {
+              @page {
+                size: A4 portrait;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 0;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 14px;
+              font-weight: 600;
+              margin: 0 0 5px 0;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 16px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .branch-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .branch-header {
+              background: #fff;
+              padding: 8px 12px;
+              border-bottom: 1px solid #333;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .branch-name {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .status-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+              border: 1px solid #333;
+              background: #fff;
+              color: #000;
+            }
+            .branch-body {
+              padding: 10px 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+              margin-bottom: 8px;
+            }
+            .info-row {
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+              font-size: 9px;
+            }
+            .info-label {
+              font-weight: 600;
+              display: inline-block;
+              width: 80px;
+            }
+            .info-value {
+              color: #333;
+            }
+            .stats-grid {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 8px;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ddd;
+            }
+            .stat-item {
+              text-align: center;
+              padding: 6px;
+              border: 1px solid #ddd;
+            }
+            .stat-item-value {
+              font-size: 11px;
+              font-weight: 700;
+              color: #000;
+            }
+            .stat-item-label {
+              font-size: 7px;
+              color: #666;
+              text-transform: uppercase;
+            }
+            .footer {
+              position: fixed;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              padding: 10px 0.4in;
+              border-top: 2px solid #333;
+              font-size: 8px;
+              background: #fff;
+            }
+            .footer-content {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+            }
+            .footer-left, .footer-right {
+              flex: 1;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Branch Management Report</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">${totalBranches}</div>
+              <div class="stat-label">Total Branches</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${activeBranches}</div>
+              <div class="stat-label">Active</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${totalStaff}</div>
+              <div class="stat-label">Total Staff</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">₱${totalYearlyRevenue.toLocaleString()}</div>
+              <div class="stat-label">Yearly Revenue</div>
+            </div>
+          </div>
+    `;
+
+    filteredBranches.forEach(branch => {
+      const stats = branchStats[branch.id] || {};
+      htmlContent += `
+        <div class="branch-card">
+          <div class="branch-header">
+            <div class="branch-name">${branch.name || branch.branchName}</div>
+            <span class="status-badge">${branch.isActive === true ? 'Active' : 'Inactive'}</span>
+          </div>
+          
+          <div class="branch-body">
+            <div class="info-grid">
+              <div class="info-row">
+                <span class="info-label">Address:</span>
+                <span class="info-value">${branch.address || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Contact:</span>
+                <span class="info-value">${branch.contact || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Email:</span>
+                <span class="info-value">${branch.email || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Manager:</span>
+                <span class="info-value">${branch.managerName || 'N/A'}</span>
+              </div>
+            </div>
+            
+            <div class="stats-grid">
+              <div class="stat-item">
+                <div class="stat-item-value">${stats.staffCount || 0}</div>
+                <div class="stat-item-label">Staff</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-item-value">${stats.appointmentsCount || 0}</div>
+                <div class="stat-item-label">Appointments</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-item-value">₱${(stats.yearlyRevenue || 0).toLocaleString()}</div>
+                <div class="stat-item-label">Yearly Revenue</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    htmlContent += `
+          <div class="footer">
+            <div class="footer-content">
+              <div class="footer-left">
+                <strong>Generated By:</strong> Operational Manager<br>
+                <strong>Position:</strong> Operational Manager<br>
+                <strong>Branch:</strong> All Branches
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -265,6 +565,14 @@ const OperationalManagerBranches = () => {
             title="Add Branch"
           >
             <Plus className="w-5 h-5" />
+          </button>
+          
+          <button
+            onClick={handlePrint}
+            className="p-2.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+            title="Print Report"
+          >
+            <Printer className="w-5 h-5" />
           </button>
           
           <button

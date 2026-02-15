@@ -617,10 +617,15 @@ const PurchaseOrders = () => {
   // Get status color
   const getStatusColor = (status) => {
     switch (status) {
+    case 'Pending Branch Approval': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
+    case 'Pending Overall Approval': return 'text-blue-600 bg-blue-100 border-blue-200';
     case 'Pending': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
-    case 'Approved': return 'text-blue-600 bg-blue-100 border-blue-200';
+    case 'Approved': return 'text-green-600 bg-green-100 border-green-200';
+    case 'In Transit': return 'text-purple-600 bg-purple-100 border-purple-200';
     case 'Shipped': return 'text-purple-600 bg-purple-100 border-purple-200';
     case 'Delivered': return 'text-green-600 bg-green-100 border-green-200';
+    case 'Rejected by Branch': return 'text-red-600 bg-red-100 border-red-200';
+    case 'Rejected by Overall': return 'text-rose-700 bg-rose-100 border-rose-200';
     case 'Cancelled': return 'text-red-600 bg-red-100 border-red-200';
     case 'Overdue': return 'text-red-600 bg-red-100 border-red-200';
     default: return 'text-gray-600 bg-gray-100 border-gray-200';
@@ -630,10 +635,15 @@ const PurchaseOrders = () => {
   // Get status icon
   const getStatusIcon = (status) => {
     switch (status) {
+    case 'Pending Branch Approval': return <Clock className="h-4 w-4" />;
+    case 'Pending Overall Approval': return <Clock className="h-4 w-4" />;
     case 'Pending': return <Clock className="h-4 w-4" />;
     case 'Approved': return <CheckCircle className="h-4 w-4" />;
+    case 'In Transit': return <Truck className="h-4 w-4" />;
     case 'Shipped': return <Truck className="h-4 w-4" />;
     case 'Delivered': return <CheckCircle className="h-4 w-4" />;
+    case 'Rejected by Branch': return <XCircle className="h-4 w-4" />;
+    case 'Rejected by Overall': return <XCircle className="h-4 w-4" />;
     case 'Cancelled': return <XCircle className="h-4 w-4" />;
     case 'Overdue': return <AlertTriangle className="h-4 w-4" />;
     default: return <Clock className="h-4 w-4" />;
@@ -644,7 +654,7 @@ const PurchaseOrders = () => {
   const orderStats = useMemo(() => {
     return {
     totalOrders: purchaseOrders.length,
-    pendingOrders: purchaseOrders.filter(o => o.status === 'Pending').length,
+    pendingOrders: purchaseOrders.filter(o => o.status === 'Pending Branch Approval' || o.status === 'Pending').length,
     deliveredOrders: purchaseOrders.filter(o => o.status === 'Delivered').length,
     overdueOrders: purchaseOrders.filter(o => o.status === 'Overdue').length,
     totalValue: purchaseOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0)
@@ -665,12 +675,12 @@ const PurchaseOrders = () => {
       setError(null);
       const orderRef = doc(db, 'purchaseOrders', pendingOrderId);
       await updateDoc(orderRef, {
-        status: 'Approved',
-        approvedBy: userData.uid || userData.id,
-        approvedByName: (userData.firstName && userData.lastName 
+        status: 'Pending Overall Approval',
+        branchApprovedBy: userData.uid || userData.id,
+        branchApprovedByName: (userData.firstName && userData.lastName 
           ? `${userData.firstName} ${userData.lastName}`.trim() 
           : (userData.email || 'Unknown')),
-        approvedAt: serverTimestamp(),
+        branchApprovedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
       await loadPurchaseOrders();
@@ -707,13 +717,13 @@ const PurchaseOrders = () => {
       setIsProcessing(true);
       const orderRef = doc(db, 'purchaseOrders', selectedOrder.id);
       await updateDoc(orderRef, {
-        status: 'Cancelled',
-        rejectedBy: userData.uid || userData.id,
-        rejectedByName: (userData.firstName && userData.lastName 
+        status: 'Rejected by Branch',
+        branchRejectedBy: userData.uid || userData.id,
+        branchRejectedByName: (userData.firstName && userData.lastName 
           ? `${userData.firstName} ${userData.lastName}`.trim() 
           : (userData.email || 'Unknown')),
-        rejectedAt: serverTimestamp(),
-        rejectionNote: rejectionNote.trim(),
+        branchRejectedAt: serverTimestamp(),
+        branchRejectionNote: rejectionNote.trim(),
         updatedAt: serverTimestamp()
       });
       await loadPurchaseOrders();
@@ -731,7 +741,7 @@ const PurchaseOrders = () => {
 
   // Check if order can be approved/rejected
   const canApproveOrReject = (order) => {
-    return order.status === 'Pending';
+    return order.status === 'Pending Branch Approval';
   };
 
   // Handle open details modal

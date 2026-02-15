@@ -1019,12 +1019,18 @@ const LeaveManagement = () => {
         <style>{`
           @media print {
             @page {
-              size: A4;
-              margin: 0.75in;
+              size: letter;
+              margin: 0.4in 0.4in 0.75in 0.4in;
+            }
+            body {
+              counter-reset: page 1;
             }
             * {
               color: #000 !important;
               background: transparent !important;
+            }
+            .page-number-display::before {
+              content: "Page " counter(page);
             }
           }
         `}</style>
@@ -1032,73 +1038,125 @@ const LeaveManagement = () => {
           fontFamily: "'Poppins', sans-serif",
           color: '#000',
           background: '#fff',
-          padding: '20px'
+          padding: '0'
         }}>
           {/* Header */}
           <div style={{ 
             textAlign: 'center',
-            marginBottom: '30px',
-            borderBottom: '2px solid #000',
-            paddingBottom: '15px'
+            marginBottom: '20px',
+            borderBottom: '2px solid #333',
+            paddingBottom: '10px'
           }}>
+            <div style={{ fontSize: '14pt', fontWeight: 600, marginBottom: '8px' }}>
+              David Salon
+            </div>
             <h1 style={{ 
-              fontSize: '24px',
+              fontSize: '18pt',
               fontWeight: 'bold',
               marginBottom: '10px',
-              letterSpacing: '1px'
+              letterSpacing: '0.5px',
+              margin: '0 0 10px 0'
             }}>
-              LEAVE MANAGEMENT REPORT
+              Leave Management Report
             </h1>
-            <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
-              {branchInfo?.branchName || branchInfo?.name || 'Branch'}
-            </div>
-            <div style={{ 
-              fontSize: '11px',
-              marginTop: '12px',
-              display: 'flex',
-              justifyContent: 'space-between'
-            }}>
-              <div style={{ textAlign: 'left' }}>
-                <div>Printed by: {currentUser ? getFullName(currentUser) : 'Manager'}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div>Printed: {new Date().toLocaleString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric', 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
-                })}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Summary Stats */}
-          <div style={{ 
-            marginBottom: '20px',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
-            gap: '10px'
-          }}>
-            <div style={{ border: '1px solid #000', padding: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '5px' }}>{pendingRequests.length}</div>
-              <div style={{ fontSize: '11px' }}>Pending</div>
-            </div>
-            <div style={{ border: '1px solid #000', padding: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '5px' }}>{approvedRequests.length}</div>
-              <div style={{ fontSize: '11px' }}>Approved</div>
-            </div>
-            <div style={{ border: '1px solid #000', padding: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '5px' }}>{rejectedRequests.length}</div>
-              <div style={{ fontSize: '11px' }}>Rejected</div>
-            </div>
-            <div style={{ border: '1px solid #000', padding: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '5px' }}>{cancelledRequests.length}</div>
-              <div style={{ fontSize: '11px' }}>Cancelled</div>
-            </div>
-            <div style={{ border: '1px solid #000', padding: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '5px' }}>{filteredAndSortedRequests.length}</div>
-              <div style={{ fontSize: '11px' }}>Total</div>
+            
+            {/* Active Filters */}
+            <div style={{ marginTop: '10px', fontSize: '9pt' }}>
+              <strong>Active Filters:</strong>
+              <span style={{ 
+                display: 'inline-block',
+                padding: '2px 8px',
+                margin: '2px 4px',
+                backgroundColor: '#f0f0f0',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                fontSize: '8pt'
+              }}>
+                Branch: {branchInfo?.branchName || branchInfo?.name || 'Branch'}
+              </span>
+              {statusFilter !== 'all' && (
+                <span style={{ 
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  margin: '2px 4px',
+                  backgroundColor: '#f0f0f0',
+                  border: '1px solid #ccc',
+                  borderRadius: '4px',
+                  fontSize: '8pt'
+                }}>
+                  Status: {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
+                </span>
+              )}
+              {typeFilter !== 'all' && (
+                <span style={{ 
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  margin: '2px 4px',
+                  backgroundColor: '#f0f0f0',
+                  border: '1px solid #ccc',
+                  borderRadius: '4px',
+                  fontSize: '8pt'
+                }}>
+                  Type: {LEAVE_TYPES.find(t => t.value === typeFilter)?.label || typeFilter}
+                </span>
+              )}
+              {searchTerm && (
+                <span style={{ 
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  margin: '2px 4px',
+                  backgroundColor: '#f0f0f0',
+                  border: '1px solid #ccc',
+                  borderRadius: '4px',
+                  fontSize: '8pt'
+                }}>
+                  Search: "{searchTerm}"
+                </span>
+              )}
+              <span style={{ 
+                display: 'inline-block',
+                padding: '2px 8px',
+                margin: '2px 4px',
+                backgroundColor: '#f0f0f0',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                fontSize: '8pt'
+              }}>
+                Pending: {pendingRequests.length}
+              </span>
+              <span style={{ 
+                display: 'inline-block',
+                padding: '2px 8px',
+                margin: '2px 4px',
+                backgroundColor: '#f0f0f0',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                fontSize: '8pt'
+              }}>
+                Approved: {approvedRequests.length}
+              </span>
+              <span style={{ 
+                display: 'inline-block',
+                padding: '2px 8px',
+                margin: '2px 4px',
+                backgroundColor: '#f0f0f0',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                fontSize: '8pt'
+              }}>
+                Rejected: {rejectedRequests.length}
+              </span>
+              <span style={{ 
+                display: 'inline-block',
+                padding: '2px 8px',
+                margin: '2px 4px',
+                backgroundColor: '#f0f0f0',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                fontSize: '8pt'
+              }}>
+                Total: {filteredAndSortedRequests.length}
+              </span>
             </div>
           </div>
 
@@ -1106,24 +1164,24 @@ const LeaveManagement = () => {
           <table style={{
             width: '100%',
             borderCollapse: 'collapse',
-            border: '1px solid #000',
-            fontSize: '11px'
+            marginBottom: '20px',
+            fontSize: '9pt'
           }}>
             <thead>
               <tr>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Employee</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Type</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Start Date</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>End Date</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Days</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Status</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Reason</th>
+                <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'left', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>Employee</th>
+                <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>Type</th>
+                <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>Start Date</th>
+                <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>End Date</th>
+                <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>Days</th>
+                <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>Status</th>
+                <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'left', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>Reason</th>
               </tr>
             </thead>
             <tbody>
               {filteredAndSortedRequests.length === 0 ? (
                 <tr>
-                  <td colSpan="7" style={{ border: '1px solid #000', padding: '20px', textAlign: 'center' }}>
+                  <td colSpan="7" style={{ border: '1px solid #666', padding: '20px', textAlign: 'center' }}>
                     No leave requests found
                   </td>
                 </tr>
@@ -1132,45 +1190,29 @@ const LeaveManagement = () => {
                   const typeInfo = getLeaveTypeInfo(request.type);
                   const employeeName = getEmployeeName(request.employeeId);
                   const isOwnRequest = request.employeeId === currentUser.uid;
-                  
-                  // Status colors
-                  let statusBg = '#fef3c7';
-                  let statusText = '#854d0e';
-                  if (request.status === 'approved') {
-                    statusBg = '#d1fae5';
-                    statusText = '#065f46';
-                  } else if (request.status === 'rejected') {
-                    statusBg = '#fee2e2';
-                    statusText = '#991b1b';
-                  } else if (request.status === 'cancelled') {
-                    statusBg = '#f3f4f6';
-                    statusText = '#374151';
-                  }
 
                   return (
                     <tr key={request.id} style={{ pageBreakInside: 'avoid' }}>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px' }}>
+                      <td style={{ border: '1px solid #666', padding: '6px 8px' }}>
                         {employeeName}
-                        {isOwnRequest && <span style={{ fontSize: '9px', color: '#666', display: 'block' }}>(My Request)</span>}
+                        {isOwnRequest && <span style={{ fontSize: '8pt', color: '#666', display: 'block' }}>(My Request)</span>}
                       </td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{typeInfo.label}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{formatDate(request.startDate, 'MMM dd, yyyy')}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{formatDate(request.endDate, 'MMM dd, yyyy')}</td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>{request.days || 'N/A'}</td>
+                      <td style={{ border: '1px solid #666', padding: '6px 8px', textAlign: 'center' }}>{typeInfo.label}</td>
+                      <td style={{ border: '1px solid #666', padding: '6px 8px', textAlign: 'center' }}>{formatDate(request.startDate, 'MMM dd, yyyy')}</td>
+                      <td style={{ border: '1px solid #666', padding: '6px 8px', textAlign: 'center' }}>{formatDate(request.endDate, 'MMM dd, yyyy')}</td>
+                      <td style={{ border: '1px solid #666', padding: '6px 8px', textAlign: 'center' }}>{request.days || 'N/A'}</td>
                       <td style={{ 
-                        border: '1px solid #000', 
-                        padding: '10px 8px', 
+                        border: '1px solid #666', 
+                        padding: '6px 8px', 
                         textAlign: 'center',
-                        backgroundColor: statusBg,
-                        color: statusText,
                         fontWeight: '600'
                       }}>
                         {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
                       </td>
-                      <td style={{ border: '1px solid #000', padding: '10px 8px', fontSize: '10px' }}>
+                      <td style={{ border: '1px solid #666', padding: '6px 8px', fontSize: '8pt' }}>
                         {request.reason || 'N/A'}
                         {request.status === 'rejected' && request.rejectionReason && (
-                          <div style={{ marginTop: '5px', color: '#991b1b', fontSize: '9px' }}>
+                          <div style={{ marginTop: '5px', color: '#991b1b', fontSize: '7pt' }}>
                             Rejection: {request.rejectionReason}
                           </div>
                         )}
@@ -1182,9 +1224,42 @@ const LeaveManagement = () => {
             </tbody>
           </table>
 
-          {/* Footer */}
-          <div className="mt-4 pt-2 border-t border-black text-center" style={{ fontSize: '11px', marginTop: '16px', paddingTop: '8px', borderTop: '1px solid #000' }}>
-            <p>Total: {filteredAndSortedRequests.length} | Pending: {pendingRequests.length} | Approved: {approvedRequests.length} | Rejected: {rejectedRequests.length} | Cancelled: {cancelledRequests.length}</p>
+          {/* Footer with metadata and page number */}
+          <div style={{
+            position: 'fixed',
+            bottom: '0',
+            left: '0',
+            right: '0',
+            padding: '8px 0.4in 2in 0.4in',
+            borderTop: '1px solid #333'
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              fontSize: '8pt',
+              marginBottom: '40px'
+            }}>
+              <div style={{ textAlign: 'left', flex: 1 }}>
+                <div>Generated by: <strong>{currentUser ? getFullName(currentUser) : 'Manager'}</strong></div>
+              </div>
+              <div style={{ textAlign: 'center', flex: 1 }}>
+                <span className="page-number-display"></span>
+              </div>
+              <div style={{ textAlign: 'right', flex: 1 }}>
+                <div>Generated on: <strong>{new Date().toLocaleString('en-US', {
+                  month: 'short',
+                  day: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: true
+                })}</strong></div>
+              </div>
+            </div>
+            <div style={{ textAlign: 'center', fontSize: '7pt', color: '#666' }}>
+              © 2025 David's Salon. All Rights Reserved.
+            </div>
           </div>
         </div>
       </div>

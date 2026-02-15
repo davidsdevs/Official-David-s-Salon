@@ -133,58 +133,317 @@ const ProductSales = () => {
 
   // Print function
   const handlePrint = () => {
-    const printWindow = window.open('', '', 'height=600,width=900');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Product Sales Report</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 20px; font-size: 11px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background-color: #f4f4f4; }
-            h1 { font-size: 18px; margin-bottom: 10px; }
-            .summary { margin-bottom: 20px; }
-            .summary span { margin-right: 20px; }
-          </style>
-        </head>
-        <body>
-          <h1>Product Sales Report</h1>
-          <p>Generated: ${format(new Date(), 'PPpp')}</p>
-          <div class="summary">
-            <span><strong>Total Transactions:</strong> ${totalTransactions}</span>
-            <span><strong>Products Sold:</strong> ${totalProductsSold}</span>
-            <span><strong>Total Revenue:</strong> ₱${totalRevenue.toLocaleString()}</span>
+    if (productTransactions.length === 0) {
+      alert('No data to print. Please wait for transactions to load.');
+      return;
+    }
+
+    try {
+      const printWindow = window.open('', '', 'height=600,width=900');
+      
+      if (!printWindow) {
+        alert('Please allow pop-ups to print the report');
+        return;
+      }
+
+      // Build filters text
+      const filters = [];
+      if (dateFilter !== 'all') filters.push(`Date Range: Last ${dateFilter} days`);
+      if (branchFilter !== 'all') {
+        const branch = branches.find(b => b.id === branchFilter);
+        if (branch) filters.push(`Branch: ${branch.name || branch.branchName}`);
+      }
+      const filtersText = filters.length > 0 ? filters.join(' • ') : 'No filters applied';
+
+      // Calculate stats
+      const productOnlyCount = productTransactions.filter(t => t.salesType === 'product').length;
+      const mixedCount = productTransactions.filter(t => t.salesType === 'mixed').length;
+
+      let htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Product Sales Report</title>
+            <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+            <style>
+              @media print {
+                @page {
+                  size: letter;
+                  margin: 0.4in 0.4in 0.75in 0.4in;
+                }
+              }
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                font-family: 'Poppins', Arial, sans-serif;
+              }
+              body {
+                font-family: 'Poppins', Arial, sans-serif;
+                padding: 0;
+                color: #000;
+                font-size: 9px;
+              }
+              .header {
+                text-align: center;
+                margin-bottom: 15px;
+              }
+              .header h1 {
+                font-size: 14px;
+                font-weight: 600;
+                margin: 0 0 5px 0;
+                letter-spacing: 1px;
+              }
+              .header h2 {
+                font-size: 18px;
+                font-weight: 700;
+                margin: 0;
+              }
+              .filters {
+                background: #fff;
+                padding: 8px;
+                border: 1px solid #333;
+                margin: 10px 0 15px 0;
+                text-align: center;
+              }
+              .filters-title {
+                font-size: 10px;
+                font-weight: 700;
+                margin-bottom: 5px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+              }
+              .filters-content {
+                font-size: 9px;
+                font-weight: 600;
+              }
+              .summary-stats {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 10px;
+                margin: 15px 0;
+              }
+              .stat-box {
+                text-align: center;
+                padding: 10px;
+                background: #fff;
+                border: 1px solid #333;
+              }
+              .stat-value {
+                font-size: 16px;
+                font-weight: 700;
+                color: #000;
+                margin-bottom: 3px;
+              }
+              .stat-label {
+                font-size: 9px;
+                color: #000;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                font-weight: 600;
+              }
+              .transaction-card {
+                border: 1px solid #333;
+                margin-bottom: 10px;
+                background: #fff;
+                page-break-inside: avoid;
+              }
+              .transaction-header {
+                background: #fff;
+                padding: 8px 12px;
+                border-bottom: 1px solid #333;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+              }
+              .transaction-id {
+                font-size: 11px;
+                font-weight: 700;
+              }
+              .type-badge {
+                padding: 2px 8px;
+                border-radius: 4px;
+                font-size: 8px;
+                font-weight: 600;
+                text-transform: uppercase;
+                border: 1px solid #333;
+                background: #fff;
+                color: #000;
+              }
+              .transaction-body {
+                padding: 10px 12px;
+              }
+              .info-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+              }
+              .info-row {
+                padding: 4px 0;
+                border-bottom: 1px dotted #ddd;
+                font-size: 9px;
+              }
+              .info-label {
+                font-weight: 600;
+                display: inline-block;
+                width: 110px;
+              }
+              .info-value {
+                color: #333;
+              }
+              .products-section {
+                margin-top: 8px;
+                padding-top: 8px;
+                border-top: 1px solid #ddd;
+              }
+              .products-title {
+                font-weight: 700;
+                font-size: 9px;
+                margin-bottom: 5px;
+                text-transform: uppercase;
+              }
+              .product-item {
+                padding: 3px 0;
+                font-size: 8px;
+                border-bottom: 1px dotted #eee;
+              }
+              .footer {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                padding: 10px 0.4in;
+                border-top: 2px solid #333;
+                font-size: 8px;
+                background: #fff;
+              }
+              .footer-content {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+              }
+              .footer-left, .footer-right {
+                flex: 1;
+              }
+              .footer-left {
+                text-align: left;
+              }
+              .footer-right {
+                text-align: right;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>DAVID'S SALON</h1>
+              <h2>Product Sales Report - All Branches</h2>
+            </div>
+            
+            <div class="filters">
+              <div class="filters-title">FILTERS APPLIED</div>
+              <div class="filters-content">${filtersText}</div>
+            </div>
+
+            <div class="summary-stats">
+              <div class="stat-box">
+                <div class="stat-value">${totalTransactions}</div>
+                <div class="stat-label">Total Transactions</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">${totalProductsSold}</div>
+                <div class="stat-label">Products Sold</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">₱${totalRevenue.toLocaleString()}</div>
+                <div class="stat-label">Total Revenue</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">${productOnlyCount}</div>
+                <div class="stat-label">Product Only</div>
+              </div>
+            </div>
+      `;
+
+      productTransactions.forEach(transaction => {
+        const transactionDate = format(transaction.createdAt, 'MMM dd, yyyy HH:mm');
+        const typeLabel = transaction.salesType === 'product' ? 'Product Only' : 'With Service';
+        
+        htmlContent += `
+          <div class="transaction-card">
+            <div class="transaction-header">
+              <div class="transaction-id">${transaction.id}</div>
+              <span class="type-badge">${typeLabel}</span>
+            </div>
+            
+            <div class="transaction-body">
+              <div class="info-grid">
+                <div class="info-row">
+                  <span class="info-label">Date:</span>
+                  <span class="info-value">${transactionDate}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Branch:</span>
+                  <span class="info-value">${transaction.branchName}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Client:</span>
+                  <span class="info-value">${transaction.clientName || 'Walk-in'}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Total Qty:</span>
+                  <span class="info-value">${transaction.totalProductQty} items</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Product Value:</span>
+                  <span class="info-value">₱${transaction.totalProductValue.toLocaleString()}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Total Amount:</span>
+                  <span class="info-value">₱${(transaction.total || 0).toLocaleString()}</span>
+                </div>
+              </div>
+              
+              <div class="products-section">
+                <div class="products-title">Products (${transaction.productItems.length})</div>
+                ${transaction.productItems.map(item => `
+                  <div class="product-item">
+                    • ${item.name} - Qty: ${item.quantity} × ₱${(item.price || 0).toLocaleString()} = ₱${((item.price || 0) * (item.quantity || 0)).toLocaleString()}
+                  </div>
+                `).join('')}
+              </div>
+            </div>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Transaction ID</th>
-                <th>Branch</th>
-                <th>Products</th>
-                <th>Qty</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${productTransactions.map(t => `
-                <tr>
-                  <td>${format(t.createdAt, 'MMM dd, yyyy HH:mm')}</td>
-                  <td>${t.id.slice(0, 8)}...</td>
-                  <td>${t.branchName}</td>
-                  <td>${t.productItems.map(p => p.name).join(', ')}</td>
-                  <td>${t.totalProductQty}</td>
-                  <td>₱${t.totalProductValue.toLocaleString()}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
+        `;
+      });
+
+      htmlContent += `
+            <div class="footer">
+              <div class="footer-content">
+                <div class="footer-left">
+                  <strong>Generated By:</strong> Overall Inventory Controller<br>
+                  <strong>Position:</strong> Overall Inventory Controller<br>
+                  <strong>Branch:</strong> Overall Inventory
+                </div>
+                <div class="footer-right">
+                  <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                  <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    } catch (error) {
+      console.error('Print error:', error);
+      alert('Failed to print. Please try again.');
+    }
   };
 
   return (

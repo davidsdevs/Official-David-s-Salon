@@ -768,7 +768,7 @@ const PurchaseOrders = () => {
         const purchaseOrderData = {
           ...cleanedData,
           orderId: orderId || '',
-          status: 'Pending',
+          status: 'Pending Branch Approval',
           createdBy: userData.uid || userData.id,
           createdByName: (userData.firstName && userData.lastName
             ? `${userData.firstName} ${userData.lastName}`.trim()
@@ -884,10 +884,14 @@ const PurchaseOrders = () => {
   // Get status color
   const getStatusColor = (status) => {
     switch (status) {
+      case 'Pending Branch Approval': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
+      case 'Pending Overall Approval': return 'text-blue-600 bg-blue-100 border-blue-200';
       case 'Pending': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
       case 'Received': return 'text-blue-600 bg-blue-100 border-blue-200';
       case 'Approved': return 'text-green-600 bg-green-100 border-green-200';
       case 'In Transit': return 'text-purple-600 bg-purple-100 border-purple-200';
+      case 'Rejected by Branch': return 'text-red-600 bg-red-100 border-red-200';
+      case 'Rejected by Overall': return 'text-rose-700 bg-rose-100 border-rose-200';
       case 'Rejected': return 'text-red-600 bg-red-100 border-red-200';
       case 'Shipped': return 'text-purple-600 bg-purple-100 border-purple-200';
       case 'Delivered': return 'text-green-600 bg-green-100 border-green-200';
@@ -900,10 +904,14 @@ const PurchaseOrders = () => {
   // Get status icon
   const getStatusIcon = (status) => {
     switch (status) {
+      case 'Pending Branch Approval': return <Clock className="h-4 w-4" />;
+      case 'Pending Overall Approval': return <Clock className="h-4 w-4" />;
       case 'Pending': return <Clock className="h-4 w-4" />;
       case 'Received': return <CheckCircle className="h-4 w-4" />;
       case 'Approved': return <CheckCircle className="h-4 w-4" />;
       case 'In Transit': return <Truck className="h-4 w-4" />;
+      case 'Rejected by Branch': return <XCircle className="h-4 w-4" />;
+      case 'Rejected by Overall': return <XCircle className="h-4 w-4" />;
       case 'Rejected': return <XCircle className="h-4 w-4" />;
       case 'Shipped': return <Truck className="h-4 w-4" />;
       case 'Delivered': return <CheckCircle className="h-4 w-4" />;
@@ -917,7 +925,7 @@ const PurchaseOrders = () => {
   const orderStats = useMemo(() => {
     return {
       totalOrders: purchaseOrders.length,
-      pendingOrders: purchaseOrders.filter(o => o.status === 'Pending').length,
+      pendingOrders: purchaseOrders.filter(o => o.status === 'Pending Branch Approval' || o.status === 'Pending Overall Approval' || o.status === 'Pending').length,
       approvedOrders: purchaseOrders.filter(o => o.status === 'Approved' || o.status === 'In Transit').length,
       deliveredOrders: purchaseOrders.filter(o => o.status === 'Delivered').length,
       overdueOrders: purchaseOrders.filter(o => o.status === 'Overdue').length,
@@ -963,7 +971,7 @@ const PurchaseOrders = () => {
           orderId: order.orderId || order.id || 'N/A',
           orderDate: orderDate ? format(orderDate, 'MMM dd, yyyy') : 'N/A',
           supplierName: order.supplierName || 'N/A',
-          status: order.status || 'Pending',
+          status: order.status || 'Pending Branch Approval',
           totalAmount: order.totalAmount || 0,
           itemsCount: itemsCount,
           expectedDelivery: expectedDelivery ? format(expectedDelivery, 'MMM dd, yyyy') : 'N/A',
@@ -1673,7 +1681,91 @@ David's Salon`;
       return;
     }
 
-    // Default: Summary Report for multiple orders
+    // Default: Summary Report for multiple orders - CARD BASED FORMAT
+    // Calculate summary statistics
+    const totalOrders = ordersToPrint.length;
+    const totalAmount = ordersToPrint.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    const statusCounts = ordersToPrint.reduce((acc, order) => {
+      acc[order.status] = (acc[order.status] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Build filters display
+    const activeFilters = [];
+    if (selectedStatus !== 'all') activeFilters.push(`Status: ${selectedStatus}`);
+    if (selectedSupplierFilter !== 'all') {
+      const supplier = suppliers.find(s => s.id === selectedSupplierFilter);
+      if (supplier) activeFilters.push(`Supplier: ${supplier.name}`);
+    }
+    if (dateFilterStart || dateFilterEnd) {
+      activeFilters.push(`Date: ${dateFilterStart || 'Start'} to ${dateFilterEnd || 'End'}`);
+    }
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Purchase Orders';
+
+    // Generate order cards for summary page
+    const orderCards = ordersToPrint.map((order, idx) => {
+      const orderDate = order.orderDate
+        ? (order.orderDate.toDate ? order.orderDate.toDate() : new Date(order.orderDate))
+        : null;
+      const expectedDelivery = order.expectedDelivery
+        ? (order.expectedDelivery.toDate ? order.expectedDelivery.toDate() : new Date(order.expectedDelivery))
+        : null;
+      const items = order.items || [];
+
+      return `
+        <div class="order-card">
+          <div class="order-card-header">
+            <div>
+              <span class="order-number">#${idx + 1}</span>
+              <span class="order-id">${order.orderId || order.id}</span>
+            </div>
+            <span class="status-badge status-${(order.status || 'pending').toLowerCase().replace(/\s+/g, '-')}">${order.status || 'Pending'}</span>
+          </div>
+          <div class="order-card-body">
+            <div class="order-card-row">
+              <span class="label">Supplier:</span>
+              <span class="value">${order.supplierName || 'Unknown'}</span>
+            </div>
+            <div class="order-card-row">
+              <span class="label">Order Date:</span>
+              <span class="value">${orderDate ? format(orderDate, 'MMM dd, yyyy') : 'N/A'}</span>
+            </div>
+            <div class="order-card-row">
+              <span class="label">Expected Delivery:</span>
+              <span class="value">${expectedDelivery ? format(expectedDelivery, 'MMM dd, yyyy') : 'N/A'}</span>
+            </div>
+            <div class="order-card-row">
+              <span class="label">Items:</span>
+              <span class="value">${items.length} ${items.length === 1 ? 'item' : 'items'}</span>
+            </div>
+            ${order.notes ? `
+            <div class="order-card-row">
+              <span class="label">Notes:</span>
+              <span class="value notes">${order.notes}</span>
+            </div>
+            ` : ''}
+            ${includeDetails && items.length > 0 ? `
+            <div class="items-detail">
+              <div class="items-detail-title">Order Items:</div>
+              ${items.map(item => `
+                <div class="item-detail-row">
+                  <span class="item-name">${item.productName || item.name || 'Unknown'}</span>
+                  <span class="item-qty">Qty: ${item.quantity || 0}</span>
+                  <span class="item-price">₱${((item.quantity || 0) * (item.unitPrice || item.price || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                </div>
+              `).join('')}
+            </div>
+            ` : ''}
+            <div class="order-card-row total">
+              <span class="label">Total Amount:</span>
+              <span class="value">₱${(order.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
     const printContent = `
       <!DOCTYPE html>
       <html>
@@ -1682,138 +1774,305 @@ David's Salon`;
           <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
           <style>
             @media print {
-              @page { margin: 1cm; }
+              @page { 
+                size: A4 portrait;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
             }
-            body { font-family: 'Poppins', Arial, sans-serif; padding: 20px; color: #333; }
-            h1 { color: #160B53; margin-bottom: 5px; font-size: 24px; }
-            .report-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #160B53; padding-bottom: 15px; margin-bottom: 20px; }
-            .header-info p { margin: 2px 0; font-size: 12px; color: #666; }
-            
-            .filters-section { background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #e9ecef; margin-bottom: 20px; font-size: 12px; }
-            .filters-title { font-weight: bold; color: #160B53; margin-bottom: 8px; text-transform: uppercase; font-size: 11px; }
-            .filter-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-            .filter-item { display: flex; flex-direction: column; }
-            .filter-label { color: #888; font-size: 10px; margin-bottom: 2px; }
-            .filter-value { font-weight: 500; color: #333; }
-            
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
-            th, td { border: 1px solid #ddd; padding: 10px 8px; text-align: left; }
-            th { background-color: #160B53; color: white; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
-            tr:nth-child(even) { background-color: #f8f9fa; }
-            
-            .status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
-            .status-pending { background: #fef3c7; color: #92400e; }
-            .status-approved { background: #dbeafe; color: #1e40af; }
-            .status-received { background: #d1fae5; color: #065f46; }
-            .status-in-transit { background: #ede9fe; color: #5b21b6; }
-            .status-delivered { background: #dcfce7; color: #166534; }
-            .status-rejected { background: #fee2e2; color: #991b1b; }
-            .status-cancelled { background: #f3f4f6; color: #374151; }
-            
-            .totals-row { font-weight: bold; background-color: #f3f4f6; }
-            .footer { margin-top: 40px; border-top: 1px solid #eee; padding-top: 15px; font-size: 10px; color: #999; display: flex; justify-content: space-between; }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body { 
+              font-family: 'Poppins', Arial, sans-serif; 
+              padding: 10px; 
+              color: #000; 
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 22px;
+              font-weight: 700;
+              margin: 0 0 5px 0;
+            }
+            .header h2 {
+              font-size: 16px;
+              font-weight: 600;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 12px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 18px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .orders-list {
+              margin: 15px 0;
+            }
+            .orders-list h3 {
+              font-size: 12px;
+              font-weight: 700;
+              margin-bottom: 10px;
+              text-transform: uppercase;
+            }
+            .order-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .order-card-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 8px 12px;
+              background: #f5f5f5;
+              border-bottom: 1px solid #333;
+            }
+            .order-number {
+              font-weight: 700;
+              font-size: 10px;
+              margin-right: 8px;
+            }
+            .order-id {
+              font-family: monospace;
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .status-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+            }
+            .status-pending, .status-created { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+            .status-approved { background: #DBEAFE; color: #1E40AF; border: 1px solid #93C5FD; }
+            .status-ordered, .status-in-transit { background: #E0E7FF; color: #3730A3; border: 1px solid #A5B4FC; }
+            .status-delivered, .status-received { background: #D1FAE5; color: #065F46; border: 1px solid #6EE7B7; }
+            .status-cancelled, .status-rejected { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; }
+            .order-card-body {
+              padding: 10px 12px;
+            }
+            .order-card-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+            }
+            .order-card-row:last-child {
+              border-bottom: none;
+            }
+            .order-card-row.total {
+              margin-top: 5px;
+              padding-top: 8px;
+              border-top: 2px solid #333;
+              border-bottom: none;
+            }
+            .order-card-row .label {
+              font-weight: 600;
+              font-size: 9px;
+            }
+            .order-card-row .value {
+              font-size: 9px;
+            }
+            .order-card-row .value.notes {
+              font-style: italic;
+              color: #666;
+              max-width: 60%;
+              text-align: right;
+            }
+            .order-card-row.total .label {
+              font-size: 10px;
+              font-weight: 700;
+            }
+            .order-card-row.total .value {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .items-detail {
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #e0e0e0;
+            }
+            .items-detail-title {
+              font-size: 9px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+            }
+            .item-detail-row {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 3px 0;
+              font-size: 8px;
+              background: #f9f9f9;
+              padding: 4px 6px;
+              margin-bottom: 2px;
+              border-radius: 2px;
+            }
+            .item-name {
+              flex: 1;
+              font-weight: 600;
+            }
+            .item-qty {
+              margin: 0 10px;
+              color: #666;
+            }
+            .item-price {
+              font-weight: 600;
+              font-family: monospace;
+            }
+            .grand-total {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 12px 15px;
+              background: #fff;
+              border: 2px solid #333;
+              margin: 15px 0;
+            }
+            .grand-total-label {
+              font-size: 12px;
+              font-weight: 700;
+              text-transform: uppercase;
+            }
+            .grand-total-value {
+              font-size: 14px;
+              font-weight: 700;
+            }
+            .footer {
+              margin-top: 20px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
+              color: #666;
+            }
+            .footer-center p {
+              margin: 3px 0;
+            }
           </style>
         </head>
         <body>
-          <div class="report-header">
-            <div>
-              <h1>Purchase Orders Report</h1>
-              <div class="header-info">
-                <p><strong>Branch:</strong> ${userData?.branchName || 'N/A'}</p>
-                <p><strong>Total Orders:</strong> ${ordersToPrint.length}</p>
-                <p><strong>Total Value:</strong> ₱${ordersToPrint.reduce((sum, o) => sum + (o.totalAmount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-              </div>
-            </div>
-            <div style="text-align: right; font-size: 12px; color: #666;">
-              <p>Generated on: ${format(new Date(), 'MMM dd, yyyy HH:mm')}</p>
-              <p>Generated by: ${userData?.firstName} ${userData?.lastName}</p>
-            </div>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Purchase Orders Summary</h2>
           </div>
-
-          <div class="filters-section">
-            <div class="filters-title">Report Parameters</div>
-            <div class="filter-grid">
-              <div class="filter-item">
-                <span class="filter-label">Status Filter</span>
-                <span class="filter-value">${selectedStatus === 'all' ? 'All Statuses' : selectedStatus}</span>
-              </div>
-              <div class="filter-item">
-                <span class="filter-label">Supplier Filter</span>
-                <span class="filter-value">${selectedSupplierFilter === 'all' ? 'All Suppliers' : (suppliers.find(s => s.id === selectedSupplierFilter)?.name || 'Unknown')}</span>
-              </div>
-              <div class="filter-item">
-                <span class="filter-label">Date Range</span>
-                <span class="filter-value">${dateFilterStart || dateFilterEnd ? `${dateFilterStart || 'Start'} to ${dateFilterEnd || 'End'}` : 'All Dates'}</span>
-              </div>
-              <div class="filter-item">
-                <span class="filter-label">Search Term</span>
-                <span class="filter-value">${searchTerm || '-'}</span>
-              </div>
-            </div>
-          </div>
-
-          <table>
-            <thead>
-              <tr>
-                <th>Order ID</th>
-                <th>Supplier</th>
-                <th>Order Date</th>
-                <th>Status</th>
-                <th>Total Amount</th>
-                ${includeDetails ? '<th>Product Details</th>' : '<th>Items</th>'}
-                <th>Expected Delivery</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${ordersToPrint.map(order => {
-                const orderDate = order.orderDate
-                  ? (order.orderDate.toDate ? order.orderDate.toDate() : new Date(order.orderDate))
-                  : null;
-                const expectedDelivery = order.expectedDelivery
-                  ? (order.expectedDelivery.toDate ? order.expectedDelivery.toDate() : new Date(order.expectedDelivery))
-                  : null;
-
-                return `
-                  <tr>
-                    <td><strong>${order.orderId || order.id}</strong></td>
-                    <td>${order.supplierName || 'N/A'}</td>
-                    <td>${orderDate ? format(orderDate, 'MMM dd, yyyy') : 'N/A'}</td>
-                    <td><span class="status-badge status-${(order.status || 'pending').toLowerCase().replace(' ', '-')}">${order.status || 'Pending'}</span></td>
-                    <td style="font-family: monospace;">₱${(order.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td>
-                      ${includeDetails ? `
-                        ${order.items && order.items.length > 0 ? `
-                          <div style="display: flex; flex-direction: column; gap: 4px;">
-                          ${order.items.map(item => `
-                            <div style="padding: 4px; background-color: rgba(0,0,0,0.02); border-radius: 3px; font-size: 10px;">
-                              <div style="font-weight: 600;">${item.productName || item.name || 'Unknown Product'}</div>
-                              <div style="display: flex; justify-content: space-between; color: #666;">
-                                <span>Qty: ${item.quantity || 0}</span>
-                                <span>₱${((item.quantity || 0) * (item.unitPrice || item.price || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                              </div>
-                            </div>
-                          `).join('')}
-                          </div>
-                        ` : 'No items'}
-                      ` : `${order.items ? order.items.length : 0} items`}
-                    </td>
-                    <td>${expectedDelivery ? format(expectedDelivery, 'MMM dd, yyyy') : 'N/A'}</td>
-                    <td style="font-style: italic; color: #666;">${order.notes || ''}</td>
-                  </tr>
-                `;
-              }).join('')}
-              <tr class="totals-row">
-                <td colspan="4" style="text-align: right;">GRAND TOTAL</td>
-                <td style="font-family: monospace;">₱${ordersToPrint.reduce((sum, o) => sum + (o.totalAmount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                <td colspan="3"></td>
-              </tr>
-            </tbody>
-          </table>
           
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+
+          <!-- Summary Statistics -->
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">${totalOrders}</div>
+              <div class="stat-label">Total Orders</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+              <div class="stat-label">Total Amount</div>
+            </div>
+            ${Object.entries(statusCounts).map(([status, count]) => `
+            <div class="stat-box">
+              <div class="stat-value">${count}</div>
+              <div class="stat-label">${status}</div>
+            </div>
+            `).join('')}
+          </div>
+          
+          <!-- Orders List -->
+          <div class="orders-list">
+            <h3>Purchase Orders List (${totalOrders} ${totalOrders === 1 ? 'order' : 'orders'})</h3>
+            ${orderCards}
+          </div>
+
+          <!-- Grand Total -->
+          <div class="grand-total">
+            <span class="grand-total-label">GRAND TOTAL:</span>
+            <span class="grand-total-value">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+          </div>
+          
+          <!-- Footer -->
           <div class="footer">
-            <span>System Report ID: ${new Date().getTime().toString().slice(-8)}</span>
-            <span>Page 1 of 1</span>
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName} ${userData?.lastName}<br>
+                <strong>Position:</strong> Inventory Controller<br>
+                <strong>Branch:</strong> ${userData?.branchName || 'N/A'}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm')}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600;">Purchase Orders Summary - ${totalOrders} Orders Total</p>
+            </div>
           </div>
         </body>
       </html>
@@ -2272,10 +2531,10 @@ David's Salon`;
                             <Mail className="h-4 w-4" />
                           </button>
 
-                          {order.status === 'Pending' && (
+                          {(order.status === 'Pending Branch Approval' || order.status === 'Pending') && (
                             <button
                               onClick={async () => {
-                                if (order.status !== 'Pending') {
+                                if (order.status !== 'Pending Branch Approval' && order.status !== 'Pending') {
                                   return;
                                 }
 

@@ -88,6 +88,10 @@ const Deposits = () => {
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showDuplicateWarningModal, setShowDuplicateWarningModal] = useState(false);
 
+  // Today's deposit tracking
+  const [todaysSales, setTodaysSales] = useState(0);
+  const [todaysDeposits, setTodaysDeposits] = useState(0);
+
   // Load deposits
   const loadDeposits = async () => {
     if (!userData?.branchId) return;
@@ -113,6 +117,70 @@ const Deposits = () => {
   useEffect(() => {
     loadDeposits();
   }, [userData?.branchId]);
+
+  // Calculate today's sales and deposits
+  useEffect(() => {
+    const fetchTodaysSummary = async () => {
+      if (!userData?.branchId) return;
+
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        
+        console.log('=== TODAY DEPOSIT STATUS DEBUG ===');
+        console.log('Today string:', today);
+        
+        // Get today's sales
+        const salesTotal = await depositService.getDailySalesTotal(
+          userData.branchId,
+          today
+        );
+        console.log('Sales total for today:', salesTotal);
+        setTodaysSales(salesTotal);
+
+        // Calculate today's deposits - use depositDate field
+        const todayDate = new Date();
+        todayDate.setHours(0, 0, 0, 0);
+        
+        // Also check yesterday's date since timezone might affect it
+        const yesterdayDate = new Date();
+        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+        yesterdayDate.setHours(0, 0, 0, 0);
+        
+        console.log('Today date (normalized):', todayDate);
+        console.log('Yesterday date (normalized):', yesterdayDate);
+        console.log('All deposits:', deposits);
+        
+        const depositsForToday = deposits
+          .filter(deposit => {
+            const depositDate = new Date(deposit.depositDate);
+            depositDate.setHours(0, 0, 0, 0);
+            
+            console.log('Checking deposit:', {
+              id: deposit.id,
+              depositDate: deposit.depositDate,
+              depositDateNormalized: depositDate,
+              amount: deposit.amount,
+              matchesToday: depositDate.getTime() === todayDate.getTime(),
+              matchesYesterday: depositDate.getTime() === yesterdayDate.getTime()
+            });
+            
+            // Match either today or yesterday (to handle timezone issues)
+            return depositDate.getTime() === todayDate.getTime() || 
+                   depositDate.getTime() === yesterdayDate.getTime();
+          })
+          .reduce((sum, deposit) => sum + (deposit.amount || 0), 0);
+        
+        console.log('Total deposits for today:', depositsForToday);
+        console.log('=== END DEBUG ===');
+        
+        setTodaysDeposits(depositsForToday);
+      } catch (err) {
+        console.error('Error fetching today\'s summary:', err);
+      }
+    };
+
+    fetchTodaysSummary();
+  }, [userData?.branchId, deposits]);
 
   // Filter and sort deposits
   useEffect(() => {
@@ -189,7 +257,7 @@ const Deposits = () => {
     setFilteredDeposits(filtered);
   }, [deposits, searchTerm, statusFilter, validationFilter, dateFrom, dateTo, sortBy, sortOrder]);
 
-  // Get daily sales total when deposit date changes
+  // Get daily sales total and existing deposits when deposit date changes
   useEffect(() => {
     const fetchDailySales = async () => {
       if (!userData?.branchId || !depositDate) return;
@@ -413,17 +481,18 @@ const Deposits = () => {
     };
   };
 
-  // Handle form submission
-  // Check if deposit exists for the selected date
-  const checkDuplicateDeposit = (date) => {
+  // Calculate total deposits already made for a specific date
+  const getTotalDepositsForDate = (date) => {
     const selectedDate = new Date(date);
     selectedDate.setHours(0, 0, 0, 0);
 
-    return deposits.some(deposit => {
-      const depositDate = new Date(deposit.depositDate);
-      depositDate.setHours(0, 0, 0, 0);
-      return depositDate.getTime() === selectedDate.getTime();
-    });
+    return deposits
+      .filter(deposit => {
+        const depositDate = new Date(deposit.depositDate);
+        depositDate.setHours(0, 0, 0, 0);
+        return depositDate.getTime() === selectedDate.getTime();
+      })
+      .reduce((sum, deposit) => sum + (deposit.amount || 0), 0);
   };
 
   // Actual deposit submission function
@@ -569,7 +638,7 @@ const Deposits = () => {
     }
   };
 
-  // Handle form submission with duplicate check
+  // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -593,22 +662,7 @@ const Deposits = () => {
       return;
     }
 
-    // Check for duplicate deposit - STOP submission if exists
-    if (checkDuplicateDeposit(depositDate)) {
-      const existingDeposit = deposits.find(deposit => {
-        const depositDateObj = new Date(deposit.depositDate);
-        depositDateObj.setHours(0, 0, 0, 0);
-        const selectedDateObj = new Date(depositDate);
-        selectedDateObj.setHours(0, 0, 0, 0);
-        return depositDateObj.getTime() === selectedDateObj.getTime();
-      });
-
-      setShowDuplicateWarningModal(true);
-      setError(`A deposit already exists for ${format(new Date(depositDate), 'MMMM dd, yyyy')}. You cannot submit another deposit for this date.`);
-      return;
-    }
-
-    // No duplicate, proceed with submission
+    // Proceed with submission (multiple deposits per day are now allowed)
     await submitDeposit();
   };
 
@@ -688,8 +742,11 @@ const Deposits = () => {
     .filter(adj => adj.type === 'addition' || !adj.type) // Handle legacy/undefined as addition? No, deduction is safer, but new items have default.
     .reduce((sum, adj) => sum + (parseFloat(adj.amount) || 0), 0);
 
-  // Calculate expected deposit (Sales + Additions - Deductions)
-  const expectedDepositAmount = Math.max(0, dailySalesTotal + totalAdditions - totalDeductions);
+  // Calculate total deposits already made for the selected date
+  const totalDepositsForDate = getTotalDepositsForDate(depositDate);
+
+  // Calculate remaining amount to deposit (Sales + Additions - Deductions - Already Deposited)
+  const expectedDepositAmount = Math.max(0, dailySalesTotal + totalAdditions - totalDeductions - totalDepositsForDate);
 
   // Get status color
   const getStatusColor = (status) => {
@@ -838,12 +895,12 @@ const Deposits = () => {
   // Print handler - prints only the data table
   const handlePrintReport = () => {
     try {
-      // Create print window
-      const printWindow = window.open('', '_blank', 'width=1200,height=800');
-      if (!printWindow) {
-        toast.error('Please allow pop-ups to print the report');
-        return;
-      }
+      // Build filters display
+      const activeFilters = [];
+      if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+      if (statusFilter !== 'all') activeFilters.push(`Status: ${statusFilter}`);
+      if (validationFilter !== 'all') activeFilters.push(`Validation: ${validationFilter}`);
+      const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Deposits';
 
       // Generate deposit rows
       const depositRows = filteredDeposits.map(deposit => {
@@ -857,10 +914,10 @@ const Deposits = () => {
         return `
           <tr>
             <td>${dateStr}</td>
-            <td>${formatCurrency((deposit.amount || 0))}</td>
-            <td>${formatCurrency((deposit.dailySalesTotal || 0))}</td>
-            <td>${formatCurrency((deposit.totalExpenses || 0))}</td>
-            <td>${deposit.difference >= 0 ? '+' : '-'}${formatCurrency(Math.abs(deposit.difference || 0))}</td>
+            <td class="text-right">${formatCurrency((deposit.amount || 0))}</td>
+            <td class="text-right">${formatCurrency((deposit.dailySalesTotal || 0))}</td>
+            <td class="text-right">${formatCurrency((deposit.totalExpenses || 0))}</td>
+            <td class="text-right">${deposit.difference >= 0 ? '+' : ''}${formatCurrency((deposit.difference || 0))}</td>
             <td>${deposit.bankName || 'N/A'}</td>
             <td>${deposit.referenceNumber || 'N/A'}</td>
             <td>${validationStatus}</td>
@@ -874,67 +931,133 @@ const Deposits = () => {
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Deposits Report</title>
+          <title>Bank Deposits Report - ${new Date().toLocaleDateString()}</title>
           <meta charset="utf-8">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
-            @media print {
-              @page {
-                size: A4 landscape;
-                margin: 1cm;
-              }
+            @page {
+              size: A4 landscape;
+              margin: 0.4in;
             }
             * {
-              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
               box-sizing: border-box;
             }
             body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 10px;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 20px;
+              font-weight: 700;
+              margin: 0 0 4px 0;
+            }
+            .header h2 {
+              font-size: 16px;
+              font-weight: 600;
               margin: 0;
-              padding: 20px;
-              font-size: 11px;
+            }
+            .filters {
+              background: #f8f9fa;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
             }
             table {
               width: 100%;
               border-collapse: collapse;
               margin-top: 10px;
+              font-size: 9px;
+              border: 1px solid #333;
             }
-            thead {
-              background: #000;
-              color: white;
+            th, td {
+              border: 1px solid #333;
+              padding: 6px 4px;
+              text-align: left;
+              vertical-align: top;
             }
             th {
-              padding: 8px;
-              text-align: left;
-              font-weight: 600;
-              border: 1px solid #000;
+              background-color: #fff;
+              font-weight: 700;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
             }
-            td {
-              padding: 6px;
-              border: 1px solid #ccc;
-            }
-            tbody tr:nth-child(even) {
+            tr:nth-child(even) {
               background-color: #f9f9f9;
             }
-            @media print {
-              .no-print {
-                display: none;
-                  }
+            .text-right { text-align: right; }
+            .footer {
+              margin-top: 12px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
+              color: #666;
+            }
+            .footer-center p {
+              margin: 3px 0;
             }
           </style>
         </head>
         <body>
-          <h2 style="margin-bottom: 10px;">Bank Deposits Report</h2>
-          <p style="margin-bottom: 10px; color: #666;">Generated: ${new Date().toLocaleString()}</p>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Bank Deposits Report</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
           
           <table>
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Amount</th>
-                <th>Daily Sales</th>
-                <th>Expenses</th>
-                <th>Difference</th>
+                <th class="text-right">Amount</th>
+                <th class="text-right">Daily Sales</th>
+                <th class="text-right">Expenses</th>
+                <th class="text-right">Difference</th>
                 <th>Bank Name</th>
-                <th>Reference Number</th>
+                <th>Reference #</th>
                 <th>Validation</th>
                 <th>Status</th>
                 <th>Submitted By</th>
@@ -944,6 +1067,23 @@ const Deposits = () => {
               ${depositRows || '<tr><td colspan="10" style="text-align: center; padding: 20px;">No deposits found</td></tr>'}
             </tbody>
           </table>
+          
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Branch Manager'}<br>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600; font-size: 9px;">Page 1 of 1</p>
+              <p>Bank Deposits Report - ${filteredDeposits.length} Deposits</p>
+            </div>
+          </div>
 
           <script>
             window.onload = function() {
@@ -958,6 +1098,13 @@ const Deposits = () => {
         </body>
         </html>
       `;
+
+      // Create print window
+      const printWindow = window.open('', '_blank', 'width=1200,height=800');
+      if (!printWindow) {
+        toast.error('Please allow pop-ups to print the report');
+        return;
+      }
 
       printWindow.document.write(printContent);
       printWindow.document.close();
@@ -989,7 +1136,66 @@ const Deposits = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Today's Deposit Summary - Highlighted Card */}
+        <div className="lg:col-span-2 bg-gradient-to-br from-[#160B53] to-[#2A1B70] rounded-lg shadow-lg border-2 border-[#160B53] p-6 text-white">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <Calendar className="w-5 h-5 text-blue-300" />
+                <p className="text-sm font-bold text-blue-200 uppercase tracking-wide">Today's Deposit Status</p>
+              </div>
+              <p className="text-xs text-blue-100 mb-3">{format(new Date(), 'EEEE, MMMM dd, yyyy')}</p>
+              
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-blue-100">Total Sales:</span>
+                  <span className="text-base font-bold">{formatCurrency(todaysSales)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-blue-100">Deposited:</span>
+                  <span className="text-base font-bold text-green-300">{formatCurrency(todaysDeposits)}</span>
+                </div>
+                <div className="h-px bg-white/20 my-2"></div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-yellow-200">Remaining:</span>
+                  <span className={`text-xl font-extrabold ${todaysSales - todaysDeposits > 0 ? 'text-yellow-300' : 'text-green-300'}`}>
+                    {formatCurrency(Math.max(0, todaysSales - todaysDeposits))}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="mt-4">
+                {todaysSales - todaysDeposits > 0 ? (
+                  <div className="bg-yellow-500/20 border border-yellow-400/30 rounded-lg p-2.5 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-yellow-300 flex-shrink-0" />
+                    <p className="text-xs text-yellow-100 font-medium">
+                      You need to deposit {formatCurrency(todaysSales - todaysDeposits)} today
+                    </p>
+                  </div>
+                ) : todaysSales > 0 ? (
+                  <div className="bg-green-500/20 border border-green-400/30 rounded-lg p-2.5 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-300 flex-shrink-0" />
+                    <p className="text-xs text-green-100 font-medium">
+                      All sales for today have been deposited
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-blue-500/20 border border-blue-400/30 rounded-lg p-2.5 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-blue-300 flex-shrink-0" />
+                    <p className="text-xs text-blue-100 font-medium">
+                      No sales transactions recorded today
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-3 bg-white/10 rounded-lg backdrop-blur-sm ml-4">
+              <Banknote className="w-8 h-8 text-yellow-300" />
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -1027,20 +1233,6 @@ const Deposits = () => {
             </div>
             <div className="p-3 bg-yellow-100 rounded-lg">
               <AlertTriangle className="w-6 h-6 text-yellow-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Total Amount</p>
-              <p className="text-2xl font-bold text-purple-600 mt-1">
-                {formatCurrency(deposits.reduce((sum, d) => sum + (d.amount || 0), 0))}
-              </p>
-            </div>
-            <div className="p-3 bg-purple-100 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-purple-600" />
             </div>
           </div>
         </div>
@@ -1279,11 +1471,21 @@ const Deposits = () => {
                       <div className="relative z-10 flex justify-between items-start">
                         <div>
                           <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${dailySalesTotal > 0 ? 'text-blue-200' : 'text-gray-500'}`}>
-                            Total Sales To Deposit
+                            Total Sales For Date
                           </p>
                           <p className={`text-3xl font-extrabold tracking-tight ${dailySalesTotal > 0 ? 'text-white' : 'text-gray-900'}`}>
                             {formatCurrency(dailySalesTotal)}
                           </p>
+                          {totalDepositsForDate > 0 && (
+                            <div className="mt-2 space-y-1">
+                              <p className={`text-sm ${dailySalesTotal > 0 ? 'text-blue-100' : 'text-gray-600'}`}>
+                                Already Deposited: {formatCurrency(totalDepositsForDate)}
+                              </p>
+                              <p className={`text-lg font-bold ${dailySalesTotal > 0 ? 'text-green-300' : 'text-green-600'}`}>
+                                Remaining: {formatCurrency(Math.max(0, dailySalesTotal - totalDepositsForDate))}
+                              </p>
+                            </div>
+                          )}
                           <div className={`flex items-center gap-2 mt-2 text-sm ${dailySalesTotal > 0 ? 'text-blue-100' : 'text-gray-500'}`}>
                             <Calendar className="h-4 w-4" />
                             <span>For {format(new Date(depositDate), 'EEEE, MMMM dd, yyyy')}</span>
@@ -1417,7 +1619,7 @@ const Deposits = () => {
                       <div className="flex items-center justify-between border-b border-gray-100 pb-3">
                         <h3 className="text-base font-bold text-gray-900">Deposit Details</h3>
                         <div className="text-xs text-gray-500 text-right">
-                          <p>Expected: <span className="font-semibold text-gray-900">{formatCurrency(expectedDepositAmount)}</span></p>
+                          <p>Remaining to Deposit: <span className="font-semibold text-gray-900">{formatCurrency(expectedDepositAmount)}</span></p>
                         </div>
                       </div>
 
@@ -1625,7 +1827,7 @@ const Deposits = () => {
                   </Button>
                   <Button
                     type="submit"
-                    disabled={isSubmitting || checkDuplicateDeposit(depositDate)}
+                    disabled={isSubmitting}
                     className="flex-1 sm:flex-none bg-[#160B53] text-white hover:bg-[#2A1B70] px-6 py-2 rounded-lg shadow-lg hover:shadow-xl transition-all font-medium"
                   >
                     {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing</> : 'Confirm Deposit'}
@@ -1963,24 +2165,50 @@ const Deposits = () => {
         </div>
       )}
 
-      {/* Duplicate Deposit Error Modal */}
+      {/* Multiple Deposits Info - Show when there are existing deposits for the date */}
+      {isModalOpen && totalDepositsForDate > 0 && (
+        <div className="fixed bottom-4 right-4 z-[60] max-w-sm animate-in slide-in-from-bottom-5 duration-300">
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-xl shadow-lg p-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-blue-100 rounded-full">
+                <AlertTriangle className="h-5 w-5 text-blue-600" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-bold text-blue-900 mb-1">Multiple Deposits Detected</h4>
+                <p className="text-xs text-blue-800">
+                  You've already deposited {formatCurrency(totalDepositsForDate)} for this date. 
+                  The remaining balance is {formatCurrency(Math.max(0, dailySalesTotal - totalDepositsForDate))}.
+                </p>
+              </div>
+              <button 
+                onClick={() => {/* This is just an info toast, no action needed */}}
+                className="text-blue-400 hover:text-blue-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Deposit Error Modal - Removed, multiple deposits now allowed */}
       {showDuplicateWarningModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full animate-in zoom-in-95 duration-200">
             <div className="p-8 text-center">
-              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <XCircle className="w-10 h-10 text-red-600" />
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-10 h-10 text-blue-600" />
               </div>
 
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Duplicate Submission</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Multiple Deposits Allowed</h3>
               <p className="text-gray-600 mb-6">
-                You already have a deposit recorded for <br />
-                <strong className="text-red-600">{format(new Date(depositDate), 'MMMM dd, yyyy')}</strong>.
+                You can now make multiple deposits for the same date. <br />
+                The system will track the remaining balance automatically.
               </p>
 
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
-                <p className="text-xs text-red-800 font-semibold flex items-center justify-center gap-2">
-                  <AlertTriangle className="h-4 w-4" /> Only one deposit allowed per date.
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+                <p className="text-xs text-blue-800 font-semibold flex items-center justify-center gap-2">
+                  <CheckCircle className="h-4 w-4" /> Remaining balance will be calculated automatically.
                 </p>
               </div>
 
@@ -1991,7 +2219,7 @@ const Deposits = () => {
                 }}
                 className="w-full bg-[#160B53] text-white hover:bg-[#2A1B70] py-3 rounded-xl font-bold"
               >
-                Understood
+                Got It
               </Button>
             </div>
           </div>

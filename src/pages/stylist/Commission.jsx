@@ -28,7 +28,7 @@ import { Card } from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
 const StylistCommission = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, userBranch } = useAuth();
   const [loading, setLoading] = useState(true);
   const [commissions, setCommissions] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -101,7 +101,7 @@ const StylistCommission = () => {
 
   // Fetch service and product commissions with real-time updates
   useEffect(() => {
-    if (!currentUser?.uid) {
+    if (!currentUser?.uid || !userBranch) {
       setLoading(false);
       return;
     }
@@ -110,7 +110,11 @@ const StylistCommission = () => {
     const stylistId = currentUser.uid;
 
     const transactionsRef = collection(db, 'transactions');
-    const paidTransactionsQuery = query(transactionsRef, where('status', '==', 'paid'));
+    const paidTransactionsQuery = query(
+      transactionsRef, 
+      where('branchId', '==', userBranch),
+      where('status', '==', 'paid')
+    );
 
     const unsubscribe = onSnapshot(paidTransactionsQuery, (querySnapshot) => {
       try {
@@ -165,7 +169,10 @@ const StylistCommission = () => {
               
               if (itemType === 'service') {
                 // Services: Use commissionPercentage from item (stored as whole number, e.g., 5 for 5%)
-                const commissionPercent = item.commissionPercentage ?? item.commission ?? 60; // Default to 60% if not set
+                const commissionPercent = item.commissionPercentage || 0;
+                if (commissionPercent === 0) {
+                  console.warn('Service missing commissionPercentage:', item.name, item);
+                }
                 commissionRate = commissionPercent / 100; // Convert to decimal (5 -> 0.05)
                 itemCommission = Number((lineTotal * commissionRate).toFixed(2));
               } else {
@@ -174,7 +181,10 @@ const StylistCommission = () => {
                   itemCommission = Number(item.commissionPoints);
                   commissionRate = lineTotal > 0 ? itemCommission / lineTotal : 0;
                 } else {
-                  const commissionPercent = item.commissionPercentage ?? 10; // Default to 10% if not set
+                  const commissionPercent = item.commissionPercentage || 0;
+                  if (commissionPercent === 0) {
+                    console.warn('Product missing commissionPercentage:', item.name, item);
+                  }
                   commissionRate = commissionPercent / 100;
                   itemCommission = Number((lineTotal * commissionRate).toFixed(2));
                 }
@@ -209,8 +219,11 @@ const StylistCommission = () => {
                 const quantity = Number(service.quantity) || 1;
                 const serviceTotal = Number((Number(service.price) || 0) * quantity);
                 
-                // Use commissionPercentage from service if available, default to 60%
-                const commissionPercent = service.commissionPercentage ?? service.commission ?? 60;
+                // Use commissionPercentage from service
+                const commissionPercent = service.commissionPercentage || 0;
+                if (commissionPercent === 0) {
+                  console.warn('Service missing commissionPercentage:', service.name, service);
+                }
                 const commissionRate = commissionPercent / 100;
                 const serviceCommission = Number((serviceTotal * commissionRate).toFixed(2));
 
@@ -280,7 +293,7 @@ const StylistCommission = () => {
     });
 
     return () => unsubscribe();
-  }, [currentUser?.uid]);
+  }, [currentUser?.uid, userBranch]);
 
   // Filter and sort commissions
   const filteredCommissions = useMemo(() => {
@@ -744,11 +757,10 @@ const StylistCommission = () => {
                     </div>
                   </div>
 
-                  {/* Total */}
+                  {/* Commission Total */}
                   <div className="text-right">
-                    <p className="text-xs text-gray-500">Total Sale</p>
-                    <p className="font-semibold text-gray-900">{formatCurrency(transaction.totalAmount)}</p>
-                    <p className="text-xs text-gray-500 mt-1">Commission</p>
+                    <p className="text-xs text-gray-500">Commission</p>
+                    <p className="text-lg font-bold text-green-600">{formatCurrency(transaction.totalCommission)}</p>
                   </div>
                 </div>
               </div>

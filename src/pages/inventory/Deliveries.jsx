@@ -86,149 +86,271 @@ const Deliveries = () => {
   });
 
   // Enhanced print report function
-  const handlePrintReport = () => {
+  const handlePrintReport = async (includeDetails = false) => {
+    // Get branch name if not available in userData
+    let branchName = userData?.branchName || 'N/A';
+    if (branchName === 'N/A' && userData?.branchId) {
+      try {
+        const { getBranchById } = await import('../../services/branchService');
+        const branch = await getBranchById(userData.branchId);
+        branchName = branch?.name || branch?.branchName || 'N/A';
+      } catch (error) {
+        console.error('Error fetching branch name:', error);
+        branchName = 'N/A';
+      }
+    }
+
+    // Build filters display
+    const activeFilters = [];
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    if (selectedSupplierFilter !== 'all') {
+      const supplier = suppliers.find(s => s.id === selectedSupplierFilter);
+      if (supplier) activeFilters.push(`Supplier: ${supplier.name}`);
+    }
+    if (dateFilterStart || dateFilterEnd) {
+      activeFilters.push(`Date: ${dateFilterStart || 'Start'} to ${dateFilterEnd || 'End'}`);
+    }
+    if (statusFilter) activeFilters.push(`Status: ${statusFilter}`);
+    if (minItems) activeFilters.push(`Min Items: ${minItems}`);
+    if (maxItems) activeFilters.push(`Max Items: ${maxItems}`);
+    if (minAmount) activeFilters.push(`Min Amount: ₱${minAmount}`);
+    if (maxAmount) activeFilters.push(`Max Amount: ₱${maxAmount}`);
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Deliveries';
+
+    // Generate table rows with optional product details
+    const tableRows = filteredDeliveries.map(delivery => {
+      const supplierName = delivery.supplierName || suppliers.find(s => s.id === delivery.supplierId)?.name || 'Unknown Supplier';
+      
+      let itemsDisplay = '';
+      if (includeDetails && delivery.items && delivery.items.length > 0) {
+        itemsDisplay = `
+          <div style="margin-top: 5px; padding: 5px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 3px;">
+            ${delivery.items.map((item, idx) => `
+              <div style="padding: 3px 0; border-bottom: 1px dotted #ccc; font-size: 8px;">
+                <strong>${idx + 1}. ${item.productName || 'Unknown'}</strong>
+                <span style="float: right;">Qty: ${item.quantity || item.orderedQuantity || 0} | ₱${((item.quantity || item.orderedQuantity || 0) * (item.unitPrice || 0)).toLocaleString()}</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      return `
+        <tr>
+          <td>${delivery.orderId || delivery.id}</td>
+          <td>${supplierName}</td>
+          <td>${delivery.orderDate ? new Date(delivery.orderDate).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: '2-digit', 
+            year: 'numeric' 
+          }) : 'N/A'}</td>
+          <td>${delivery.expectedDelivery ? new Date(delivery.expectedDelivery).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: '2-digit', 
+            year: 'numeric' 
+          }) : 'N/A'}</td>
+          <td>${delivery.supplierConfirmedAt ? new Date(delivery.supplierConfirmedAt.toDate ? delivery.supplierConfirmedAt.toDate() : delivery.supplierConfirmedAt).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: '2-digit', 
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : delivery.approvedAt ? new Date(delivery.approvedAt.toDate ? delivery.approvedAt.toDate() : delivery.approvedAt).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: '2-digit', 
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : delivery.overallApprovedAt ? new Date(delivery.overallApprovedAt.toDate ? delivery.overallApprovedAt.toDate() : delivery.overallApprovedAt).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: '2-digit', 
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : 'N/A'}</td>
+          <td class="amount">₱${(delivery.totalAmount || 0).toLocaleString()}</td>
+          <td>${delivery.items?.length || 0}${itemsDisplay}</td>
+          <td>
+            <span class="status-badge">
+              ${delivery.status || 'Pending'}
+            </span>
+          </td>
+          <td>${delivery.createdByName || 'Unknown'}</td>
+          <td>${delivery.notes || '-'}</td>
+        </tr>
+      `;
+    }).join('');
+
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Deliveries Report - ${new Date().toISOString().split('T')[0]}</title>
           <meta charset="utf-8">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
             @media print {
               @page {
                 size: A4 landscape;
-                margin: 0.5in;
+                margin: 0.4in 0.4in 0.75in 0.4in;
               }
               * {
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
               }
             }
-            body {
-              font-family: 'Poppins', sans-serif;
+            * {
               margin: 0;
-              padding: 20px;
-              background: white;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 10px;
               color: #000;
-              font-size: 12px;
+              font-size: 9px;
             }
-            .report-header {
+            .header {
               text-align: center;
-              margin-bottom: 30px;
-              border-bottom: 3px solid #160B53;
-              padding-bottom: 20px;
+              margin-bottom: 15px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #333;
             }
-            .report-header h1 {
-              color: #160B53;
-              font-size: 24px;
-              margin: 0 0 10px 0;
+            .header h1 {
+              font-size: 22px;
               font-weight: 700;
+              margin: 0 0 5px 0;
             }
-            .report-info {
-              display: flex;
-              justify-content: space-between;
-              margin-bottom: 20px;
-              font-size: 11px;
+            .header h2 {
+              font-size: 16px;
+              font-weight: 600;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
             }
             .summary-box {
-              background: #f8f9fa;
-              border: 1px solid #dee2e6;
-              border-radius: 8px;
-              padding: 15px;
-              margin-bottom: 20px;
-              display: flex;
-              justify-content: space-around;
-              gap: 20px;
+              background: #fff;
+              border: 1px solid #333;
+              padding: 12px;
+              margin-bottom: 15px;
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
             }
             .summary-item {
               text-align: center;
+              padding: 10px;
+              border: 1px solid #333;
             }
             .summary-value {
-              font-size: 18px;
+              font-size: 16px;
               font-weight: 700;
-              color: #160B53;
+              color: #000;
               display: block;
+              margin-bottom: 3px;
             }
             .summary-label {
-              font-size: 10px;
-              color: #6c757d;
+              font-size: 9px;
+              color: #000;
               text-transform: uppercase;
               letter-spacing: 0.5px;
+              font-weight: 600;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 20px;
-              font-size: 10px;
+              margin-top: 10px;
+              font-size: 9px;
+              border: 1px solid #333;
             }
             th, td {
-              border: 1px solid #dee2e6;
-              padding: 8px 4px;
+              border: 1px solid #333;
+              padding: 6px 4px;
               text-align: left;
               vertical-align: top;
             }
             th {
-              background: #160B53;
-              color: white;
-              font-weight: 600;
+              background: #fff;
+              color: #000;
+              font-weight: 700;
               text-transform: uppercase;
-              font-size: 9px;
+              font-size: 8px;
               letter-spacing: 0.5px;
+              border-bottom: 2px solid #000;
             }
             tr:nth-child(even) {
-              background: #f8f9fa;
+              background: #fff;
             }
             .status-badge {
               padding: 2px 6px;
-              border-radius: 12px;
+              border-radius: 4px;
               font-size: 8px;
               font-weight: 600;
               text-transform: uppercase;
-            }
-            .status-in-transit {
-              background: #fff3cd;
-              color: #856404;
-            }
-            .status-pending {
-              background: #f8d7da;
-              color: #721c24;
-            }
-            .status-approved {
-              background: #d1ecf1;
-              color: #0c5460;
-            }
-            .status-delivered {
-              background: #d4edda;
-              color: #155724;
+              border: 1px solid #333;
+              background: #fff;
+              color: #000;
             }
             .amount {
               font-weight: 600;
-              color: #160B53;
+              color: #000;
             }
             .footer {
-              margin-top: 30px;
+              margin-top: 20px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
               text-align: center;
-              font-size: 10px;
-              color: #6c757d;
-              border-top: 1px solid #dee2e6;
-              padding-top: 15px;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
+              color: #666;
+            }
+            .footer-center p {
+              margin: 3px 0;
             }
           </style>
         </head>
         <body>
-          <div class="report-header">
-            <h1>Deliveries Report</h1>
-            <div class="report-info">
-              <div>Generated on: ${new Date().toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              })}</div>
-              <div>Total Records: ${filteredDeliveries.length}</div>
-            </div>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Deliveries Report${includeDetails ? ' - With Product Details' : ' - Summary'}</h2>
+          </div>
+
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
           </div>
 
           <div class="summary-box">
@@ -259,55 +381,32 @@ const Deliveries = () => {
                 <th style="width: 10%;">Expected Delivery</th>
                 <th style="width: 10%;">Approved At</th>
                 <th style="width: 8%;">Amount</th>
-                <th style="width: 6%;">Items</th>
+                <th style="width: ${includeDetails ? '15%' : '6%'};">Items${includeDetails ? ' / Products' : ''}</th>
                 <th style="width: 8%;">Status</th>
-                <th style="width: 15%;">Created By</th>
-                <th style="width: 10%;">Notes</th>
+                <th style="width: ${includeDetails ? '10%' : '15%'};">Created By</th>
+                <th style="width: ${includeDetails ? '6%' : '10%'};">Notes</th>
               </tr>
             </thead>
             <tbody>
-              ${filteredDeliveries.map(delivery => `
-                <tr>
-                  <td>${delivery.orderId || delivery.id}</td>
-                  <td>${delivery.supplierName || 'Unknown Supplier'}</td>
-                  <td>${delivery.orderDate ? new Date(delivery.orderDate).toLocaleDateString('en-US', { 
-                    month: 'short', 
-                    day: '2-digit', 
-                    year: 'numeric' 
-                  }) : 'N/A'}</td>
-                  <td>${delivery.expectedDelivery ? new Date(delivery.expectedDelivery).toLocaleDateString('en-US', { 
-                    month: 'short', 
-                    day: '2-digit', 
-                    year: 'numeric' 
-                  }) : 'N/A'}</td>
-                  <td>${delivery.approvedAt ? new Date(delivery.approvedAt).toLocaleDateString('en-US', { 
-                    month: 'short', 
-                    day: '2-digit', 
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  }) : 'N/A'}</td>
-                  <td class="amount">₱${(delivery.totalAmount || 0).toLocaleString()}</td>
-                  <td>${delivery.items?.length || 0}</td>
-                  <td>
-                    <span class="status-badge status-${(delivery.status || 'pending').toLowerCase().replace('_', '-')}">
-                      ${delivery.status || 'Pending'}
-                    </span>
-                  </td>
-                  <td>${delivery.createdByName || 'Unknown'}</td>
-                  <td>${delivery.notes || '-'}</td>
-                </tr>
-              `).join('')}
+              ${tableRows}
             </tbody>
           </table>
 
           <div class="footer">
-            <p>This report was generated from the David Salon Management System</p>
-            <p>Report Date: ${new Date().toLocaleDateString('en-US', { 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
-            })}</p>
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Inventory Controller'}<br>
+                <strong>Position:</strong> Inventory Controller<br>
+                <strong>Branch:</strong> ${branchName}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600;">Deliveries Report - ${filteredDeliveries.length} Deliveries Total</p>
+            </div>
           </div>
         </body>
       </html>
@@ -322,7 +421,6 @@ const Deliveries = () => {
     // Wait for content to load, then print
     setTimeout(() => {
       printWindow.print();
-      printWindow.close();
     }, 500);
   };
 
@@ -587,6 +685,7 @@ const Deliveries = () => {
   const [maxAmount, setMaxAmount] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
   // Load deliveries (purchase orders with In Transit status)
   useEffect(() => {
@@ -1547,7 +1646,9 @@ const Deliveries = () => {
                       delivery.supplierName || 'Unknown',
                       delivery.orderDate ? format(new Date(delivery.orderDate), 'MMM dd, yyyy') : 'N/A',
                       delivery.expectedDelivery ? format(new Date(delivery.expectedDelivery), 'MMM dd, yyyy') : 'N/A',
-                      delivery.approvedAt ? format(new Date(delivery.approvedAt), 'MMM dd, yyyy HH:mm') : 'N/A',
+                      delivery.supplierConfirmedAt ? format(new Date(delivery.supplierConfirmedAt.toDate ? delivery.supplierConfirmedAt.toDate() : delivery.supplierConfirmedAt), 'MMM dd, yyyy HH:mm') : 
+                      delivery.approvedAt ? format(new Date(delivery.approvedAt.toDate ? delivery.approvedAt.toDate() : delivery.approvedAt), 'MMM dd, yyyy HH:mm') : 
+                      delivery.overallApprovedAt ? format(new Date(delivery.overallApprovedAt.toDate ? delivery.overallApprovedAt.toDate() : delivery.overallApprovedAt), 'MMM dd, yyyy HH:mm') : 'N/A',
                       (delivery.totalAmount || 0).toFixed(2),
                       delivery.items?.length || 0
                     ]);
@@ -1566,7 +1667,7 @@ const Deliveries = () => {
                 >
                   <Download className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" onClick={handlePrintReport}>
+                <Button variant="outline" onClick={() => setIsPrintModalOpen(true)}>
                   <Printer className="h-4 w-4" />
                 </Button>
               </div>
@@ -1653,10 +1754,14 @@ const Deliveries = () => {
                       </td>
                       <td className="hidden lg:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
                         <div className="text-xs md:text-sm text-gray-900">
-                          {delivery.approvedAt ? format(new Date(delivery.approvedAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
+                          {delivery.supplierConfirmedAt ? format(new Date(delivery.supplierConfirmedAt.toDate ? delivery.supplierConfirmedAt.toDate() : delivery.supplierConfirmedAt), 'MMM dd, yyyy HH:mm') : 
+                           delivery.approvedAt ? format(new Date(delivery.approvedAt.toDate ? delivery.approvedAt.toDate() : delivery.approvedAt), 'MMM dd, yyyy HH:mm') : 
+                           delivery.overallApprovedAt ? format(new Date(delivery.overallApprovedAt.toDate ? delivery.overallApprovedAt.toDate() : delivery.overallApprovedAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
                         </div>
-                        {delivery.approvedByName && (
-                          <div className="text-xs text-gray-500">by {delivery.approvedByName}</div>
+                        {(delivery.overallApprovedByName || delivery.branchApprovedByName || delivery.approvedByName) && (
+                          <div className="text-xs text-gray-500">
+                            by {delivery.overallApprovedByName || delivery.branchApprovedByName || delivery.approvedByName}
+                          </div>
                         )}
                       </td>
                       <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
@@ -1867,14 +1972,40 @@ const Deliveries = () => {
                   <label className="text-sm font-medium text-gray-500">Created By</label>
                   <p className="text-gray-900">{selectedOrder.createdByName || 'Unknown'}</p>
                 </div>
-                {selectedOrder.approvedByName && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-500">Approved By</label>
-                    <p className="text-gray-900 text-green-600 font-semibold">{selectedOrder.approvedByName}</p>
-                    {selectedOrder.approvedAt && (
-                      <p className="text-xs text-gray-500">
-                        {format(new Date(selectedOrder.approvedAt), 'MMM dd, yyyy HH:mm')}
-                      </p>
+                {(selectedOrder.branchApprovedByName || selectedOrder.overallApprovedByName || selectedOrder.approvedByName) && (
+                  <div className="space-y-2">
+                    {selectedOrder.branchApprovedByName && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Branch Manager Approved By</label>
+                        <p className="text-gray-900 text-blue-600 font-semibold">{selectedOrder.branchApprovedByName}</p>
+                        {selectedOrder.branchApprovedAt && (
+                          <p className="text-xs text-gray-500">
+                            {format(new Date(selectedOrder.branchApprovedAt.toDate ? selectedOrder.branchApprovedAt.toDate() : selectedOrder.branchApprovedAt), 'MMM dd, yyyy HH:mm')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {selectedOrder.overallApprovedByName && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Overall Inventory Approved By</label>
+                        <p className="text-gray-900 text-green-600 font-semibold">{selectedOrder.overallApprovedByName}</p>
+                        {selectedOrder.overallApprovedAt && (
+                          <p className="text-xs text-gray-500">
+                            {format(new Date(selectedOrder.overallApprovedAt.toDate ? selectedOrder.overallApprovedAt.toDate() : selectedOrder.overallApprovedAt), 'MMM dd, yyyy HH:mm')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {selectedOrder.approvedByName && !selectedOrder.branchApprovedByName && !selectedOrder.overallApprovedByName && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Approved By</label>
+                        <p className="text-gray-900 text-green-600 font-semibold">{selectedOrder.approvedByName}</p>
+                        {selectedOrder.approvedAt && (
+                          <p className="text-xs text-gray-500">
+                            {format(new Date(selectedOrder.approvedAt.toDate ? selectedOrder.approvedAt.toDate() : selectedOrder.approvedAt), 'MMM dd, yyyy HH:mm')}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -2013,7 +2144,6 @@ const Deliveries = () => {
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Check</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
                           <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Usage Type</th>
                           <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Ordered Qty</th>
                           <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Received Qty</th>
@@ -2051,9 +2181,6 @@ const Deliveries = () => {
                                 </td>
                                 <td className="px-4 py-3">
                                   <div className="font-medium text-gray-900">{item.productName}</div>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="text-sm text-gray-500">{item.sku || 'N/A'}</div>
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
@@ -3000,6 +3127,76 @@ const Deliveries = () => {
                   Apply Filters
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print Options Modal */}
+      {isPrintModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md relative">
+            <button
+              className="absolute top-2 right-2 text-gray-400 hover:text-gray-700"
+              onClick={() => setIsPrintModalOpen(false)}
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="mb-6">
+              <div className="flex items-center gap-4">
+                <div className="p-2 bg-[#160B53]/10 rounded-lg">
+                  <Printer className="h-6 w-6 text-[#160B53]" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Print Deliveries Report</h3>
+                  <p className="text-sm text-gray-600">Choose report format</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setIsPrintModalOpen(false);
+                  handlePrintReport(false);
+                }}
+                className="w-full p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-left group"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-gray-900 group-hover:text-[#160B53]">Summary Report</div>
+                    <div className="text-sm text-gray-600">Deliveries list without product details</div>
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-[#160B53]" />
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsPrintModalOpen(false);
+                  handlePrintReport(true);
+                }}
+                className="w-full p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-left group"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-gray-900 group-hover:text-[#160B53]">Detailed Report</div>
+                    <div className="text-sm text-gray-600">Includes product details for each delivery</div>
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-[#160B53]" />
+                </div>
+              </button>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-gray-200">
+              <Button
+                variant="outline"
+                onClick={() => setIsPrintModalOpen(false)}
+                className="w-full border-gray-300 text-gray-700 hover:bg-gray-100"
+              >
+                Cancel
+              </Button>
             </div>
           </div>
         </div>

@@ -2623,29 +2623,34 @@ const ReceptionistAppointments = () => {
 
       {/* Hidden Print Component */}
       <div className="hidden">
-        <div ref={printRef} className="print-content p-6" style={{ fontFamily: 'Arial, sans-serif', fontSize: '10px' }}>
+        <div ref={printRef} className="print-content p-6" style={{ fontFamily: 'Poppins, Arial, sans-serif', fontSize: '10px' }}>
           {/* Header */}
-          <div className="mb-3 pb-2 border-b border-black">
-            <h1 className="text-base font-bold text-black mb-1" style={{ fontSize: '14px' }}>
-              APPOINTMENT REPORT - {userBranchData?.name || userBranchData?.branchName || 'David Salon'}
+          <div className="mb-3 pb-2 border-b-2 border-black">
+            <h1 className="text-center text-xl font-bold text-black mb-1" style={{ fontSize: '20px' }}>
+              DAVID'S SALON
             </h1>
-            <div className="flex justify-between text-xs text-black" style={{ fontSize: '9px' }}>
-              <span>
-                Period: {
-                  filters.startDate && filters.endDate
-                    ? `${new Date(filters.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${new Date(filters.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                    : 'All Time'
+            <h2 className="text-center text-base font-bold text-black mb-2" style={{ fontSize: '16px' }}>
+              Appointments Report
+            </h2>
+          </div>
+
+          {/* Filters Applied */}
+          <div className="mb-3 p-2 border-2 border-black text-center" style={{ backgroundColor: '#f8f9fa' }}>
+            <div className="text-xs font-bold text-black mb-1 uppercase" style={{ fontSize: '10px', letterSpacing: '0.5px' }}>FILTERS APPLIED</div>
+            <div className="text-xs text-black" style={{ fontSize: '9px', fontWeight: '600' }}>
+              {(() => {
+                const activeFilters = [];
+                if (filters.startDate && filters.endDate) {
+                  activeFilters.push(`Period: ${new Date(filters.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${new Date(filters.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
                 }
-              </span>
-              <span>
-                Generated: {new Date().toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
-              </span>
+                if (activeTab !== 'all') {
+                  activeFilters.push(`Status: ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`);
+                }
+                if (searchTerm) {
+                  activeFilters.push(`Search: "${searchTerm}"`);
+                }
+                return activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Appointments';
+              })()}
             </div>
           </div>
 
@@ -2703,7 +2708,7 @@ const ReceptionistAppointments = () => {
                   serviceCounts[serviceName] = (serviceCounts[serviceName] || 0) + 1;
                 });
               } else if (apt.serviceName) {
-                serviceCounts[apt.serviceName] = (serviceCounts[serviceName] || 0) + 1;
+                serviceCounts[apt.serviceName] = (serviceCounts[apt.serviceName] || 0) + 1;
               }
             });
 
@@ -2855,13 +2860,6 @@ const ReceptionistAppointments = () => {
                       </div>
                     )}
                   </div>
-
-                  {/* Active Filters */}
-                  {getActiveFiltersInfo().length > 0 && (
-                    <div className="mb-2 p-1.5 border border-black text-xs" style={{ fontSize: '8px', backgroundColor: '#f5f5f5' }}>
-                      <strong className="text-black">Filters:</strong> {getActiveFiltersInfo().join(' • ')}
-                    </div>
-                  )}
               </>
             );
           })()}
@@ -2901,7 +2899,6 @@ const ReceptionistAppointments = () => {
                     return `${s.serviceName}${qtyText}`;
                   }).join(', ');
 
-                  // Collect all unique stylist names
                   apt.services.forEach(s => {
                     if (s.stylistName) {
                       stylistNames.add(s.stylistName);
@@ -2916,7 +2913,6 @@ const ReceptionistAppointments = () => {
 
                 const stylistName = stylistNames.size > 0 ? Array.from(stylistNames).join(', ') : 'Unassigned';
 
-                // Calculate request time for print
                 const requestDate = apt.createdAt ? new Date(apt.createdAt) : null;
                 const requestTimeStr = requestDate ? requestDate.toLocaleString('en-US', {
                   month: 'short',
@@ -2925,7 +2921,6 @@ const ReceptionistAppointments = () => {
                   minute: '2-digit',
                   hour12: true
                 }) : 'N/A';
-
 
                 return (
                   <tr key={apt.id} className={`border-b border-gray-400 ${isActionRequired(apt) ? 'bg-orange-100' : ''}`}>
@@ -2960,10 +2955,21 @@ const ReceptionistAppointments = () => {
             </tbody>
           </table>
 
-          <div className="mt-4 pt-3 border-t-2 border-black">
-            <div className="flex justify-between items-center text-xs text-black">
-              <div className="font-semibold">Report generated for business analysis</div>
-              <div className="font-bold">Total: {paginatedAppointments.length} appointment(s) shown</div>
+          {/* Footer with Metadata */}
+          <div className="mt-3 pt-2 border-t-2 border-black">
+            <div className="grid grid-cols-2 gap-2 mb-2 text-xs" style={{ fontSize: '8px' }}>
+              <div className="text-left text-black">
+                <strong>Generated By:</strong> {currentUser?.displayName || 'Receptionist'}<br />
+                <strong>Position:</strong> Receptionist
+              </div>
+              <div className="text-right text-black">
+                <strong>Generated On:</strong> {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br />
+                <strong>Time:</strong> {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div className="text-center pt-2 border-t border-gray-400 text-xs text-black" style={{ fontSize: '8px' }}>
+              <p className="font-semibold mb-1" style={{ fontSize: '9px' }}>Page 1 of 1</p>
+              <p>Appointments Report - {paginatedAppointments.length} Appointments</p>
             </div>
           </div>
         </div>

@@ -43,7 +43,10 @@ import ContentManagement from '../pages/system-admin/ContentManagement';
 import HomepageContentManagement from '../pages/system-admin/HomepageContentManagement';
 import MasterProducts from '../pages/system-admin/MasterProducts';
 import LoyaltyCriteria from '../pages/system-admin/LoyaltyCriteria';
+import TaxConfiguration from '../pages/system-admin/TaxConfiguration';
+import SystemSettings from '../pages/system-admin/SystemSettings';
 import DatabaseBackupRestore from '../pages/system-admin/DatabaseBackupRestore';
+import PromotionalBanners from '../pages/system-admin/PromotionalBanners';
 import SeedServices from '../pages/admin/SeedServices';
 import SeedData from '../pages/admin/SeedData';
 import OperationalManagerDashboard from '../pages/operational-manager/Dashboard';
@@ -82,6 +85,7 @@ import BranchManagerPromotions from '../pages/branch-manager/Promotions';
 import BranchManagerStylistPortfolios from '../pages/branch-manager/StylistPortfolios';
 import BranchManagerReports from '../pages/branch-manager/Reports';
 import BranchManagerInventory from '../pages/branch-manager/Inventory';
+import BranchManagerPurchaseOrders from '../pages/branch-manager/PurchaseOrders';
 import Commissions from '../pages/branch-manager/Commissions';
 import BranchManagerActivityLogs from '../pages/branch-manager/ActivityLogs';
 import ReceptionistDashboard from '../pages/receptionist/Dashboard';
@@ -113,6 +117,7 @@ import ClientPromotions from '../pages/client/Promotions';
 import ClientRewards from '../pages/client/Rewards';
 import ClientTransactions from '../pages/client/Transactions';
 import ClientProfile from '../pages/client/Profile';
+import ClientNotifications from '../pages/client/Notifications';
 import Profile from '../pages/common/Profile';
 import InventoryDashboard from '../pages/inventory/Dashboard';
 import InventoryProducts from '../pages/inventory/Products';
@@ -232,10 +237,13 @@ const AppRoutes = () => {
         <Route path="service-templates" element={<ServiceTemplates />} />
         <Route path="activity-logs" element={<SystemAdminActivityLogs />} />
               <Route path="promotions" element={<Promotions />} />
+              <Route path="promotional-banners" element={<PromotionalBanners />} />
               <Route path="suppliers" element={<Suppliers />} />
               <Route path="content-management" element={<ContentManagement />} />
               <Route path="homepage-content" element={<HomepageContentManagement />} />
               <Route path="master-products" element={<MasterProducts />} />
+              <Route path="system-settings" element={<SystemSettings />} />
+              <Route path="tax-configuration" element={<TaxConfiguration />} />
               <Route path="loyalty-criteria" element={<LoyaltyCriteria />} />
               <Route path="database-backup" element={<DatabaseBackupRestore />} />
               <Route path="settings" element={<div className="p-6">Settings - Coming Soon</div>} />
@@ -313,6 +321,7 @@ const AppRoutes = () => {
               <Route path="promotions" element={<BranchManagerPromotions />} />
               <Route path="stylist-portfolios" element={<BranchManagerStylistPortfolios />} />
               <Route path="inventory" element={<BranchManagerInventory />} />
+              <Route path="purchase-orders" element={<BranchManagerPurchaseOrders />} />
               <Route path="commissions" element={<Commissions />} />
         <Route path="profile" element={<Profile />} />
       </Route>
@@ -374,6 +383,7 @@ const AppRoutes = () => {
       >
               <Route index element={<ClientDashboard />} />
               <Route path="appointments" element={<ClientAppointments />} />
+              <Route path="notifications" element={<ClientNotifications />} />
               <Route path="products" element={<ClientProducts />} />
               <Route path="promotions" element={<ClientPromotions />} />
               <Route path="transactions" element={<ClientTransactions />} />

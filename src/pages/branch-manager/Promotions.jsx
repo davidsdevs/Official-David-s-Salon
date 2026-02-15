@@ -40,7 +40,8 @@ import {
   ShoppingCart,
   Banknote,
   Image as ImageIcon,
-  Printer
+  Printer,
+  Building
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { getBranchServices } from '../../services/branchServicesService';
@@ -1910,9 +1911,20 @@ const Promotions = () => {
           title="Create New Promotion"
           size="4xl"
         >
-          <form onSubmit={handleCreatePromotion} className="flex gap-8 relative max-h-[75vh]">
+          <form onSubmit={handleCreatePromotion} className="flex gap-8 relative max-h-[85vh]">
             {/* Left Side: Form Content */}
-            <div className="flex-1 space-y-8 overflow-y-auto pr-2 custom-scrollbar">
+            <div className="flex-1 space-y-8 overflow-y-auto pr-2 custom-scrollbar pb-16">
+
+              {/* Branch-Specific Notice */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-sm text-blue-800">
+                  <Building className="h-5 w-5" />
+                  <span className="font-semibold">This promotion will be available for your branch only</span>
+                </div>
+                <p className="text-xs text-blue-600 mt-1 ml-7">
+                  Only clients visiting this branch can use this promotion code
+                </p>
+              </div>
 
               {/* Section 1: Basic Information */}
               <div className="space-y-4">

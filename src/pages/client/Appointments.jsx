@@ -736,7 +736,7 @@ const ClientAppointments = () => {
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              Past
+              History
             </button>
           </nav>
         </div>

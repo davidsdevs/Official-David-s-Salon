@@ -93,6 +93,11 @@ const ClientAnalyticsDetail = () => {
         const data = doc.data();
         const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
         
+        // Skip voided transactions
+        if (data.isVoided === true || data.status === 'voided' || data.status === 'Voided') {
+          return;
+        }
+        
         // Check if transaction has items for this stylist
         const stylistItems = [];
         if (data.items && Array.isArray(data.items)) {

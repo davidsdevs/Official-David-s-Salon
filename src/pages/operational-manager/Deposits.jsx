@@ -199,199 +199,541 @@ const OperationalManagerDeposits = () => {
 
   // Print deposits report
   const handlePrint = () => {
-    const printWindow = window.open('', '', 'height=600,width=800');
-    
-    let htmlContent = `
-      <html>
-        <head>
-          <title>Deposits Report</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h1 { text-align: center; color: #333; }
-            .summary { display: flex; justify-content: space-around; margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 8px; }
-            .summary-item { text-align: center; }
-            .summary-label { font-size: 12px; color: #666; }
-            .summary-value { font-size: 18px; font-weight: bold; color: #333; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 12px; }
-            th { background-color: #160B53; color: white; }
-            tr:nth-child(even) { background-color: #f9f9f9; }
-            .status-approved { color: #16a34a; font-weight: bold; }
-            .status-rejected { color: #dc2626; font-weight: bold; }
-            .status-pending { color: #ca8a04; font-weight: bold; }
-            .match { color: #16a34a; }
-            .mismatch { color: #dc2626; }
-          </style>
-        </head>
-        <body>
-          <h1>Deposits Report</h1>
-          <p style="text-align: center; color: #666;">Generated on ${format(new Date(), 'MMMM dd, yyyy HH:mm:ss')}</p>
-          
-          <div class="summary">
-            <div class="summary-item">
-              <div class="summary-label">Total Deposits</div>
-              <div class="summary-value">${filteredDeposits.length}</div>
+    try {
+      if (filteredDeposits.length === 0) {
+        toast.error('No deposits to print');
+        return;
+      }
+
+      const printWindow = window.open('', '', 'height=600,width=800');
+      
+      if (!printWindow) {
+        toast.error('Please allow pop-ups to print reports');
+        return;
+      }
+      
+      // Build filters text
+      const filters = [];
+      if (searchTerm) filters.push(`Search: "${searchTerm}"`);
+      if (statusFilter !== 'all') filters.push(`Status: ${statusFilter}`);
+      if (branchFilter !== 'all') {
+        const branchName = branches[branchFilter];
+        if (branchName) filters.push(`Branch: ${branchName}`);
+      }
+      if (validationFilter !== 'all') filters.push(`Validation: ${validationFilter}`);
+      const filtersText = filters.length > 0 ? filters.join(' | ') : 'All Deposits';
+      
+      let htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Deposits Report</title>
+            <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+            <style>
+              @media print {
+                @page {
+                  size: letter;
+                  margin: 0.4in 0.4in 0.75in 0.4in;
+                }
+              }
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                font-family: 'Poppins', Arial, sans-serif;
+              }
+              body {
+                font-family: 'Poppins', Arial, sans-serif;
+                padding: 0;
+                color: #000;
+                font-size: 9px;
+              }
+              .header {
+                text-align: center;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #333;
+              }
+              .header h1 {
+                font-size: 14px;
+                font-weight: 600;
+                margin: 0 0 5px 0;
+              }
+              .header h2 {
+                font-size: 18px;
+                font-weight: 700;
+                margin: 0;
+              }
+              .filters {
+                background: #fff;
+                padding: 10px;
+                border: 2px solid #333;
+                margin: 10px 0 15px 0;
+                text-align: center;
+              }
+              .filters-title {
+                font-size: 10px;
+                font-weight: 700;
+                margin-bottom: 5px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+              }
+              .filters-content {
+                font-size: 9px;
+                font-weight: 600;
+              }
+              .summary-stats {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+                margin: 15px 0;
+              }
+              .stat-box {
+                text-align: center;
+                padding: 10px;
+                background: #fff;
+                border: 1px solid #333;
+              }
+              .stat-value {
+                font-size: 16px;
+                font-weight: 700;
+                color: #000;
+                margin-bottom: 3px;
+              }
+              .stat-label {
+                font-size: 9px;
+                color: #000;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                font-weight: 600;
+              }
+              .deposit-card {
+                border: 1px solid #333;
+                margin-bottom: 10px;
+                background: #fff;
+                page-break-inside: avoid;
+              }
+              .deposit-header {
+                background: #fff;
+                padding: 8px 12px;
+                border-bottom: 1px solid #333;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+              }
+              .deposit-branch {
+                font-size: 11px;
+                font-weight: 700;
+              }
+              .status-badge {
+                padding: 2px 8px;
+                border-radius: 4px;
+                font-size: 8px;
+                font-weight: 600;
+                text-transform: uppercase;
+                border: 1px solid #333;
+                background: #fff;
+                color: #000;
+              }
+              .deposit-body {
+                padding: 10px 12px;
+              }
+              .info-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+              }
+              .info-row {
+                padding: 4px 0;
+                border-bottom: 1px dotted #ddd;
+                font-size: 9px;
+              }
+              .info-label {
+                font-weight: 600;
+                display: inline-block;
+                width: 110px;
+              }
+              .info-value {
+                color: #333;
+              }
+              .footer {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                padding: 10px 0.4in;
+                border-top: 2px solid #333;
+                font-size: 8px;
+                background: #fff;
+              }
+              .footer-content {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+              }
+              .footer-left, .footer-right {
+                flex: 1;
+              }
+              .footer-left {
+                text-align: left;
+              }
+              .footer-right {
+                text-align: right;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>DAVID'S SALON</h1>
+              <h2>Deposits Report - All Branches</h2>
             </div>
-            <div class="summary-item">
-              <div class="summary-label">Total Sales</div>
-              <div class="summary-value">₱${stats.totalSales.toLocaleString()}</div>
+            
+            <div class="filters">
+              <div class="filters-title">FILTERS APPLIED</div>
+              <div class="filters-content">${filtersText}</div>
             </div>
-            <div class="summary-item">
-              <div class="summary-label">Total Deposited</div>
-              <div class="summary-value">₱${stats.totalAmount.toLocaleString()}</div>
+
+            <div class="summary-stats">
+              <div class="stat-box">
+                <div class="stat-value">${filteredDeposits.length}</div>
+                <div class="stat-label">Total Deposits</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">₱${stats.totalSales.toLocaleString()}</div>
+                <div class="stat-label">Total Sales</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">₱${stats.totalAmount.toLocaleString()}</div>
+                <div class="stat-label">Total Deposited</div>
+              </div>
+            </div>
+      `;
+
+      filteredDeposits.forEach(deposit => {
+        const statusLabel = deposit.status === 'approved' ? 'Approved' : 
+                           deposit.status === 'rejected' ? 'Rejected' : 'Pending';
+        const validationLabel = deposit.validationStatus === 'match' ? 'Match' : 
+                               deposit.validationStatus === 'mismatch' ? 'Mismatch' : 'Review';
+        
+        htmlContent += `
+          <div class="deposit-card">
+            <div class="deposit-header">
+              <div class="deposit-branch">${branches[deposit.branchId] || 'Unknown Branch'} - ${format(new Date(deposit.depositDate), 'MMM dd, yyyy')}</div>
+              <span class="status-badge">${statusLabel}</span>
+            </div>
+            
+            <div class="deposit-body">
+              <div class="info-grid">
+                <div class="info-row">
+                  <span class="info-label">Deposit Amount:</span>
+                  <span class="info-value">₱${(deposit.amount || 0).toLocaleString()}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Daily Sales:</span>
+                  <span class="info-value">₱${(deposit.dailySalesTotal || 0).toLocaleString()}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Difference:</span>
+                  <span class="info-value">${deposit.difference >= 0 ? '+' : ''}₱${Math.abs(deposit.difference || 0).toFixed(2)}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Validation:</span>
+                  <span class="info-value">${validationLabel}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Submitted By:</span>
+                  <span class="info-value">${deposit.submittedByName || 'Unknown'}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Status:</span>
+                  <span class="info-value">${statusLabel}</span>
+                </div>
+              </div>
             </div>
           </div>
-          
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Branch</th>
-                <th>Deposit Amount</th>
-                <th>Daily Sales</th>
-                <th>Difference</th>
-                <th>Validation</th>
-                <th>Status</th>
-                <th>Submitted By</th>
-              </tr>
-            </thead>
-            <tbody>
-    `;
+        `;
+      });
 
-    filteredDeposits.forEach(deposit => {
-      const statusClass = deposit.status === 'approved' ? 'status-approved' : 
-                         deposit.status === 'rejected' ? 'status-rejected' : 'status-pending';
-      const validationClass = deposit.validationStatus === 'match' ? 'match' : 'mismatch';
-      
       htmlContent += `
-        <tr>
-          <td>${format(new Date(deposit.depositDate), 'MMM dd, yyyy')}</td>
-          <td>${branches[deposit.branchId] || 'Unknown Branch'}</td>
-          <td>₱${(deposit.amount || 0).toLocaleString()}</td>
-          <td>₱${(deposit.dailySalesTotal || 0).toLocaleString()}</td>
-          <td class="${validationClass}">${deposit.difference >= 0 ? '+' : ''}₱${Math.abs(deposit.difference || 0).toFixed(2)}</td>
-          <td class="${validationClass}">${deposit.validationStatus === 'match' ? '✓ Match' : deposit.validationStatus === 'mismatch' ? '✗ Mismatch' : '⚠ Review'}</td>
-          <td class="${statusClass}">${deposit.status === 'approved' ? '✓ Approved' : deposit.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}</td>
-          <td>${deposit.submittedByName || 'Unknown'}</td>
-        </tr>
+            <div class="footer">
+              <div class="footer-content">
+                <div class="footer-left">
+                  <strong>Generated By:</strong> Operational Manager<br>
+                  <strong>Position:</strong> Operational Manager<br>
+                  <strong>Branch:</strong> All Branches
+                </div>
+                <div class="footer-right">
+                  <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                  <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
       `;
-    });
 
-    htmlContent += `
-            </tbody>
-          </table>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-    setTimeout(() => {
-      printWindow.print();
-    }, 250);
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    } catch (error) {
+      console.error('Error printing deposits report:', error);
+      toast.error('Failed to generate print report: ' + error.message);
+    }
   };
 
   // Print single deposit
   const handlePrintDeposit = (deposit) => {
     const printWindow = window.open('', '', 'height=600,width=800');
     const branchName = branches[deposit.branchId] || 'Unknown Branch';
+    const statusLabel = deposit.status === 'approved' ? 'Approved' : 
+                       deposit.status === 'rejected' ? 'Rejected' : 'Pending';
+    const validationLabel = deposit.validationStatus === 'match' ? 'Match' : 
+                           deposit.validationStatus === 'mismatch' ? 'Mismatch' : 'Review';
     
     const htmlContent = `
       <html>
         <head>
           <title>Deposit Receipt - ${branchName}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h1 { text-align: center; color: #160B53; border-bottom: 2px solid #160B53; padding-bottom: 10px; }
-            .header { text-align: center; margin-bottom: 20px; }
-            .info-section { margin: 20px 0; padding: 15px; background: #f9f9f9; border-radius: 8px; }
-            .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
-            .info-row:last-child { border-bottom: none; }
-            .info-label { font-weight: bold; color: #555; }
-            .info-value { color: #333; }
-            .amount-section { display: flex; justify-content: space-around; margin: 20px 0; }
-            .amount-box { text-align: center; padding: 15px 25px; border-radius: 8px; }
-            .amount-box.sales { background: #dbeafe; border: 2px solid #3b82f6; }
-            .amount-box.deposit { background: #dcfce7; border: 2px solid #22c55e; }
-            .amount-box.diff { background: ${Math.abs(deposit.difference || 0) <= 1 ? '#dcfce7' : '#fee2e2'}; border: 2px solid ${Math.abs(deposit.difference || 0) <= 1 ? '#22c55e' : '#ef4444'}; }
-            .amount-label { font-size: 12px; color: #666; margin-bottom: 5px; }
-            .amount-value { font-size: 24px; font-weight: bold; }
-            .status { display: inline-block; padding: 6px 12px; border-radius: 20px; font-weight: bold; margin-top: 10px; }
-            .status-approved { background: #dcfce7; color: #16a34a; }
-            .status-rejected { background: #fee2e2; color: #dc2626; }
-            .status-pending { background: #fef3c7; color: #ca8a04; }
-            .footer { text-align: center; margin-top: 30px; color: #999; font-size: 12px; }
+            @media print {
+              @page {
+                size: A4 portrait;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 0;
+              color: #000;
+              font-size: 10px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 14px;
+              font-weight: 600;
+              margin: 0 0 5px 0;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0;
+            }
+            .deposit-info {
+              text-align: center;
+              margin: 15px 0;
+              padding: 10px;
+              border: 2px solid #333;
+              background: #fff;
+            }
+            .deposit-info-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+            }
+            .deposit-info-value {
+              font-size: 11px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 12px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 16px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .deposit-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .deposit-header {
+              background: #fff;
+              padding: 8px 12px;
+              border-bottom: 1px solid #333;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .section-title {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .status-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+              border: 1px solid #333;
+              background: #fff;
+              color: #000;
+            }
+            .deposit-body {
+              padding: 10px 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+            }
+            .info-row {
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+              font-size: 9px;
+            }
+            .info-label {
+              font-weight: 600;
+              display: inline-block;
+              width: 110px;
+            }
+            .info-value {
+              color: #333;
+            }
+            .footer {
+              position: fixed;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              padding: 10px 0.4in;
+              border-top: 2px solid #333;
+              font-size: 8px;
+              background: #fff;
+            }
+            .footer-content {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+            }
+            .footer-left, .footer-right {
+              flex: 1;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
           </style>
         </head>
         <body>
-          <h1>Deposit Receipt</h1>
           <div class="header">
-            <p style="color: #666; margin: 5px 0;">Date: ${format(new Date(deposit.depositDate), 'MMMM dd, yyyy')}</p>
-            <p style="color: #666; margin: 5px 0;">Branch: <strong>${branchName}</strong></p>
+            <h1>DAVID'S SALON</h1>
+            <h2>Deposit Receipt</h2>
           </div>
           
-          <div class="amount-section">
-            <div class="amount-box sales">
-              <div class="amount-label">Daily Sales</div>
-              <div class="amount-value" style="color: #3b82f6;">₱${(deposit.dailySalesTotal || 0).toLocaleString()}</div>
+          <div class="deposit-info">
+            <div class="deposit-info-title">BRANCH & DATE</div>
+            <div class="deposit-info-value">${branchName} - ${format(new Date(deposit.depositDate), 'MMMM dd, yyyy')}</div>
+          </div>
+
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">₱${(deposit.dailySalesTotal || 0).toLocaleString()}</div>
+              <div class="stat-label">Daily Sales</div>
             </div>
-            <div class="amount-box deposit">
-              <div class="amount-label">Deposit Amount</div>
-              <div class="amount-value" style="color: #22c55e;">₱${(deposit.amount || 0).toLocaleString()}</div>
+            <div class="stat-box">
+              <div class="stat-value">₱${(deposit.amount || 0).toLocaleString()}</div>
+              <div class="stat-label">Deposit Amount</div>
             </div>
-            <div class="amount-box diff">
-              <div class="amount-label">Difference</div>
-              <div class="amount-value" style="color: ${Math.abs(deposit.difference || 0) <= 1 ? '#22c55e' : '#ef4444'};">
-                ${deposit.difference >= 0 ? '+' : ''}₱${Math.abs(deposit.difference || 0).toFixed(2)}
+            <div class="stat-box">
+              <div class="stat-value">${deposit.difference >= 0 ? '+' : ''}₱${Math.abs(deposit.difference || 0).toFixed(2)}</div>
+              <div class="stat-label">Difference</div>
+            </div>
+          </div>
+          
+          <div class="deposit-card">
+            <div class="deposit-header">
+              <div class="section-title">Deposit Details</div>
+              <span class="status-badge">${statusLabel}</span>
+            </div>
+            
+            <div class="deposit-body">
+              <div class="info-grid">
+                <div class="info-row">
+                  <span class="info-label">Reference Number:</span>
+                  <span class="info-value">${deposit.referenceNumber || 'N/A'}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Bank:</span>
+                  <span class="info-value">${deposit.bankName || 'N/A'}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Submitted By:</span>
+                  <span class="info-value">${deposit.submittedByName || 'Unknown'}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Submitted At:</span>
+                  <span class="info-value">${deposit.submittedAt ? format(new Date(deposit.submittedAt), 'MMM dd, yyyy HH:mm') : 'N/A'}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Validation:</span>
+                  <span class="info-value">${validationLabel}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Status:</span>
+                  <span class="info-value">${statusLabel}</span>
+                </div>
+                ${deposit.reviewedByName ? `
+                <div class="info-row">
+                  <span class="info-label">Reviewed By:</span>
+                  <span class="info-value">${deposit.reviewedByName}</span>
+                </div>
+                ` : ''}
+                ${deposit.reviewNotes ? `
+                <div class="info-row" style="grid-column: 1 / -1;">
+                  <span class="info-label">Review Notes:</span>
+                  <span class="info-value">${deposit.reviewNotes}</span>
+                </div>
+                ` : ''}
               </div>
             </div>
           </div>
           
-          <div class="info-section">
-            <div class="info-row">
-              <span class="info-label">Reference Number:</span>
-              <span class="info-value">${deposit.referenceNumber || 'N/A'}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Bank:</span>
-              <span class="info-value">${deposit.bankName || 'N/A'}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Submitted By:</span>
-              <span class="info-value">${deposit.submittedByName || 'Unknown'}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Submitted At:</span>
-              <span class="info-value">${deposit.submittedAt ? format(new Date(deposit.submittedAt), 'MMM dd, yyyy HH:mm') : 'N/A'}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Validation:</span>
-              <span class="info-value">${deposit.validationStatus === 'match' ? '✓ Match' : deposit.validationStatus === 'mismatch' ? '✗ Mismatch' : '⚠ Needs Review'}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Status:</span>
-              <span class="info-value">
-                <span class="status status-${deposit.status === 'approved' ? 'approved' : deposit.status === 'rejected' ? 'rejected' : 'pending'}">
-                  ${deposit.status === 'approved' ? '✓ Approved' : deposit.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}
-                </span>
-              </span>
-            </div>
-            ${deposit.reviewedByName ? `
-            <div class="info-row">
-              <span class="info-label">Reviewed By:</span>
-              <span class="info-value">${deposit.reviewedByName}</span>
-            </div>
-            ` : ''}
-            ${deposit.reviewNotes ? `
-            <div class="info-row">
-              <span class="info-label">Review Notes:</span>
-              <span class="info-value">${deposit.reviewNotes}</span>
-            </div>
-            ` : ''}
-          </div>
-          
           <div class="footer">
-            <p>Generated on ${format(new Date(), 'MMMM dd, yyyy HH:mm:ss')}</p>
+            <div class="footer-content">
+              <div class="footer-left">
+                <strong>Generated By:</strong> Operational Manager<br>
+                <strong>Position:</strong> Operational Manager<br>
+                <strong>Branch:</strong> All Branches
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
           </div>
         </body>
       </html>

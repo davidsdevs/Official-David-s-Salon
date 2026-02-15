@@ -23,6 +23,7 @@ import { getActiveSchedulesByEmployee, getSchedulesByBranch } from '../../servic
 import { useAuth } from '../../context/AuthContext';
 import { USER_ROLES, ROLE_LABELS } from '../../utils/constants';
 import { formatDate, getFullName, formatCurrency } from '../../utils/helpers';
+import { generatePrintableReport } from '../../utils/reportHelpers';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 
@@ -44,14 +45,67 @@ const StaffReports = () => {
   const [importErrors, setImportErrors] = useState([]);
 
   // Print refs
-  const employeesPrintRef = useRef();
   const schedulesPrintRef = useRef();
   const lendingPrintRef = useRef();
 
-  const handlePrintEmployees = useReactToPrint({
-    content: () => employeesPrintRef.current,
-    documentTitle: `Staff_Data_${formatDate(new Date(), 'yyyy-MM-dd')}`,
-  });
+  const handlePrintEmployees = () => {
+    // Build active filters
+    const filters = [];
+    filters.push(`Branch: ${branchName}`);
+    filters.push(`Total Staff: ${staff.length}`);
+    filters.push(`Active: ${staff.filter(s => s.isActive).length}`);
+    filters.push(`Inactive: ${staff.filter(s => !s.isActive).length}`);
+    
+    // Build table content
+    const tableContent = `
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Roles</th>
+            <th class="text-center">Status</th>
+            <th class="text-center">Shifts</th>
+            <th>Joined</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${staff.map((member) => {
+            const roles = member.roles || (member.role ? [member.role] : []);
+            const shifts = member.shifts || {};
+            const shiftCount = Object.keys(shifts).length;
+            
+            return `
+              <tr>
+                <td>${getFullName(member)}</td>
+                <td>${member.email || 'N/A'}</td>
+                <td>${roles.map(role => ROLE_LABELS[role] || role).join(', ')}</td>
+                <td class="text-center">${member.isActive ? 'Active' : 'Inactive'}</td>
+                <td class="text-center">${shiftCount > 0 ? `${shiftCount} days` : 'No shifts'}</td>
+                <td>${member.createdAt ? formatDate(member.createdAt) : 'N/A'}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+    
+    // Generate report
+    const reportHTML = generatePrintableReport({
+      title: 'Staff Details (All)',
+      filters: filters,
+      content: tableContent,
+      currentUser: currentUser
+    });
+    
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(reportHTML);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  };
 
   const handlePrintSchedules = useReactToPrint({
     content: () => schedulesPrintRef.current,
@@ -491,52 +545,7 @@ const StaffReports = () => {
     }
   };
 
-  // Print Components
-  const PrintEmployeesReport = () => (
-    <div ref={employeesPrintRef} style={{ display: 'none' }}>
-      <div className="p-6">
-        <div className="text-center mb-4 border-b pb-3">
-          <h1 className="text-2xl font-bold">Staff Data Report</h1>
-          <p className="text-sm text-gray-600 mt-1">{branchName}</p>
-          <p className="text-xs text-gray-500 mt-1">Generated on {formatDate(new Date(), 'MMM dd, yyyy hh:mm a')}</p>
-        </div>
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="bg-gray-100">
-            <th className="border p-2 text-left">Name</th>
-            <th className="border p-2 text-left">Email</th>
-            <th className="border p-2 text-left">Roles</th>
-            <th className="border p-2 text-left">Status</th>
-            <th className="border p-2 text-left">Shifts</th>
-            <th className="border p-2 text-left">Joined</th>
-          </tr>
-        </thead>
-        <tbody>
-          {staff.map((member) => {
-            const roles = member.roles || (member.role ? [member.role] : []);
-            const shifts = member.shifts || {};
-            const shiftCount = Object.keys(shifts).length;
-            
-            return (
-              <tr key={member.id || member.uid}>
-                <td className="border p-2">{getFullName(member)}</td>
-                <td className="border p-2">{member.email || 'N/A'}</td>
-                <td className="border p-2">{roles.map(role => ROLE_LABELS[role] || role).join(', ')}</td>
-                <td className="border p-2">{member.isActive ? 'Active' : 'Inactive'}</td>
-                <td className="border p-2">{shiftCount > 0 ? `${shiftCount} days` : 'No shifts'}</td>
-                <td className="border p-2">{member.createdAt ? formatDate(member.createdAt) : 'N/A'}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-        <div className="mt-4 text-xs text-gray-500 text-center">
-          Total Employees: {staff.length} | Active: {staff.filter(s => s.isActive).length}
-        </div>
-      </div>
-    </div>
-  );
-
+  // Print Components - Always rendered but hidden
   const PrintSchedulesReport = () => (
     <div ref={schedulesPrintRef} style={{ display: 'none' }}>
       <div className="p-6">
@@ -1012,7 +1021,6 @@ const StaffReports = () => {
       </div>
 
       {/* Print Components - Always rendered but hidden */}
-      <PrintEmployeesReport />
       <PrintSchedulesReport />
       <PrintLendingReport />
 

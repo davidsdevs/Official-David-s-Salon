@@ -59,6 +59,10 @@ const ClientBookingModal = ({
   // Schedule-aware stylist filtering
   const [showAllStylists, setShowAllStylists] = useState(false);
   const [stylistsWithAvailability, setStylistsWithAvailability] = useState([]);
+  
+  // Stylist unavailable modal
+  const [showUnavailableModal, setShowUnavailableModal] = useState(false);
+  const [unavailableStylist, setUnavailableStylist] = useState(null);
 
   // Reset function when modal closes
   const handleClose = () => {
@@ -1138,10 +1142,9 @@ const ClientBookingModal = ({
                           onClick={() => {
                             // Warn if stylist is unavailable
                             if (isUnavailable) {
-                              const confirmMsg = `⚠️ Warning: This stylist is ${stylist.unavailableReason}.\n\nDo you want to book anyway?`;
-                              if (!confirm(confirmMsg)) {
-                                return;
-                              }
+                              setUnavailableStylist(stylist);
+                              setShowUnavailableModal(true);
+                              return;
                             }
                             confirmStylistSelection(stylist.id);
                           }}
@@ -1575,6 +1578,92 @@ const ClientBookingModal = ({
           </div>
         </div>
       )}
+      
+      {/* Stylist Unavailable Modal */}
+      {showUnavailableModal && unavailableStylist && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[80] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="bg-gradient-to-r from-amber-500 to-amber-600 p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-6 h-6 text-white" />
+                <div>
+                  <h3 className="text-lg font-bold text-white">Stylist Unavailable</h3>
+                  <p className="text-white/90 text-sm mt-1">This stylist may not be available</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setShowUnavailableModal(false);
+                  setUnavailableStylist(null);
+                }} 
+                className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-white font-semibold text-lg flex-shrink-0">
+                  {(unavailableStylist.firstName?.[0] || unavailableStylist.name?.[0] || 'S').toUpperCase()}
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-900">
+                    {unavailableStylist.firstName && unavailableStylist.lastName 
+                      ? `${unavailableStylist.firstName} ${unavailableStylist.lastName}` 
+                      : unavailableStylist.name || 'Stylist'}
+                  </p>
+                  {unavailableStylist.specialization && (
+                    <p className="text-sm text-gray-500">{unavailableStylist.specialization}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-amber-900 mb-2">Unavailability Reason:</p>
+                <p className="text-sm text-amber-800">
+                  {unavailableStylist.unavailableReason || 'This stylist is not available at the selected time.'}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-700">What would you like to do?</p>
+                <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                  <li>Choose another stylist who is available</li>
+                  <li>Select a different date or time</li>
+                  <li>Book anyway (appointment may be rescheduled)</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="px-6 pb-6 pt-4 border-t border-gray-100 bg-gray-50 flex gap-3">
+              <button 
+                type="button" 
+                onClick={() => {
+                  setShowUnavailableModal(false);
+                  setUnavailableStylist(null);
+                }} 
+                className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-all font-semibold"
+              >
+                Choose Another Stylist
+              </button>
+              <button 
+                type="button" 
+                onClick={() => {
+                  confirmStylistSelection(unavailableStylist.id);
+                  setShowUnavailableModal(false);
+                  setUnavailableStylist(null);
+                }} 
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-lg font-semibold hover:from-amber-600 hover:to-amber-700 transition-all"
+              >
+                Book Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Closed date modal */}
       {showClosedModal && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[80] p-4">

@@ -2149,11 +2149,17 @@ const CalendarManagement = () => {
           @media print {
             @page {
               size: letter landscape;
-              margin: 0.3in 0.4in;
+              margin: 0.2in 0.25in;
+            }
+            body {
+              counter-reset: page 1;
             }
             * {
               color: #000 !important;
               background: transparent !important;
+            }
+            .page-number-display::before {
+              content: "Page " counter(page);
             }
           }
         `}</style>
@@ -2166,44 +2172,27 @@ const CalendarManagement = () => {
           {/* Header */}
           <div style={{ 
             textAlign: 'center',
-            marginBottom: '10px',
-            borderBottom: '2px solid #000',
-            paddingBottom: '8px'
+            marginBottom: '6px',
+            borderBottom: '1px solid #000',
+            paddingBottom: '4px'
           }}>
+            <div style={{ fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>David Salon</div>
             <h1 style={{ 
-              fontSize: '20px',
+              fontSize: '16px',
               fontWeight: 'bold',
-              marginBottom: '4px',
-              letterSpacing: '0.5px',
-              margin: '0 0 4px 0'
+              marginBottom: '2px',
+              letterSpacing: '0.3px',
+              margin: '0 0 2px 0'
             }}>
               {branchInfo?.branchName || branchInfo?.name || 'Branch'} - Calendar
             </h1>
             <div style={{ 
-              fontSize: '16px',
+              fontSize: '12px',
               fontWeight: '600',
-              marginBottom: '6px',
+              marginBottom: '4px',
               color: '#333'
             }}>
               {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-            </div>
-            <div style={{ 
-              fontSize: '10px',
-              display: 'flex',
-              justifyContent: 'space-between'
-            }}>
-              <div style={{ textAlign: 'left' }}>
-                <div><strong>Printed by:</strong> {currentUser ? getFullName(currentUser) : 'Manager'}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div><strong>Printed:</strong> {new Date().toLocaleString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric', 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
-                })}</div>
-              </div>
             </div>
           </div>
 
@@ -2211,16 +2200,16 @@ const CalendarManagement = () => {
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(7, 1fr)',
-            gap: '3px',
-            marginBottom: '3px'
+            gap: '2px',
+            marginBottom: '2px'
           }}>
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
               <div key={day} style={{
                 border: '1px solid #000',
-                padding: '6px',
+                padding: '3px',
                 textAlign: 'center',
                 fontWeight: 'bold',
-                fontSize: '11px'
+                fontSize: '9px'
               }}>
                 {day}
               </div>
@@ -2231,7 +2220,7 @@ const CalendarManagement = () => {
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(7, 1fr)',
-            gap: '3px'
+            gap: '2px'
           }}>
             {calendarDays.map(({ date, inCurrentMonth }, index) => {
               const dateKey = formatDateKey(date);
@@ -2247,64 +2236,63 @@ const CalendarManagement = () => {
                   key={`print-${dateKey}-${index}`}
                   style={{
                     border: '1px solid #000',
-                    minHeight: '75px',
-                    padding: '4px',
-                    fontSize: '8px',
+                    minHeight: '85px',
+                    padding: '3px',
+                    fontSize: '7px',
                     backgroundColor: !inCurrentMonth ? '#f5f5f5' : (isWeekend ? '#f9fafb' : '#fff'),
                     position: 'relative'
                   }}
                 >
                   {/* Date Number */}
                   <div style={{
-                    fontSize: '11px',
+                    fontSize: '9px',
                     fontWeight: 'bold',
-                    marginBottom: '3px',
+                    marginBottom: '2px',
                     color: !inCurrentMonth ? '#999' : (isToday ? '#000' : '#000'),
-                    borderBottom: isToday ? '2px solid #000' : 'none',
-                    paddingBottom: isToday ? '2px' : '0'
+                    borderBottom: isToday ? '1px solid #000' : 'none',
+                    paddingBottom: isToday ? '1px' : '0'
                   }}>
                     {date.getDate()}
                   </div>
 
                   {/* Content */}
-                  <div style={{ fontSize: '7px', lineHeight: '1.2' }}>
+                  <div style={{ fontSize: '6px', lineHeight: '1.1' }}>
                     {/* Holiday */}
                     {holiday && (() => {
                       const holidayCategory = categorizePhilippineHoliday(holiday);
-                      // Match exact badge colors from calendar view
-                      let bgColor = '#fee2e2'; // red-100 default
-                      let textColor = '#991b1b'; // red-800
-                      let borderColor = '#fca5a5'; // red-300
+                      let bgColor = '#fee2e2';
+                      let textColor = '#991b1b';
+                      let borderColor = '#fca5a5';
                       
                       if (holidayCategory.label?.includes('Regular')) {
-                        bgColor = '#fee2e2'; // red-100
-                        textColor = '#991b1b'; // red-800
-                        borderColor = '#fca5a5'; // red-300
+                        bgColor = '#fee2e2';
+                        textColor = '#991b1b';
+                        borderColor = '#fca5a5';
                       } else if (holidayCategory.label?.includes('Special Non-Working')) {
-                        bgColor = '#ffedd5'; // orange-100
-                        textColor = '#9a3412'; // orange-800
-                        borderColor = '#fdba74'; // orange-300
+                        bgColor = '#ffedd5';
+                        textColor = '#9a3412';
+                        borderColor = '#fdba74';
                       } else if (holidayCategory.label?.includes('Special Working')) {
-                        bgColor = '#fef3c7'; // yellow-100
-                        textColor = '#854d0e'; // yellow-800
-                        borderColor = '#fde047'; // yellow-300
+                        bgColor = '#fef3c7';
+                        textColor = '#854d0e';
+                        borderColor = '#fde047';
                       } else if (holidayCategory.label?.includes('All Saints')) {
-                        bgColor = '#f3f4f6'; // gray-100
-                        textColor = '#374151'; // gray-700
-                        borderColor = '#d1d5db'; // gray-300
+                        bgColor = '#f3f4f6';
+                        textColor = '#374151';
+                        borderColor = '#d1d5db';
                       }
                       return (
                         <div style={{
-                          marginBottom: '2px',
-                          padding: '2px 3px',
+                          marginBottom: '1px',
+                          padding: '1px 2px',
                           border: `1px solid ${borderColor}`,
-                          fontSize: '7px',
+                          fontSize: '6px',
                           fontWeight: 'bold',
                           backgroundColor: bgColor,
                           color: textColor
                         }}>
-                          <div style={{ fontWeight: 'bold', fontSize: '7px' }}>{holiday.localName || holiday.name}</div>
-                          <div style={{ fontSize: '6px' }}>{holidayCategory.label}</div>
+                          <div style={{ fontWeight: 'bold', fontSize: '6px' }}>{holiday.localName || holiday.name}</div>
+                          <div style={{ fontSize: '5px' }}>{holidayCategory.label}</div>
                         </div>
                       );
                     })()}
@@ -2312,16 +2300,15 @@ const CalendarManagement = () => {
                     {/* Leaves */}
                     {dayLeaves.slice(0, 1).map((leave, idx) => {
                       const leaveTypeInfo = LEAVE_TYPES.find(t => t.value === leave.type) || LEAVE_TYPES[0];
-                      // Match exact badge colors: pending = yellow-50, approved = orange-50
-                      const bgColor = leave.status === 'pending' ? '#fefce8' : '#fff7ed'; // yellow-50 or orange-50
-                      const textColor = leave.status === 'pending' ? '#a16207' : '#c2410c'; // yellow-700 or orange-700
-                      const borderColor = leave.status === 'pending' ? '#fef08a' : '#fed7aa'; // yellow-200 or orange-200
+                      const bgColor = leave.status === 'pending' ? '#fefce8' : '#fff7ed';
+                      const textColor = leave.status === 'pending' ? '#a16207' : '#c2410c';
+                      const borderColor = leave.status === 'pending' ? '#fef08a' : '#fed7aa';
                       return (
                         <div key={`leave-${idx}`} style={{
-                          marginBottom: '2px',
-                          padding: '2px 3px',
+                          marginBottom: '1px',
+                          padding: '1px 2px',
                           border: `1px solid ${borderColor}`,
-                          fontSize: '6px',
+                          fontSize: '5px',
                           backgroundColor: bgColor,
                           color: textColor
                         }}>
@@ -2330,7 +2317,7 @@ const CalendarManagement = () => {
                       );
                     })}
                     {dayLeaves.length > 1 && (
-                      <div style={{ fontSize: '6px', color: '#666' }}>
+                      <div style={{ fontSize: '5px', color: '#666' }}>
                         +{dayLeaves.length - 1} leave{dayLeaves.length - 1 !== 1 ? 's' : ''}
                       </div>
                     )}
@@ -2340,22 +2327,21 @@ const CalendarManagement = () => {
                       const timeDisplay = stylist.startTime && stylist.endTime 
                         ? `${formatTime12Hour(stylist.startTime)}-${formatTime12Hour(stylist.endTime)}`
                         : '';
-                      // Match exact badge color: purple-50, purple-700, purple-200
                       return (
                         <div key={`stylist-${idx}`} style={{
-                          marginBottom: '2px',
-                          padding: '2px 3px',
-                          border: '1px solid #e9d5ff', // purple-200
-                          fontSize: '6px',
-                          backgroundColor: '#faf5ff', // purple-50
-                          color: '#7e22ce' // purple-700
+                          marginBottom: '1px',
+                          padding: '1px 2px',
+                          border: '1px solid #e9d5ff',
+                          fontSize: '5px',
+                          backgroundColor: '#faf5ff',
+                          color: '#7e22ce'
                         }}>
                           {stylist.name} {timeDisplay && `(${timeDisplay})`}
                         </div>
                       );
                     })}
                     {scheduledStylists.length > 1 && (
-                      <div style={{ fontSize: '6px', color: '#666' }}>
+                      <div style={{ fontSize: '5px', color: '#666' }}>
                         +{scheduledStylists.length - 1} stylist{scheduledStylists.length - 1 !== 1 ? 's' : ''}
                       </div>
                     )}
@@ -2363,18 +2349,18 @@ const CalendarManagement = () => {
                     {/* Reminders */}
                     {dayEntries.slice(0, 1).map(entry => (
                       <div key={entry.id} style={{
-                        marginBottom: '2px',
-                        padding: '2px 3px',
-                        border: '1px solid #bfdbfe', // blue-200
-                        fontSize: '6px',
-                        backgroundColor: '#eff6ff', // blue-50
-                        color: '#1e40af' // blue-800
+                        marginBottom: '1px',
+                        padding: '1px 2px',
+                        border: '1px solid #bfdbfe',
+                        fontSize: '5px',
+                        backgroundColor: '#eff6ff',
+                        color: '#1e40af'
                       }}>
                         {entry.title}
                       </div>
                     ))}
                     {dayEntries.length > 1 && (
-                      <div style={{ fontSize: '6px', color: '#666' }}>
+                      <div style={{ fontSize: '5px', color: '#666' }}>
                         +{dayEntries.length - 1} reminder{dayEntries.length - 1 !== 1 ? 's' : ''}
                       </div>
                     )}
@@ -2382,6 +2368,36 @@ const CalendarManagement = () => {
                 </div>
               );
             })}
+          </div>
+          
+          {/* Footer with metadata and page number */}
+          <div style={{
+            position: 'fixed',
+            bottom: '0.1in',
+            left: '0.25in',
+            right: '0.25in',
+            borderTop: '1px solid #333',
+            paddingTop: '4px',
+            fontSize: '7px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <div style={{ textAlign: 'left', flex: 1 }}>
+              <div><strong>Generated by:</strong> {currentUser ? getFullName(currentUser) : 'Manager'}</div>
+            </div>
+            <div style={{ textAlign: 'center', flex: 1, fontWeight: 600 }}>
+              <span className="page-number-display"></span>
+            </div>
+            <div style={{ textAlign: 'right', flex: 1 }}>
+              <div><strong>Generated on:</strong> {new Date().toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}</div>
+            </div>
           </div>
         </div>
       </div>

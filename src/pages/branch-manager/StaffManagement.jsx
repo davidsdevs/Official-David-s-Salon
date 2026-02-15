@@ -13,6 +13,7 @@ import { getActiveSchedulesByEmployee } from '../../services/scheduleService';
 import { useAuth } from '../../context/AuthContext';
 import { USER_ROLES, ROLE_LABELS } from '../../utils/constants';
 import { formatDate, getFullName, getInitials } from '../../utils/helpers';
+import { generatePrintableReport } from '../../utils/reportHelpers';
 import BranchStaffFormModal from '../../components/branch/BranchStaffFormModal';
 import StaffServicesCertificatesModal from '../../components/branch/StaffServicesCertificatesModal';
 import ResetPasswordModal from '../../components/branch/ResetPasswordModal';
@@ -22,7 +23,6 @@ import StaffSchedule from './StaffSchedule';
 import StaffLending from './StaffLending';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import RoleBadges from '../../components/ui/RoleBadges';
-import PDFPreviewModal from '../../components/ui/PDFPreviewModal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import toast from 'react-hot-toast';
 
@@ -56,7 +56,6 @@ const StaffManagement = () => {
   const [selectedStaffForPasswordReset, setSelectedStaffForPasswordReset] = useState(null);
   const [showStaffDetailPrint, setShowStaffDetailPrint] = useState(false);
   const [selectedStaffForPrint, setSelectedStaffForPrint] = useState(null);
-  const [showPDFPreview, setShowPDFPreview] = useState(false);
   const [branchName, setBranchName] = useState('');
   const [activeTab, setActiveTab] = useState('list');
   const [lentStaff, setLentStaff] = useState([]);
@@ -70,7 +69,6 @@ const StaffManagement = () => {
   const [showRequestModal, setShowRequestModal] = useState(false); // For lending modal
   
   // Print refs
-  const printRef = useRef(); // For all staff
   const staffDetailPrintRef = useRef(); // For individual staff
 
   // Branch Manager can only manage these roles
@@ -254,49 +252,109 @@ const StaffManagement = () => {
 
   // Print handler - opens PDF preview immediately
   const handlePrint = async () => {
-    if (!printRef.current) {
-      toast.error('Print content not ready. Please try again.');
-      return;
+    // Build active filters array
+    const filters = [];
+    
+    if (searchTerm) {
+      filters.push(`Search: "${searchTerm}"`);
     }
     
-    // Wait for images to load before opening preview
-    const images = printRef.current.querySelectorAll('img');
-    if (images.length > 0) {
-      await Promise.all(
-        Array.from(images).map((img) => {
-          if (img.complete && img.naturalHeight !== 0) {
-            return Promise.resolve();
-          }
-          return new Promise((resolve) => {
-            if (img.src && !img.crossOrigin) {
-              img.crossOrigin = 'anonymous';
-            }
-            const onLoad = () => {
-              img.removeEventListener('load', onLoad);
-              img.removeEventListener('error', onError);
-              resolve();
-            };
-            const onError = () => {
-              img.removeEventListener('load', onLoad);
-              img.removeEventListener('error', onError);
-              resolve(); // Continue even if image fails
-            };
-            img.addEventListener('load', onLoad);
-            img.addEventListener('error', onError);
-            setTimeout(() => {
-              img.removeEventListener('load', onLoad);
-              img.removeEventListener('error', onError);
-              resolve();
-            }, 3000);
-          });
-        })
-      );
-      // Additional wait to ensure rendering
-      await new Promise(resolve => setTimeout(resolve, 300));
+    if (roleFilter !== 'all') {
+      filters.push(`Role: ${ROLE_LABELS[roleFilter] || roleFilter}`);
     }
     
-    // Open PDF preview
-    setShowPDFPreview(true);
+    if (statusFilter !== 'all') {
+      filters.push(`Status: ${statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}`);
+    }
+    
+    if (shiftFilter !== 'all') {
+      const shiftLabel = shiftFilter === 'with-shifts' ? 'With Shifts' : 'No Shifts';
+      filters.push(`Shifts: ${shiftLabel}`);
+    }
+    
+    if (dateRangeFilter !== 'all') {
+      const dateLabels = {
+        'today': 'Today',
+        'week': 'Last 7 Days',
+        'month': 'Last 30 Days',
+        'year': 'Last Year'
+      };
+      filters.push(`Joined: ${dateLabels[dateRangeFilter] || dateRangeFilter}`);
+    }
+    
+    if (lendingFilter !== 'all') {
+      const lendingLabels = {
+        'lent-in': 'Lent In',
+        'lent-out': 'Lent Out',
+        'not-lent': 'Not Lent'
+      };
+      filters.push(`Lending: ${lendingLabels[lendingFilter] || lendingFilter}`);
+    }
+    
+    if (serviceFilter !== 'all') {
+      const service = branchServices.find(s => s.id === serviceFilter);
+      if (service) {
+        filters.push(`Service: ${service.name || service.serviceName}`);
+      }
+    }
+    
+    // Add summary filters
+    filters.push(`Branch: ${branchName}`);
+    filters.push(`Total Staff: ${filteredStaff.length}`);
+    filters.push(`Active: ${filteredStaff.filter(s => s.isActive).length}`);
+    filters.push(`Inactive: ${filteredStaff.filter(s => !s.isActive).length}`);
+    
+    // Build table content
+    const tableRows = filteredStaff.map((member) => {
+      const roles = member.roles || (member.role ? [member.role] : []);
+      const shifts = member.shifts || {};
+      const shiftCount = Object.keys(shifts).length;
+      
+      return `
+        <tr>
+          <td>${getFullName(member)}</td>
+          <td>${member.email || 'N/A'}</td>
+          <td>${member.phone || 'N/A'}</td>
+          <td>${roles.map(role => ROLE_LABELS[role] || role).join(', ')}</td>
+          <td>${member.isActive ? 'Active' : 'Inactive'}</td>
+          <td>${shiftCount > 0 ? `${shiftCount} days` : 'None'}</td>
+          <td>${member.createdAt ? formatDate(member.createdAt, 'MMM dd, yyyy') : 'N/A'}</td>
+        </tr>
+      `;
+    }).join('');
+    
+    const content = `
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Roles</th>
+            <th>Status</th>
+            <th>Shifts</th>
+            <th>Joined</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+    `;
+    
+    const reportHTML = generatePrintableReport({
+      title: 'Staff Data Report',
+      filters: filters,
+      content: content,
+      currentUser: currentUser
+    });
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(reportHTML);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
   // Enhanced filtering with all filters
@@ -817,10 +875,6 @@ const StaffManagement = () => {
                 toast.error('No staff data to print');
                 return;
               }
-              if (!printRef.current) {
-                toast.error('Print content not ready. Please try again.');
-                return;
-              }
               handlePrint();
             }}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1264,132 +1318,6 @@ const StaffManagement = () => {
         <StaffLending />
       )}
 
-      {/* Print View - Rendered off-screen for PDF generation */}
-      <div ref={printRef} style={{ position: 'fixed', left: '-200%', top: 0, width: '8.5in', zIndex: -1 }}>
-        <style>{`
-          @media print {
-            @page {
-              margin: 1cm 1cm 1.5cm 1cm;
-              size: letter;
-            }
-            * {
-              color: #000 !important;
-              background: transparent !important;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-            .print-break {
-              page-break-after: always;
-            }
-            .print-avoid-break {
-              page-break-inside: avoid;
-            }
-            table {
-              font-size: 12px;
-              border-collapse: collapse;
-              line-height: 1.4;
-            }
-            th, td {
-              padding: 8px 10px !important;
-              border: 1px solid #000 !important;
-              background: transparent !important;
-              text-align: center !important;
-              vertical-align: middle !important;
-            }
-            thead th {
-              border-bottom: 2px solid #000 !important;
-              font-weight: 600;
-            }
-            tbody tr {
-              border-bottom: 1px solid #000 !important;
-            }
-          }
-        `}</style>
-        <div className="p-4" style={{ fontSize: '12px', padding: '16px', lineHeight: '1.5' }}>
-          <div className="text-center mb-4 border-b border-black pb-3" style={{ marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #000' }}>
-            <h1 className="font-bold" style={{ fontSize: '18px', marginBottom: '4px' }}>Staff Data Report</h1>
-            <p className="font-semibold" style={{ fontSize: '14px', marginBottom: '4px' }}>{branchName}</p>
-            <p style={{ fontSize: '12px' }}>Generated: {formatDate(new Date(), 'MMM dd, yyyy')}</p>
-          </div>
-          
-          {/* Summary Stats - Lines Only */}
-          <div className="mb-4 grid grid-cols-4 gap-3 print-avoid-break" style={{ fontSize: '12px', marginBottom: '16px', gap: '12px' }}>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
-              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>{filteredStaff.length}</div>
-              <div style={{ fontSize: '11px' }}>Total</div>
-            </div>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
-              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>{filteredStaff.filter(s => s.isActive).length}</div>
-              <div style={{ fontSize: '11px' }}>Active</div>
-            </div>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
-              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>{filteredStaff.filter(s => !s.isActive).length}</div>
-              <div style={{ fontSize: '11px' }}>Inactive</div>
-            </div>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #000', padding: '8px' }}>
-              <div className="font-bold" style={{ fontSize: '16px', marginBottom: '4px' }}>
-                {filteredStaff.filter(s => {
-                  const roles = s.roles || (s.role ? [s.role] : []);
-                  return roles.includes(USER_ROLES.STYLIST);
-                }).length}
-              </div>
-              <div style={{ fontSize: '11px' }}>Stylists</div>
-            </div>
-          </div>
-
-          {/* Staff Table - Lines Only, Readable */}
-          <table className="w-full" style={{ fontSize: '12px', borderCollapse: 'collapse', width: '100%', lineHeight: '1.5' }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #000' }}>
-                <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Name</th>
-                <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Email</th>
-                <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Phone</th>
-                <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Roles</th>
-                <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Status</th>
-                <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Shifts</th>
-                <th className="border border-black font-semibold" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>Joined</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredStaff.map((member, index) => {
-                const roles = member.roles || (member.role ? [member.role] : []);
-                const shifts = member.shifts || {};
-                const shiftCount = Object.keys(shifts).length;
-                const shiftDetails = Object.entries(shifts).slice(0, 2).map(([day, shift]) => 
-                  `${day.charAt(0).toUpperCase()}: ${shift.start}-${shift.end}`
-                ).join('; ');
-                const hasMoreShifts = shiftCount > 2;
-                
-                return (
-                  <tr key={member.id || member.uid} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #000' }}>
-                    <td className="border border-black font-medium" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{getFullName(member)}</td>
-                    <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{member.email || 'N/A'}</td>
-                    <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{member.phone || 'N/A'}</td>
-                    <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{roles.map(role => ROLE_LABELS[role] || role).join(', ')}</td>
-                    <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>
-                      {member.isActive ? 'Active' : 'Inactive'}
-                    </td>
-                    <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>
-                      {shiftCount > 0 ? (
-                        <span>{shiftCount} days{hasMoreShifts ? '...' : ''}</span>
-                      ) : (
-                        'None'
-                      )}
-                    </td>
-                    <td className="border border-black" style={{ border: '1px solid #000', padding: '8px 10px', fontSize: '12px', textAlign: 'center', verticalAlign: 'middle' }}>{member.createdAt ? formatDate(member.createdAt, 'MMM dd, yyyy') : 'N/A'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          
-          {/* Footer - Minimal Lines */}
-          <div className="mt-4 pt-2 border-t border-black text-center" style={{ fontSize: '11px', marginTop: '16px', paddingTop: '8px', borderTop: '1px solid #000' }}>
-            <p>Total: {filteredStaff.length} | Active: {filteredStaff.filter(s => s.isActive).length} | Inactive: {filteredStaff.filter(s => !s.isActive).length}</p>
-          </div>
-        </div>
-      </div>
-
       {/* Modals */}
       {showStaffForm && (
         <BranchStaffFormModal
@@ -1440,15 +1368,6 @@ const StaffManagement = () => {
           }}
         />
       )}
-
-      {/* PDF Preview Modal for All Staff */}
-      <PDFPreviewModal
-        isOpen={showPDFPreview}
-        onClose={() => setShowPDFPreview(false)}
-        contentRef={printRef}
-        title="Staff Data - PDF Preview"
-        fileName={`Staff_Data_${new Date().toISOString().split('T')[0]}`}
-      />
 
       {/* Deactivate/Activate Confirmation Modal */}
       <ConfirmModal

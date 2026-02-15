@@ -228,6 +228,24 @@ const Inventory = () => {
 
       console.log('📦 Stocks found:', stocksSnapshot.size);
 
+      // Debug: Log all stock entries for Olaplex
+      const olaplexStocks = [];
+      stocksSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.productId === '4hg4CuvLSoLq0FlkMsHC') {
+          olaplexStocks.push({
+            docId: doc.id,
+            productId: data.productId,
+            usageType: data.usageType,
+            remainingQuantity: data.remainingQuantity,
+            realTimeStock: data.realTimeStock,
+            currentStock: data.currentStock,
+            status: data.status
+          });
+        }
+      });
+      console.log('🔍 ALL Olaplex stock entries:', olaplexStocks);
+
       // Process stocks to aggregate by product (separate OTC and Salon Use)
       const stockMap = new Map();
 
@@ -247,7 +265,21 @@ const Inventory = () => {
         const productId = stockData.productId;
         if (!productId) return;
         
-        const usageType = stockData.usageType || 'otc'; // default to otc if not specified
+        // Check both usageType and usage_type (database might use either)
+        const usageType = stockData.usageType || stockData.usage_type || 'otc'; // default to otc if not specified
+        
+        // Debug logging for usageType
+        if (productId === '4hg4CuvLSoLq0FlkMsHC') { // Olaplex product ID from your example
+          console.log('📊 Stock entry for Olaplex:', {
+            productId,
+            usageType,
+            usage_type: stockData.usage_type,
+            usageTypeField: stockData.usageType,
+            currentStock,
+            remainingQuantity: stockData.remainingQuantity,
+            realTimeStock: stockData.realTimeStock
+          });
+        }
         
         const current = stockMap.get(productId) || { 
           otcStock: 0, 
@@ -258,8 +290,11 @@ const Inventory = () => {
         // Track stocks separately by usage type
         if (usageType === 'otc') {
           current.otcStock = (current.otcStock || 0) + currentStock;
-        } else if (usageType === 'salon-use' || usageType === 'salon_use' || usageType === 'salonUse') {
+        } else if (usageType === 'salon-use' || usageType === 'salon_use' || usageType === 'salonUse' || usageType === 'salon') {
           current.salonStock = (current.salonStock || 0) + currentStock;
+        } else {
+          // Log unknown usageType
+          console.warn('⚠️ Unknown usageType:', usageType, 'for product:', productId);
         }
         current.totalStock = (current.otcStock || 0) + (current.salonStock || 0);
           
@@ -379,10 +414,19 @@ const Inventory = () => {
 
   // Handle print
   const handlePrint = () => {
+    console.log('=== PRINT DEBUG START ===');
+    console.log('Active Tab:', activeTab);
+    console.log('printRef.current:', printRef.current);
+    console.log('printRef.current exists:', !!printRef.current);
+    
     if (!printRef.current) {
+      console.error('ERROR: printRef.current is null or undefined');
       toast.error('Print content not ready. Please try again.');
       return;
     }
+    
+    console.log('printRef.current innerHTML length:', printRef.current.innerHTML?.length);
+    console.log('=== PRINT DEBUG END ===');
 
     // Build filters display
     const activeFilters = [];
@@ -505,7 +549,7 @@ const Inventory = () => {
         <body>
           <div class="header">
             <h1>DAVID'S SALON</h1>
-            <h2>Inventory Report</h2>
+            <h2>Product Sales Report</h2>
           </div>
           
           <div class="filters">
@@ -527,7 +571,7 @@ const Inventory = () => {
             </div>
             <div class="footer-center">
               <p style="font-weight: 600; font-size: 8px;">Page 1 of 1</p>
-              <p>Inventory Report - ${filteredProducts.length} Products</p>
+              <p>Product Sales Report - ${productTransactions.length} Transactions</p>
             </div>
           </div>
         </body>
@@ -1460,131 +1504,880 @@ const Inventory = () => {
       return;
     }
 
-    // Create print content
+    // Build filters display
+    const activeFilters = [];
+    if (searchTermPO) activeFilters.push(`Search: "${searchTermPO}"`);
+    if (selectedStatusPO !== 'all') activeFilters.push(`Status: ${selectedStatusPO}`);
+    if (selectedSupplierFilter !== 'all') {
+      const supplier = suppliers.find(s => s.id === selectedSupplierFilter);
+      if (supplier) activeFilters.push(`Supplier: ${supplier.name}`);
+    }
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Purchase Orders';
+
+    // Calculate summary statistics
+    const totalOrders = filteredOrders.length;
+    const totalAmount = filteredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+    const statusCounts = filteredOrders.reduce((acc, order) => {
+      acc[order.status] = (acc[order.status] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Generate individual order pages
+    const orderPages = filteredOrders.map((order, index) => {
+      const items = order.items || [];
+      const itemsTotal = items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+      
+      return `
+        <div class="order-page" style="page-break-after: always;">
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Purchase Order #${order.orderId || order.id}</h2>
+          </div>
+          
+          <!-- Order Information -->
+          <div class="order-info">
+            <div class="info-grid">
+              <div class="info-item">
+                <span class="info-label">Order ID:</span>
+                <span class="info-value">${order.orderId || order.id}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Status:</span>
+                <span class="info-value"><span class="status-badge status-${order.status?.toLowerCase().replace(/\s+/g, '-')}">${order.status}</span></span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Supplier:</span>
+                <span class="info-value">${order.supplierName || 'Unknown'}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Order Date:</span>
+                <span class="info-value">${order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Expected Delivery:</span>
+                <span class="info-value">${order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}</span>
+              </div>
+              ${order.actualDelivery ? `
+              <div class="info-item">
+                <span class="info-label">Actual Delivery:</span>
+                <span class="info-value">${format(new Date(order.actualDelivery), 'MMM dd, yyyy')}</span>
+              </div>
+              ` : ''}
+              <div class="info-item">
+                <span class="info-label">Created By:</span>
+                <span class="info-value">${order.createdByName || 'Unknown'}</span>
+              </div>
+              ${order.updatedByName ? `
+              <div class="info-item">
+                <span class="info-label">Last Updated By:</span>
+                <span class="info-value">${order.updatedByName}</span>
+              </div>
+              ` : ''}
+            </div>
+          </div>
+
+          ${order.notes || order.managerNotes ? `
+          <div class="notes-section">
+            ${order.notes ? `
+            <div class="note-box">
+              <div class="note-label">Notes:</div>
+              <div class="note-content">${order.notes}</div>
+            </div>
+            ` : ''}
+            ${order.managerNotes ? `
+            <div class="note-box manager-note">
+              <div class="note-label">Manager Notes:</div>
+              <div class="note-content">${order.managerNotes}</div>
+            </div>
+            ` : ''}
+          </div>
+          ` : ''}
+          
+          <!-- Order Items -->
+          <div class="items-section">
+            <h3>Order Items (${items.length} ${items.length === 1 ? 'item' : 'items'})</h3>
+            ${items.length > 0 ? items.map((item, idx) => `
+              <div class="item-card">
+                <div class="item-card-header">
+                  <span class="item-number">#${idx + 1}</span>
+                  <span class="item-name">${item.productName || 'N/A'}</span>
+                  <span class="usage-badge ${item.usageType === 'salon-use' ? 'usage-salon' : 'usage-otc'}">${item.usageType === 'salon-use' ? 'Salon Use' : 'OTC'}</span>
+                </div>
+                <div class="item-card-body">
+                  <div class="item-row">
+                    <span class="item-label">SKU:</span>
+                    <span class="item-value">${item.sku || 'N/A'}</span>
+                  </div>
+                  <div class="item-row">
+                    <span class="item-label">Quantity:</span>
+                    <span class="item-value quantity">${item.quantity || 0}</span>
+                  </div>
+                  <div class="item-row">
+                    <span class="item-label">Unit Price:</span>
+                    <span class="item-value">${formatCurrency(item.unitPrice || 0)}</span>
+                  </div>
+                  <div class="item-row total-row">
+                    <span class="item-label">Total:</span>
+                    <span class="item-value">${formatCurrency(item.totalPrice || 0)}</span>
+                  </div>
+                </div>
+              </div>
+            `).join('') : `
+              <div class="empty-state">
+                <p>No items in this order</p>
+              </div>
+            `}
+          </div>
+
+          <!-- Order Total -->
+          <div class="order-total">
+            <span class="order-total-label">ORDER TOTAL:</span>
+            <span class="order-total-value">${formatCurrency(order.totalAmount || 0)}</span>
+          </div>
+          
+          <!-- Footer -->
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Branch Manager'}<br>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600;">Order ${index + 1} of ${totalOrders}</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Create summary page
+    const summaryPage = `
+      <div class="summary-page" style="page-break-after: always;">
+        <div class="header">
+          <h1>DAVID'S SALON</h1>
+          <h2>Purchase Orders Summary</h2>
+        </div>
+        
+        <div class="filters">
+          <div class="filters-title">FILTERS APPLIED</div>
+          <div class="filters-content">${filtersText}</div>
+        </div>
+
+        <!-- Summary Statistics -->
+        <div class="summary-stats">
+          <div class="stat-box">
+            <div class="stat-value">${totalOrders}</div>
+            <div class="stat-label">Total Orders</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value">${formatCurrency(totalAmount)}</div>
+            <div class="stat-label">Total Amount</div>
+          </div>
+          ${Object.entries(statusCounts).map(([status, count]) => `
+          <div class="stat-box">
+            <div class="stat-value">${count}</div>
+            <div class="stat-label">${status}</div>
+          </div>
+          `).join('')}
+        </div>
+        
+        <!-- Orders Summary Cards -->
+        <div class="orders-list">
+          <h3 style="font-size: 12px; font-weight: 700; margin-bottom: 10px; text-transform: uppercase;">Purchase Orders List</h3>
+          ${filteredOrders.map((order, idx) => `
+            <div class="order-card">
+              <div class="order-card-header">
+                <div>
+                  <span class="order-number">#${idx + 1}</span>
+                  <span class="order-id">${order.orderId || order.id}</span>
+                </div>
+                <span class="status-badge status-${order.status?.toLowerCase().replace(/\s+/g, '-')}">${order.status}</span>
+              </div>
+              <div class="order-card-body">
+                <div class="order-card-row">
+                  <span class="label">Supplier:</span>
+                  <span class="value">${order.supplierName || 'Unknown'}</span>
+                </div>
+                <div class="order-card-row">
+                  <span class="label">Order Date:</span>
+                  <span class="value">${order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}</span>
+                </div>
+                <div class="order-card-row">
+                  <span class="label">Expected Delivery:</span>
+                  <span class="value">${order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}</span>
+                </div>
+                <div class="order-card-row">
+                  <span class="label">Created By:</span>
+                  <span class="value">${order.createdByName || 'Unknown'}</span>
+                </div>
+                <div class="order-card-row total">
+                  <span class="label">Total Amount:</span>
+                  <span class="value">${formatCurrency(order.totalAmount || 0)}</span>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <!-- Grand Total -->
+        <div class="grand-total">
+          <span class="grand-total-label">GRAND TOTAL:</span>
+          <span class="grand-total-value">${formatCurrency(totalAmount)}</span>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+          <div class="footer-info">
+            <div class="footer-left">
+              <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Branch Manager'}<br>
+              <strong>Position:</strong> Branch Manager
+            </div>
+            <div class="footer-right">
+              <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
+              <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          </div>
+          <div class="footer-center">
+            <p style="font-weight: 600;">Summary Page - ${totalOrders} Orders Total</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Create complete print content
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Purchase Orders Report - ${new Date().toLocaleDateString()}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
-            @media print {
-              body {
-                font-family: Arial, sans-serif;
-                margin: 0;
-                padding: 20px;
-              }
-              table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 0;
-                font-size: 12px;
-              }
-              th, td {
-                border: 1px solid #ddd;
-                padding: 8px;
-                text-align: left;
-                vertical-align: top;
-              }
-              th {
-                background-color: #f5f5f5 !important;
-                font-weight: bold;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-              tr:nth-child(even) {
-                background-color: #f9f9f9 !important;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-              .no-print {
-                display: none !important;
-              }
-              @page {
-                size: A4 landscape;
-                margin: 10mm;
-              }
-              h1 {
-                font-size: 18px;
-                margin-bottom: 20px;
-                text-align: center;
-                color: #333;
-              }
-              .print-header {
-                margin-bottom: 20px;
-                text-align: center;
-                font-size: 14px;
-                color: #666;
-              }
+            @page {
+              size: A4 portrait;
+              margin: 0.4in 0.4in 0.75in 0.4in;
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
             }
             body {
-              font-family: Arial, sans-serif;
-              margin: 0;
-              padding: 20px;
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 10px;
+              color: #000;
+              font-size: 9px;
             }
-            table {
-              width: 100%;
-              border-collapse: collapse;
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 22px;
+              font-weight: 700;
+              margin: 0 0 5px 0;
+            }
+            .header h2 {
+              font-size: 16px;
+              font-weight: 600;
               margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .order-info {
+              margin: 15px 0;
+              padding: 12px;
+              border: 1px solid #333;
+              background: #fff;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 10px;
+            }
+            .info-item {
+              display: flex;
+              justify-content: space-between;
+              padding: 5px 0;
+              border-bottom: 1px solid #e0e0e0;
+            }
+            .info-label {
+              font-weight: 600;
+              font-size: 9px;
+            }
+            .info-value {
+              font-size: 9px;
+            }
+            .status-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+            }
+            .status-pending { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+            .status-approved { background: #DBEAFE; color: #1E40AF; border: 1px solid #93C5FD; }
+            .status-ordered { background: #E0E7FF; color: #3730A3; border: 1px solid #A5B4FC; }
+            .status-delivered { background: #D1FAE5; color: #065F46; border: 1px solid #6EE7B7; }
+            .status-cancelled { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; }
+            .notes-section {
+              margin: 15px 0;
+            }
+            .note-box {
+              padding: 10px;
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+            }
+            .note-label {
+              font-weight: 700;
+              font-size: 9px;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+            }
+            .note-content {
+              font-size: 9px;
+              line-height: 1.4;
+            }
+            .manager-note {
+              background: #FEF3C7;
+              border-color: #F59E0B;
+            }
+            .items-section {
+              margin: 15px 0;
+            }
+            .items-section h3 {
               font-size: 12px;
+              font-weight: 700;
+              margin-bottom: 10px;
+              text-transform: uppercase;
             }
-            th, td {
-              border: 1px solid #ddd;
-              padding: 8px;
-              text-align: left;
-              vertical-align: top;
+            .item-card {
+              border: 1px solid #333;
+              margin-bottom: 8px;
+              background: #fff;
+              page-break-inside: avoid;
             }
-            th {
-              background-color: #f5f5f5;
-              font-weight: bold;
+            .item-card-header {
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              padding: 8px 12px;
+              background: #f5f5f5;
+              border-bottom: 1px solid #333;
             }
-            tr:nth-child(even) {
-              background-color: #f9f9f9;
+            .item-number {
+              font-weight: 700;
+              font-size: 10px;
+              min-width: 25px;
             }
-            h1 {
-              font-size: 18px;
-              margin-bottom: 20px;
+            .item-name {
+              flex: 1;
+              font-weight: 600;
+              font-size: 10px;
+            }
+            .usage-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+            }
+            .usage-salon {
+              background: #E9D5FF;
+              color: #6B21A8;
+              border: 1px solid #C084FC;
+            }
+            .usage-otc {
+              background: #DBEAFE;
+              color: #1E40AF;
+              border: 1px solid #93C5FD;
+            }
+            .item-card-body {
+              padding: 10px 12px;
+            }
+            .item-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+            }
+            .item-row:last-child {
+              border-bottom: none;
+            }
+            .item-row.total-row {
+              margin-top: 5px;
+              padding-top: 8px;
+              border-top: 2px solid #333;
+              border-bottom: none;
+            }
+            .item-row .item-label {
+              font-weight: 600;
+              font-size: 9px;
+            }
+            .item-row .item-value {
+              font-size: 9px;
+            }
+            .item-row .item-value.quantity {
+              font-weight: 700;
+              font-size: 10px;
+            }
+            .item-row.total-row .item-label {
+              font-size: 10px;
+              font-weight: 700;
+            }
+            .item-row.total-row .item-value {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .empty-state {
+              padding: 20px;
               text-align: center;
-              color: #333;
-            }
-            .print-header {
-              margin-bottom: 20px;
-              text-align: center;
-              font-size: 14px;
               color: #666;
+              border: 1px solid #ddd;
+              background: #f9f9f9;
+            }
+            .order-total {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 12px 15px;
+              background: #fff;
+              border: 2px solid #333;
+              margin: 15px 0;
+            }
+            .order-total-label {
+              font-size: 12px;
+              font-weight: 700;
+              text-transform: uppercase;
+            }
+            .order-total-value {
+              font-size: 14px;
+              font-weight: 700;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 12px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 18px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .orders-list {
+              margin: 15px 0;
+            }
+            .order-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .order-card-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 8px 12px;
+              background: #f5f5f5;
+              border-bottom: 1px solid #333;
+            }
+            .order-number {
+              font-weight: 700;
+              font-size: 10px;
+              margin-right: 8px;
+            }
+            .order-id {
+              font-family: monospace;
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .order-card-body {
+              padding: 10px 12px;
+            }
+            .order-card-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+            }
+            .order-card-row:last-child {
+              border-bottom: none;
+            }
+            .order-card-row.total {
+              margin-top: 5px;
+              padding-top: 8px;
+              border-top: 2px solid #333;
+              border-bottom: none;
+            }
+            .order-card-row .label {
+              font-weight: 600;
+              font-size: 9px;
+            }
+            .order-card-row .value {
+              font-size: 9px;
+            }
+            .order-card-row.total .label {
+              font-size: 10px;
+              font-weight: 700;
+            }
+            .order-card-row.total .value {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .grand-total {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 12px 15px;
+              background: #fff;
+              border: 2px solid #333;
+              margin: 15px 0;
+            }
+            .grand-total-label {
+              font-size: 12px;
+              font-weight: 700;
+              text-transform: uppercase;
+            }
+            .grand-total-value {
+              font-size: 14px;
+              font-weight: 700;
+            }
+            .footer {
+              margin-top: 20px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
+              color: #666;
+            }
+            .footer-center p {
+              margin: 3px 0;
             }
           </style>
         </head>
         <body>
-          <h1>Purchase Orders Report</h1>
-          <div class="print-header">
-            Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}
+          ${summaryPage}
+          ${orderPages}
+        </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.focus();
+
+    // Wait for content to load, then print
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
+  };
+
+  const handlePrintAnalytics = () => {
+    // Determine which data to print based on selected tab
+    let dataToShow = [];
+    let reportTitle = '';
+    let columns = [];
+    
+    switch (selectedAnalyticsTab) {
+      case 'topSelling':
+        dataToShow = topSellingProducts;
+        reportTitle = 'Top Selling Products';
+        columns = ['Rank', 'Product', 'Quantity Sold', 'Revenue', 'Profit', 'Margin'];
+        break;
+      case 'lowSelling':
+        dataToShow = lowSellingProducts;
+        reportTitle = 'Low Selling Products';
+        columns = ['Rank', 'Product', 'Quantity Sold', 'Revenue', 'Days Since Last Sale'];
+        break;
+      case 'lowStock':
+        dataToShow = lowStockProducts;
+        reportTitle = 'Low Stock Products';
+        columns = ['Product', 'Current Stock', 'Min Stock', 'Status', 'Last Restocked'];
+        break;
+      case 'highStock':
+        dataToShow = highStockProducts;
+        reportTitle = 'High Stock Products';
+        columns = ['Product', 'Current Stock', 'Max Stock', 'Excess', 'Days in Stock'];
+        break;
+      case 'anomalies':
+        dataToShow = anomalies;
+        reportTitle = 'Product Anomalies';
+        columns = ['Product', 'Type', 'Description', 'Severity'];
+        break;
+      default:
+        toast.error('No data to print');
+        return;
+    }
+
+    if (dataToShow.length === 0) {
+      toast.error('No data to print');
+      return;
+    }
+
+    // Build filters display
+    const filtersText = `Date Range: Last ${analyticsDateRange} days`;
+
+    // Generate table rows based on selected tab
+    let tableRows = '';
+    
+    if (selectedAnalyticsTab === 'topSelling') {
+      tableRows = dataToShow.map((item, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${item.name}</td>
+          <td class="text-right">${item.quantitySold}</td>
+          <td class="text-right">${formatCurrency(item.revenue)}</td>
+          <td class="text-right">${formatCurrency(item.profit)}</td>
+          <td class="text-right">${item.margin.toFixed(1)}%</td>
+        </tr>
+      `).join('');
+    } else if (selectedAnalyticsTab === 'lowSelling') {
+      tableRows = dataToShow.map((item, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${item.name}</td>
+          <td class="text-right">${item.quantitySold}</td>
+          <td class="text-right">${formatCurrency(item.revenue)}</td>
+          <td class="text-right">${item.daysSinceLastSale || 'N/A'}</td>
+        </tr>
+      `).join('');
+    } else if (selectedAnalyticsTab === 'lowStock') {
+      tableRows = dataToShow.map((item) => `
+        <tr>
+          <td>${item.name}</td>
+          <td class="text-right">${item.currentStock}</td>
+          <td class="text-right">${item.minStock}</td>
+          <td>${item.status}</td>
+          <td>${item.lastRestocked ? format(new Date(item.lastRestocked), 'MMM dd, yyyy') : 'N/A'}</td>
+        </tr>
+      `).join('');
+    } else if (selectedAnalyticsTab === 'highStock') {
+      tableRows = dataToShow.map((item) => `
+        <tr>
+          <td>${item.name}</td>
+          <td class="text-right">${item.currentStock}</td>
+          <td class="text-right">${item.maxStock}</td>
+          <td class="text-right">${item.excess}</td>
+          <td class="text-right">${item.daysInStock || 'N/A'}</td>
+        </tr>
+      `).join('');
+    } else if (selectedAnalyticsTab === 'anomalies') {
+      tableRows = dataToShow.map((item) => `
+        <tr>
+          <td>${item.productName}</td>
+          <td>${item.type}</td>
+          <td>${item.description}</td>
+          <td>${item.severity}</td>
+        </tr>
+      `).join('');
+    }
+
+    // Create print content
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${reportTitle} - ${new Date().toLocaleDateString()}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+          <style>
+            @page {
+              size: A4 landscape;
+              margin: 0.4in;
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 10px;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 20px;
+              font-weight: 700;
+              margin: 0 0 4px 0;
+            }
+            .header h2 {
+              font-size: 16px;
+              font-weight: 600;
+              margin: 0;
+            }
+            .filters {
+              background: #f8f9fa;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+              font-size: 9px;
+              border: 1px solid #333;
+            }
+            th, td {
+              border: 1px solid #333;
+              padding: 6px 4px;
+              text-align: left;
+              vertical-align: top;
+            }
+            th {
+              background-color: #fff;
+              font-weight: 700;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .text-right { text-align: right; }
+            .footer {
+              margin-top: 12px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
+              color: #666;
+            }
+            .footer-center p {
+              margin: 3px 0;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>${reportTitle}</h2>
           </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+          
           <table>
             <thead>
               <tr>
-                <th>Order ID</th>
-                <th>Supplier</th>
-                <th>Order Date</th>
-                <th>Expected Delivery</th>
-                <th>Status</th>
-                <th>Total Amount</th>
-                <th>Created By</th>
+                ${columns.map(col => `<th${col.includes('Revenue') || col.includes('Profit') || col.includes('Stock') || col.includes('Quantity') || col.includes('Excess') || col.includes('Days') || col.includes('Margin') ? ' class="text-right"' : ''}>${col}</th>`).join('')}
               </tr>
             </thead>
             <tbody>
-              ${filteredOrders.map(order => `
-                <tr>
-                  <td>${order.orderId || order.id}</td>
-                  <td>${order.supplierName || 'Unknown'}</td>
-                  <td>${order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}</td>
-                  <td>${order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}</td>
-                  <td>${order.status}</td>
-                  <td>${formatCurrency((order.totalAmount || 0))}</td>
-                  <td>${order.createdByName || 'Unknown'}</td>
-                </tr>
-              `).join('')}
+              ${tableRows}
             </tbody>
           </table>
+          
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Branch Manager'}<br>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600; font-size: 9px;">Page 1 of 1</p>
+              <p>${reportTitle} - ${dataToShow.length} Items</p>
+            </div>
+          </div>
         </body>
       </html>
     `;
@@ -1597,8 +2390,10 @@ const Inventory = () => {
 
     // Wait for content to load, then print
     printWindow.onload = () => {
-      printWindow.print();
-      printWindow.close();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 500);
     };
   };
 
@@ -1646,10 +2441,15 @@ const Inventory = () => {
   // Get status color and icon
   const getStatusColorPO = (status) => {
     switch (status) {
+    case 'Pending Branch Approval': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
+    case 'Pending Overall Approval': return 'text-blue-600 bg-blue-100 border-blue-200';
     case 'Pending': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
     case 'Received': return 'text-blue-600 bg-blue-100 border-blue-200';
     case 'Approved': return 'text-green-600 bg-green-100 border-green-200';
+    case 'Rejected by Branch': return 'text-red-600 bg-red-100 border-red-200';
+    case 'Rejected by Overall': return 'text-rose-700 bg-rose-100 border-rose-200';
     case 'Rejected': return 'text-red-600 bg-red-100 border-red-200';
+    case 'In Transit': return 'text-purple-600 bg-purple-100 border-purple-200';
     case 'Shipped': return 'text-purple-600 bg-purple-100 border-purple-200';
     case 'Delivered': return 'text-green-600 bg-green-100 border-green-200';
     case 'Cancelled': return 'text-red-600 bg-red-100 border-red-200';
@@ -1660,10 +2460,15 @@ const Inventory = () => {
 
   const getStatusIcon = (status) => {
     switch (status) {
+    case 'Pending Branch Approval': return <Clock className="h-3 w-3" />;
+    case 'Pending Overall Approval': return <Clock className="h-3 w-3" />;
     case 'Pending': return <Clock className="h-3 w-3" />;
     case 'Received': return <CheckCircle className="h-3 w-3" />;
     case 'Approved': return <CheckCircle className="h-3 w-3" />;
+    case 'Rejected by Branch': return <XCircle className="h-3 w-3" />;
+    case 'Rejected by Overall': return <XCircle className="h-3 w-3" />;
     case 'Rejected': return <XCircle className="h-3 w-3" />;
+    case 'In Transit': return <Truck className="h-3 w-3" />;
     case 'Shipped': return <Truck className="h-3 w-3" />;
     case 'Delivered': return <CheckCircle className="h-3 w-3" />;
     case 'Cancelled': return <XCircle className="h-3 w-3" />;
@@ -1711,12 +2516,12 @@ const Inventory = () => {
       setErrorPO(null);
       const orderRef = doc(db, 'purchaseOrders', pendingOrderId);
       await updateDoc(orderRef, {
-        status: 'Approved',
-        approvedBy: userData.uid || userData.id,
-        approvedByName: (userData.firstName && userData.lastName 
+        status: 'Pending Overall Approval',
+        branchApprovedBy: userData.uid || userData.id,
+        branchApprovedByName: (userData.firstName && userData.lastName 
           ? `${userData.firstName} ${userData.lastName}`.trim() 
           : (userData.email || 'Unknown')),
-        approvedAt: serverTimestamp(),
+        branchApprovedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
       await loadPurchaseOrders();
@@ -1753,13 +2558,13 @@ const Inventory = () => {
       setIsProcessingApproval(true);
       const orderRef = doc(db, 'purchaseOrders', selectedOrder.id);
       await updateDoc(orderRef, {
-        status: 'Cancelled',
-        rejectedBy: userData.uid || userData.id,
-        rejectedByName: (userData.firstName && userData.lastName 
+        status: 'Rejected by Branch',
+        branchRejectedBy: userData.uid || userData.id,
+        branchRejectedByName: (userData.firstName && userData.lastName 
           ? `${userData.firstName} ${userData.lastName}`.trim() 
           : (userData.email || 'Unknown')),
-        rejectedAt: serverTimestamp(),
-        rejectionNote: rejectionNote.trim(),
+        branchRejectedAt: serverTimestamp(),
+        branchRejectionNote: rejectionNote.trim(),
         updatedAt: serverTimestamp()
       });
       await loadPurchaseOrders();
@@ -1777,7 +2582,7 @@ const Inventory = () => {
 
   // Check if order can be approved/rejected
   const canApproveOrReject = (order) => {
-    return order.status === 'Pending';
+    return order.status === 'Pending Branch Approval';
   };
 
   // ========== ANALYTICS FUNCTIONS ==========
@@ -2217,9 +3022,9 @@ const Inventory = () => {
               <div className="flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5" />
                 <span>Purchase Orders</span>
-                {purchaseOrders.filter(o => o.status === 'Pending').length > 0 && (
+                {purchaseOrders.filter(o => o.status === 'Pending Branch Approval').length > 0 && (
                   <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
-                    {purchaseOrders.filter(o => o.status === 'Pending').length}
+                    {purchaseOrders.filter(o => o.status === 'Pending Branch Approval').length}
                   </span>
                 )}
               </div>
@@ -2235,19 +3040,6 @@ const Inventory = () => {
               <div className="flex items-center gap-2">
                 <Activity className="h-5 w-5" />
                 <span>Product Analytics</span>
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('stockTransfer')}
-              className={`py-4 px-1 font-medium text-sm border-b-2 transition-colors ${
-                activeTab === 'stockTransfer'
-                  ? 'border-[#160B53] text-[#160B53]'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Truck className="h-5 w-5" />
-                <span>Stock Transfer</span>
               </div>
             </button>
           </div>
@@ -2655,7 +3447,7 @@ const Inventory = () => {
             </div>
           ) : (
                 <Card className="p-6">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" ref={printRef}>
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
@@ -3117,6 +3909,9 @@ const Inventory = () => {
                 <option value="60">Last 60 days</option>
                 <option value="90">Last 90 days</option>
               </select>
+              <Button variant="outline" onClick={handlePrintAnalytics}>
+                <Printer className="h-4 w-4" />
+              </Button>
               <Button variant="outline" onClick={loadAnalytics} disabled={loadingAnalytics}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${loadingAnalytics ? 'animate-spin' : ''}`} />
                 Refresh
@@ -4780,187 +5575,6 @@ const Inventory = () => {
             </div>
           </div>
         </div>
-      )}
-
-      {/* STOCK TRANSFER TAB */}
-      {activeTab === 'stockTransfer' && (
-        <>
-          {/* Statistics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{stockTransfers.filter(t => t.status === 'pending').length}</p>
-                  <p className="text-sm text-gray-600">Pending Transfers</p>
-                </div>
-                <div className="p-3 bg-yellow-100 rounded-full">
-                  <Clock className="h-6 w-6 text-yellow-600" />
-                </div>
-              </div>
-            </Card>
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{stockTransfers.filter(t => t.status === 'completed').length}</p>
-                  <p className="text-sm text-gray-600">Completed Transfers</p>
-                </div>
-                <div className="p-3 bg-green-100 rounded-full">
-                  <CheckCircle className="h-6 w-6 text-green-600" />
-                </div>
-              </div>
-            </Card>
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{stockTransfers.filter(t => t.status === 'in_transit').length}</p>
-                  <p className="text-sm text-gray-600">In Transit</p>
-                </div>
-                <div className="p-3 bg-blue-100 rounded-full">
-                  <Truck className="h-6 w-6 text-blue-600" />
-                </div>
-              </div>
-            </Card>
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{stockTransfers.reduce((sum, t) => sum + (t.totalItems || 0), 0)}</p>
-                  <p className="text-sm text-gray-600">Total Items Transferred</p>
-                </div>
-                <div className="p-3 bg-purple-100 rounded-full">
-                  <Package className="h-6 w-6 text-purple-600" />
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          {/* Filter Row */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="flex items-center gap-4">
-              {/* Search Bar */}
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search transfers..."
-                  value={searchTermTransfer}
-                  onChange={(e) => setSearchTermTransfer(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#160B53] focus:border-transparent"
-                />
-              </div>
-
-              {/* Filter Button */}
-              <Button variant="outline" className="flex items-center gap-2">
-                <Filter className="w-5 h-5" />
-                Filter
-              </Button>
-
-              {/* Create Transfer Button */}
-              <Button onClick={() => setShowCreateTransferModal(true)} className="flex items-center gap-2">
-                <Plus className="w-5 h-5" />
-                New Transfer
-              </Button>
-
-              {/* Export Button */}
-              <Button variant="outline" className="flex items-center gap-2">
-                <Download className="w-5 h-5" />
-                Export
-              </Button>
-            </div>
-          </div>
-
-          {/* Transfers Table */}
-          <Card className="p-6">
-            {loadingTransfers ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
-                <span className="ml-2 text-gray-600">Loading transfers...</span>
-              </div>
-            ) : errorTransfers ? (
-              <div className="text-center py-12">
-                <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                <p className="text-red-600">{errorTransfers}</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Transfer ID
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        From/To Branch
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Items
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Date
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {stockTransfers.length === 0 ? (
-                      <tr>
-                        <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
-                          No stock transfers found
-                        </td>
-                      </tr>
-                    ) : (
-                      stockTransfers.map((transfer) => (
-                        <tr key={transfer.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {transfer.id}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            <div>
-                              <div className="font-medium">{transfer.fromBranch}</div>
-                              <div className="text-gray-500">→ {transfer.toBranch}</div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {transfer.totalItems || 0} items
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                              transfer.status === 'completed' ? 'bg-green-100 text-green-800' :
-                              transfer.status === 'in_transit' ? 'bg-blue-100 text-blue-800' :
-                              transfer.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {transfer.status?.replace('_', ' ').toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {transfer.date ? format(new Date(transfer.date), 'MMM dd, yyyy') : 'N/A'}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedTransfer(transfer);
-                                setShowTransferDetailsModal(true);
-                              }}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-        </>
       )}
 
       {/* Import Modal */}

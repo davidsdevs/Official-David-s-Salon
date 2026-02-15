@@ -683,12 +683,22 @@ const Stocks = () => {
   // For batch stocks, show all active batches. For regular stocks, show current month only.
   const getCurrentStocksByProduct = () => {
     const currentDate = new Date();
+    currentDate.setHours(0, 0, 0, 0); // Set to start of day for accurate comparison
     const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
     
     const stockList = [];
     const processedRegularStocks = new Set(); // Track regular stocks to avoid duplicates
     
     stocks.forEach(stock => {
+      // Check if stock is expired
+      const expirationDate = stock.expirationDate ? new Date(stock.expirationDate) : null;
+      const isExpired = expirationDate && expirationDate < currentDate;
+      
+      // Skip expired stocks completely - don't show them or include in calculations
+      if (isExpired) {
+        return;
+      }
+
       const isBatchStock = stock.stockType === 'batch' || stock.batchId || stock.batchNumber;
       
       if (isBatchStock) {
@@ -1478,167 +1488,182 @@ const Stocks = () => {
       }
     }
 
-    // Create a beautiful PDF-friendly HTML content with Poppins font
+    // Build filters display
+    const activeFilters = [];
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    if (selectedStatus !== 'all') activeFilters.push(`Status: ${selectedStatus}`);
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Stocks';
+
+    // Create standardized print content
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Stock Inventory Report - ${branchName}</title>
-          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
-
-            @media print {
-              @page {
-                margin: 1cm;
-                size: A4 landscape;
-              }
-              body {
-                print-color-adjust: exact;
-                -webkit-print-color-adjust: exact;
-              }
-              .no-print { display: none; }
+            @page {
+              size: A4 landscape;
+              margin: 0.4in;
             }
-
             * {
-              box-sizing: border-box;
-            }
-
-            body {
-              font-family: 'Poppins', sans-serif;
-              padding: 20px;
-              color: #333;
-              line-height: 1.5;
-              background: white;
               margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 10px;
+              color: #000;
+              font-size: 9px;
             }
             .header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              border-bottom: 3px solid #160B53;
-              padding-bottom: 20px;
-              margin-bottom: 30px;
-              background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-              padding: 20px;
-              border-radius: 8px;
+              text-align: center;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
+              border-bottom: 2px solid #333;
+              font-family: 'Poppins', Arial, sans-serif;
             }
             .header h1 {
-              color: #160B53;
-              margin: 0;
-              font-size: 32px;
+              font-size: 20px;
               font-weight: 700;
-              font-family: 'Poppins', sans-serif;
-              letter-spacing: -0.5px;
+              margin: 0 0 4px 0;
+              font-family: 'Poppins', Arial, sans-serif;
             }
-            .header-info {
-              display: flex;
-              flex-direction: column;
-              gap: 5px;
-              font-size: 12px;
-              color: #666;
-              text-align: right;
+            .header h2 {
+              font-size: 16px;
+              font-weight: 600;
+              margin: 0;
+              font-family: 'Poppins', Arial, sans-serif;
             }
-            .header-info div {
-              font-weight: 500;
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0;
+              text-align: center;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+              font-family: 'Poppins', Arial, sans-serif;
             }
             .stats {
               display: grid;
               grid-template-columns: repeat(4, 1fr);
-              gap: 20px;
-              margin-bottom: 30px;
-              padding: 20px;
-              background: #f9f9f9;
-              border-radius: 8px;
-              border: 1px solid #ccc;
+              gap: 10px;
+              margin-bottom: 15px;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
             }
             .stat-box {
               text-align: center;
-              padding: 15px;
-              background: white;
-              border-radius: 6px;
-              border: 1px solid #999;
-              box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+              font-family: 'Poppins', Arial, sans-serif;
             }
             .stat-value {
-              font-size: 24px;
+              font-size: 18px;
               font-weight: 700;
               color: #000;
-              font-family: 'Poppins', sans-serif;
-              margin-bottom: 5px;
+              margin-bottom: 3px;
+              font-family: 'Poppins', Arial, sans-serif;
             }
             .stat-label {
-              font-size: 11px;
-              color: #666;
+              font-size: 9px;
+              color: #000;
               text-transform: uppercase;
-              letter-spacing: 1px;
+              letter-spacing: 0.5px;
               font-weight: 600;
-              font-family: 'Poppins', sans-serif;
+              font-family: 'Poppins', Arial, sans-serif;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 25px;
-              font-size: 10px;
-              font-family: 'Poppins', sans-serif;
-              border-radius: 8px;
-              overflow: hidden;
-              box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+              margin-top: 10px;
+              font-size: 9px;
+              border: 1px solid #333;
+              font-family: 'Poppins', Arial, sans-serif;
             }
             th, td {
-              border: 1px solid #e9ecef;
-              padding: 10px 8px;
+              border: 1px solid #333;
+              padding: 6px 4px;
               text-align: left;
-              vertical-align: middle;
+              vertical-align: top;
+              font-family: 'Poppins', Arial, sans-serif;
             }
             th {
-              background: #000;
-              color: white;
-              font-weight: 600;
+              background-color: #fff;
+              font-weight: 700;
               text-transform: uppercase;
-              letter-spacing: 1px;
-              font-size: 9px;
-              font-family: 'Poppins', sans-serif;
-              position: sticky;
-              top: 0;
-              z-index: 10;
-              border: 1px solid #666;
+              border-bottom: 2px solid #000;
+              font-family: 'Poppins', Arial, sans-serif;
             }
-            tbody tr:nth-child(even) {
-              background-color: #f8f9fa;
+            tr:nth-child(even) {
+              background-color: #fff;
             }
-            tbody tr:nth-child(odd) {
-              background-color: #ffffff;
+            tr:nth-child(odd) {
+              background-color: #fff;
             }
-            tbody tr:hover {
-              background-color: #e3f2fd;
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+            .footer {
+              margin-top: 12px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+              font-family: 'Poppins', Arial, sans-serif;
             }
-            .status-in-stock {
-              color: #000;
-              font-weight: 700;
-              font-family: 'Poppins', sans-serif;
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+              font-family: 'Poppins', Arial, sans-serif;
             }
-            .status-low-stock {
+            .footer-left {
+              text-align: left;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            .footer-right {
+              text-align: right;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            .footer-center {
+              text-align: center;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
               color: #666;
-              font-weight: 700;
-              font-family: 'Poppins', sans-serif;
+              font-family: 'Poppins', Arial, sans-serif;
             }
-            .status-out-of-stock {
-              color: #999;
-              font-weight: 700;
-              font-family: 'Poppins', sans-serif;
+            .footer-center p {
+              margin: 3px 0;
+              font-family: 'Poppins', Arial, sans-serif;
             }
-            .footer { margin-top: 30px; font-size: 12px; color: #666; }
           </style>
         </head>
         <body>
           <div class="header">
-            <h1>Stock Inventory Report</h1>
-          <div class="header-info">
-              <div><strong>Branch:</strong> ${branchName}</div>
-              <div><strong>Generated by:</strong> ${userData?.name || 'System User'}</div>
-              <div><strong>Date:</strong> ${format(new Date(), 'MMM dd, yyyy HH:mm')}</div>
-            </div>
+            <h1>DAVID'S SALON</h1>
+            <h2>Stock Inventory Report - ${branchName}</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
           </div>
 
           <div class="stats">
@@ -1659,68 +1684,62 @@ const Stocks = () => {
               <div class="stat-label">Out of Stock</div>
             </div>
           </div>
-          ${(() => {
-            // Split stocks into chunks of 10 per page
-            const itemsPerPage = 10;
-            const totalPages = Math.ceil(filteredStocks.length / itemsPerPage);
-            let html = '';
-            
-            for (let page = 0; page < totalPages; page++) {
-              const startIdx = page * itemsPerPage;
-              const endIdx = Math.min(startIdx + itemsPerPage, filteredStocks.length);
-              const pageStocks = filteredStocks.slice(startIdx, endIdx);
-              
-              html += `
-                <div class="avoid-break">
-                  ${page > 0 ? '<div style="margin-top: 30px;"></div>' : ''}
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Product Name</th>
-                        <th>Brand</th>
-                        <th>Category</th>
-                        <th>Batch</th>
-                        <th>UPC</th>
-                        <th>Beginning</th>
-                        <th>Current</th>
-                        <th>Status</th>
-                        <th>Expires</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${pageStocks.map(stock => {
-                        const product = stock.product || {};
-                        const currentStock = getComputedStock(stock);
-                        const status = calculateStockStatus(stock);
-                        const statusClass = status === 'In Stock' ? 'status-in-stock' :
-                                          status === 'Low Stock' ? 'status-low-stock' : 'status-out-of-stock';
-                        return `
-                          <tr>
-                            <td style="font-weight: 600; color: #000;">${stock.productName || product.name || 'N/A'}</td>
-                            <td>${stock.brand || product.brand || 'N/A'}</td>
-                            <td>${stock.category || product.category || 'N/A'}</td>
-                            <td style="font-family: monospace;">${stock.batchNumber || 'N/A'}</td>
-                            <td style="font-family: monospace;">${stock.upc || product.upc || 'N/A'}</td>
-                            <td style="text-align: center; font-weight: 600;">${stock.beginningStock || 0}</td>
-                            <td style="text-align: center; font-weight: 700;">${currentStock}</td>
-                            <td class="${statusClass}">${status}</td>
-                            <td>${stock.expirationDate ? format(new Date(stock.expirationDate), 'MMM dd, yyyy') : 'N/A'}</td>
-                          </tr>
-                        `;
-                      }).join('')}
-                    </tbody>
-                  </table>
-                  ${page < totalPages - 1 ? '<div style="text-align: center; margin-top: 15px; font-size: 11px; color: #666;">Page ' + (page + 1) + ' of ' + totalPages + '</div>' : ''}
-                </div>
-                ${page < totalPages - 1 ? '<div class="page-break"></div>' : ''}
-              `;
-            }
-            
-            return html;
-          })()}
+          
+          <table>
+            <thead>
+              <tr>
+                <th>Product Name</th>
+                <th>Brand</th>
+                <th>Category</th>
+                <th>Batch</th>
+                <th>UPC</th>
+                <th>Usage Type</th>
+                <th class="text-center">Beginning</th>
+                <th class="text-center">Current</th>
+                <th>Status</th>
+                <th>Expires</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredStocks.map(stock => {
+                const product = stock.product || {};
+                const currentStock = getComputedStock(stock);
+                const status = calculateStockStatus(stock);
+                const usageType = stock.usageType || product.usageType || 'otc';
+                const usageTypeDisplay = usageType === 'salon-use' ? 'Salon Use' : 'OTC';
+                return `
+                  <tr>
+                    <td style="font-weight: 600;">${stock.productName || product.name || 'N/A'}</td>
+                    <td>${stock.brand || product.brand || 'N/A'}</td>
+                    <td>${stock.category || product.category || 'N/A'}</td>
+                    <td style="font-family: monospace; font-size: 8px;">${stock.batchNumber || 'N/A'}</td>
+                    <td style="font-family: monospace; font-size: 8px;">${stock.upc || product.upc || 'N/A'}</td>
+                    <td style="font-size: 8px;">${usageTypeDisplay}</td>
+                    <td class="text-center" style="font-weight: 600;">${stock.beginningStock || 0}</td>
+                    <td class="text-center" style="font-weight: 700;">${currentStock}</td>
+                    <td>${status}</td>
+                    <td>${stock.expirationDate ? format(new Date(stock.expirationDate), 'MMM dd, yyyy') : 'N/A'}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+          
           <div class="footer">
-            <p><strong>Generated by:</strong> ${userData?.name || 'System User'} | <strong>Date:</strong> ${format(new Date(), 'MMMM dd, yyyy')}</p>
-            <p>This professional stock report is for inventory management and branch operations.</p>
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.name || 'Inventory Controller'}<br>
+                <strong>Position:</strong> Inventory Controller<br>
+                <strong>Branch:</strong> ${branchName}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600; font-size: 9px;">Stock Inventory Report - ${filteredStocks.length} Items Total</p>
+            </div>
           </div>
         </body>
       </html>

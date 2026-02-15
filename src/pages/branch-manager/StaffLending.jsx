@@ -470,39 +470,189 @@ const StaffLending = () => {
 
   // PDF Preview modal for printing
   const printContent = (
-    <div ref={printRef} className="p-6 bg-white">
-      <h2 className="text-xl font-bold mb-4">Lending Requests</h2>
-      <table className="w-full text-sm">
+    <div ref={printRef} className="p-6 bg-white" style={{ fontFamily: "'Poppins', sans-serif" }}>
+      <style>{`
+        @media print {
+          @page {
+            size: letter;
+            margin: 0.4in 0.4in 0.75in 0.4in;
+          }
+          body {
+            counter-reset: page 1;
+            font-family: 'Poppins', sans-serif;
+          }
+          .report-header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #333;
+          }
+          .company-name {
+            font-size: 14pt;
+            font-weight: 600;
+            margin-bottom: 8px;
+          }
+          .report-title {
+            font-size: 18pt;
+            font-weight: bold;
+            margin: 0 0 10px 0;
+          }
+          .filters-section {
+            margin-top: 10px;
+            text-align: center;
+            font-size: 9pt;
+          }
+          .filter-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            margin: 2px 4px;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 8pt;
+          }
+          .report-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 8px 0.4in 0.25in 0.4in;
+            border-top: 1px solid #333;
+          }
+          .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            font-size: 8pt;
+          }
+          .footer-left {
+            text-align: left;
+            flex: 1;
+          }
+          .footer-center {
+            text-align: center;
+            flex: 1;
+          }
+          .footer-right {
+            text-align: right;
+            flex: 1;
+          }
+          .page-number::before {
+            content: "Page " counter(page);
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+          }
+          th {
+            background-color: #f5f5f5 !important;
+            border: 1px solid #333;
+            padding: 8px;
+            text-align: left;
+            font-weight: bold;
+            font-size: 9pt;
+          }
+          td {
+            border: 1px solid #666;
+            padding: 6px 8px;
+            font-size: 9pt;
+          }
+        }
+      `}</style>
+      
+      {/* Header */}
+      <div className="report-header">
+        <div className="company-name">David Salon</div>
+        <h1 className="report-title">Temporary Branch Assignment Requests</h1>
+        
+        {/* Active Filters */}
+        <div className="filters-section">
+          <strong>Active Filters:</strong>
+          <span className="filter-badge">Branch: {branchInfo?.branchName || branchInfo?.name || 'Loading...'}</span>
+          {statusFilter !== 'all' && (
+            <span className="filter-badge">Status: {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}</span>
+          )}
+          {typeFilter !== 'all' && (
+            <span className="filter-badge">Type: {typeFilter.charAt(0).toUpperCase() + typeFilter.slice(1)}</span>
+          )}
+          {branchFilter !== 'all' && (
+            <span className="filter-badge">Branch Filter: {branchCache[branchFilter]?.branchName || branchCache[branchFilter]?.name || branchFilter}</span>
+          )}
+          {searchTerm && (
+            <span className="filter-badge">Search: "{searchTerm}"</span>
+          )}
+          {(dateFilter.startDate || dateFilter.endDate) && (
+            <span className="filter-badge">
+              Date Range: {dateFilter.startDate || 'Any'} to {dateFilter.endDate || 'Any'}
+            </span>
+          )}
+          <span className="filter-badge">Total Requests: {filteredRequests.length}</span>
+        </div>
+      </div>
+      
+      {/* Table */}
+      <table>
         <thead>
           <tr>
-            <th className="text-left font-medium">Stylist</th>
-            <th className="text-left font-medium">Type</th>
-            <th className="text-left font-medium">From</th>
-            <th className="text-left font-medium">To</th>
-            <th className="text-left font-medium">Start</th>
-            <th className="text-left font-medium">End</th>
-            <th className="text-left font-medium">Status</th>
+            <th>Stylist</th>
+            <th>Type</th>
+            <th>From Branch</th>
+            <th>To Branch</th>
+            <th>Start Date</th>
+            <th>End Date</th>
+            <th>Status</th>
           </tr>
         </thead>
         <tbody>
-          {filteredRequests.map((r, i) => {
-            const stylist = stylistCache[r.stylistId];
-            const fromBranch = branchCache[r.fromBranchId];
-            const toBranch = branchCache[r.toBranchId];
-            return (
-              <tr key={i} className="border-t">
-                <td className="py-2">{stylist ? getFullName(stylist) : (r.stylistName || '')}</td>
-                <td className="py-2">{r.type}</td>
-                <td className="py-2">{fromBranch?.branchName || fromBranch?.name || ''}</td>
-                <td className="py-2">{toBranch?.branchName || toBranch?.name || ''}</td>
-                <td className="py-2">{r.startDate ? (r.startDate.toDate ? r.startDate.toDate().toLocaleString() : new Date(r.startDate).toLocaleString()) : ''}</td>
-                <td className="py-2">{r.endDate ? (r.endDate.toDate ? r.endDate.toDate().toLocaleString() : new Date(r.endDate).toLocaleString()) : ''}</td>
-                <td className="py-2">{r.status}</td>
-              </tr>
-            );
-          })}
+          {filteredRequests.length === 0 ? (
+            <tr>
+              <td colSpan="7" style={{ textAlign: 'center', padding: '20px' }}>
+                No requests found
+              </td>
+            </tr>
+          ) : (
+            filteredRequests.map((r, i) => {
+              const stylist = stylistCache[r.stylistId];
+              const fromBranch = branchCache[r.fromBranchId];
+              const toBranch = branchCache[r.toBranchId];
+              return (
+                <tr key={i}>
+                  <td>{stylist ? getFullName(stylist) : (r.stylistName || 'N/A')}</td>
+                  <td>{r.type === 'incoming' ? 'Incoming' : 'Outgoing'}</td>
+                  <td>{fromBranch?.branchName || fromBranch?.name || 'N/A'}</td>
+                  <td>{toBranch?.branchName || toBranch?.name || 'N/A'}</td>
+                  <td>{r.startDate ? (r.startDate.toDate ? formatDate(r.startDate.toDate()) : formatDate(new Date(r.startDate))) : 'N/A'}</td>
+                  <td>{r.endDate ? (r.endDate.toDate ? formatDate(r.endDate.toDate()) : formatDate(new Date(r.endDate))) : 'N/A'}</td>
+                  <td>{r.status ? r.status.charAt(0).toUpperCase() + r.status.slice(1) : 'N/A'}</td>
+                </tr>
+              );
+            })
+          )}
         </tbody>
       </table>
+      
+      {/* Footer */}
+      <div className="report-footer">
+        <div className="footer-content">
+          <div className="footer-left">
+            <div>Generated by: <strong>{currentUser ? getFullName(currentUser) : 'Manager'}</strong></div>
+          </div>
+          <div className="footer-center">
+            <span className="page-number"></span>
+          </div>
+          <div className="footer-right">
+            <div>Generated on: <strong>{new Date().toLocaleString('en-US', {
+              month: 'short',
+              day: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            })}</strong></div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 
@@ -571,23 +721,6 @@ const StaffLending = () => {
       }
 
       const printContentHTML = printRef.current.innerHTML;
-      
-      let styles = '';
-      try {
-        styles = Array.from(document.styleSheets)
-          .map((sheet) => {
-            try {
-              return Array.from(sheet.cssRules || [])
-                .map((rule) => rule.cssText)
-                .join('\n');
-            } catch (e) {
-              return '';
-            }
-          })
-          .join('\n');
-      } catch (e) {
-        console.warn('Could not extract all styles:', e);
-      }
 
       const printWindow = window.open('', '_blank', 'width=1200,height=800');
       if (!printWindow) {
@@ -599,44 +732,16 @@ const StaffLending = () => {
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Lending Report - ${new Date().toISOString().split('T')[0]}</title>
+          <title>Temporary Branch Assignment Requests - ${new Date().toISOString().split('T')[0]}</title>
           <meta charset="utf-8">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            ${styles}
-            @media print {
-              @page {
-                size: letter;
-                margin: 0.75in;
-              }
-              * {
-                color: #000 !important;
-                background: transparent !important;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-              body {
-                margin: 0;
-                padding: 0;
-              }
-            }
-            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
             body {
               font-family: 'Poppins', sans-serif;
               margin: 0;
               padding: 20px;
               background: white;
               color: #000;
-            }
-            table {
-              border-collapse: collapse;
-              width: 100%;
-            }
-            th, td {
-              border: 1px solid #000;
-              padding: 10px 8px;
-            }
-            th {
-              font-weight: bold;
             }
           </style>
         </head>

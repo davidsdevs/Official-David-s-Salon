@@ -296,49 +296,283 @@ const OverallExpiryTracker = () => {
   };
 
   // Print report
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const printWindow = window.open('', '', 'height=600,width=800');
-    let html = `
-      <html><head><title>Expiry Tracker Report</title>
-      <style>
-        body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
-        h1 { text-align: center; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f5f5f5; }
-        .expired { color: #dc2626; }
-        .critical { color: #ea580c; }
-        .expiring { color: #ca8a04; }
-        .good { color: #16a34a; }
-      </style></head><body>
-      <h1>Expiry Tracker Report</h1>
-      <p style="text-align:center">Generated: ${format(new Date(), 'MMM dd, yyyy HH:mm')}</p>
-      <p style="text-align:center">Total: ${filteredBatches.length} batches | At Risk Value: ₱${stats.atRiskValue.toLocaleString()}</p>
-      <table>
-        <thead><tr><th>Branch</th><th>Product</th><th>Batch</th><th>Qty</th><th>Expiry</th><th>Days</th><th>Status</th><th>Value</th></tr></thead>
-        <tbody>
-    `;
     
+    // Get branch name
+    let branchName = 'Overall Inventory';
+    
+    // Build filters text
+    const filters = [];
+    if (searchTerm) filters.push(`Search: "${searchTerm}"`);
+    if (selectedBranch !== 'all') {
+      const branch = branches.find(b => b.id === selectedBranch);
+      if (branch) filters.push(`Branch: ${branch.name || branch.branchName}`);
+    }
+    if (selectedStatus !== 'all') filters.push(`Status: ${selectedStatus}`);
+    if (selectedDaysAhead !== 'all') filters.push(`Days Ahead: ${selectedDaysAhead}`);
+    const filtersText = filters.length > 0 ? filters.join(' • ') : 'No filters applied';
+
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Batch Expiration Report</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            @media print {
+              @page {
+                size: letter;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 0;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+            }
+            .header h1 {
+              font-size: 14px;
+              font-weight: 600;
+              margin: 0 0 5px 0;
+              letter-spacing: 1px;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 8px;
+              border: 1px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 16px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .batch-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .batch-header {
+              background: #fff;
+              padding: 8px 12px;
+              border-bottom: 1px solid #333;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .batch-name {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .status-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+              border: 1px solid #333;
+              background: #fff;
+              color: #000;
+            }
+            .batch-body {
+              padding: 10px 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+            }
+            .info-row {
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+              font-size: 9px;
+            }
+            .info-label {
+              font-weight: 600;
+              display: inline-block;
+              width: 110px;
+            }
+            .info-value {
+              color: #333;
+            }
+            .footer {
+              position: fixed;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              padding: 10px 0.4in;
+              border-top: 2px solid #333;
+              font-size: 8px;
+              background: #fff;
+            }
+            .footer-content {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+            }
+            .footer-left, .footer-right {
+              flex: 1;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Batch Expiration Report - All Branches</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">${stats.totalBatches}</div>
+              <div class="stat-label">Total Batches</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.goodBatches}</div>
+              <div class="stat-label">Good</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.expiringSoon}</div>
+              <div class="stat-label">Expiring Soon</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.expired}</div>
+              <div class="stat-label">Expired</div>
+            </div>
+          </div>
+    `;
+
     filteredBatches.forEach(batch => {
       const status = getExpiryStatus(batch.expirationDate);
       const daysLeft = batch.expirationDate ? differenceInDays(new Date(batch.expirationDate), new Date()) : null;
-      const value = (batch.remainingQuantity || 0) * (batch.unitCost || 0);
-      const statusClass = status.toLowerCase().replace(' ', '-');
+      const batchValue = (batch.remainingQuantity || 0) * (batch.unitCost || 0);
       
-      html += `<tr>
-        <td>${batch.branchName || 'Unknown'}</td>
-        <td>${batch.productName || 'Unknown'}</td>
-        <td>${batch.batchNumber || 'N/A'}</td>
-        <td>${batch.remainingQuantity || 0}</td>
-        <td>${batch.expirationDate ? format(new Date(batch.expirationDate), 'MMM dd, yyyy') : 'N/A'}</td>
-        <td class="${statusClass}">${daysLeft === null ? 'N/A' : daysLeft < 0 ? 'Expired' : daysLeft}</td>
-        <td class="${statusClass}">${status}</td>
-        <td>₱${value.toLocaleString()}</td>
-      </tr>`;
+      htmlContent += `
+        <div class="batch-card">
+          <div class="batch-header">
+            <div class="batch-name">${batch.productName || 'Unknown Product'} - ${batch.branchName || 'Unknown Branch'}</div>
+            <span class="status-badge">${status}</span>
+          </div>
+          
+          <div class="batch-body">
+            <div class="info-grid">
+              <div class="info-row">
+                <span class="info-label">Branch:</span>
+                <span class="info-value">${batch.branchName || 'Unknown'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Batch Number:</span>
+                <span class="info-value">${batch.batchNumber || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Purchase Order:</span>
+                <span class="info-value">${batch.purchaseOrderId || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Quantity:</span>
+                <span class="info-value">${batch.remainingQuantity || 0} / ${batch.quantity || 0} units</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Expiration Date:</span>
+                <span class="info-value">${batch.expirationDate ? format(new Date(batch.expirationDate), 'MMM dd, yyyy') : 'No Expiry'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Days Left:</span>
+                <span class="info-value">${daysLeft === null ? 'N/A' : daysLeft < 0 ? 'Expired' : `${daysLeft} days`}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Unit Cost:</span>
+                <span class="info-value">₱${(batch.unitCost || 0).toLocaleString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Total Value:</span>
+                <span class="info-value">₱${batchValue.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
     });
-    
-    html += '</tbody></table></body></html>';
-    printWindow.document.write(html);
+
+    htmlContent += `
+          <div class="footer">
+            <div class="footer-content">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Overall Inventory Controller'}<br>
+                <strong>Position:</strong> Overall Inventory Controller<br>
+                <strong>Branch:</strong> ${branchName}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
   };

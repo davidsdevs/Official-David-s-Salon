@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, Calendar, BarChart3, Settings, Receipt, Package, Megaphone, FileText, TrendingUp, Wallet, Banknote, CalendarDays } from 'lucide-react';
+import { LayoutDashboard, Users, Calendar, BarChart3, Settings, Receipt, Package, Megaphone, FileText, TrendingUp, Wallet, Banknote, CalendarDays, ShoppingCart } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import { ROUTES } from '../utils/constants';

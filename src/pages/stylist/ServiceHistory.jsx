@@ -28,6 +28,7 @@ const StylistServiceHistory = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [serviceFilter, setServiceFilter] = useState('all');
   const [sortBy, setSortBy] = useState('date-desc');
+  const [showVoided, setShowVoided] = useState(false);
   const [summary, setSummary] = useState({
     totalSales: 0,
     totalCommission: 0,
@@ -42,7 +43,7 @@ const StylistServiceHistory = () => {
     if (currentUser?.uid) {
       fetchTransactions();
     }
-  }, [currentUser, dateFilter, startDate, endDate, selectedMonth, selectedYear]);
+  }, [currentUser, dateFilter, startDate, endDate, selectedMonth, selectedYear, showVoided]); // Add showVoided dependency
 
   // Auto-apply date range when both dates are selected
   useEffect(() => {
@@ -153,6 +154,11 @@ const StylistServiceHistory = () => {
       snapshot.docs.forEach(doc => {
         const data = doc.data();
         const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
+        
+        // Skip voided transactions unless showVoided is true
+        if (!showVoided && (data.isVoided === true || data.status === 'voided' || data.status === 'Voided')) {
+          return;
+        }
         
         // Check if transaction has items for this stylist
         let hasStylistItems = false;
@@ -446,28 +452,8 @@ const StylistServiceHistory = () => {
         <p className="text-gray-600">View your completed services and commissions</p>
       </div>
 
-      {/* Summary Cards - Consistent with Receptionist Dashboard */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
-          <div className="flex items-center">
-            <Banknote className="h-8 w-8 text-blue-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Total Sales</p>
-              <p className="text-xl font-bold text-gray-900">{formatCurrency(summary.totalSales)}</p>
-            </div>
-          </div>
-        </Card>
-        
-        <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
-          <div className="flex items-center">
-            <TrendingUp className="h-8 w-8 text-green-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Commission</p>
-              <p className="text-xl font-bold text-gray-900">{formatCurrency(summary.totalCommission)}</p>
-            </div>
-          </div>
-        </Card>
-        
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4">
         <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
           <div className="flex items-center">
             <Calendar className="h-8 w-8 text-purple-600" />
@@ -484,16 +470,6 @@ const StylistServiceHistory = () => {
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">Services</p>
               <p className="text-xl font-bold text-gray-900">{summary.totalServices}</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4 cursor-pointer hover:shadow-md transition-shadow">
-          <div className="flex items-center">
-            <BarChart3 className="h-8 w-8 text-orange-600" />
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600">Avg Comm.</p>
-              <p className="text-xl font-bold text-gray-900">{formatCurrency(summary.averageCommission)}</p>
             </div>
           </div>
         </Card>
@@ -709,6 +685,15 @@ const StylistServiceHistory = () => {
             <option value="amount-desc">Amount: Highest First</option>
             <option value="amount-asc">Amount: Lowest First</option>
           </select>
+          <label className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+            <input
+              type="checkbox"
+              checked={showVoided}
+              onChange={(e) => setShowVoided(e.target.checked)}
+              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+            />
+            <span className="text-sm text-gray-700">Show Voided</span>
+          </label>
         </div>
       </div>
 
@@ -730,22 +715,18 @@ const StylistServiceHistory = () => {
         ) : (
           <div className="space-y-3">
             {filteredTransactions.map((transaction) => {
-              const commission = calculateCommission(transaction);
               const stylistItems = getStylistItems(transaction);
-              const totalSale = stylistItems.reduce((sum, item) => {
+              // Calculate total only from THIS stylist's services
+              const mySalesTotal = stylistItems.reduce((sum, item) => {
                 return sum + (item.price || item.adjustedPrice || 0) * (item.quantity || 1);
               }, 0);
+              
               const clientType = getClientType(transaction);
               
               return (
                 <div 
                   key={transaction.id} 
-                  onClick={() => {
-                    if (transaction.clientId) {
-                      navigate(`/stylist/client-analytics/${transaction.clientId}`);
-                    }
-                  }}
-                  className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-sm hover:border-primary-300 transition-all cursor-pointer"
+                  className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-sm hover:border-primary-300 transition-all"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -761,33 +742,32 @@ const StylistServiceHistory = () => {
                             {clientType.label}
                           </span>
                         )}
-                        {transaction.clientId && (
-                          <span className="text-xs text-primary-600 font-medium">→ View Analytics</span>
-                        )}
                       </div>
                       
                       <div className="space-y-2">
                         {stylistItems.length > 0 && (
-                          <div className="text-sm text-gray-700">
-                            {stylistItems.slice(0, 2).map((item, idx) => {
+                          <div className="space-y-1">
+                            {stylistItems.map((item, idx) => {
                               const itemName = item.name || item.serviceName || item.productName || 'Item';
                               const itemQuantity = item.quantity || 1;
+                              const itemPrice = (item.price || item.adjustedPrice || 0) * itemQuantity;
+                              
                               return (
-                                <div key={idx} className="text-gray-900 font-medium">
-                                  {itemName}
-                                  {itemQuantity > 1 && ` (x${itemQuantity})`}
+                                <div key={idx} className="flex items-center justify-between text-sm py-1 border-b border-gray-100 last:border-0">
+                                  <div className="flex-1">
+                                    <span className="text-gray-900 font-medium">{itemName}</span>
+                                    {itemQuantity > 1 && <span className="text-gray-500 text-xs ml-1">(x{itemQuantity})</span>}
+                                  </div>
+                                  <div className="flex items-center gap-3 text-xs">
+                                    <span className="text-gray-900 font-semibold">{formatCurrency(itemPrice)}</span>
+                                  </div>
                                 </div>
                               );
                             })}
-                            {stylistItems.length > 2 && (
-                              <div className="text-gray-500 text-xs">
-                                +{stylistItems.length - 2} more
-                              </div>
-                            )}
                           </div>
                         )}
 
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
+                        <div className="flex items-center gap-4 text-sm text-gray-600 mt-2">
                           <div className="flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5" />
                             <span>{formatDate(transaction.createdAt)}</span>
@@ -798,19 +778,23 @@ const StylistServiceHistory = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-4 pt-2 border-t border-gray-200">
+                        <div className="flex items-center justify-between pt-2 border-t-2 border-gray-300">
                           <div>
-                            <p className="text-xs text-gray-500">Total Sale</p>
-                            <p className="text-base font-bold text-gray-900">
-                              {formatCurrency(totalSale)}
+                            <p className="text-xs text-gray-500">Total</p>
+                            <p className="text-lg font-bold text-gray-900">
+                              {formatCurrency(mySalesTotal)}
                             </p>
                           </div>
-                          {commission > 0 && (
-                            <div>
-                              <p className="text-xs text-gray-500">Commission</p>
-                              <p className="text-base font-bold text-green-600">{formatCurrency(commission)}</p>
-                            </div>
-                          )}
+                          <div className="flex gap-2">
+                            {transaction.clientId && (
+                              <button
+                                onClick={() => navigate(`/stylist/client-analytics/${transaction.clientId}`)}
+                                className="px-3 py-1.5 text-sm bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition-colors border border-primary-200 font-medium"
+                              >
+                                Client Analytics
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

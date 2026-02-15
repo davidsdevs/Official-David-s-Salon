@@ -4068,11 +4068,17 @@ const StaffSchedule = ({ onEditTrigger }) => {
           @media print {
             @page {
               size: letter landscape;
-              margin: 0.3in 0.4in;
+              margin: 0.3in 0.4in 1in 0.4in;
+            }
+            body {
+              counter-reset: page 1;
             }
             * {
               color: #000 !important;
               background: transparent !important;
+            }
+            .page-number-display::before {
+              content: "Page " counter(page);
             }
           }
         `}</style>
@@ -4089,6 +4095,9 @@ const StaffSchedule = ({ onEditTrigger }) => {
             borderBottom: '2px solid #333',
             paddingBottom: '10px'
           }}>
+            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>
+              David Salon
+            </div>
             <h1 style={{
               fontSize: '26px',
               fontWeight: 700,
@@ -4098,80 +4107,63 @@ const StaffSchedule = ({ onEditTrigger }) => {
             }}>
               WEEKLY SCHEDULE
             </h1>
-            <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>
-              {branchInfo?.branchName || branchInfo?.name || 'Branch'}
-            </div>
-            <div style={{
-              fontSize: '11px',
-              marginTop: '8px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start'
-            }}>
-              <div style={{ textAlign: 'left', flex: 1 }}>
-                <div style={{ marginBottom: '3px' }}><strong>Week:</strong> {weekDates[0]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {weekDates[6]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                <div><strong>Printed by:</strong> {currentUser ? getFullName(currentUser) : 'Manager'}</div>
+            
+            {/* Applied Filters Section - Center */}
+            {(filters.roles.length > 0 || filters.shiftStatus !== 'all' || filters.availabilityStatus !== 'all' || searchTerm.trim()) && (
+              <div style={{
+                marginTop: '12px',
+                padding: '8px 12px',
+                background: '#f5f5f5',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                fontSize: '11px',
+                display: 'inline-block'
+              }}>
+                <div style={{ fontWeight: 600, marginBottom: '4px' }}>Active Filters:</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center' }}>
+                  {searchTerm.trim() && (
+                    <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                      Search: "{searchTerm}"
+                    </span>
+                  )}
+                  {filters.roles.length > 0 && (
+                    <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                      Roles: {filters.roles.map(role => {
+                        const roleLabels = {
+                          'branch-manager': 'Branch Manager',
+                          'stylist': 'Stylist',
+                          'receptionist': 'Receptionist',
+                          'inventory': 'Inventory'
+                        };
+                        return roleLabels[role] || role;
+                      }).join(', ')}
+                    </span>
+                  )}
+                  {filters.shiftStatus !== 'all' && (
+                    <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                      Shift Status: {filters.shiftStatus === 'withShifts' ? 'With Shifts' : 'Without Shifts'}
+                    </span>
+                  )}
+                  {filters.availabilityStatus !== 'all' && (
+                    <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                      Availability: {
+                        filters.availabilityStatus === 'available' ? 'Available' :
+                        filters.availabilityStatus === 'onLeave' ? 'On Leave' :
+                        filters.availabilityStatus === 'lentOut' ? 'Lent Out' :
+                        filters.availabilityStatus === 'lentIn' ? 'Lent In' : ''
+                      }
+                    </span>
+                  )}
+                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                    Branch: {branchInfo?.branchName || branchInfo?.name || 'Branch'}
+                  </span>
+                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+                    Week: {weekDates[0]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {weekDates[6]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
               </div>
-              <div style={{ textAlign: 'right', flex: 1 }}>
-                <div><strong>Printed:</strong> {new Date().toLocaleString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}</div>
-              </div>
-            </div>
+            )}
           </div>
-
-          {/* Applied Filters Section */}
-          {(filters.roles.length > 0 || filters.shiftStatus !== 'all' || filters.availabilityStatus !== 'all' || searchTerm.trim()) && (
-            <div style={{
-              marginBottom: '12px',
-              padding: '8px 12px',
-              background: '#f5f5f5',
-              border: '1px solid #ddd',
-              borderRadius: '4px',
-              fontSize: '11px'
-            }}>
-              <div style={{ fontWeight: 600, marginBottom: '4px' }}>Applied Filters:</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {searchTerm.trim() && (
-                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
-                    <strong>Search:</strong> "{searchTerm}"
-                  </span>
-                )}
-                {filters.roles.length > 0 && (
-                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
-                    <strong>Roles:</strong> {filters.roles.map(role => {
-                      const roleLabels = {
-                        'branch-manager': 'Branch Manager',
-                        'stylist': 'Stylist',
-                        'receptionist': 'Receptionist',
-                        'inventory': 'Inventory'
-                      };
-                      return roleLabels[role] || role;
-                    }).join(', ')}
-                  </span>
-                )}
-                {filters.shiftStatus !== 'all' && (
-                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
-                    <strong>Shift Status:</strong> {filters.shiftStatus === 'withShifts' ? 'With Shifts' : 'Without Shifts'}
-                  </span>
-                )}
-                {filters.availabilityStatus !== 'all' && (
-                  <span style={{ background: '#fff', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
-                    <strong>Availability:</strong> {
-                      filters.availabilityStatus === 'available' ? 'Available' :
-                      filters.availabilityStatus === 'onLeave' ? 'On Leave' :
-                      filters.availabilityStatus === 'lentOut' ? 'Lent Out' :
-                      filters.availabilityStatus === 'lentIn' ? 'Lent In' : ''
-                    }
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Schedule Table */}
           <table style={{
@@ -4296,6 +4288,36 @@ const StaffSchedule = ({ onEditTrigger }) => {
               })}
             </tbody>
           </table>
+          
+          {/* Footer with metadata and page number */}
+          <div style={{
+            position: 'fixed',
+            bottom: '0.5cm',
+            left: '1.5cm',
+            right: '1.5cm',
+            borderTop: '1px solid #333',
+            paddingTop: '10px',
+            fontSize: '10px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <div style={{ textAlign: 'left', flex: 1 }}>
+              <div><strong>Generated by:</strong> {currentUser ? getFullName(currentUser) : 'Manager'}</div>
+            </div>
+            <div style={{ textAlign: 'center', flex: 1, fontWeight: 600 }}>
+              <span className="page-number-display"></span>
+            </div>
+            <div style={{ textAlign: 'right', flex: 1 }}>
+              <div><strong>Generated on:</strong> {new Date().toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -3,8 +3,7 @@
  * Analytics and performance metrics for all branches
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { useReactToPrint } from 'react-to-print';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -32,7 +31,6 @@ const BranchPerformanceReport = () => {
   const [endDate, setEndDate] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [sortBy, setSortBy] = useState('revenue-desc');
-  const printRef = useRef();
 
   useEffect(() => {
     fetchBranchesAndPerformance();
@@ -299,25 +297,319 @@ const BranchPerformanceReport = () => {
   }, [filteredBranches, performanceData]);
 
   // Print handler
-  const handlePrint = useReactToPrint({
-    content: () => printRef.current,
-    documentTitle: `Branch_Performance_Report_${new Date().toISOString().split('T')[0]}`,
-    pageStyle: `
-      @page {
-        size: A4 landscape;
-        margin: 15mm;
+  const handlePrint = () => {
+    try {
+      if (filteredBranches.length === 0) {
+        toast.error('No branches to print');
+        return;
       }
-      @media print {
-        body {
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
-        .no-print {
-          display: none !important;
-        }
+
+      const printWindow = window.open('', '', 'height=600,width=800');
+      
+      if (!printWindow) {
+        toast.error('Please allow pop-ups to print reports');
+        return;
       }
-    `
-  });
+
+      // Build filters text
+      const filters = [];
+      if (selectedBranch !== 'all') {
+        const branch = branches.find(b => b.id === selectedBranch);
+        if (branch) filters.push(`Branch: ${branch.name || branch.branchName}`);
+      }
+      if (startDate || endDate) {
+        filters.push(`Period: ${startDate || 'Start'} to ${endDate || 'End'}`);
+      }
+      const filtersText = filters.length > 0 ? filters.join(' | ') : 'All Branches';
+
+      let htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Branch Performance Report</title>
+            <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+            <style>
+              @media print {
+                @page {
+                  size: A4 portrait;
+                  margin: 0.4in 0.4in 0.75in 0.4in;
+                }
+              }
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                font-family: 'Poppins', Arial, sans-serif;
+              }
+              body {
+                font-family: 'Poppins', Arial, sans-serif;
+                padding: 0;
+                color: #000;
+                font-size: 9px;
+              }
+              .header {
+                text-align: center;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #333;
+              }
+              .header h1 {
+                font-size: 14px;
+                font-weight: 600;
+                margin: 0 0 5px 0;
+              }
+              .header h2 {
+                font-size: 18px;
+                font-weight: 700;
+                margin: 0;
+              }
+              .filters {
+                background: #fff;
+                padding: 10px;
+                border: 2px solid #333;
+                margin: 10px 0 15px 0;
+                text-align: center;
+              }
+              .filters-title {
+                font-size: 10px;
+                font-weight: 700;
+                margin-bottom: 5px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+              }
+              .filters-content {
+                font-size: 9px;
+                font-weight: 600;
+              }
+              .summary-stats {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 10px;
+                margin: 15px 0;
+              }
+              .stat-box {
+                text-align: center;
+                padding: 10px;
+                background: #fff;
+                border: 1px solid #333;
+              }
+              .stat-value {
+                font-size: 16px;
+                font-weight: 700;
+                color: #000;
+                margin-bottom: 3px;
+              }
+              .stat-label {
+                font-size: 9px;
+                color: #000;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                font-weight: 600;
+              }
+              .branch-card {
+                border: 1px solid #333;
+                margin-bottom: 12px;
+                background: #fff;
+                page-break-inside: avoid;
+              }
+              .branch-header {
+                background: #fff;
+                padding: 8px 12px;
+                border-bottom: 1px solid #333;
+              }
+              .branch-name {
+                font-size: 12px;
+                font-weight: 700;
+              }
+              .branch-body {
+                padding: 10px 12px;
+              }
+              .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+                margin-bottom: 8px;
+              }
+              .metric-item {
+                padding: 6px;
+                border: 1px solid #ddd;
+                text-align: center;
+              }
+              .metric-value {
+                font-size: 11px;
+                font-weight: 700;
+                color: #000;
+              }
+              .metric-label {
+                font-size: 7px;
+                color: #666;
+                text-transform: uppercase;
+                margin-top: 2px;
+              }
+              .section-title {
+                font-size: 9px;
+                font-weight: 700;
+                margin: 8px 0 4px 0;
+                text-transform: uppercase;
+                border-bottom: 1px solid #ddd;
+                padding-bottom: 2px;
+              }
+              .list-item {
+                font-size: 8px;
+                padding: 2px 0;
+                border-bottom: 1px dotted #eee;
+              }
+              .footer {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                padding: 10px 0.4in;
+                border-top: 2px solid #333;
+                font-size: 8px;
+                background: #fff;
+              }
+              .footer-content {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+              }
+              .footer-left, .footer-right {
+                flex: 1;
+              }
+              .footer-left {
+                text-align: left;
+              }
+              .footer-right {
+                text-align: right;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>DAVID'S SALON</h1>
+              <h2>Branch Performance Report</h2>
+            </div>
+            
+            <div class="filters">
+              <div class="filters-title">FILTERS APPLIED</div>
+              <div class="filters-content">${filtersText}</div>
+            </div>
+
+            <div class="summary-stats">
+              <div class="stat-box">
+                <div class="stat-value">${formatCurrency(overallSummary.totalRevenue)}</div>
+                <div class="stat-label">Total Revenue</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">${overallSummary.totalTransactions}</div>
+                <div class="stat-label">Transactions</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">${overallSummary.totalAppointments}</div>
+                <div class="stat-label">Appointments</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">${overallSummary.appointmentCompletionRate.toFixed(1)}%</div>
+                <div class="stat-label">Completion Rate</div>
+              </div>
+            </div>
+      `;
+
+      filteredBranches.forEach(branch => {
+        const data = performanceData[branch.id] || {};
+        htmlContent += `
+          <div class="branch-card">
+            <div class="branch-header">
+              <div class="branch-name">${branch.name || branch.branchName}</div>
+            </div>
+            
+            <div class="branch-body">
+              <div class="metrics-grid">
+                <div class="metric-item">
+                  <div class="metric-value">${formatCurrency(data.totalRevenue || 0)}</div>
+                  <div class="metric-label">Revenue</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value">${data.totalTransactions || 0}</div>
+                  <div class="metric-label">Transactions</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value">${formatCurrency(data.averageTransactionValue || 0)}</div>
+                  <div class="metric-label">Avg Transaction</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value">${data.totalServices || 0}</div>
+                  <div class="metric-label">Services</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value">${data.totalProducts || 0}</div>
+                  <div class="metric-label">Products</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value">${data.totalStaff || 0}</div>
+                  <div class="metric-label">Staff</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value">${data.totalAppointments || 0}</div>
+                  <div class="metric-label">Appointments</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value">${(data.appointmentCompletionRate || 0).toFixed(1)}%</div>
+                  <div class="metric-label">Completion</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value">${formatCurrency(data.totalVoided || 0)}</div>
+                  <div class="metric-label">Voided</div>
+                </div>
+              </div>
+              
+              ${data.topServices && data.topServices.length > 0 ? `
+                <div class="section-title">Top Services</div>
+                ${data.topServices.map(([name, count]) => `
+                  <div class="list-item">${name}: ${count} times</div>
+                `).join('')}
+              ` : ''}
+              
+              ${data.topProducts && data.topProducts.length > 0 ? `
+                <div class="section-title">Top Products</div>
+                ${data.topProducts.map(([name, count]) => `
+                  <div class="list-item">${name}: ${count} times</div>
+                `).join('')}
+              ` : ''}
+            </div>
+          </div>
+        `;
+      });
+
+      htmlContent += `
+            <div class="footer">
+              <div class="footer-content">
+                <div class="footer-left">
+                  <strong>Generated By:</strong> Operational Manager<br>
+                  <strong>Position:</strong> Operational Manager<br>
+                  <strong>Branch:</strong> All Branches
+                </div>
+                <div class="footer-right">
+                  <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}<br>
+                  <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    } catch (error) {
+      console.error('Error printing branch performance report:', error);
+      toast.error('Failed to generate print report: ' + error.message);
+    }
+  };
 
   if (loading) {
     return (
@@ -330,7 +622,7 @@ const BranchPerformanceReport = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between no-print">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <BarChart3 className="h-6 w-6 text-blue-600" />
@@ -356,35 +648,8 @@ const BranchPerformanceReport = () => {
         </div>
       </div>
 
-      {/* Printable Content */}
-      <div ref={printRef}>
-        {/* Print Header - Only visible when printing */}
-        <div className="hidden print:block mb-6">
-          <div className="text-center border-b-2 border-gray-300 pb-4 mb-6">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">David's Salon</h1>
-            <h2 className="text-xl font-semibold text-gray-700 mb-2">Branch Performance Report</h2>
-            <p className="text-sm text-gray-600">
-              Generated on: {new Date().toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
-            </p>
-            {selectedBranch !== 'all' && (
-              <p className="text-sm text-gray-600 mt-1">
-                Branch: {branches.find(b => b.id === selectedBranch)?.name || 'All Branches'}
-              </p>
-            )}
-            {(startDate || endDate) && (
-              <p className="text-sm text-gray-600 mt-1">
-                Period: {startDate || 'Start'} to {endDate || 'End'}
-              </p>
-            )}
-          </div>
-        </div>
-
+      {/* Content */}
+      <div>
         {/* Overall Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
@@ -433,7 +698,7 @@ const BranchPerformanceReport = () => {
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900">Branch Performance Details</h2>
-              <div className="flex items-center gap-2 no-print">
+              <div className="flex items-center gap-2">
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
@@ -529,14 +794,6 @@ const BranchPerformanceReport = () => {
             </tbody>
           </table>
         </div>
-        </div>
-
-        {/* Print Footer - Only visible when printing */}
-        <div className="hidden print:block mt-8 pt-4 border-t border-gray-300">
-          <div className="text-center text-xs text-gray-600">
-            <p>David's Salon - Branch Performance Report</p>
-            <p className="mt-1">This is a system-generated report. No signature required.</p>
-          </div>
         </div>
       </div>
 

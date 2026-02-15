@@ -119,9 +119,9 @@ const PurchaseOrders = () => {
   const orderStats = useMemo(() => {
     return {
       totalOrders: purchaseOrders.length,
-      pendingApproval: purchaseOrders.filter(o => o.status === 'Received').length,
+      pendingApproval: purchaseOrders.filter(o => o.status === 'Pending Branch Approval' || o.status === 'Pending Overall Approval' || o.status === 'Received' || o.status === 'Pending').length,
       approvedOrders: purchaseOrders.filter(o => o.status === 'Approved' || o.status === 'In Transit').length,
-      rejectedOrders: purchaseOrders.filter(o => o.status === 'Rejected').length,
+      rejectedOrders: purchaseOrders.filter(o => o.status === 'Rejected by Branch' || o.status === 'Rejected by Overall' || o.status === 'Rejected').length,
       totalValue: purchaseOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0)
     };
   }, [purchaseOrders]);
@@ -129,10 +129,14 @@ const PurchaseOrders = () => {
   // Get status color
   const getStatusColor = (status) => {
     switch (status) {
+      case 'Pending Branch Approval': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
+      case 'Pending Overall Approval': return 'text-blue-600 bg-blue-100 border-blue-200';
       case 'Pending': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
       case 'Received': return 'text-blue-600 bg-blue-100 border-blue-200';
       case 'Approved': return 'text-green-600 bg-green-100 border-green-200';
       case 'In Transit': return 'text-purple-600 bg-purple-100 border-purple-200';
+      case 'Rejected by Branch': return 'text-red-600 bg-red-100 border-red-200';
+      case 'Rejected by Overall': return 'text-rose-700 bg-rose-100 border-rose-200';
       case 'Rejected': return 'text-red-600 bg-red-100 border-red-200';
       case 'Shipped': return 'text-purple-600 bg-purple-100 border-purple-200';
       case 'Delivered': return 'text-green-600 bg-green-100 border-green-200';
@@ -144,10 +148,14 @@ const PurchaseOrders = () => {
 
   const getStatusIcon = (status) => {
     switch (status) {
+      case 'Pending Branch Approval': return <Clock className="h-3 w-3" />;
+      case 'Pending Overall Approval': return <Clock className="h-3 w-3" />;
       case 'Pending': return <Clock className="h-3 w-3" />;
       case 'Received': return <CheckCircle className="h-3 w-3" />;
       case 'Approved': return <CheckCircle className="h-3 w-3" />;
       case 'In Transit': return <Truck className="h-3 w-3" />;
+      case 'Rejected by Branch': return <XCircle className="h-3 w-3" />;
+      case 'Rejected by Overall': return <XCircle className="h-3 w-3" />;
       case 'Rejected': return <XCircle className="h-3 w-3" />;
       case 'Shipped': return <Truck className="h-3 w-3" />;
       case 'Delivered': return <CheckCircle className="h-3 w-3" />;

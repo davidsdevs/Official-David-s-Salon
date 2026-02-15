@@ -860,7 +860,8 @@ const OperationalManagerPromotions = () => {
         title={selectedPromotion ? 'Edit System-Wide Promotion' : 'Create System-Wide Promotion'}
         size="lg"
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="max-h-[85vh] overflow-y-auto pr-2 custom-scrollbar">
+          <form onSubmit={handleSubmit} className="space-y-4 pb-16">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
             <div className="flex items-center gap-2 text-sm text-blue-800">
               <Globe className="h-4 w-4" />
@@ -1098,6 +1099,7 @@ const OperationalManagerPromotions = () => {
             </Button>
           </div>
         </form>
+        </div>
       </Modal>
 
       {/* Delete Confirmation Modal */}

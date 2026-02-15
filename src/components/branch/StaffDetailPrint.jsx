@@ -120,6 +120,7 @@ const StaffDetailPrint = ({ staff, branchName, branchId, onClose, autoOpen = tru
               overflow-wrap: break-word;
               word-break: keep-all;
               hyphens: none;
+              counter-reset: page 1;
             }
             .no-print {
               display: none !important;
@@ -131,15 +132,21 @@ const StaffDetailPrint = ({ staff, branchName, branchId, onClose, autoOpen = tru
               page-break-inside: avoid;
             }
             .resume-footer {
-              position: relative;
-              margin-top: 80px;
-              padding-top: 30px;
-              padding-bottom: 40px;
+              position: fixed;
+              bottom: 0.5cm;
+              left: 1.5cm;
+              right: 1.5cm;
+              margin-top: 0;
+              padding-top: 15px;
+              padding-bottom: 15px;
               border-top: 1px solid #e5e7eb;
               page-break-inside: avoid;
               break-inside: avoid;
-              orphans: 3;
-              widows: 3;
+              text-align: center;
+              background: white;
+            }
+            .page-number-display::before {
+              content: "Page " counter(page);
             }
             .resume-content-wrapper {
               padding-top: 20px;
@@ -223,6 +230,12 @@ const StaffDetailPrint = ({ staff, branchName, branchId, onClose, autoOpen = tru
           }
           .resume-value {
             color: #6b7280;
+          }
+          .services-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            column-gap: 30px;
           }
           .service-item {
             margin-bottom: 20px;
@@ -442,7 +455,7 @@ const StaffDetailPrint = ({ staff, branchName, branchId, onClose, autoOpen = tru
         ) : services.length > 0 ? (
           <div className="resume-section">
             <h2 className="resume-section-title">Services Offered</h2>
-            <div className="space-y-4">
+            <div className="services-grid">
               {services.map((service, index) => (
                 <div key={service.id || index} className="service-item print-avoid-break">
                   <div className="service-name">{service.name}</div>
@@ -517,6 +530,9 @@ const StaffDetailPrint = ({ staff, branchName, branchId, onClose, autoOpen = tru
         <div className="resume-footer text-xs text-gray-500 text-center">
           <p>Generated on {formatDate(new Date())} | {branchName || 'Branch Staff Detail'}</p>
           <p className="mt-1">This is a computer-generated document.</p>
+          <p className="mt-2" style={{ fontWeight: 600, fontSize: '11px', color: '#374151' }}>
+            <span className="page-number-display"></span>
+          </p>
         </div>
       </div>
     </>

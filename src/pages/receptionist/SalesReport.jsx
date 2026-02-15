@@ -100,6 +100,11 @@ const ReceptionistSalesReport = () => {
           startDate = startOfMonth(now);
           endDate = endOfMonth(now);
           break;
+        case 'all':
+          // No date filtering - fetch all transactions
+          startDate = null;
+          endDate = null;
+          break;
         case 'custom':
           startDate = new Date(customStartDate);
           startDate.setHours(0, 0, 0, 0);
@@ -111,11 +116,19 @@ const ReceptionistSalesReport = () => {
           endDate = endOfMonth(now);
       }
 
+      console.log('📅 Fetching bills with date range:', {
+        startDate: startDate?.toISOString() || 'All time',
+        endDate: endDate?.toISOString() || 'All time',
+        branchId: userBranch
+      });
+
       const billsData = await getBillsByBranch(userBranch, {
         startDate,
         endDate
       });
 
+      console.log('📊 Bills fetched:', billsData?.length || 0, 'transactions');
+      
       setBills(billsData || []);
     } catch (error) {
       console.error('Error fetching bills:', error);
@@ -454,8 +467,19 @@ const ReceptionistSalesReport = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDateFilter('custom')}
+                    onClick={() => setDateFilter('all')}
                     className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      dateFilter === 'all'
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    All Time
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDateFilter('custom')}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors col-span-2 ${
                       dateFilter === 'custom'
                         ? 'bg-primary-600 text-white border-primary-600'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'

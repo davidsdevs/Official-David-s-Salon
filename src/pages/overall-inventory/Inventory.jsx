@@ -798,6 +798,509 @@ const OverallInventoryControllerInventory = () => {
     setTimeout(() => printWindow.print(), 250);
   };
 
+  // Print Branch Inventory Report
+  const handlePrintInventory = async () => {
+    if (!selectedBranch || !currentBranch) return;
+    
+    const printWindow = window.open('', '', 'height=600,width=800');
+    
+    // Build filters text
+    const filters = [];
+    if (searchTerm) filters.push(`Search: "${searchTerm}"`);
+    if (categoryFilter !== 'all') filters.push(`Category: ${categoryFilter}`);
+    if (statusFilter !== 'all') filters.push(`Status: ${statusFilter}`);
+    const filtersText = filters.length > 0 ? filters.join(' • ') : 'No filters applied';
+
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Branch Inventory Report</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            @media print {
+              @page {
+                size: letter;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 0;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+            }
+            .header h1 {
+              font-size: 14px;
+              font-weight: 600;
+              margin: 0 0 5px 0;
+              letter-spacing: 1px;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 8px;
+              border: 1px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 16px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .product-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .product-header {
+              background: #fff;
+              padding: 8px 12px;
+              border-bottom: 1px solid #333;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .product-name {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .status-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+              border: 1px solid #333;
+              background: #fff;
+              color: #000;
+            }
+            .product-body {
+              padding: 10px 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+            }
+            .info-row {
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+              font-size: 9px;
+            }
+            .info-label {
+              font-weight: 600;
+              display: inline-block;
+              width: 110px;
+            }
+            .info-value {
+              color: #333;
+            }
+            .footer {
+              position: fixed;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              padding: 10px 0.4in;
+              border-top: 2px solid #333;
+              font-size: 8px;
+              background: #fff;
+            }
+            .footer-content {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+            }
+            .footer-left, .footer-right {
+              flex: 1;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Branch Inventory Report - ${currentBranch.name || currentBranch.branchName}</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">${stats.totalProducts}</div>
+              <div class="stat-label">Total Products</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">₱${stats.totalValue.toLocaleString()}</div>
+              <div class="stat-label">Total Value</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.lowStock}</div>
+              <div class="stat-label">Low Stock</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.outOfStock}</div>
+              <div class="stat-label">Out of Stock</div>
+            </div>
+          </div>
+    `;
+
+    filteredInventory.forEach(item => {
+      const totalStock = item.batches.reduce((sum, b) => sum + (b.computedStock || 0), 0);
+      const totalValue = item.batches.reduce((sum, b) => sum + ((b.computedStock || 0) * (b.unitCost || 0)), 0);
+      
+      htmlContent += `
+        <div class="product-card">
+          <div class="product-header">
+            <div class="product-name">${item.productName}</div>
+            <span class="status-badge">${item.status}</span>
+          </div>
+          
+          <div class="product-body">
+            <div class="info-grid">
+              <div class="info-row">
+                <span class="info-label">Brand:</span>
+                <span class="info-value">${item.brand || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Category:</span>
+                <span class="info-value">${item.category || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Total Stock:</span>
+                <span class="info-value">${totalStock} units</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Batches:</span>
+                <span class="info-value">${item.batches.length}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Total Value:</span>
+                <span class="info-value">₱${totalValue.toLocaleString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Status:</span>
+                <span class="info-value">${item.status}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    htmlContent += `
+          <div class="footer">
+            <div class="footer-content">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Overall Inventory Controller'}<br>
+                <strong>Position:</strong> Overall Inventory Controller<br>
+                <strong>Branch:</strong> ${currentBranch.name || currentBranch.branchName}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 250);
+  };
+
+  // Print All Branches Inventory Overview
+  const handlePrintAllBranches = async () => {
+    const printWindow = window.open('', '', 'height=600,width=800');
+    const activeBranches = branches.filter(b => b.isActive !== false);
+    
+    // Calculate overall stats
+    const totalBranches = activeBranches.length;
+    const totalProducts = Object.values(branchStats).reduce((sum, stat) => sum + (stat.totalProducts || 0), 0);
+    const totalValue = Object.values(branchStats).reduce((sum, stat) => sum + (stat.totalValue || 0), 0);
+    const totalLowStock = Object.values(branchStats).reduce((sum, stat) => sum + (stat.lowStock || 0), 0);
+    const totalOutOfStock = Object.values(branchStats).reduce((sum, stat) => sum + (stat.outOfStock || 0), 0);
+
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>All Branches Inventory Overview</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            @media print {
+              @page {
+                size: letter;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 0;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+            }
+            .header h1 {
+              font-size: 14px;
+              font-weight: 600;
+              margin: 0 0 5px 0;
+              letter-spacing: 1px;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 16px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .branch-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .branch-header {
+              background: #fff;
+              padding: 8px 12px;
+              border-bottom: 1px solid #333;
+            }
+            .branch-name {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .branch-body {
+              padding: 10px 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+            }
+            .info-row {
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+              font-size: 9px;
+            }
+            .info-label {
+              font-weight: 600;
+              display: inline-block;
+              width: 110px;
+            }
+            .info-value {
+              color: #333;
+            }
+            .footer {
+              position: fixed;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              padding: 10px 0.4in;
+              border-top: 2px solid #333;
+              font-size: 8px;
+              background: #fff;
+            }
+            .footer-content {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+            }
+            .footer-left, .footer-right {
+              flex: 1;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Inventory Overview - All Branches</h2>
+          </div>
+
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">${totalBranches}</div>
+              <div class="stat-label">Total Branches</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${totalProducts}</div>
+              <div class="stat-label">Total Products</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">₱${totalValue.toLocaleString()}</div>
+              <div class="stat-label">Total Value</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${totalLowStock + totalOutOfStock}</div>
+              <div class="stat-label">Alerts</div>
+            </div>
+          </div>
+    `;
+
+    activeBranches.forEach(branch => {
+      const stats = branchStats[branch.id] || {
+        totalProducts: 0,
+        totalValue: 0,
+        lowStock: 0,
+        outOfStock: 0,
+        inStock: 0
+      };
+      
+      htmlContent += `
+        <div class="branch-card">
+          <div class="branch-header">
+            <div class="branch-name">${branch.name || branch.branchName}</div>
+          </div>
+          
+          <div class="branch-body">
+            <div class="info-grid">
+              <div class="info-row">
+                <span class="info-label">Total Products:</span>
+                <span class="info-value">${stats.totalProducts}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Total Value:</span>
+                <span class="info-value">₱${stats.totalValue.toLocaleString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">In Stock:</span>
+                <span class="info-value">${stats.inStock}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Low Stock:</span>
+                <span class="info-value">${stats.lowStock}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Out of Stock:</span>
+                <span class="info-value">${stats.outOfStock}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Status:</span>
+                <span class="info-value">${branch.isActive !== false ? 'Active' : 'Inactive'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    htmlContent += `
+          <div class="footer">
+            <div class="footer-content">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Overall Inventory Controller'}<br>
+                <strong>Position:</strong> Overall Inventory Controller<br>
+                <strong>Branch:</strong> Overall Inventory
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 250);
+  };
+
   // Handle opening Force Adjust modal
   const handleOpenForceAdjust = (item) => {
     setSelectedProductForAdjust(item);
@@ -1042,10 +1545,23 @@ const OverallInventoryControllerInventory = () => {
             <h1 className="text-2xl font-bold text-gray-900">Inventory Overview</h1>
             <p className="text-gray-600">Monitor inventory across all branches</p>
           </div>
-          <Button onClick={loadBranchStats} className="flex items-center gap-2">
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            {activeTab === 'branches' && (
+              <Button 
+                variant="outline"
+                onClick={handlePrintAllBranches} 
+                className="flex items-center gap-2"
+                disabled={activeBranches.length === 0}
+              >
+                <Printer className="h-4 w-4" />
+                Print
+              </Button>
+            )}
+            <Button onClick={loadBranchStats} className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -1570,10 +2086,21 @@ const OverallInventoryControllerInventory = () => {
             <p className="text-gray-600">Viewing inventory for this branch</p>
           </div>
         </div>
-        <Button onClick={loadInventory} className="flex items-center gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            onClick={handlePrintInventory} 
+            variant="outline" 
+            className="flex items-center gap-2"
+            disabled={filteredInventory.length === 0}
+          >
+            <Printer className="h-4 w-4" />
+            Print
+          </Button>
+          <Button onClick={loadInventory} className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Statistics Cards */}

@@ -305,241 +305,149 @@ const Products = () => {
       }
     }
 
-    // Create a beautiful PDF-friendly HTML content with Poppins font
+    // Build filters display
+    const activeFilters = [];
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    if (filters.category !== 'all') activeFilters.push(`Category: ${filters.category}`);
+    if (filters.supplier !== 'all') {
+      const supplier = suppliers.find(s => s.id === filters.supplier);
+      if (supplier) activeFilters.push(`Supplier: ${supplier.name}`);
+    }
+    if (filters.status !== 'all') activeFilters.push(`Status: ${filters.status}`);
+    if (filters.showServiceMapped) activeFilters.push('Service Mapped Only');
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Products';
+
+    // Create standardized print content
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Products Report - ${branchName}</title>
-          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
-
-            @media print {
-              @page {
-                margin: 1cm;
-                size: A4 landscape;
-              }
-              body {
-                print-color-adjust: exact;
-                -webkit-print-color-adjust: exact;
-              }
-              .no-print { display: none; }
+            @page {
+              size: A4 landscape;
+              margin: 0.4in 0.4in 0.75in 0.4in;
             }
-
             * {
+              margin: 0;
+              padding: 0;
               box-sizing: border-box;
             }
-
             body {
-              font-family: 'Poppins', sans-serif;
-              padding: 20px;
-              color: #333;
-              line-height: 1.5;
-              background: white;
-              margin: 0;
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 10px;
+              color: #000;
+              font-size: 9px;
             }
             .header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              border-bottom: 3px solid #160B53;
-              padding-bottom: 20px;
-              margin-bottom: 30px;
-              background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-              padding: 20px;
-              border-radius: 8px;
+              text-align: center;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
+              border-bottom: 2px solid #333;
             }
             .header h1 {
-              color: #160B53;
-              margin: 0;
-              font-size: 32px;
+              font-size: 20px;
               font-weight: 700;
-              font-family: 'Poppins', sans-serif;
-              letter-spacing: -0.5px;
+              margin: 0 0 4px 0;
             }
-            .header-info {
-              display: flex;
-              flex-direction: column;
-              gap: 5px;
-              font-size: 12px;
-              color: #666;
-              text-align: right;
-            }
-            .header-info div {
-              font-weight: 500;
-            }
-            .stats {
-              display: grid;
-              grid-template-columns: repeat(4, 1fr);
-              gap: 20px;
-              margin-bottom: 30px;
-              padding: 20px;
-              background: #f9f9f9;
-              border-radius: 8px;
-              border: 1px solid #ccc;
-            }
-            .stat-box {
-              text-align: center;
-              padding: 15px;
-              background: white;
-              border-radius: 6px;
-              border: 1px solid #999;
-              box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            }
-            .stat-value {
-              font-size: 24px;
-              font-weight: 700;
-              color: #000;
-              font-family: 'Poppins', sans-serif;
-              margin-bottom: 5px;
-            }
-            .stat-label {
-              font-size: 11px;
-              color: #666;
-              text-transform: uppercase;
-              letter-spacing: 1px;
+            .header h2 {
+              font-size: 16px;
               font-weight: 600;
-              font-family: 'Poppins', sans-serif;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 25px;
-              font-size: 10px;
-              font-family: 'Poppins', sans-serif;
-              border-radius: 8px;
-              overflow: hidden;
-              box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+              margin-top: 10px;
+              font-size: 9px;
+              border: 1px solid #333;
             }
             th, td {
-              border: 1px solid #e9ecef;
-              padding: 10px 8px;
+              border: 1px solid #333;
+              padding: 6px 4px;
               text-align: left;
-              vertical-align: middle;
+              vertical-align: top;
             }
             th {
-              background: #000;
-              color: white;
-              font-weight: 600;
-              text-transform: uppercase;
-              letter-spacing: 1px;
-              font-size: 9px;
-              font-family: 'Poppins', sans-serif;
-              position: sticky;
-              top: 0;
-              z-index: 10;
-              border: 1px solid #666;
-            }
-            tbody tr:nth-child(even) {
-              background-color: #f8f9fa;
-            }
-            tbody tr:nth-child(odd) {
-              background-color: #ffffff;
-            }
-            tbody tr:hover {
-              background-color: #e3f2fd;
-            }
-            .status-active {
-              color: #000;
-              font-weight: 700;
-              font-family: 'Poppins', sans-serif;
-            }
-            .status-inactive {
-              color: #666;
-              font-weight: 700;
-              font-family: 'Poppins', sans-serif;
-            }
-            .status-discontinued {
-              color: #999;
-              font-weight: 700;
-              font-family: 'Poppins', sans-serif;
-            }
-            .product-type {
-              display: inline-block;
-              padding: 3px 8px;
-              border-radius: 12px;
-              font-size: 8px;
+              background-color: #fff;
               font-weight: 700;
               text-transform: uppercase;
-              letter-spacing: 0.5px;
-              font-family: 'Poppins', sans-serif;
-              background: #e0e0e0;
-              color: #000;
-              border: 1px solid #999;
+              border-bottom: 2px solid #000;
             }
-            .price-otc {
-              color: #000;
-              font-weight: 700;
-              font-family: 'Poppins', sans-serif;
+            tr:nth-child(even) {
+              background-color: #fff;
             }
-            .image-cell {
-              width: 35px;
-              text-align: center;
+            tr:nth-child(odd) {
+              background-color: #fff;
             }
-            .image-cell img {
-              width: 28px;
-              height: 28px;
-              object-fit: cover;
-              border-radius: 4px;
-              border: 1px solid #e9ecef;
-            }
-            .footer {
-              margin-top: 40px;
-              padding-top: 20px;
-              border-top: 2px solid #000;
-              font-size: 9px;
-              color: #333;
-              text-align: center;
-              font-family: 'Poppins', sans-serif;
-              background: #f0f0f0;
-              padding: 15px;
-              border-radius: 4px;
-            }
-            .image-cell {
-              width: 40px;
-              text-align: center;
-            }
-            .image-cell img {
-              width: 32px;
-              height: 32px;
-              object-fit: cover;
-              border-radius: 4px;
+            .text-right { text-align: right; }
+            
+            @media print {
+              .footer {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                padding: 10px 0.4in;
+                border-top: 2px solid #333;
+                font-size: 8px;
+                background: white;
+              }
+              .footer-info {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+                margin-bottom: 10px;
+              }
+              .footer-left {
+                text-align: left;
+              }
+              .footer-right {
+                text-align: right;
+              }
+              .footer-center {
+                text-align: center;
+                margin-top: 8px;
+                padding-top: 8px;
+                border-top: 1px solid #ccc;
+                color: #666;
+              }
+              .footer-center p {
+                margin: 3px 0;
+              }
             }
           </style>
         </head>
         <body>
           <div class="header">
-            <h1 style="font-family: 'Poppins', sans-serif; font-size: 36px; font-weight: 700; margin-bottom: 5px; color: #000;">Products Catalog Report</h1>
-            <div style="font-size: 14px; color: #333; font-weight: 500;">Professional Inventory Report</div>
-            <div style="margin-top: 15px; padding: 10px; background: #f5f5f5; border: 1px solid #ccc; border-radius: 4px;">
-              <div style="display: flex; justify-content: space-between; font-size: 11px; color: #000;">
-                <div><strong>Branch:</strong> ${branchName}</div>
-                <div><strong>Generated by:</strong> ${userData?.name || 'System User'}</div>
-                <div><strong>Date:</strong> ${format(new Date(), 'MMM dd, yyyy HH:mm')}</div>
-              </div>
-            </div>
+            <h1>DAVID'S SALON</h1>
+            <h2>Products Report - ${branchName}</h2>
           </div>
-
-          <div class="stats">
-            <div class="stat-box">
-              <div class="stat-value">${filteredProducts.length}</div>
-              <div class="stat-label">Total Products</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-value">${filteredProducts.filter(p => p.status === 'Active').length}</div>
-              <div class="stat-label">Active Products</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-value">${filteredProducts.filter(p => p.hasServiceMapping).length}</div>
-              <div class="stat-label">Service Mapped</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-value">${[...new Set(filteredProducts.map(p => p.category).filter(Boolean))].length}</div>
-              <div class="stat-label">Categories</div>
-            </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
           </div>
-
+          
           <table>
             <thead>
               <tr>
@@ -548,50 +456,55 @@ const Products = () => {
                 <th>Category</th>
                 <th>UPC</th>
                 <th>Description</th>
-                <th>OTC Price</th>
-                <th>Unit Cost</th>
-                <th>Commission %</th>
+                <th class="text-right">OTC Price</th>
+                <th class="text-right">Unit Cost</th>
+                <th class="text-right">Commission %</th>
                 <th>Status</th>
                 <th>Type</th>
-                <th>Variants</th>
-                <th>Shelf Life</th>
                 <th>Service Mapped</th>
               </tr>
             </thead>
             <tbody>
               ${filteredProducts.map(product => `
                 <tr>
-                  <td style="font-weight: 600; color: #160B53;">${product.name || 'N/A'}</td>
+                  <td style="font-weight: 600;">${product.name || 'N/A'}</td>
                   <td>${product.brand || 'N/A'}</td>
                   <td>${product.category || 'N/A'}</td>
-                  <td style="font-family: monospace;">${product.upc || 'N/A'}</td>
-                  <td>${product.description || 'N/A'}</td>
-                  <td class="price-otc">₱${(product.otcPrice || 0).toLocaleString()}</td>
-                  <td>₱${(product.unitCost || 0).toLocaleString()}</td>
-                  <td>${product.commissionPercentage || 0}%</td>
-                  <td class="status-${product.status?.toLowerCase() || 'active'}">${product.status || 'Active'}</td>
-                  <td>
-                    <span class="product-type ${product.isBranchProduct ? 'branch-product' : 'service-mapped'}">
-                      ${product.isBranchProduct ? 'Branch Product' : product.type || 'N/A'}
-                    </span>
-                  </td>
-                  <td>${product.variants || 'N/A'}</td>
-                  <td>${product.shelfLife || 'N/A'}</td>
+                  <td style="font-family: monospace; font-size: 8px;">${product.upc || 'N/A'}</td>
+                  <td style="font-size: 8px;">${product.description || 'N/A'}</td>
+                  <td class="text-right">₱${(product.otcPrice || 0).toLocaleString()}</td>
+                  <td class="text-right">₱${(product.unitCost || 0).toLocaleString()}</td>
+                  <td class="text-right">${product.commissionPercentage || 0}%</td>
+                  <td>${product.status || 'Active'}</td>
+                  <td style="font-size: 8px;">${product.isBranchProduct ? 'Branch Product' : product.type || 'N/A'}</td>
                   <td>${product.hasServiceMapping ? 'Yes' : 'No'}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
-
+          
           <div class="footer">
-            <p><strong>Generated by:</strong> ${userData?.name || 'Inventory Controller'} | <strong>Date:</strong> ${format(new Date(), 'MMMM dd, yyyy')}</p>
-            <p>This professional report is for branch management and inventory control purposes.</p>
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.name || 'Inventory Controller'}<br>
+                <strong>Position:</strong> Inventory Controller<br>
+                <strong>Branch:</strong> ${branchName}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600; font-size: 9px;">Products Report</p>
+              <p>${filteredProducts.length} Products Total</p>
+            </div>
           </div>
         </body>
       </html>
     `;
 
-    // Open PDF-friendly print preview window and automatically trigger print dialog
+    // Open print preview window
     const printWindow = window.open('', '_blank', 'width=1200,height=900,scrollbars=yes,resizable=yes');
     if (!printWindow) {
       toast.error('Please allow pop-ups to generate the PDF report');
@@ -600,62 +513,14 @@ const Products = () => {
 
     printWindow.document.write(printContent);
     printWindow.document.close();
+    printWindow.focus();
 
-    // Automatically trigger print dialog after content loads
-    printWindow.onload = function() {
-      // Add a subtle loading message that disappears when print dialog opens
-      const loadingMsg = printWindow.document.createElement('div');
-      loadingMsg.innerHTML = `
-        <div style="
-          position: fixed;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          background: rgba(255, 255, 255, 0.95);
-          color: #000;
-          padding: 20px 30px;
-          border-radius: 10px;
-          font-family: 'Poppins', sans-serif;
-          font-size: 14px;
-          font-weight: 600;
-          text-align: center;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-          z-index: 10000;
-          border: 2px solid #000;
-        ">
-          <div style="margin-bottom: 10px;">📄 Preparing PDF Report...</div>
-          <div style="font-size: 12px; color: #666; font-weight: 400;">Print dialog will open automatically</div>
-        </div>
-      `;
-      printWindow.document.body.appendChild(loadingMsg);
-
-      // Small delay to ensure content is fully rendered, then trigger print
-      setTimeout(() => {
-        // Hide loading message
-        loadingMsg.style.display = 'none';
-
-        // Trigger the browser's print dialog
-        printWindow.print();
-      }, 800);
-    };
-
-    // Auto-close after printing
-    printWindow.onafterprint = function() {
-      setTimeout(() => {
-        if (!printWindow.closed) {
-          printWindow.close();
-        }
-      }, 1000);
-    };
-
-    // Fallback: close after 30 seconds if user doesn't print
+    // Wait for content to load, then print
     setTimeout(() => {
-      if (!printWindow.closed) {
-        printWindow.close();
-      }
-    }, 30000);
+      printWindow.print();
+    }, 250);
 
-    toast.success('PDF report generated - print dialog will open automatically');
+    toast.success('Opening print preview...');
   };
 
   // Export products to Excel

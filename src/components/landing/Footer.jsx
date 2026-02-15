@@ -237,7 +237,7 @@ export default function Footer({ embedded = false, cmsEditMode } = {}) {
           </div>
         </div>
 
-        <div className="mt-8 pt-8 text-center text-base text-gray-500" style={{ borderTop: '1px solid #D4D4D4' }}>
+        <div className="mt-8 pt-8 pb-8 text-center text-base text-gray-500" style={{ borderTop: '1px solid #D4D4D4' }}>
           <InlineEditable
             value={footer.copyright || "© 2025 David's Salon. All Rights Reserved."}
             onSave={handleContentUpdate}

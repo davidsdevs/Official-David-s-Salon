@@ -28,7 +28,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  BarChart3
+  BarChart3,
+  Printer
 } from 'lucide-react';
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, orderBy, limit, startAfter } from 'firebase/firestore';
@@ -223,9 +224,9 @@ const OverallInventoryControllerPurchaseOrders = () => {
       // Calculate stats from all filtered data
       const newStats = {
         totalOrders: ordersList.length,
-        pendingApproval: ordersList.filter(o => o.status === 'Pending').length,
+        pendingApproval: ordersList.filter(o => o.status === 'Pending Overall Approval' || o.status === 'Pending').length,
         approvedOrders: ordersList.filter(o => o.status === 'Approved' || o.status === 'In Transit').length,
-        rejectedOrders: ordersList.filter(o => o.status === 'Rejected').length,
+        rejectedOrders: ordersList.filter(o => o.status === 'Rejected by Overall' || o.status === 'Rejected by Branch' || o.status === 'Rejected').length,
         totalValue: ordersList.reduce((sum, o) => sum + (o.totalAmount || 0), 0)
       };
       setStats(newStats);
@@ -344,6 +345,291 @@ const OverallInventoryControllerPurchaseOrders = () => {
     }
   };
 
+  // Print Purchase Orders Report
+  const handlePrint = async () => {
+    const printWindow = window.open('', '', 'height=600,width=800');
+    
+    // Build filters text
+    const filters = [];
+    if (searchTerm) filters.push(`Search: "${searchTerm}"`);
+    if (selectedStatus !== 'all') filters.push(`Status: ${selectedStatus}`);
+    if (selectedBranch !== 'all') {
+      const branch = branches.find(b => b.id === selectedBranch);
+      if (branch) filters.push(`Branch: ${branch.name || branch.branchName}`);
+    }
+    if (dateRange !== 'all') {
+      if (dateRange === 'custom' && customDateStart && customDateEnd) {
+        filters.push(`Date: ${format(new Date(customDateStart), 'MMM dd, yyyy')} - ${format(new Date(customDateEnd), 'MMM dd, yyyy')}`);
+      } else {
+        filters.push(`Date Range: ${dateRange}`);
+      }
+    }
+    const filtersText = filters.length > 0 ? filters.join(' • ') : 'No filters applied';
+
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Purchase Orders Report</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            @media print {
+              @page {
+                size: letter;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 0;
+              color: #000;
+              font-size: 9px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 15px;
+            }
+            .header h1 {
+              font-size: 14px;
+              font-weight: 600;
+              margin: 0 0 5px 0;
+              letter-spacing: 1px;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 8px;
+              border: 1px solid #333;
+              margin: 10px 0 15px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin: 15px 0;
+            }
+            .stat-box {
+              text-align: center;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .stat-value {
+              font-size: 16px;
+              font-weight: 700;
+              color: #000;
+              margin-bottom: 3px;
+            }
+            .stat-label {
+              font-size: 9px;
+              color: #000;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .order-card {
+              border: 1px solid #333;
+              margin-bottom: 10px;
+              background: #fff;
+              page-break-inside: avoid;
+            }
+            .order-header {
+              background: #fff;
+              padding: 8px 12px;
+              border-bottom: 1px solid #333;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .order-id {
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .status-badge {
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 8px;
+              font-weight: 600;
+              text-transform: uppercase;
+              border: 1px solid #333;
+              background: #fff;
+              color: #000;
+            }
+            .order-body {
+              padding: 10px 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+            }
+            .info-row {
+              padding: 4px 0;
+              border-bottom: 1px dotted #ddd;
+              font-size: 9px;
+            }
+            .info-label {
+              font-weight: 600;
+              display: inline-block;
+              width: 110px;
+            }
+            .info-value {
+              color: #333;
+            }
+            .footer {
+              position: fixed;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              padding: 10px 0.4in;
+              border-top: 2px solid #333;
+              font-size: 8px;
+              background: #fff;
+            }
+            .footer-content {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+            }
+            .footer-left, .footer-right {
+              flex: 1;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Purchase Orders Report - All Branches</h2>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="stat-value">${stats.totalOrders}</div>
+              <div class="stat-label">Total Orders</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.pendingApproval}</div>
+              <div class="stat-label">Pending</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${stats.approvedOrders}</div>
+              <div class="stat-label">Approved</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">₱${stats.totalValue.toLocaleString()}</div>
+              <div class="stat-label">Total Value</div>
+            </div>
+          </div>
+    `;
+
+    purchaseOrders.forEach(order => {
+      const orderDate = order.orderDate?.toDate ? format(order.orderDate.toDate(), 'MMM dd, yyyy') : 'N/A';
+      const expectedDelivery = order.expectedDelivery?.toDate ? format(order.expectedDelivery.toDate(), 'MMM dd, yyyy') : 'N/A';
+      const itemsCount = order.items?.length || 0;
+      
+      htmlContent += `
+        <div class="order-card">
+          <div class="order-header">
+            <div class="order-id">${order.orderId || order.id}</div>
+            <span class="status-badge">${order.status || 'Unknown'}</span>
+          </div>
+          
+          <div class="order-body">
+            <div class="info-grid">
+              <div class="info-row">
+                <span class="info-label">Branch:</span>
+                <span class="info-value">${order.branchName || 'Unknown'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Supplier:</span>
+                <span class="info-value">${order.supplierName || 'Unknown'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Order Date:</span>
+                <span class="info-value">${orderDate}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Expected Delivery:</span>
+                <span class="info-value">${expectedDelivery}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Items:</span>
+                <span class="info-value">${itemsCount} items</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Total Amount:</span>
+                <span class="info-value">₱${(order.totalAmount || 0).toLocaleString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Created By:</span>
+                <span class="info-value">${order.createdByName || 'Unknown'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Status:</span>
+                <span class="info-value">${order.status || 'Unknown'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    htmlContent += `
+          <div class="footer">
+            <div class="footer-content">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Overall Inventory Controller'}<br>
+                <strong>Position:</strong> Overall Inventory Controller<br>
+                <strong>Branch:</strong> Overall Inventory
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 250);
+  };
+
   // Reset filters
   const handleResetFilters = () => {
     setSearchTerm('');
@@ -358,10 +644,14 @@ const OverallInventoryControllerPurchaseOrders = () => {
   // Get status color
   const getStatusColor = (status) => {
     switch (status) {
+      case 'Pending Branch Approval': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
+      case 'Pending Overall Approval': return 'text-blue-600 bg-blue-100 border-blue-200';
       case 'Pending': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
       case 'Received': return 'text-blue-600 bg-blue-100 border-blue-200';
       case 'Approved': return 'text-green-600 bg-green-100 border-green-200';
       case 'In Transit': return 'text-purple-600 bg-purple-100 border-purple-200';
+      case 'Rejected by Branch': return 'text-red-600 bg-red-100 border-red-200';
+      case 'Rejected by Overall': return 'text-rose-700 bg-rose-100 border-rose-200';
       case 'Rejected': return 'text-red-600 bg-red-100 border-red-200';
       case 'Shipped': return 'text-purple-600 bg-purple-100 border-purple-200';
       case 'Delivered': return 'text-green-600 bg-green-100 border-green-200';
@@ -373,10 +663,14 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
   const getStatusIcon = (status) => {
     switch (status) {
+      case 'Pending Branch Approval': return <Clock className="h-3 w-3" />;
+      case 'Pending Overall Approval': return <Clock className="h-3 w-3" />;
       case 'Pending': return <Clock className="h-3 w-3" />;
       case 'Received': return <CheckCircle className="h-3 w-3" />;
       case 'Approved': return <CheckCircle className="h-3 w-3" />;
       case 'In Transit': return <Truck className="h-3 w-3" />;
+      case 'Rejected by Branch': return <XCircle className="h-3 w-3" />;
+      case 'Rejected by Overall': return <XCircle className="h-3 w-3" />;
       case 'Rejected': return <XCircle className="h-3 w-3" />;
       case 'Shipped': return <Truck className="h-3 w-3" />;
       case 'Delivered': return <CheckCircle className="h-3 w-3" />;
@@ -388,6 +682,14 @@ const OverallInventoryControllerPurchaseOrders = () => {
 
   // Approve/Reject handlers
   const handleOpenApproveModal = (orderId) => {
+    const order = purchaseOrders.find(o => o.id === orderId);
+    console.log('Opening approve modal for order:', order);
+    if (order && order.branchId) {
+      console.log('Loading stocks for branchId:', order.branchId);
+      loadBranchStocks(order.branchId);
+    } else {
+      console.log('No order or branchId found');
+    }
     setPendingOrderId(orderId);
     setIsConfirmApproveModalOpen(true);
   };
@@ -400,12 +702,12 @@ const OverallInventoryControllerPurchaseOrders = () => {
       setError(null);
       const orderRef = doc(db, 'purchaseOrders', pendingOrderId);
       await updateDoc(orderRef, {
-        status: 'In Transit',
-        approvedBy: userData.uid || userData.id,
-        approvedByName: (userData.firstName && userData.lastName 
+        status: 'Approved',
+        overallApprovedBy: userData.uid || userData.id,
+        overallApprovedByName: (userData.firstName && userData.lastName 
           ? `${userData.firstName} ${userData.lastName}`.trim() 
           : (userData.email || 'Unknown')),
-        approvedAt: serverTimestamp(),
+        overallApprovedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
       await loadPurchaseOrders(currentPage, true);
@@ -447,13 +749,13 @@ const OverallInventoryControllerPurchaseOrders = () => {
       setError(null);
       const orderRef = doc(db, 'purchaseOrders', selectedOrder.id);
       await updateDoc(orderRef, {
-        status: 'Rejected',
-        rejectedBy: userData.uid || userData.id,
-        rejectedByName: (userData.firstName && userData.lastName 
+        status: 'Rejected by Overall',
+        overallRejectedBy: userData.uid || userData.id,
+        overallRejectedByName: (userData.firstName && userData.lastName 
           ? `${userData.firstName} ${userData.lastName}`.trim() 
           : (userData.email || 'Unknown')),
-        rejectedAt: serverTimestamp(),
-        rejectionNote: rejectionNote.trim(),
+        overallRejectedAt: serverTimestamp(),
+        overallRejectionNote: rejectionNote.trim(),
         updatedAt: serverTimestamp()
       });
       await loadPurchaseOrders(currentPage, true);
@@ -470,17 +772,21 @@ const OverallInventoryControllerPurchaseOrders = () => {
     }
   };
 
-  const canApproveOrReject = (order) => order.status === 'Pending';
+  const canApproveOrReject = (order) => order.status === 'Pending Overall Approval';
 
   // Load branch stocks for order details
   const loadBranchStocks = async (branchId) => {
     if (!branchId) {
+      console.log('No branchId provided to loadBranchStocks');
       setBranchStocks([]);
       return;
     }
     try {
       setLoadingStocks(true);
+      console.log('Loading stocks for branchId:', branchId);
       const result = await inventoryService.getBranchStocks(branchId);
+      console.log('Stock result:', result);
+      console.log('Stocks data:', result.success ? result.stocks : 'Failed');
       setBranchStocks(result.success ? result.stocks : []);
     } catch (err) {
       console.error('Error loading branch stocks:', err);
@@ -491,8 +797,17 @@ const OverallInventoryControllerPurchaseOrders = () => {
   };
 
   const getCurrentStock = (productId) => {
+    console.log('Getting stock for productId:', productId);
+    console.log('Available stocks:', branchStocks);
     const stock = branchStocks.find(s => s.productId === productId);
-    return stock ? stock.currentStock || 0 : null;
+    console.log('Found stock:', stock);
+    
+    // Check multiple possible field names for stock quantity
+    if (!stock) return null;
+    
+    const stockQty = stock.remainingQuantity ?? stock.currentStock ?? stock.quantity ?? 0;
+    console.log('Stock quantity:', stockQty);
+    return stockQty;
   };
 
   const getStockStatus = (productId, orderedQty) => {
@@ -500,9 +815,11 @@ const OverallInventoryControllerPurchaseOrders = () => {
     if (currentStock === null) return { text: 'No stock data', color: 'text-gray-500', icon: null };
     
     const stock = branchStocks.find(s => s.productId === productId);
-    const minStock = stock?.minStock || 0;
+    const minStock = stock?.minStock || stock?.minQuantity || 0;
     
-    if (currentStock <= minStock) {
+    if (currentStock <= 0) {
+      return { text: `Out of Stock (0)`, color: 'text-red-600', icon: <TrendingDown className="h-3 w-3" /> };
+    } else if (currentStock <= minStock) {
       return { text: `Low (${currentStock})`, color: 'text-red-600', icon: <TrendingDown className="h-3 w-3" /> };
     } else if (currentStock < orderedQty) {
       return { text: `Current: ${currentStock}`, color: 'text-amber-600', icon: <AlertTriangle className="h-3 w-3" /> };
@@ -544,6 +861,15 @@ const OverallInventoryControllerPurchaseOrders = () => {
           <p className="text-sm md:text-base text-gray-600 mt-1">Monitor and manage purchase orders across all branches</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handlePrint}
+            disabled={totalCount === 0}
+            className="flex items-center gap-2"
+          >
+            <Printer className="h-4 w-4" />
+            Print
+          </Button>
           <Button
             variant="outline"
             onClick={handleExport}
@@ -953,16 +1279,53 @@ const OverallInventoryControllerPurchaseOrders = () => {
             </div>
 
             {/* Approval/Rejection Info */}
-            {selectedOrder.approvedByName && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                <p className="text-sm text-green-800"><strong>Approved by:</strong> {selectedOrder.approvedByName}</p>
-                {selectedOrder.approvedAt && <p className="text-xs text-green-600">{format(new Date(selectedOrder.approvedAt), 'MMM dd, yyyy HH:mm')}</p>}
+            {/* Branch Manager Approval */}
+            {selectedOrder.branchApprovedByName && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800"><strong>Branch Manager Approved by:</strong> {selectedOrder.branchApprovedByName}</p>
+                {selectedOrder.branchApprovedAt && <p className="text-xs text-blue-600">{format(new Date(selectedOrder.branchApprovedAt.toDate ? selectedOrder.branchApprovedAt.toDate() : selectedOrder.branchApprovedAt), 'MMM dd, yyyy HH:mm')}</p>}
               </div>
             )}
-            {selectedOrder.rejectedByName && (
+            
+            {/* Overall Inventory Controller Approval */}
+            {selectedOrder.overallApprovedByName && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-sm text-green-800"><strong>Overall Inventory Approved by:</strong> {selectedOrder.overallApprovedByName}</p>
+                {selectedOrder.overallApprovedAt && <p className="text-xs text-green-600">{format(new Date(selectedOrder.overallApprovedAt.toDate ? selectedOrder.overallApprovedAt.toDate() : selectedOrder.overallApprovedAt), 'MMM dd, yyyy HH:mm')}</p>}
+              </div>
+            )}
+            
+            {/* Legacy Approval (for backward compatibility) */}
+            {selectedOrder.approvedByName && !selectedOrder.overallApprovedByName && !selectedOrder.branchApprovedByName && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-sm text-green-800"><strong>Approved by:</strong> {selectedOrder.approvedByName}</p>
+                {selectedOrder.approvedAt && <p className="text-xs text-green-600">{format(new Date(selectedOrder.approvedAt.toDate ? selectedOrder.approvedAt.toDate() : selectedOrder.approvedAt), 'MMM dd, yyyy HH:mm')}</p>}
+              </div>
+            )}
+            
+            {/* Branch Manager Rejection */}
+            {selectedOrder.branchRejectedByName && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                <p className="text-sm text-orange-800"><strong>Branch Manager Rejected by:</strong> {selectedOrder.branchRejectedByName}</p>
+                {selectedOrder.branchRejectedAt && <p className="text-xs text-orange-600">{format(new Date(selectedOrder.branchRejectedAt.toDate ? selectedOrder.branchRejectedAt.toDate() : selectedOrder.branchRejectedAt), 'MMM dd, yyyy HH:mm')}</p>}
+                {selectedOrder.branchRejectionNote && <p className="text-sm text-orange-700 mt-2 italic">"{selectedOrder.branchRejectionNote}"</p>}
+              </div>
+            )}
+            
+            {/* Overall Inventory Controller Rejection */}
+            {selectedOrder.overallRejectedByName && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-800"><strong>Overall Inventory Rejected by:</strong> {selectedOrder.overallRejectedByName}</p>
+                {selectedOrder.overallRejectedAt && <p className="text-xs text-red-600">{format(new Date(selectedOrder.overallRejectedAt.toDate ? selectedOrder.overallRejectedAt.toDate() : selectedOrder.overallRejectedAt), 'MMM dd, yyyy HH:mm')}</p>}
+                {selectedOrder.overallRejectionNote && <p className="text-sm text-red-700 mt-2 italic">"{selectedOrder.overallRejectionNote}"</p>}
+              </div>
+            )}
+            
+            {/* Legacy Rejection (for backward compatibility) */}
+            {selectedOrder.rejectedByName && !selectedOrder.overallRejectedByName && !selectedOrder.branchRejectedByName && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                 <p className="text-sm text-red-800"><strong>Rejected by:</strong> {selectedOrder.rejectedByName}</p>
-                {selectedOrder.rejectedAt && <p className="text-xs text-red-600">{format(new Date(selectedOrder.rejectedAt), 'MMM dd, yyyy HH:mm')}</p>}
+                {selectedOrder.rejectedAt && <p className="text-xs text-red-600">{format(new Date(selectedOrder.rejectedAt.toDate ? selectedOrder.rejectedAt.toDate() : selectedOrder.rejectedAt), 'MMM dd, yyyy HH:mm')}</p>}
                 {selectedOrder.rejectionNote && <p className="text-sm text-red-700 mt-2 italic">"{selectedOrder.rejectionNote}"</p>}
               </div>
             )}
@@ -975,6 +1338,7 @@ const OverallInventoryControllerPurchaseOrders = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
+                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Usage Type</th>
                       <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Qty</th>
                       <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Current Stock</th>
                       <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Unit Price</th>
@@ -984,9 +1348,18 @@ const OverallInventoryControllerPurchaseOrders = () => {
                   <tbody className="divide-y divide-gray-200">
                     {selectedOrder.items?.map((item, index) => {
                       const stockStatus = getStockStatus(item.productId, item.quantity);
+                      const usageType = item.usageType || item.usage_type || 'otc';
+                      const usageTypeDisplay = usageType === 'otc' ? 'OTC' : 'Salon Use';
+                      const usageTypeColor = usageType === 'otc' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800';
+                      
                       return (
                         <tr key={index}>
                           <td className="px-3 py-2 font-medium text-gray-900">{item.productName}</td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${usageTypeColor}`}>
+                              {usageTypeDisplay}
+                            </span>
+                          </td>
                           <td className="px-3 py-2 text-center">{item.quantity}</td>
                           <td className="px-3 py-2 text-center">
                             {loadingStocks ? (
@@ -1069,26 +1442,74 @@ const OverallInventoryControllerPurchaseOrders = () => {
       if (!order) return null;
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-4">
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-6 w-6" />
                 <h2 className="text-lg font-bold">Confirm Approval</h2>
               </div>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm"><strong>Order:</strong> {order.orderId || order.id}</p>
                 <p className="text-sm"><strong>Supplier:</strong> {order.supplierName}</p>
                 <p className="text-sm"><strong>Branch:</strong> {order.branchName || getBranchName(order.branchId)}</p>
                 <p className="text-sm"><strong>Amount:</strong> ₱{(order.totalAmount || 0).toLocaleString()}</p>
               </div>
+
+              {/* Stock Information */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 mb-2">Current Stock Levels</h4>
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
+                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Usage Type</th>
+                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Order Qty</th>
+                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Current Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {order.items?.map((item, index) => {
+                        const stockStatus = getStockStatus(item.productId, item.quantity);
+                        const usageType = item.usageType || item.usage_type || 'otc';
+                        const usageTypeDisplay = usageType === 'otc' ? 'OTC' : 'Salon Use';
+                        const usageTypeColor = usageType === 'otc' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800';
+                        
+                        return (
+                          <tr key={index}>
+                            <td className="px-3 py-2 font-medium text-gray-900">{item.productName}</td>
+                            <td className="px-3 py-2 text-center">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${usageTypeColor}`}>
+                                {usageTypeDisplay}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-center">{item.quantity}</td>
+                            <td className="px-3 py-2 text-center">
+                              {loadingStocks ? (
+                                <RefreshCw className="h-3 w-3 animate-spin mx-auto" />
+                              ) : (
+                                <span className={`flex items-center justify-center gap-1 ${stockStatus.color}`}>
+                                  {stockStatus.icon}
+                                  {stockStatus.text}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-sm text-blue-800">Approving will change status to "In Transit". This action cannot be undone.</p>
+                <p className="text-sm text-blue-800">Approving will change status to "Approved". This action cannot be undone.</p>
               </div>
             </div>
             <div className="border-t p-4 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { setIsConfirmApproveModalOpen(false); setPendingOrderId(null); }} disabled={isProcessing}>Cancel</Button>
+              <Button variant="outline" onClick={() => { setIsConfirmApproveModalOpen(false); setPendingOrderId(null); setBranchStocks([]); }} disabled={isProcessing}>Cancel</Button>
               <Button onClick={handleApproveOrder} disabled={isProcessing} className="bg-green-600 hover:bg-green-700 text-white">
                 {isProcessing ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Approving...</> : 'Confirm Approval'}
               </Button>
