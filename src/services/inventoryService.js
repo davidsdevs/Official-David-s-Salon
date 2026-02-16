@@ -563,7 +563,7 @@ class InventoryService {
           expirationDate: expirationDate,
           receivedDate: receivedDate,
           receivedBy: String(deliveryData.receivedBy || ''),
-          usageType: String(item.usageType || 'otc'), // Copy usage type from PO item: 'otc' or 'salon-use'
+          usageType: usageType, // Use the lowercase normalized value
           status: 'active', // active, expired, depleted
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
@@ -591,7 +591,7 @@ class InventoryService {
           receivedDate: receivedDate, // When batch was received
           receivedBy: String(deliveryData.receivedBy || ''),
           receivedByName: String(deliveryData.receivedByName || ''),
-          usageType: String(item.usageType || 'otc'), // Copy usage type from PO item: 'otc' or 'salon-use'
+          usageType: usageType, // Use the lowercase normalized value
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           createdBy: String(deliveryData.receivedBy || ''),

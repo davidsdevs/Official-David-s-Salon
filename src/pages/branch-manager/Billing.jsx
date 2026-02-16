@@ -49,6 +49,7 @@ const BranchManagerBilling = () => {
   const [cashierFilter, setCashierFilter] = useState('all');
   const [receiptNumberFilter, setReceiptNumberFilter] = useState('');
   const [salesTypeFilter, setSalesTypeFilter] = useState('all');
+  const [discountFilter, setDiscountFilter] = useState('all'); // 'all', 'with-discount', 'senior', 'pwd', 'no-discount'
   const [showFilters, setShowFilters] = useState(false);
   const [sortColumn, setSortColumn] = useState('createdAt');
   const [sortDirection, setSortDirection] = useState('desc');
@@ -201,6 +202,35 @@ const BranchManagerBilling = () => {
         return false;
       }
 
+      // Discount filter
+      if (discountFilter !== 'all') {
+        const hasDiscount = (bill.discount || 0) > 0;
+        const isSenior = bill.discountReason === 'Senior';
+        const isPWD = bill.discountReason === 'PWD';
+        
+        // Debug logging
+        if (discountFilter === 'senior' || discountFilter === 'pwd') {
+          console.log('🔍 Discount filter check:', {
+            billId: bill.id,
+            discountFilter,
+            discountReason: bill.discountReason,
+            discount: bill.discount,
+            isSenior,
+            isPWD
+          });
+        }
+        
+        if (discountFilter === 'with-discount' && !hasDiscount) {
+          return false;
+        } else if (discountFilter === 'senior' && !isSenior) {
+          return false;
+        } else if (discountFilter === 'pwd' && !isPWD) {
+          return false;
+        } else if (discountFilter === 'no-discount' && hasDiscount) {
+          return false;
+        }
+      }
+
       // Date range filters
       if (startDateFilter) {
         const billDate = bill.createdAt ? new Date(bill.createdAt) : new Date();
@@ -228,7 +258,7 @@ const BranchManagerBilling = () => {
 
       return true;
     });
-  }, [bills, searchTerm, statusFilter, paymentMethodFilter, startDateFilter, endDateFilter, minAmountFilter, maxAmountFilter, cashierFilter, receiptNumberFilter, salesTypeFilter]);
+  }, [bills, searchTerm, statusFilter, paymentMethodFilter, startDateFilter, endDateFilter, minAmountFilter, maxAmountFilter, cashierFilter, receiptNumberFilter, salesTypeFilter, discountFilter]);
 
   // Sort bills
   const sortedBills = useMemo(() => {
@@ -330,12 +360,13 @@ const BranchManagerBilling = () => {
     setCashierFilter('all');
     setReceiptNumberFilter('');
     setSalesTypeFilter('all');
+    setDiscountFilter('all');
     setCurrentPage(1);
   };
 
   const hasActiveFilters = searchTerm || statusFilter !== 'all' || paymentMethodFilter !== 'all' ||
     startDateFilter || endDateFilter || minAmountFilter || maxAmountFilter ||
-    cashierFilter !== 'all' || receiptNumberFilter || salesTypeFilter !== 'all';
+    cashierFilter !== 'all' || receiptNumberFilter || salesTypeFilter !== 'all' || discountFilter !== 'all';
 
   const handleExportCSV = () => {
     if (!sortedBills.length) {
@@ -808,6 +839,7 @@ const BranchManagerBilling = () => {
                 <th>Client</th>
                 <th>Payment Method</th>
                 <th>Amount</th>
+                ${discountFilter === 'senior' || discountFilter === 'pwd' ? '<th>Discount Type</th><th>Control Number</th>' : ''}
                 <th>Status</th>
                 <th>Cashier</th>
               </tr>
@@ -824,6 +856,10 @@ const BranchManagerBilling = () => {
                     <td>${bill.clientName || 'Walk-in'}</td>
                     <td>${getPaymentMethodLabel(bill.paymentMethod)}</td>
                     <td class="text-right">₱${formatCurrency(bill.total || 0)}</td>
+                    ${discountFilter === 'senior' || discountFilter === 'pwd' ? `
+                      <td>${bill.discountReason || 'N/A'}</td>
+                      <td>${bill.controlNumber || 'N/A'}</td>
+                    ` : ''}
                     <td style="text-align: center;"><span class="badge">${bill.status}</span></td>
                     <td>${bill.createdByName || 'Unknown'}</td>
                   </tr>
@@ -1146,7 +1182,7 @@ const BranchManagerBilling = () => {
             onClick={() => setShowFilters(true)}
             className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors relative ${
               (statusFilter !== 'all' || paymentMethodFilter !== 'all' || startDateFilter || endDateFilter ||
-               minAmountFilter || maxAmountFilter || cashierFilter !== 'all' || receiptNumberFilter || salesTypeFilter !== 'all')
+               minAmountFilter || maxAmountFilter || cashierFilter !== 'all' || receiptNumberFilter || salesTypeFilter !== 'all' || discountFilter !== 'all')
                 ? 'bg-primary-50 border-primary-300 text-primary-700 hover:bg-primary-100'
                 : 'border-gray-300 hover:bg-gray-50'
             }`}
@@ -1320,7 +1356,10 @@ const BranchManagerBilling = () => {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <p className="text-sm font-semibold text-gray-900">₱{formatNumberWithCommas(bill.total || 0)}</p>
                       {bill.discount > 0 && (
-                        <p className="text-xs text-green-600">Discount: ₱{formatNumberWithCommas(bill.discount)}</p>
+                        <p className="text-xs text-green-600">
+                          {bill.discountReason === 'Senior' ? 'Senior Citizen' : 
+                           bill.discountReason === 'PWD' ? 'PWD' : 'Discount'}: ₱{formatNumberWithCommas(bill.discount)}
+                        </p>
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -1767,6 +1806,21 @@ const BranchManagerBilling = () => {
                       <option value="service">Service Only</option>
                       <option value="product">Product Only</option>
                       <option value="mixed">Mixed (Service + Product)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Discount Type</label>
+                    <select
+                      value={discountFilter}
+                      onChange={(e) => setDiscountFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="all">All Transactions</option>
+                      <option value="with-discount">With Discount</option>
+                      <option value="senior">Senior Citizen</option>
+                      <option value="pwd">PWD</option>
+                      <option value="no-discount">No Discount</option>
                     </select>
                   </div>
 

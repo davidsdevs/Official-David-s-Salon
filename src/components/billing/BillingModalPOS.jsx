@@ -11,7 +11,9 @@ import { PAYMENT_METHODS, calculateBillTotals, checkReceiptNumberExists } from '
 import { getActiveBIRReceiptBatch, getNextReceiptNumber } from '../../services/birReceiptService';
 import { getBranchById } from '../../services/branchService';
 import { getLoyaltyPoints } from '../../services/loyaltyService';
+import { getLoyaltyCriteria } from '../../services/loyaltyCriteriaService';
 import { validatePromotionCode, calculatePromotionDiscount, trackPromotionUsage } from '../../services/promotionService';
+import { getTaxConfiguration } from '../../services/taxConfigurationService';
 import { thermalPrinter } from '../../services/thermalPrinterService';
 import { useAuth } from '../../context/AuthContext';
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
@@ -68,6 +70,14 @@ const BillingModalPOS = ({
   const [promotionDiscount, setPromotionDiscount] = useState(0);
   const [validatingPromotion, setValidatingPromotion] = useState(false);
   const [promotionError, setPromotionError] = useState('');
+
+  // Tax configuration state
+  const [taxConfig, setTaxConfig] = useState(null);
+  const [loadingTaxConfig, setLoadingTaxConfig] = useState(true);
+
+  // Loyalty configuration state
+  const [loyaltyCriteria, setLoyaltyCriteria] = useState(null);
+  const [isLoyaltyActive, setIsLoyaltyActive] = useState(false);
 
   // Products and stocks
   const [availableProducts, setAvailableProducts] = useState([]);
@@ -211,6 +221,25 @@ const BillingModalPOS = ({
     return total;
   }, [productPriceMap]);
 
+  // Load tax configuration on mount
+  useEffect(() => {
+    const loadTaxConfig = async () => {
+      try {
+        setLoadingTaxConfig(true);
+        const config = await getTaxConfiguration();
+        setTaxConfig(config);
+        console.log('✅ Tax configuration loaded:', config);
+      } catch (error) {
+        console.error('❌ Error loading tax configuration:', error);
+        toast.error('Failed to load tax configuration');
+      } finally {
+        setLoadingTaxConfig(false);
+      }
+    };
+
+    loadTaxConfig();
+  }, []);
+
   // Clear loyalty state outside of checkout contexts
   useEffect(() => {
     if (mode !== 'billing' && mode !== 'products-only') {
@@ -226,6 +255,13 @@ const BillingModalPOS = ({
       const branchId = appointment?.branchId || userBranch?.id || userBranch;
       if (!clientId || !branchId || !isOpen) return;
 
+      // Check if loyalty program is active
+      if (!isLoyaltyActive) {
+        console.log('⚠️ Loyalty program is disabled - skipping points fetch');
+        setClientLoyaltyPoints(0);
+        return;
+      }
+
       try {
         const points = await getLoyaltyPoints(clientId, branchId);
         setClientLoyaltyPoints(points);
@@ -236,7 +272,46 @@ const BillingModalPOS = ({
     };
 
     fetchLoyaltyPoints();
-  }, [isOpen, appointment?.clientId, appointment?.branchId, formData.clientId, userBranch]);
+  }, [isOpen, appointment?.clientId, appointment?.branchId, formData.clientId, userBranch, isLoyaltyActive]);
+
+  // Fetch loyalty criteria on mount
+  useEffect(() => {
+    const fetchLoyaltyCriteria = async () => {
+      try {
+        const criteria = await getLoyaltyCriteria();
+        setLoyaltyCriteria(criteria);
+        setIsLoyaltyActive(criteria?.isActive || false);
+        console.log('✅ Loyalty criteria loaded:', criteria);
+      } catch (error) {
+        console.error('Error fetching loyalty criteria:', error);
+        setIsLoyaltyActive(false);
+      }
+    };
+
+    if (isOpen) {
+      fetchLoyaltyCriteria();
+    }
+  }, [isOpen]);
+
+  // Fetch tax configuration on mount
+  useEffect(() => {
+    const fetchTaxConfig = async () => {
+      try {
+        setLoadingTaxConfig(true);
+        const config = await getTaxConfiguration();
+        setTaxConfig(config);
+      } catch (error) {
+        console.error('Error fetching tax configuration:', error);
+        toast.error('Failed to load tax configuration');
+      } finally {
+        setLoadingTaxConfig(false);
+      }
+    };
+
+    if (isOpen) {
+      fetchTaxConfig();
+    }
+  }, [isOpen]);
 
   // Calculate preview transaction ID
   useEffect(() => {
@@ -882,6 +957,13 @@ const BillingModalPOS = ({
         return;
       }
 
+      // Check if loyalty program is active
+      if (!isLoyaltyActive) {
+        console.log('⚠️ Loyalty program is disabled - skipping points fetch');
+        setClientLoyaltyPoints(0);
+        return;
+      }
+
       try {
         const branchId = appointment?.branchId || userBranch;
         console.log('🎁 Fetching loyalty points for client:', clientId, 'at branch:', branchId);
@@ -901,7 +983,7 @@ const BillingModalPOS = ({
     };
 
     fetchClientLoyaltyPoints();
-  }, [isOpen, appointment, formData.clientId, userBranch]);
+  }, [isOpen, appointment, formData.clientId, userBranch, isLoyaltyActive]);
 
   // Update product stock information when stocksData becomes available
   useEffect(() => {
@@ -1039,8 +1121,11 @@ const BillingModalPOS = ({
           discount: effectiveDiscount,
           discountType: effectiveDiscountType,
           serviceChargeRate: 0,
-          loyaltyPointsUsed: parseInt(formData.loyaltyPointsUsed) || 0,
+          loyaltyPointsUsed: isLoyaltyActive ? (parseInt(formData.loyaltyPointsUsed) || 0) : 0,
           promotionDiscount: promoDiscount
+        }, {
+          isSeniorCitizen: formData.discountReason === 'Senior',
+          isPwd: formData.discountReason === 'PWD'
         });
 
         // Add service product charges to the calculated totals
@@ -1071,7 +1156,7 @@ const BillingModalPOS = ({
     };
 
     calculateTotals();
-  }, [formData.items, formData.discount, formData.discountType, formData.loyaltyPointsUsed, appliedPromotion, availableProducts, productPriceMap]);
+  }, [formData.items, formData.discount, formData.discountType, formData.discountReason, formData.loyaltyPointsUsed, appliedPromotion, availableProducts, productPriceMap]);
 
   const handleToggleService = (service) => {
     console.log('🎯 handleToggleService - service:', service);
@@ -1413,6 +1498,7 @@ const BillingModalPOS = ({
           ...prev,
           items: [...prev.items, {
             type: 'product',
+            usageContext: 'direct', // Mark as direct sale (OTC), not service use
             id: product.id,
             name: product.name || 'Unknown Product',
             basePrice: product.price || 0,
@@ -1927,6 +2013,13 @@ const BillingModalPOS = ({
     // Fetch loyalty points for selected client (branch-specific)
     if (client.id) {
       try {
+        // Check if loyalty program is active
+        if (!isLoyaltyActive) {
+          console.log('⚠️ Loyalty program is disabled - skipping points fetch');
+          setClientLoyaltyPoints(0);
+          return;
+        }
+
         const branchId = appointment?.branchId || userBranch;
         if (branchId) {
           const points = await getLoyaltyPoints(client.id, branchId);
@@ -3783,23 +3876,35 @@ const BillingModalPOS = ({
                             <div className="flex gap-2 mb-2">
                               <button
                                 type="button"
-                                onClick={() => setFormData(prev => ({ ...prev, discountType: 'percent', discount: '10', discountReason: 'Senior' }))}
+                                onClick={() => setFormData(prev => ({ 
+                                  ...prev, 
+                                  discountType: 'percent', 
+                                  discount: String(taxConfig?.seniorCitizenDiscount || 20), 
+                                  discountReason: 'Senior' 
+                                }))}
                                 className={`px-3 py-2 rounded-lg font-bold text-xs transition-all flex-1 ${formData.discountReason === 'Senior'
                                   ? 'bg-blue-600 text-white shadow-md'
                                   : 'bg-white border text-blue-700 hover:bg-blue-50'
                                   }`}
+                                disabled={loadingTaxConfig}
                               >
-                                Senior (10%)
+                                Senior ({taxConfig?.seniorCitizenDiscount || 20}%)
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setFormData(prev => ({ ...prev, discountType: 'percent', discount: '10', discountReason: 'PWD' }))}
+                                onClick={() => setFormData(prev => ({ 
+                                  ...prev, 
+                                  discountType: 'percent', 
+                                  discount: String(taxConfig?.pwdDiscount || 20), 
+                                  discountReason: 'PWD' 
+                                }))}
                                 className={`px-3 py-2 rounded-lg font-bold text-xs transition-all flex-1 ${formData.discountReason === 'PWD'
                                   ? 'bg-blue-600 text-white shadow-md'
                                   : 'bg-white border text-blue-700 hover:bg-blue-50'
                                   }`}
+                                disabled={loadingTaxConfig}
                               >
-                                PWD (10%)
+                                PWD ({taxConfig?.pwdDiscount || 20}%)
                               </button>
                               <button
                                 type="button"
@@ -3852,26 +3957,11 @@ const BillingModalPOS = ({
                                 />
                               </div>
                             )}
-
-                            {/* Control Number Input - Show for Senior/PWD */}
-                            {['Senior', 'PWD'].includes(formData.discountReason) && (
-                              <div className="mt-2">
-                                <input
-                                  type="text"
-                                  value={formData.controlNumber}
-                                  onChange={(e) => setFormData(prev => ({ ...prev, controlNumber: e.target.value }))}
-                                  className="w-full px-3 py-2 border border-blue-200 bg-white rounded-lg focus:ring-1 focus:ring-blue-500 text-sm"
-                                  placeholder={`Enter ${formData.discountReason} ID/Control Number *`}
-                                  required
-                                />
-                                <p className="text-xs text-blue-600 mt-1">* Required for {formData.discountReason} discount</p>
-                              </div>
-                            )}
                           </div>
                         )}
 
                         {/* Loyalty Points - Yellow Card */}
-                        {(mode === 'billing' || mode === 'products-only') && (appointment?.clientId || formData.clientId) && (
+                        {isLoyaltyActive && (mode === 'billing' || mode === 'products-only') && (appointment?.clientId || formData.clientId) && (
                           <div className="bg-yellow-50/70 border border-yellow-200 rounded-xl p-3">
                             <h4 className="text-xs font-bold text-yellow-900 mb-2 flex items-center gap-2">
                               <Star className="w-4 h-4 text-yellow-600" />
@@ -3887,7 +3977,11 @@ const BillingModalPOS = ({
                                   {clientLoyaltyPoints.toLocaleString()} pts
                                 </span>
                               </div>
-                              {clientLoyaltyPoints > 0 ? (
+                              {!isLoyaltyActive ? (
+                                <p className="text-xs text-amber-600 italic bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                  Loyalty program is currently disabled by System Admin.
+                                </p>
+                              ) : clientLoyaltyPoints > 0 ? (
                                 <input
                                   type="number"
                                   min="0"

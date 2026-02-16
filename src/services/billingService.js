@@ -159,6 +159,8 @@ export const createBill = async (billData, currentUser) => {
       subtotal: billData.subtotal || 0,
       discount: billData.discount || 0,
       discountType: billData.discountType || null, // 'percentage' or 'fixed'
+      discountReason: billData.discountReason || null, // 'Senior', 'PWD', 'Other', or null
+      controlNumber: billData.controlNumber || null, // Control number for Senior/PWD
       discountCode: billData.discountCode || null,
       promotionCode: billData.promotionCode || null,
       promotionId: billData.promotionId || null,
@@ -218,6 +220,12 @@ export const createBill = async (billData, currentUser) => {
           for (const item of productItems) {
             if (!item.id || !item.quantity || item.quantity <= 0) continue;
             
+            // Determine usage type based on item context
+            // If item has usageContext='service', it's for salon use
+            // Otherwise, it's an OTC sale
+            const usageType = item.usageContext === 'service' ? 'salon-use' : 'otc';
+            const reasonPrefix = usageType === 'salon-use' ? 'Service Use' : 'Transaction Sale (OTC)';
+            
             // Use FIFO to deduct from batches (oldest batches first)
             // If batches are already provided in the item, use those
             // Otherwise, let deductStockFIFO determine which batches to use
@@ -228,12 +236,12 @@ export const createBill = async (billData, currentUser) => {
                 branchId: billData.branchId,
                 productId: item.id,
                 quantity: item.quantity,
-                reason: 'Transaction Sale (OTC)',
+                reason: reasonPrefix,
                 notes: `Bill ID: ${transactionId}, Product: ${item.name}`,
                 createdBy: billData.createdBy || 'system',
                 productName: item.name || 'Unknown Product',
                 batches: item.batches, // Pass the batches from the transaction
-                usageType: 'otc' // Explicitly mark as OTC sale
+                usageType: usageType // Use salon-use for service products, otc for direct sales
               });
               
               if (!deductionResult.success) {
@@ -270,11 +278,11 @@ export const createBill = async (billData, currentUser) => {
                 branchId: billData.branchId,
                 productId: item.id,
                 quantity: item.quantity,
-                reason: 'Transaction Sale (OTC)',
+                reason: reasonPrefix,
                 notes: `Bill ID: ${transactionId}, Product: ${item.name}`,
                 createdBy: billData.createdBy || 'system',
                 productName: item.name || 'Unknown Product',
-                usageType: 'otc' // Explicitly mark as OTC sale
+                usageType: usageType // Use salon-use for service products, otc for direct sales
               });
               
               if (!deductionResult.success) {
@@ -802,12 +810,18 @@ export const calculateBillTotals = async (billData, customerInfo = {}) => {
     return sum + (item.price * (item.quantity || 1));
   }, 0);
 
-  // Calculate manual discount amount (senior/PWD/manual discounts)
+  // Calculate manual discount amount (only for non-Senior/PWD discounts)
+  // Senior/PWD discounts are handled by tax configuration
   let manualDiscountAmount = 0;
-  if (discountType === 'percentage' || discountType === 'percent') {
-    manualDiscountAmount = (subtotal * discount) / 100;
-  } else {
-    manualDiscountAmount = discount;
+  const isSeniorOrPwd = customerInfo.isSeniorCitizen || customerInfo.isPwd;
+  
+  if (!isSeniorOrPwd) {
+    // Only calculate manual discount if NOT Senior/PWD
+    if (discountType === 'percentage' || discountType === 'percent') {
+      manualDiscountAmount = (subtotal * discount) / 100;
+    } else {
+      manualDiscountAmount = discount;
+    }
   }
 
   // Calculate loyalty points discount separately (using loyalty criteria configuration)
@@ -817,21 +831,26 @@ export const calculateBillTotals = async (billData, customerInfo = {}) => {
   // Calculate promotion discount separately
   const promotionDiscountAmount = promotionDiscount || 0;
 
-  // Total discount for tax calculation (all discounts combined)
+  // Total discount for tax calculation (manual + loyalty + promotion)
+  // Senior/PWD discount will be calculated inside tax configuration
   const totalDiscountAmount = manualDiscountAmount + loyaltyDiscountAmount + promotionDiscountAmount;
 
   // Calculate tax using tax configuration
+  // Pass original subtotal minus non-Senior/PWD discounts
   const taxCalculation = await calculateTax({
     items,
     subtotal: subtotal - totalDiscountAmount
   }, null, customerInfo);
 
+  // If Senior/PWD, the discount is in taxCalculation.discountAmount
+  const seniorPwdDiscount = isSeniorOrPwd ? taxCalculation.discountAmount : 0;
+
   return {
     subtotal: parseFloat(subtotal.toFixed(2)),
-    discount: parseFloat(manualDiscountAmount.toFixed(2)), // Manual discounts only (senior/PWD/manual)
+    discount: parseFloat((manualDiscountAmount + seniorPwdDiscount).toFixed(2)), // Manual + Senior/PWD discounts
     promotionDiscount: parseFloat(promotionDiscountAmount.toFixed(2)), // Promotion discount separate
     loyaltyDiscount: parseFloat(loyaltyDiscountAmount.toFixed(2)), // Loyalty points discount separate
-    totalDiscount: parseFloat(totalDiscountAmount.toFixed(2)), // All discounts combined
+    totalDiscount: parseFloat((totalDiscountAmount + seniorPwdDiscount).toFixed(2)), // All discounts combined
     serviceCharge: parseFloat(taxCalculation.serviceChargeAmount.toFixed(2)),
     tax: parseFloat(taxCalculation.vatAmount.toFixed(2)),
     total: parseFloat(taxCalculation.total.toFixed(2)),

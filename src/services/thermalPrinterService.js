@@ -373,9 +373,11 @@ class ThermalPrinterService {
           // Show discount type if available
           let discountLabel = '  Manual Discount:';
           if (billData.discountReason === 'Senior') {
-            discountLabel = '  Senior Citizen (10%):';
+            const discountPercent = billData.discountType === 'percent' ? billData.discountValue : '';
+            discountLabel = `  Senior Citizen${discountPercent ? ` (${discountPercent}%)` : ''}:`;
           } else if (billData.discountReason === 'PWD') {
-            discountLabel = '  PWD Discount (10%):';
+            const discountPercent = billData.discountType === 'percent' ? billData.discountValue : '';
+            discountLabel = `  PWD Discount${discountPercent ? ` (${discountPercent}%)` : ''}:`;
           }
           await this.printTwoColumns(discountLabel, `-${this.formatCurrency(billData.discount)}`, width);
           
@@ -425,8 +427,8 @@ class ThermalPrinterService {
       await this.printTwoColumns('Payment Method:', (billData.paymentMethod || 'Cash').toUpperCase(), width);
 
       if (billData.paymentMethod === 'cash' || billData.paymentMethod === 'Cash') {
-        await this.printTwoColumns('  Cash:', this.formatCurrency(billData.amountReceived || billData.total), width);
-        await this.printTwoColumns('Amount Tendered:', this.formatCurrency(billData.amountReceived || 0), width);
+        await this.printTwoColumns('Total Amount:', this.formatCurrency(billData.total || billData.grandTotal || 0), width);
+        await this.printTwoColumns('Cash Received:', this.formatCurrency(billData.amountReceived || billData.total), width);
         await this.printTwoColumns('Change:', this.formatCurrency(billData.change || 0), width);
       } else if (billData.paymentMethod === 'card' || billData.paymentMethod === 'Card') {
         await this.printTwoColumns('  Card:', this.formatCurrency(billData.total), width);

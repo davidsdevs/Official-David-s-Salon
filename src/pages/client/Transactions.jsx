@@ -45,7 +45,42 @@ export default function ClientTransactions() {
 
       const snap = await getDocs(q);
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setTransactions(data);
+      
+      console.log('📊 Fetched transactions:', data.length);
+      
+      // Fetch branch names for transactions that don't have them
+      const { getBranchById } = await import('../../services/branchService');
+      const enrichedData = await Promise.all(
+        data.map(async (transaction) => {
+          // If branchName already exists, use it
+          if (transaction.branchName && transaction.branchName !== 'Unknown Branch') {
+            return transaction;
+          }
+          
+          // If branchId exists, fetch the branch name
+          if (transaction.branchId) {
+            try {
+              console.log('🔍 Fetching branch for transaction:', transaction.id, 'branchId:', transaction.branchId);
+              const branch = await getBranchById(transaction.branchId);
+              const branchName = branch?.name || branch?.branchName || 'Unknown Branch';
+              console.log('✅ Branch name:', branchName);
+              return {
+                ...transaction,
+                branchName: branchName
+              };
+            } catch (error) {
+              console.error('❌ Error fetching branch for transaction:', transaction.id, error);
+              return { ...transaction, branchName: 'Unknown Branch' };
+            }
+          }
+          
+          // No branchId, return with Unknown Branch
+          console.warn('⚠️ Transaction has no branchId:', transaction.id);
+          return { ...transaction, branchName: 'Unknown Branch' };
+        })
+      );
+      
+      setTransactions(enrichedData);
     } catch (error) {
       console.error('Error fetching transactions:', error);
       toast.error('Failed to load transactions');
@@ -293,7 +328,7 @@ export default function ClientTransactions() {
                   <div className="flex-1">
                     <div className="text-xs text-gray-500">Receipt #</div>
                     <div className="font-semibold text-gray-900">{tx.receiptNumber || tx.id}</div>
-                    <div className="text-xs text-gray-500 mt-1">{tx.branchName || 'Branch'}</div>
+                    <div className="text-xs text-gray-500 mt-1">{tx.branchName || 'Unknown Branch'}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Total Paid</div>
@@ -385,12 +420,10 @@ export default function ClientTransactions() {
               </div>
 
               {/* Branch Info */}
-              {selectedTransaction.branchName && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="text-sm text-blue-600 font-medium mb-1">Branch</div>
-                  <div className="font-semibold text-gray-900">{selectedTransaction.branchName}</div>
-                </div>
-              )}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="text-sm text-blue-600 font-medium mb-1">Branch</div>
+                <div className="font-semibold text-gray-900">{selectedTransaction.branchName || 'Unknown Branch'}</div>
+              </div>
 
               {/* Services */}
               {(() => {
@@ -488,7 +521,7 @@ export default function ClientTransactions() {
                   </div>
                 )}
 
-                {selectedTransaction.loyaltyPointsUsed > 0 && (
+                {selectedTransaction.loyaltyPointsUsed > 0 && selectedTransaction.loyaltyDiscount > 0 && (
                   <div className="flex justify-between text-sm text-green-600">
                     <span className="flex items-center gap-1">
                       <Percent className="w-3 h-3" />

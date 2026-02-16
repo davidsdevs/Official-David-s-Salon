@@ -368,27 +368,71 @@ const PurchaseOrders = () => {
   };
 
   // Get total current stock for a product (sum of all batch stocks)
-  const getTotalCurrentStock = async (productId) => {
+  const getTotalCurrentStock = async (productId, usageType = null) => {
     if (!productId || !userData?.branchId) return 0;
     
     try {
-      // Get all batch stocks for this product
-      const stocksRef = collection(db, 'stocks');
-      const stocksQuery = query(
-        stocksRef,
+      let totalStock = 0;
+      
+      // First, try product_batches collection
+      const batchesRef = collection(db, 'product_batches');
+      const batchesQuery = query(
+        batchesRef,
         where('branchId', '==', userData.branchId),
         where('productId', '==', productId),
         where('status', '==', 'active')
       );
       
-      const stocksSnapshot = await getDocs(stocksQuery);
-      let totalStock = 0;
+      const batchesSnapshot = await getDocs(batchesQuery);
       
-      stocksSnapshot.forEach((doc) => {
-        const stockData = doc.data();
-        const realTimeStock = stockData.realTimeStock || 0;
-        totalStock += realTimeStock;
+      batchesSnapshot.forEach((doc) => {
+        const batchData = doc.data();
+        const remainingQuantity = batchData.remainingQuantity || 0;
+        const batchUsageType = (batchData.usageType || 'otc').toLowerCase();
+        
+        // Filter by usage type if provided (case-insensitive comparison)
+        if (usageType) {
+          const normalizedRequestedType = usageType.toLowerCase().replace(/\s+/g, '-');
+          const normalizedBatchType = batchUsageType.replace(/\s+/g, '-');
+          
+          if (normalizedBatchType === normalizedRequestedType) {
+            totalStock += remainingQuantity;
+          }
+        } else {
+          totalStock += remainingQuantity;
+        }
       });
+      
+      // If no stock found in product_batches, check stocks collection
+      if (totalStock === 0) {
+        const stocksRef = collection(db, 'stocks');
+        const stocksQuery = query(
+          stocksRef,
+          where('branchId', '==', userData.branchId),
+          where('productId', '==', productId),
+          where('stockStatus', '==', 'active')
+        );
+        
+        const stocksSnapshot = await getDocs(stocksQuery);
+        
+        stocksSnapshot.forEach((doc) => {
+          const stockData = doc.data();
+          const realTimeStock = stockData.realTimeStock || 0;
+          const stockUsageType = (stockData.usageType || 'otc').toLowerCase();
+          
+          // Filter by usage type if provided (case-insensitive comparison)
+          if (usageType) {
+            const normalizedRequestedType = usageType.toLowerCase().replace(/\s+/g, '-');
+            const normalizedStockType = stockUsageType.replace(/\s+/g, '-');
+            
+            if (normalizedStockType === normalizedRequestedType) {
+              totalStock += realTimeStock;
+            }
+          } else {
+            totalStock += realTimeStock;
+          }
+        });
+      }
       
       return totalStock;
     } catch (error) {
@@ -417,6 +461,8 @@ const PurchaseOrders = () => {
 
   // Add product to order with stock validation
   const addProductToOrder = async (product, usageType = null) => {
+    console.log(`[Add Product] Called with product: ${product.name}, usageType: ${usageType}`);
+    
     // Check which usage types already exist for this product
     const existingOtc = orderItems.find(
       item => item.productId === product.id && item.usageType === 'otc'
@@ -444,13 +490,17 @@ const PurchaseOrders = () => {
     }
     // If neither exists, use the passed usageType or defaultOrderType
     
-    // Check current stock before adding
-    const currentStock = await getTotalCurrentStock(product.id);
+    console.log(`[Add Product] Final usage type: ${finalUsageType}`);
+    
+    // Check current stock before adding (filter by usage type)
+    const currentStock = await getTotalCurrentStock(product.id, finalUsageType);
     const REORDER_THRESHOLD = 5; // Only allow ordering if stock is 5 or less
+    
+    const usageTypeLabel = finalUsageType === 'salon-use' ? 'Salon Use' : 'OTC';
     
     if (currentStock > REORDER_THRESHOLD) {
       toast.error(
-        `${product.name} has ${currentStock} units in stock. Only order when stock is ${REORDER_THRESHOLD} or less.`,
+        `${product.name} (${usageTypeLabel}) has ${currentStock} units in stock. Only order when stock is ${REORDER_THRESHOLD} or less.`,
         { duration: 4000 }
       );
       
@@ -461,9 +511,9 @@ const PurchaseOrders = () => {
       setIsHighStockWarningModalOpen(true);
       return; // Wait for user confirmation
     } else if (currentStock > 0 && currentStock <= REORDER_THRESHOLD) {
-      toast.success(`${product.name} has ${currentStock} units - Good time to reorder!`, { duration: 3000 });
+      toast.success(`${product.name} (${usageTypeLabel}) has ${currentStock} units - Good time to reorder!`, { duration: 3000 });
     } else if (currentStock === 0) {
-      toast.error(`${product.name} is out of stock - Order immediately!`, { duration: 4000 });
+      toast.error(`${product.name} (${usageTypeLabel}) is out of stock - Order immediately!`, { duration: 4000 });
     }
     
     // Add new item - ensure all fields have values (no undefined)
@@ -536,10 +586,17 @@ const PurchaseOrders = () => {
   };
 
   // Update item usage type (by unique itemKey)
-  const updateItemUsageType = (itemKey, usageType) => {
+  const updateItemUsageType = async (itemKey, usageType) => {
+    console.log(`[Update Usage Type] Called for itemKey: ${itemKey}, new usageType: ${usageType}`);
+    
     // Find the item being updated
     const itemToUpdate = orderItems.find(item => item.itemKey === itemKey);
-    if (!itemToUpdate) return;
+    if (!itemToUpdate) {
+      console.log('[Update Usage Type] Item not found');
+      return;
+    }
+    
+    console.log(`[Update Usage Type] Current item:`, itemToUpdate);
     
     // Check if this product+usageType combination already exists in another item
     const existingItem = orderItems.find(
@@ -557,12 +614,25 @@ const PurchaseOrders = () => {
       return; // Prevent the change
     }
     
-    // Update the usage type if no duplicate exists
-    setOrderItems(prev => prev.map(item =>
-      item.itemKey === itemKey
-        ? { ...item, usageType: usageType }
-        : item
-    ));
+    // Fetch the current stock for the new usage type
+    console.log(`[Update Usage Type] Fetching stock for productId: ${itemToUpdate.productId}, usageType: ${usageType}`);
+    const currentStock = await getTotalCurrentStock(itemToUpdate.productId, usageType);
+    console.log(`[Update Usage Type] Fetched stock: ${currentStock}`);
+    
+    // Update the usage type and current stock if no duplicate exists
+    setOrderItems(prev => {
+      const updated = prev.map(item =>
+        item.itemKey === itemKey
+          ? { ...item, usageType: usageType, currentStock: currentStock }
+          : item
+      );
+      console.log(`[Update Usage Type] Updated orderItems:`, updated);
+      return updated;
+    });
+    
+    // Show toast notification
+    const usageTypeLabel = usageType === 'salon-use' ? 'Salon Use' : 'OTC';
+    toast.success(`Updated to ${usageTypeLabel} - Stock: ${currentStock}`, { duration: 2000 });
   };
 
   // Calculate total
@@ -2545,17 +2615,24 @@ David's Salon`;
                                 setSelectedSupplierId(order.supplierId);
                                 setSelectedSupplierName(order.supplierName);
 
-                                const itemsWithKeys = (order.items || []).map(item => ({
-                                  ...item,
-                                  itemKey: item.itemKey || `${item.productId}_${Date.now()}_${Math.random()}`,
-                                  productId: item.productId || '',
-                                  productName: item.productName || '',
-                                  quantity: Number(item.quantity) || 1,
-                                  unitPrice: Number(item.unitPrice) || 0,
-                                  totalPrice: Number(item.totalPrice) || 0,
-                                  category: item.category || null,
-                                  sku: item.sku || null,
-                                  usageType: item.usageType || 'otc'
+                                // Refresh current stock for each item based on its usage type
+                                const itemsWithKeys = await Promise.all((order.items || []).map(async (item) => {
+                                  const usageType = item.usageType || 'otc';
+                                  const currentStock = await getTotalCurrentStock(item.productId, usageType);
+                                  
+                                  return {
+                                    ...item,
+                                    itemKey: item.itemKey || `${item.productId}_${Date.now()}_${Math.random()}`,
+                                    productId: item.productId || '',
+                                    productName: item.productName || '',
+                                    quantity: Number(item.quantity) || 1,
+                                    unitPrice: Number(item.unitPrice) || 0,
+                                    totalPrice: Number(item.totalPrice) || 0,
+                                    category: item.category || null,
+                                    sku: item.sku || null,
+                                    usageType: usageType,
+                                    currentStock: currentStock // Refresh with real-time stock filtered by usage type
+                                  };
                                 }));
                                 setOrderItems(itemsWithKeys);
 
@@ -3859,7 +3936,7 @@ David's Salon`;
                       <AlertTriangle className="h-6 w-6 text-orange-600 flex-shrink-0 mt-0.5" />
                       <div className="flex-1">
                         <h3 className="font-semibold text-orange-900 mb-2">
-                          {pendingProduct.name} currently has {pendingCurrentStock} units in stock
+                          {pendingProduct.name} ({defaultOrderType === 'salon-use' ? 'Salon Use' : 'OTC'}) currently has {pendingCurrentStock} units in stock
                         </h3>
                         <p className="text-sm text-orange-800">
                           The reorder policy states that you should only order when stock is 5 units or less.
@@ -3875,6 +3952,12 @@ David's Salon`;
                       <div className="flex justify-between">
                         <span className="text-gray-600">Product Name:</span>
                         <span className="font-medium text-gray-900">{pendingProduct.name}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Usage Type:</span>
+                        <span className={`font-semibold ${defaultOrderType === 'salon-use' ? 'text-blue-600' : 'text-green-600'}`}>
+                          {defaultOrderType === 'salon-use' ? 'Salon Use' : 'OTC'}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Current Stock:</span>

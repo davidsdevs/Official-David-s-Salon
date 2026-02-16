@@ -694,24 +694,24 @@ const Stocks = () => {
       const expirationDate = stock.expirationDate ? new Date(stock.expirationDate) : null;
       const isExpired = expirationDate && expirationDate < currentDate;
       
-      // Skip expired stocks completely - don't show them or include in calculations
-      if (isExpired) {
-        return;
-      }
+      // Don't skip expired stocks here - let the filter logic handle them
+      // This allows users to view expired stocks when they select the "Expired" filter
 
       const isBatchStock = stock.stockType === 'batch' || stock.batchId || stock.batchNumber;
       
       if (isBatchStock) {
         // For batch stocks, show ALL batches (even if depleted, so you can see history)
-        // Only filter out if realTimeStock is 0 AND it's an old batch (older than current month)
+        // Salon-use stocks should always be visible regardless of stock level
+        const isSalonUse = stock.usageType === 'salon-use';
+        
         const stockStart = stock.startPeriod ? new Date(stock.startPeriod) : null;
         const isCurrentMonth = stockStart && 
           stockStart.getMonth() === currentMonthStart.getMonth() &&
           stockStart.getFullYear() === currentMonthStart.getFullYear();
         
         const realTimeStock = stock.realTimeStock || 0;
-        // Show batch if: has stock, or is current month, or was created recently
-        if (realTimeStock > 0 || isCurrentMonth || (stockStart && stockStart >= currentMonthStart)) {
+        // Show batch if: salon-use (always), has stock, is current month, or was created recently
+        if (isSalonUse || realTimeStock > 0 || isCurrentMonth || (stockStart && stockStart >= currentMonthStart)) {
           // Always calculate status based on current stock levels to ensure it matches filter options
           const calculatedStatus = calculateStockStatus(stock);
           stockList.push({
@@ -806,6 +806,12 @@ const Stocks = () => {
             // Depleted = Zero stock or Out of Stock status
             matchesCondition = isDepleted;
           }
+        } else {
+          // When "All Conditions" is selected, exclude expired stocks by default
+          const now = new Date();
+          const expirationDate = stock.expirationDate ? new Date(stock.expirationDate) : null;
+          const isExpired = expirationDate && expirationDate < now;
+          matchesCondition = !isExpired;
         }
 
         return matchesSearch && matchesStatus && matchesCategory && matchesUsageType && matchesStockRange && matchesLowStock && matchesBatch && matchesCondition;

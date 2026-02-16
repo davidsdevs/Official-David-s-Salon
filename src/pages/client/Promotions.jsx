@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { formatCurrency } from '../../utils/helpers';
 import html2canvas from 'html2canvas';
 import toast from 'react-hot-toast';
+import { QRCodeSVG } from 'qrcode.react';
 
 const ClientPromotions = () => {
   const [promotions, setPromotions] = useState([]);
@@ -71,13 +72,82 @@ const ClientPromotions = () => {
     if (!promoCardRef.current) return;
 
     try {
+      // Wait a bit to ensure all fonts and styles are loaded
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Convert SVG QR codes to canvas before capturing
+      const svgElements = promoCardRef.current.querySelectorAll('svg');
+      const svgData = [];
+      
+      // Store SVG data and replace with canvas
+      for (const svg of svgElements) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const svgString = new XMLSerializer().serializeToString(svg);
+        const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        
+        await new Promise((resolve) => {
+          img.onload = () => {
+            canvas.width = svg.clientWidth || 120;
+            canvas.height = svg.clientHeight || 120;
+            ctx.drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+            
+            // Store original SVG and its parent
+            svgData.push({
+              svg: svg,
+              parent: svg.parentNode,
+              canvas: canvas,
+              nextSibling: svg.nextSibling
+            });
+            
+            // Replace SVG with canvas temporarily
+            svg.parentNode.replaceChild(canvas, svg);
+            resolve();
+          };
+          img.src = url;
+        });
+      }
+
+      // Capture the card with canvas QR codes
       const canvas = await html2canvas(promoCardRef.current, {
         backgroundColor: '#ffffff',
         scale: 2,
-        logging: false,
+        logging: true, // Enable logging to debug
         useCORS: true,
+        allowTaint: true,
+        letterRendering: true,
+        imageTimeout: 0,
+        removeContainer: false,
+        windowWidth: promoCardRef.current.scrollWidth,
+        windowHeight: promoCardRef.current.scrollHeight,
+        onclone: (clonedDoc) => {
+          // Force text color in cloned document
+          const spans = clonedDoc.querySelectorAll('span');
+          spans.forEach(span => {
+            if (span.textContent && (span.textContent.includes('%') || span.textContent.includes('OFF'))) {
+              span.style.color = '#dc2626';
+              span.style.fontWeight = '900';
+              span.style.fontSize = '36px';
+              console.log('Forced color on span:', span.textContent);
+            }
+          });
+        }
       });
 
+      // Restore original SVG elements
+      svgData.forEach(({ svg, parent, canvas, nextSibling }) => {
+        if (nextSibling) {
+          parent.insertBefore(svg, nextSibling);
+        } else {
+          parent.appendChild(svg);
+        }
+        canvas.remove();
+      });
+
+      // Save the image
       canvas.toBlob((blob) => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -254,9 +324,7 @@ const ClientPromotions = () => {
                     
                     {/* Discount Badge - Large and Prominent */}
                     <div className="mb-4">
-                      <div className="inline-flex items-center gap-2 px-8 py-4 bg-white text-primary-600 rounded-2xl shadow-lg">
-                        <span className="text-4xl font-black">{getDiscountDisplay(selectedPromo)}</span>
-                      </div>
+                      <span style={{ fontSize: '48px', fontWeight: '900', color: '#ffffff', fontFamily: 'system-ui, -apple-system, sans-serif', textShadow: '2px 2px 4px rgba(0,0,0,0.3)' }}>{getDiscountDisplay(selectedPromo)}</span>
                     </div>
                     
                     <h3 className="text-3xl font-bold mb-4">{selectedPromo.title || selectedPromo.name}</h3>
@@ -267,6 +335,22 @@ const ClientPromotions = () => {
                         <div className="inline-flex items-center gap-3 px-6 py-3 bg-white/20 backdrop-blur-sm rounded-xl">
                           <span className="text-2xl font-mono font-bold tracking-wider">{selectedPromo.promotionCode}</span>
                         </div>
+                        
+                        {/* QR Code */}
+                        <div className="mt-4 flex justify-center">
+                          <div className="bg-white p-4 rounded-xl shadow-lg">
+                            <QRCodeSVG 
+                              value={selectedPromo.promotionCode}
+                              size={120}
+                              level="M"
+                              includeMargin={false}
+                              fgColor="#000000"
+                              bgColor="#FFFFFF"
+                            />
+                            <p className="text-xs text-gray-800 font-semibold text-center mt-2">{selectedPromo.promotionCode}</p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-white/80 mt-2">Scan this code at checkout</p>
                       </div>
                     )}
                   </div>

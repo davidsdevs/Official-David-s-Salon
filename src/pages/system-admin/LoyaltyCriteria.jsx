@@ -329,55 +329,6 @@ const LoyaltyCriteria = () => {
           </div>
         </div>
 
-        {/* Special Bonuses Configuration */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
-              <Calendar className="w-5 h-5 text-yellow-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Special Bonuses</h2>
-              <p className="text-sm text-gray-600">Configure special occasion bonus points</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Birthday Bonus Points
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={criteria.birthdayBonusPoints}
-                onChange={(e) => handleInputChange('birthdayBonusPoints', parseInt(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                placeholder="100"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Bonus points awarded on customer's birthday
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Referral Bonus Points
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={criteria.referralBonusPoints}
-                onChange={(e) => handleInputChange('referralBonusPoints', parseInt(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                placeholder="200"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Bonus points for successful referrals
-              </p>
-            </div>
-          </div>
-        </div>
-
         {/* Configuration Status */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center gap-3 mb-6">

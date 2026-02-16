@@ -21,6 +21,7 @@ import {
 import { db } from '../config/firebase';
 import toast from 'react-hot-toast';
 import { logActivity } from './activityService';
+import { getLoyaltyCriteria } from './loyaltyCriteriaService';
 
 const CLIENTS_COLLECTION = 'clients';
 const LOYALTY_POINTS_COLLECTION = 'loyalty_points'; // Flat collection: loyalty_points/{clientId} with branchPoints map
@@ -40,6 +41,13 @@ export const getLoyaltyPoints = async (clientId, branchId) => {
   try {
     if (!branchId) {
       console.warn('⚠️ branchId is required for getLoyaltyPoints');
+      return 0;
+    }
+
+    // Check if loyalty program is active
+    const criteria = await getLoyaltyCriteria();
+    if (!criteria.isActive) {
+      console.log('⚠️ Loyalty program is disabled');
       return 0;
     }
 
@@ -77,6 +85,13 @@ export const earnLoyaltyPoints = async (clientId, branchId, amount, billId, curr
   try {
     if (!branchId) {
       console.warn('⚠️ branchId is required for earnLoyaltyPoints');
+      return 0;
+    }
+
+    // Check if loyalty program is active
+    const criteria = await getLoyaltyCriteria();
+    if (!criteria.isActive) {
+      console.log('⚠️ Loyalty program is disabled - no points earned');
       return 0;
     }
 
@@ -212,6 +227,12 @@ export const redeemLoyaltyPoints = async (clientId, branchId, pointsToRedeem, bi
   try {
     if (!branchId) {
       throw new Error('Branch ID is required for redeeming loyalty points');
+    }
+
+    // Check if loyalty program is active
+    const criteria = await getLoyaltyCriteria();
+    if (!criteria.isActive) {
+      throw new Error('Loyalty program is currently disabled');
     }
 
     if (pointsToRedeem <= 0) {

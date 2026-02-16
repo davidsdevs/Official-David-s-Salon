@@ -2144,7 +2144,7 @@ const ReceptionistArrivals = () => {
                           ` : ''}
                           ${bill.discount > 0 ? `
                           <div class="total-row discount">
-                            <span>${bill.discountReason === 'Senior' ? 'Senior Citizen (10%)' : bill.discountReason === 'PWD' ? 'PWD Discount (10%)' : 'Discount'}:</span>
+                            <span>${bill.discountReason === 'Senior' ? `Senior Citizen${bill.discountType === 'percent' && bill.discountValue ? ` (${bill.discountValue}%)` : ''}` : bill.discountReason === 'PWD' ? `PWD Discount${bill.discountType === 'percent' && bill.discountValue ? ` (${bill.discountValue}%)` : ''}` : 'Discount'}:</span>
                             <span>-${formatCurrency(bill.discount)}</span>
                           </div>
                           ${(bill.discountReason === 'Senior' || bill.discountReason === 'PWD') && bill.controlNumber ? `

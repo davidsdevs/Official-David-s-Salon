@@ -1316,9 +1316,22 @@ const OverallInventoryControllerInventory = () => {
     setSelectedUsageType(usageType);
     
     // Filter batches by usage type
+    // Check both usageType field and isSalonUse field for backward compatibility
     const filteredBatches = selectedProductForAdjust.batches.filter(batch => {
-      const batchUsageType = batch.usageType || 'otc';
+      const batchUsageType = batch.usageType || (batch.isSalonUse ? 'salon-use' : 'otc');
       return batchUsageType === usageType;
+    });
+    
+    console.log('Filtering batches for usage type:', usageType, {
+      totalBatches: selectedProductForAdjust.batches.length,
+      filteredBatches: filteredBatches.length,
+      batchDetails: selectedProductForAdjust.batches.map(b => ({
+        id: b.id,
+        batchNumber: b.batchNumber,
+        usageType: b.usageType,
+        isSalonUse: b.isSalonUse,
+        computed: b.usageType || (b.isSalonUse ? 'salon-use' : 'otc')
+      }))
     });
     
     setProductBatches(filteredBatches);
@@ -1327,6 +1340,17 @@ const OverallInventoryControllerInventory = () => {
 
   // Handle selecting a batch to adjust
   const handleSelectBatch = (batch) => {
+    const batchUsageType = batch.usageType || (batch.isSalonUse ? 'salon-use' : 'otc');
+    console.log('Selected batch for adjustment:', {
+      batchId: batch.id,
+      batchNumber: batch.batchNumber,
+      usageType: batch.usageType,
+      isSalonUse: batch.isSalonUse,
+      computedUsageType: batchUsageType,
+      selectedUsageType: selectedUsageType,
+      stock: batch.computedStock
+    });
+    
     setSelectedBatchForAdjust(batch);
     setForceAdjustForm({
       stockId: batch.id,
@@ -2482,6 +2506,10 @@ const OverallInventoryControllerInventory = () => {
                         }
                       }
                       
+                      // Get usage type for display
+                      const batchUsageType = batch.usageType || batch.isSalonUse ? 'salon-use' : 'otc';
+                      const usageTypeLabel = batchUsageType === 'salon-use' ? 'Salon Use' : 'OTC';
+                      
                       return (
                       <button
                         key={batch.id}
@@ -2489,8 +2517,17 @@ const OverallInventoryControllerInventory = () => {
                         className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
                       >
                         <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-semibold text-blue-600">{batch.batchNumber || 'No Batch Number'}</p>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-blue-600">{batch.batchNumber || 'No Batch Number'}</p>
+                              <span className={`text-xs px-2 py-0.5 rounded ${
+                                batchUsageType === 'salon-use' 
+                                  ? 'bg-purple-100 text-purple-700' 
+                                  : 'bg-green-100 text-green-700'
+                              }`}>
+                                {usageTypeLabel}
+                              </span>
+                            </div>
                             <p className="text-sm text-gray-600 mt-1">Stock: <strong>{batch.computedStock || 0}</strong> units</p>
                             {expirationDateStr && (
                               <p className="text-xs text-gray-500 mt-1">
@@ -2511,6 +2548,7 @@ const OverallInventoryControllerInventory = () => {
                   <div className="text-center py-8">
                     <Package className="h-12 w-12 text-gray-400 mx-auto mb-3" />
                     <p className="text-gray-600">No {selectedUsageType === 'otc' ? 'OTC' : 'Salon Use'} batches found for this product.</p>
+                    <p className="text-sm text-gray-500 mt-2">All batches for this product may be of a different usage type.</p>
                   </div>
                 )}
 

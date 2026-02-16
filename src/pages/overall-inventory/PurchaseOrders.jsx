@@ -796,10 +796,10 @@ const OverallInventoryControllerPurchaseOrders = () => {
     }
   };
 
-  const getCurrentStock = (productId) => {
-    console.log('Getting stock for productId:', productId);
+  const getCurrentStock = (productId, usageType = 'otc') => {
+    console.log('Getting stock for productId:', productId, 'usageType:', usageType);
     console.log('Available stocks:', branchStocks);
-    const stock = branchStocks.find(s => s.productId === productId);
+    const stock = branchStocks.find(s => s.productId === productId && s.usageType === usageType);
     console.log('Found stock:', stock);
     
     // Check multiple possible field names for stock quantity
@@ -810,11 +810,11 @@ const OverallInventoryControllerPurchaseOrders = () => {
     return stockQty;
   };
 
-  const getStockStatus = (productId, orderedQty) => {
-    const currentStock = getCurrentStock(productId);
+  const getStockStatus = (productId, orderedQty, usageType = 'otc') => {
+    const currentStock = getCurrentStock(productId, usageType);
     if (currentStock === null) return { text: 'No stock data', color: 'text-gray-500', icon: null };
     
-    const stock = branchStocks.find(s => s.productId === productId);
+    const stock = branchStocks.find(s => s.productId === productId && s.usageType === usageType);
     const minStock = stock?.minStock || stock?.minQuantity || 0;
     
     if (currentStock <= 0) {
@@ -1347,8 +1347,8 @@ const OverallInventoryControllerPurchaseOrders = () => {
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {selectedOrder.items?.map((item, index) => {
-                      const stockStatus = getStockStatus(item.productId, item.quantity);
                       const usageType = item.usageType || item.usage_type || 'otc';
+                      const stockStatus = getStockStatus(item.productId, item.quantity, usageType);
                       const usageTypeDisplay = usageType === 'otc' ? 'OTC' : 'Salon Use';
                       const usageTypeColor = usageType === 'otc' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800';
                       
@@ -1472,8 +1472,8 @@ const OverallInventoryControllerPurchaseOrders = () => {
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {order.items?.map((item, index) => {
-                        const stockStatus = getStockStatus(item.productId, item.quantity);
                         const usageType = item.usageType || item.usage_type || 'otc';
+                        const stockStatus = getStockStatus(item.productId, item.quantity, usageType);
                         const usageTypeDisplay = usageType === 'otc' ? 'OTC' : 'Salon Use';
                         const usageTypeColor = usageType === 'otc' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800';
                         
