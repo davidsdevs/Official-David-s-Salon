@@ -738,8 +738,19 @@ const BranchManagerBilling = () => {
           <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
             @media print {
-              @page { size: letter; margin: 0.5in; }
-              body { font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
+              @page { 
+                size: letter; 
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+              body { 
+                font-family: 'Poppins', sans-serif; 
+                margin: 0; 
+                padding: 0;
+                counter-reset: page 1;
+              }
+              header, footer {
+                display: none;
+              }
               .header { margin-bottom: 15px; }
               .summary { page-break-inside: avoid; }
               .table { page-break-inside: avoid; }
@@ -833,6 +844,7 @@ const BranchManagerBilling = () => {
           <table class="table">
             <thead>
               <tr>
+                <th style="width: 40px; text-align: center;">#</th>
                 <th>Transaction ID</th>
                 <th>Receipt #</th>
                 <th>Date</th>
@@ -845,11 +857,12 @@ const BranchManagerBilling = () => {
               </tr>
             </thead>
             <tbody>
-              ${sortedBills.map(bill => {
+              ${sortedBills.map((bill, index) => {
                 const billDate = bill.createdAt ? new Date(bill.createdAt) : new Date();
                 const dateStr = formatDate(billDate, 'MMM dd, yyyy');
                 return `
                   <tr>
+                    <td style="text-align: center; font-weight: 600;">${index + 1}</td>
                     <td>${bill.id}</td>
                     <td>${bill.receiptNumber || 'N/A'}</td>
                     <td>${dateStr}</td>
@@ -865,6 +878,11 @@ const BranchManagerBilling = () => {
                   </tr>
                 `;
               }).join('')}
+              <tr style="background: #f0f0f0; font-weight: 700; border-top: 2px solid #000;">
+                <td colspan="${discountFilter === 'senior' || discountFilter === 'pwd' ? '6' : '6'}" style="text-align: left; padding: 6px; font-size: 9px;">GRAND TOTAL:</td>
+                <td class="text-right" style="padding: 6px; font-size: 9px;">₱${formatCurrency(totalRevenue)}</td>
+                <td colspan="${discountFilter === 'senior' || discountFilter === 'pwd' ? '4' : '2'}"></td>
+              </tr>
             </tbody>
           </table>
           
@@ -876,15 +894,30 @@ const BranchManagerBilling = () => {
               </div>
               <div class="footer-right">
                 <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
-                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
               </div>
             </div>
             <div class="footer-center">
-              <p style="font-weight: 600; color: #333; font-size: 10px;">Page 1 of 1</p>
+              <p style="font-weight: 600; color: #333; font-size: 10px;"><span class="page-number"></span></p>
               <p>${branchName} - Transaction Report</p>
               <p>Total Records: ${sortedBills.length} transaction${sortedBills.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
+          <script>
+            window.addEventListener('load', function() {
+              setTimeout(function() {
+                // Calculate total pages
+                const pageHeight = 945;
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / pageHeight));
+                
+                // Inject page numbering style
+                const printStyle = document.createElement('style');
+                printStyle.textContent = '.page-number::before { content: "Page " counter(page) " of ' + totalPages + '"; }';
+                document.head.appendChild(printStyle);
+              }, 250);
+            });
+          </script>
         </body>
         </html>
       `);

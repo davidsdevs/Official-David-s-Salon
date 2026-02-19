@@ -1,5 +1,5 @@
 // src/pages/04_BranchManager/Inventory.jsx
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -175,9 +175,6 @@ const Inventory = () => {
   const [showCreateTransferModal, setShowCreateTransferModal] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState(null);
   const [showTransferDetailsModal, setShowTransferDetailsModal] = useState(false);
-  
-  // Refs
-  const printRef = useRef(null);
   
   // Debounced search
   const debouncedProductSearch = useDebounce(productSearchTerm, 300);
@@ -414,69 +411,118 @@ const Inventory = () => {
 
   // Handle print
   const handlePrint = () => {
-    console.log('=== PRINT DEBUG START ===');
-    console.log('Active Tab:', activeTab);
-    console.log('printRef.current:', printRef.current);
-    console.log('printRef.current exists:', !!printRef.current);
-    
-    if (!printRef.current) {
-      console.error('ERROR: printRef.current is null or undefined');
-      toast.error('Print content not ready. Please try again.');
+    // Determine what to print based on active tab
+    if (activeTab === 'reports') {
+      // Print Product Sales Report
+      handlePrintProductSales();
+    } else {
+      // Print Inventory Report
+      handlePrintInventory();
+    }
+  };
+
+  // Handle print for Product Sales Report
+  const handlePrintProductSales = () => {
+    if (!productTransactions || productTransactions.length === 0) {
+      toast.error('No product sales data to print');
       return;
     }
-    
-    console.log('printRef.current innerHTML length:', printRef.current.innerHTML?.length);
-    console.log('=== PRINT DEBUG END ===');
 
     // Build filters display
     const activeFilters = [];
     if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
-    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Products';
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Transactions';
 
-    // Create print content with only the table data
+    // Calculate totals
+    let totalAmount = 0;
+
+    // Generate table rows
+    const tableRows = productTransactions.map((transaction, index) => {
+      const transactionDate = transaction.createdAt?.toDate 
+        ? formatDate(transaction.createdAt.toDate(), 'MMM dd, yyyy HH:mm')
+        : formatDate(transaction.createdAt, 'MMM dd, yyyy HH:mm');
+      
+      const products = transaction.items
+        ?.filter(item => item.type === 'product')
+        .map(item => `${item.name} (${item.quantity})`)
+        .join(', ') || 'N/A';
+      
+      const amount = transaction.total || 0;
+      totalAmount += amount;
+      
+      return `
+        <tr>
+          <td style="text-align: center; font-weight: 600;">${index + 1}</td>
+          <td>${transaction.receiptNumber || 'N/A'}</td>
+          <td>${transactionDate}</td>
+          <td>${transaction.clientName || 'Walk-in'}</td>
+          <td>${products}</td>
+          <td>${transaction.paymentMethod || 'N/A'}</td>
+          <td style="text-align: right;">₱${formatCurrency(amount).replace('₱', '')}</td>
+          <td style="text-align: center;">${transaction.status || 'N/A'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Create print content
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Inventory Report - ${new Date().toLocaleDateString()}</title>
+          <title>Product Sales Report - ${new Date().toLocaleDateString()}</title>
+          <meta charset="utf-8">
           <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
-            @page {
-              size: letter landscape;
-              margin: 0.5in;
+            @media print {
+              @page {
+                size: A4 landscape;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+              }
+              header, footer {
+                display: none;
+              }
             }
             * {
-              margin: 0;
-              padding: 0;
+              font-family: 'Poppins', sans-serif;
               box-sizing: border-box;
             }
             body {
-              font-family: 'Poppins', Arial, sans-serif;
-              padding: 10px;
+              font-family: 'Poppins', sans-serif;
+              margin: 0;
+              padding: 0;
               color: #000;
-              font-size: 7px;
+              background: #fff;
+              line-height: 1.4;
             }
             .header {
               text-align: center;
-              margin-bottom: 10px;
-              padding-bottom: 6px;
-              border-bottom: 2px solid #333;
+              margin-bottom: 12px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #000;
             }
             .header h1 {
-              font-size: 18px;
+              font-size: 24px;
               font-weight: 700;
-              margin: 0 0 2px 0;
+              margin: 0 0 6px 0;
             }
             .header h2 {
-              font-size: 14px;
-              font-weight: 600;
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0 0 6px 0;
+            }
+            .header p {
+              font-size: 11px;
               margin: 0;
             }
             .filters {
               background: #f8f9fa;
               padding: 8px;
               border: 2px solid #333;
-              margin: 8px 0;
+              margin: 8px 0 12px 0;
               text-align: center;
             }
             .filters-title {
@@ -493,39 +539,42 @@ const Inventory = () => {
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 8px;
-              font-size: 7px;
+              margin-bottom: 12px;
+              font-size: 9px;
               border: 1px solid #333;
             }
             th, td {
-              border: 1px solid #333;
-              padding: 3px 2px;
+              padding: 6px 4px;
               text-align: left;
-              vertical-align: top;
+              border: 1px solid #333;
+              vertical-align: middle;
             }
             th {
-              background-color: #fff;
+              background: #fff;
               font-weight: 700;
+              font-size: 10px;
               text-transform: uppercase;
               border-bottom: 2px solid #000;
             }
-            tr:nth-child(even) {
-              background-color: #f9f9f9;
+            tr {
+              page-break-inside: avoid;
             }
-            .no-print {
-              display: none;
+            .grand-total {
+              background: #f0f0f0;
+              font-weight: 700;
+              border-top: 2px solid #000;
             }
             .footer {
-              margin-top: 10px;
-              padding-top: 8px;
+              margin-top: 20px;
+              padding-top: 12px;
               border-top: 2px solid #333;
-              font-size: 7px;
+              font-size: 10px;
             }
             .footer-info {
               display: grid;
               grid-template-columns: 1fr 1fr;
-              gap: 10px;
-              margin-bottom: 8px;
+              gap: 16px;
+              margin-bottom: 12px;
             }
             .footer-left {
               text-align: left;
@@ -535,62 +584,430 @@ const Inventory = () => {
             }
             .footer-center {
               text-align: center;
-              margin-top: 6px;
-              padding-top: 6px;
-              border-top: 1px solid #ccc;
               color: #666;
+              margin-top: 8px;
+              font-size: 10px;
             }
             .footer-center p {
               margin: 2px 0;
             }
-            .text-right { text-align: right; }
+            .page-number {
+              position: absolute;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 10px;
+              font-weight: 600;
+              height: 20px;
+            }
           </style>
         </head>
         <body>
           <div class="header">
             <h1>DAVID'S SALON</h1>
             <h2>Product Sales Report</h2>
+            <p><strong>Generated:</strong> ${formatDate(new Date(), 'MMM dd, yyyy HH:mm')}</p>
           </div>
           
           <div class="filters">
             <div class="filters-title">FILTERS APPLIED</div>
             <div class="filters-content">${filtersText}</div>
           </div>
-          ${printRef.current.innerHTML}
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">#</th>
+                <th>RECEIPT #</th>
+                <th>DATE</th>
+                <th>CLIENT</th>
+                <th>PRODUCTS</th>
+                <th>PAYMENT METHOD</th>
+                <th style="text-align: right;">TOTAL AMOUNT</th>
+                <th style="text-align: center;">STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+              <tr class="grand-total">
+                <td colspan="6" style="text-align: left; padding: 8px 6px; font-size: 11px;">GRAND TOTAL:</td>
+                <td style="text-align: right; padding: 8px 6px; font-size: 11px;">₱${formatCurrency(totalAmount).replace('₱', '')}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
           
           <div class="footer">
             <div class="footer-info">
               <div class="footer-left">
-                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : currentUser?.displayName || 'Branch Manager'}<br>
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : currentUser?.displayName || 'Branch Manager'}<br/>
                 <strong>Position:</strong> Branch Manager
               </div>
               <div class="footer-right">
-                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
-                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                <strong>Generated On:</strong> ${formatDate(new Date(), 'MMMM dd, yyyy')}<br/>
+                <strong>Time:</strong> ${formatDate(new Date(), 'HH:mm:ss')}
               </div>
             </div>
             <div class="footer-center">
-              <p style="font-weight: 600; font-size: 8px;">Page 1 of 1</p>
-              <p>Product Sales Report - ${productTransactions.length} Transactions</p>
+              <p>Product Sales Report</p>
+              <p>Total Transactions: ${productTransactions.length}</p>
             </div>
           </div>
+          
+          <div id="pageNumbers"></div>
+          
+          <script>
+            window.addEventListener('load', function() {
+              setTimeout(function() {
+                // Calculate pages for A4 landscape
+                const pageHeight = 794;
+                const topMargin = 38;
+                const bottomMargin = 72;
+                const usableHeight = pageHeight - topMargin - bottomMargin;
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / usableHeight));
+                
+                // Create page numbers for each page
+                const pageNumbersContainer = document.getElementById('pageNumbers');
+                for (let i = 1; i <= totalPages; i++) {
+                  const pageNum = document.createElement('div');
+                  pageNum.className = 'page-number';
+                  pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+                  pageNum.style.top = ((pageHeight * i) - bottomMargin - 70) + 'px';
+                  pageNumbersContainer.appendChild(pageNum);
+                }
+                
+                setTimeout(function() {
+                  window.print();
+                  window.onafterprint = function() {
+                    window.close();
+                  };
+                }, 100);
+              }, 250);
+            });
+          </script>
         </body>
       </html>
     `;
 
     // Open print window
     const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to print the report');
+      return;
+    }
+    
     printWindow.document.write(printContent);
     printWindow.document.close();
-    printWindow.focus();
+  };
 
-    // Wait for content to load, then print
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.print();
-        printWindow.close();
-      }, 500);
-    };
+  // Handle print for Inventory Report
+  const handlePrintInventory = () => {
+    if (!filteredProducts || filteredProducts.length === 0) {
+      toast.error('No products to print');
+      return;
+    }
+
+    // Build filters display
+    const activeFilters = [];
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Products';
+
+    // Calculate totals
+    let totalOtcStock = 0;
+    let totalSalonStock = 0;
+    let totalUnitCost = 0;
+    let totalOtcPrice = 0;
+
+    // Generate table rows
+    const tableRows = filteredProducts.map((product, index) => {
+      const otcStock = product.otcStock ?? 0;
+      const salonStock = product.salonStock ?? 0;
+      const totalStock = otcStock + salonStock;
+      const unitCost = product.unitCost || 0;
+      const otcPrice = product.otcPrice || 0;
+      
+      // Add to totals
+      totalOtcStock += otcStock;
+      totalSalonStock += salonStock;
+      totalUnitCost += unitCost;
+      totalOtcPrice += otcPrice;
+      
+      let statusText = 'Unknown';
+      if (totalStock === 0) statusText = 'Out of Stock';
+      else if (totalStock <= (product.lowStockThreshold || 10)) statusText = 'Low Stock';
+      else statusText = 'In Stock';
+      
+      const serviceMappings = product.serviceMappings || [];
+      const mappedServices = serviceMappings
+        .map(mapping => {
+          const service = services.find(s => s.id === mapping.serviceId);
+          return service ? service.name : null;
+        })
+        .filter(Boolean)
+        .join(', ') || 'None';
+      
+      return `
+        <tr>
+          <td style="text-align: center; font-weight: 600;">${index + 1}</td>
+          <td>${product.name || 'N/A'}</td>
+          <td>${product.category || 'N/A'}</td>
+          <td>${product.brand || 'N/A'}</td>
+          <td style="text-align: center;">${otcStock}</td>
+          <td style="text-align: center;">${salonStock}</td>
+          <td style="text-align: center;">${statusText}</td>
+          <td style="text-align: right;">₱${formatCurrency(unitCost).replace('₱', '')}</td>
+          <td style="text-align: right;">₱${formatCurrency(otcPrice).replace('₱', '')}</td>
+          <td>${mappedServices}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Create print content
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Inventory Report - ${new Date().toLocaleDateString()}</title>
+          <meta charset="utf-8">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+          <style>
+            @media print {
+              @page {
+                size: A4 landscape;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+              }
+              header, footer {
+                display: none;
+              }
+            }
+            * {
+              font-family: 'Poppins', sans-serif;
+              box-sizing: border-box;
+            }
+            body {
+              font-family: 'Poppins', sans-serif;
+              margin: 0;
+              padding: 0;
+              color: #000;
+              background: #fff;
+              line-height: 1.4;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 12px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #000;
+            }
+            .header h1 {
+              font-size: 24px;
+              font-weight: 700;
+              margin: 0 0 6px 0;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0 0 6px 0;
+            }
+            .header p {
+              font-size: 11px;
+              margin: 0;
+            }
+            .filters {
+              background: #f8f9fa;
+              padding: 8px;
+              border: 2px solid #333;
+              margin: 8px 0 12px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 9px;
+              font-weight: 700;
+              margin-bottom: 4px;
+              text-transform: uppercase;
+              letter-spacing: 0.4px;
+            }
+            .filters-content {
+              font-size: 8px;
+              font-weight: 600;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 12px;
+              font-size: 9px;
+              border: 1px solid #333;
+            }
+            th, td {
+              padding: 6px 4px;
+              text-align: left;
+              border: 1px solid #333;
+              vertical-align: middle;
+            }
+            th {
+              background: #fff;
+              font-weight: 700;
+              font-size: 10px;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+            }
+            tr {
+              page-break-inside: avoid;
+            }
+            .grand-total {
+              background: #f0f0f0;
+              font-weight: 700;
+              border-top: 2px solid #000;
+            }
+            .footer {
+              margin-top: 20px;
+              padding-top: 12px;
+              border-top: 2px solid #333;
+              font-size: 10px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 16px;
+              margin-bottom: 12px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              color: #666;
+              margin-top: 8px;
+              font-size: 10px;
+            }
+            .footer-center p {
+              margin: 2px 0;
+            }
+            .page-number {
+              position: absolute;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 10px;
+              font-weight: 600;
+              height: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Inventory Report</h2>
+            <p><strong>Generated:</strong> ${formatDate(new Date(), 'MMM dd, yyyy HH:mm')}</p>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">#</th>
+                <th>PRODUCT</th>
+                <th>CATEGORY</th>
+                <th>BRAND</th>
+                <th style="text-align: center;">OTC STOCK</th>
+                <th style="text-align: center;">SALON STOCK</th>
+                <th style="text-align: center;">STATUS</th>
+                <th style="text-align: right;">UNIT COST</th>
+                <th style="text-align: right;">OTC PRICE</th>
+                <th>SERVICE MAPPING</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+              <tr class="grand-total">
+                <td colspan="4" style="text-align: left; padding: 8px 6px; font-size: 11px;">GRAND TOTAL:</td>
+                <td style="text-align: center; padding: 8px 6px; font-size: 11px;">${totalOtcStock}</td>
+                <td style="text-align: center; padding: 8px 6px; font-size: 11px;">${totalSalonStock}</td>
+                <td></td>
+                <td style="text-align: right; padding: 8px 6px; font-size: 11px;">₱${formatCurrency(totalUnitCost).replace('₱', '')}</td>
+                <td style="text-align: right; padding: 8px 6px; font-size: 11px;">₱${formatCurrency(totalOtcPrice).replace('₱', '')}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : currentUser?.displayName || 'Branch Manager'}<br/>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${formatDate(new Date(), 'MMMM dd, yyyy')}<br/>
+                <strong>Time:</strong> ${formatDate(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p>Inventory Report</p>
+              <p>Total Products: ${filteredProducts.length}</p>
+            </div>
+          </div>
+          
+          <div id="pageNumbers"></div>
+          
+          <script>
+            window.addEventListener('load', function() {
+              setTimeout(function() {
+                // Calculate pages for A4 landscape
+                // A4 landscape: 297mm x 210mm = 1122px x 794px at 96 DPI
+                // With margins: 0.4in top, 0.75in bottom = 38px top, 72px bottom
+                // Usable height per page: 794 - 38 - 72 = 684px
+                const pageHeight = 794;
+                const topMargin = 38;
+                const bottomMargin = 72;
+                const usableHeight = pageHeight - topMargin - bottomMargin;
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / usableHeight));
+                
+                // Create page numbers for each page
+                const pageNumbersContainer = document.getElementById('pageNumbers');
+                for (let i = 1; i <= totalPages; i++) {
+                  const pageNum = document.createElement('div');
+                  pageNum.className = 'page-number';
+                  pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+                  // Position - 70px above bottom margin
+                  pageNum.style.top = ((pageHeight * i) - bottomMargin - 70) + 'px';
+                  pageNumbersContainer.appendChild(pageNum);
+                }
+                
+                setTimeout(function() {
+                  window.print();
+                  window.onafterprint = function() {
+                    window.close();
+                  };
+                }, 100);
+              }, 250);
+            });
+          </script>
+        </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to print the report');
+      return;
+    }
+    
+    printWindow.document.write(printContent);
+    printWindow.document.close();
   };
 
   // Handle sorting
@@ -1514,584 +1931,143 @@ const Inventory = () => {
     }
     const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Purchase Orders';
 
-    // Calculate summary statistics
-    const totalOrders = filteredOrders.length;
-    const totalAmount = filteredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-    const statusCounts = filteredOrders.reduce((acc, order) => {
-      acc[order.status] = (acc[order.status] || 0) + 1;
-      return acc;
-    }, {});
-
-    // Generate individual order pages
-    const orderPages = filteredOrders.map((order, index) => {
-      const items = order.items || [];
-      const itemsTotal = items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+    // Calculate totals
+    let totalAmount = 0;
+    
+    // Generate table rows
+    const tableRows = filteredOrders.map((order, index) => {
+      const amount = order.totalAmount || 0;
+      totalAmount += amount;
+      const orderDate = order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A';
+      const expectedDelivery = order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A';
+      const itemCount = order.items?.length || 0;
       
       return `
-        <div class="order-page" style="page-break-after: always;">
-          <div class="header">
-            <h1>DAVID'S SALON</h1>
-            <h2>Purchase Order #${order.orderId || order.id}</h2>
-          </div>
-          
-          <!-- Order Information -->
-          <div class="order-info">
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-label">Order ID:</span>
-                <span class="info-value">${order.orderId || order.id}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Status:</span>
-                <span class="info-value"><span class="status-badge status-${order.status?.toLowerCase().replace(/\s+/g, '-')}">${order.status}</span></span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Supplier:</span>
-                <span class="info-value">${order.supplierName || 'Unknown'}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Order Date:</span>
-                <span class="info-value">${order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Expected Delivery:</span>
-                <span class="info-value">${order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}</span>
-              </div>
-              ${order.actualDelivery ? `
-              <div class="info-item">
-                <span class="info-label">Actual Delivery:</span>
-                <span class="info-value">${format(new Date(order.actualDelivery), 'MMM dd, yyyy')}</span>
-              </div>
-              ` : ''}
-              <div class="info-item">
-                <span class="info-label">Created By:</span>
-                <span class="info-value">${order.createdByName || 'Unknown'}</span>
-              </div>
-              ${order.updatedByName ? `
-              <div class="info-item">
-                <span class="info-label">Last Updated By:</span>
-                <span class="info-value">${order.updatedByName}</span>
-              </div>
-              ` : ''}
-            </div>
-          </div>
-
-          ${order.notes || order.managerNotes ? `
-          <div class="notes-section">
-            ${order.notes ? `
-            <div class="note-box">
-              <div class="note-label">Notes:</div>
-              <div class="note-content">${order.notes}</div>
-            </div>
-            ` : ''}
-            ${order.managerNotes ? `
-            <div class="note-box manager-note">
-              <div class="note-label">Manager Notes:</div>
-              <div class="note-content">${order.managerNotes}</div>
-            </div>
-            ` : ''}
-          </div>
-          ` : ''}
-          
-          <!-- Order Items -->
-          <div class="items-section">
-            <h3>Order Items (${items.length} ${items.length === 1 ? 'item' : 'items'})</h3>
-            ${items.length > 0 ? items.map((item, idx) => `
-              <div class="item-card">
-                <div class="item-card-header">
-                  <span class="item-number">#${idx + 1}</span>
-                  <span class="item-name">${item.productName || 'N/A'}</span>
-                  <span class="usage-badge ${item.usageType === 'salon-use' ? 'usage-salon' : 'usage-otc'}">${item.usageType === 'salon-use' ? 'Salon Use' : 'OTC'}</span>
-                </div>
-                <div class="item-card-body">
-                  <div class="item-row">
-                    <span class="item-label">SKU:</span>
-                    <span class="item-value">${item.sku || 'N/A'}</span>
-                  </div>
-                  <div class="item-row">
-                    <span class="item-label">Quantity:</span>
-                    <span class="item-value quantity">${item.quantity || 0}</span>
-                  </div>
-                  <div class="item-row">
-                    <span class="item-label">Unit Price:</span>
-                    <span class="item-value">${formatCurrency(item.unitPrice || 0)}</span>
-                  </div>
-                  <div class="item-row total-row">
-                    <span class="item-label">Total:</span>
-                    <span class="item-value">${formatCurrency(item.totalPrice || 0)}</span>
-                  </div>
-                </div>
-              </div>
-            `).join('') : `
-              <div class="empty-state">
-                <p>No items in this order</p>
-              </div>
-            `}
-          </div>
-
-          <!-- Order Total -->
-          <div class="order-total">
-            <span class="order-total-label">ORDER TOTAL:</span>
-            <span class="order-total-value">${formatCurrency(order.totalAmount || 0)}</span>
-          </div>
-          
-          <!-- Footer -->
-          <div class="footer">
-            <div class="footer-info">
-              <div class="footer-left">
-                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Branch Manager'}<br>
-                <strong>Position:</strong> Branch Manager
-              </div>
-              <div class="footer-right">
-                <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
-                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-              </div>
-            </div>
-            <div class="footer-center">
-              <p style="font-weight: 600;">Order ${index + 1} of ${totalOrders}</p>
-            </div>
-          </div>
-        </div>
+        <tr>
+          <td style="text-align: center; font-weight: 600;">${index + 1}</td>
+          <td>${order.orderId || order.id}</td>
+          <td>${orderDate}</td>
+          <td>${order.supplierName || 'Unknown'}</td>
+          <td style="text-align: center;">${itemCount}</td>
+          <td>${expectedDelivery}</td>
+          <td style="text-align: right;">₱${formatCurrency(amount).replace('₱', '')}</td>
+          <td style="text-align: center;">${order.status || 'N/A'}</td>
+          <td>${order.createdByName || 'Unknown'}</td>
+        </tr>
       `;
     }).join('');
 
-    // Create summary page
-    const summaryPage = `
-      <div class="summary-page" style="page-break-after: always;">
-        <div class="header">
-          <h1>DAVID'S SALON</h1>
-          <h2>Purchase Orders Summary</h2>
-        </div>
-        
-        <div class="filters">
-          <div class="filters-title">FILTERS APPLIED</div>
-          <div class="filters-content">${filtersText}</div>
-        </div>
-
-        <!-- Summary Statistics -->
-        <div class="summary-stats">
-          <div class="stat-box">
-            <div class="stat-value">${totalOrders}</div>
-            <div class="stat-label">Total Orders</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-value">${formatCurrency(totalAmount)}</div>
-            <div class="stat-label">Total Amount</div>
-          </div>
-          ${Object.entries(statusCounts).map(([status, count]) => `
-          <div class="stat-box">
-            <div class="stat-value">${count}</div>
-            <div class="stat-label">${status}</div>
-          </div>
-          `).join('')}
-        </div>
-        
-        <!-- Orders Summary Cards -->
-        <div class="orders-list">
-          <h3 style="font-size: 12px; font-weight: 700; margin-bottom: 10px; text-transform: uppercase;">Purchase Orders List</h3>
-          ${filteredOrders.map((order, idx) => `
-            <div class="order-card">
-              <div class="order-card-header">
-                <div>
-                  <span class="order-number">#${idx + 1}</span>
-                  <span class="order-id">${order.orderId || order.id}</span>
-                </div>
-                <span class="status-badge status-${order.status?.toLowerCase().replace(/\s+/g, '-')}">${order.status}</span>
-              </div>
-              <div class="order-card-body">
-                <div class="order-card-row">
-                  <span class="label">Supplier:</span>
-                  <span class="value">${order.supplierName || 'Unknown'}</span>
-                </div>
-                <div class="order-card-row">
-                  <span class="label">Order Date:</span>
-                  <span class="value">${order.orderDate ? format(new Date(order.orderDate), 'MMM dd, yyyy') : 'N/A'}</span>
-                </div>
-                <div class="order-card-row">
-                  <span class="label">Expected Delivery:</span>
-                  <span class="value">${order.expectedDelivery ? format(new Date(order.expectedDelivery), 'MMM dd, yyyy') : 'N/A'}</span>
-                </div>
-                <div class="order-card-row">
-                  <span class="label">Created By:</span>
-                  <span class="value">${order.createdByName || 'Unknown'}</span>
-                </div>
-                <div class="order-card-row total">
-                  <span class="label">Total Amount:</span>
-                  <span class="value">${formatCurrency(order.totalAmount || 0)}</span>
-                </div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-
-        <!-- Grand Total -->
-        <div class="grand-total">
-          <span class="grand-total-label">GRAND TOTAL:</span>
-          <span class="grand-total-value">${formatCurrency(totalAmount)}</span>
-        </div>
-        
-        <!-- Footer -->
-        <div class="footer">
-          <div class="footer-info">
-            <div class="footer-left">
-              <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Branch Manager'}<br>
-              <strong>Position:</strong> Branch Manager
-            </div>
-            <div class="footer-right">
-              <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
-              <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-            </div>
-          </div>
-          <div class="footer-center">
-            <p style="font-weight: 600;">Summary Page - ${totalOrders} Orders Total</p>
-          </div>
-        </div>
-      </div>
-    `;
-
-    // Create complete print content
+    // Create print content
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Purchase Orders Report - ${new Date().toLocaleDateString()}</title>
+          <meta charset="utf-8">
           <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
-            @page {
-              size: A4 portrait;
-              margin: 0.4in 0.4in 0.75in 0.4in;
+            @media print {
+              @page {
+                size: A4 landscape;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+              }
+              header, footer {
+                display: none;
+              }
             }
             * {
-              margin: 0;
-              padding: 0;
+              font-family: 'Poppins', sans-serif;
               box-sizing: border-box;
-              font-family: 'Poppins', Arial, sans-serif;
             }
             body {
-              font-family: 'Poppins', Arial, sans-serif;
-              padding: 10px;
+              font-family: 'Poppins', sans-serif;
+              margin: 0;
+              padding: 0;
               color: #000;
-              font-size: 9px;
+              background: #fff;
+              line-height: 1.4;
             }
             .header {
               text-align: center;
-              margin-bottom: 15px;
+              margin-bottom: 12px;
               padding-bottom: 10px;
-              border-bottom: 2px solid #333;
+              border-bottom: 2px solid #000;
             }
             .header h1 {
-              font-size: 22px;
+              font-size: 24px;
               font-weight: 700;
-              margin: 0 0 5px 0;
+              margin: 0 0 6px 0;
             }
             .header h2 {
-              font-size: 16px;
-              font-weight: 600;
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0 0 6px 0;
+            }
+            .header p {
+              font-size: 11px;
               margin: 0;
             }
             .filters {
-              background: #fff;
-              padding: 10px;
+              background: #f8f9fa;
+              padding: 8px;
               border: 2px solid #333;
-              margin: 10px 0 15px 0;
+              margin: 8px 0 12px 0;
               text-align: center;
             }
             .filters-title {
-              font-size: 10px;
+              font-size: 9px;
               font-weight: 700;
-              margin-bottom: 5px;
+              margin-bottom: 4px;
               text-transform: uppercase;
-              letter-spacing: 0.5px;
+              letter-spacing: 0.4px;
             }
             .filters-content {
-              font-size: 9px;
-              font-weight: 600;
-            }
-            .order-info {
-              margin: 15px 0;
-              padding: 12px;
-              border: 1px solid #333;
-              background: #fff;
-            }
-            .info-grid {
-              display: grid;
-              grid-template-columns: repeat(2, 1fr);
-              gap: 10px;
-            }
-            .info-item {
-              display: flex;
-              justify-content: space-between;
-              padding: 5px 0;
-              border-bottom: 1px solid #e0e0e0;
-            }
-            .info-label {
-              font-weight: 600;
-              font-size: 9px;
-            }
-            .info-value {
-              font-size: 9px;
-            }
-            .status-badge {
-              padding: 2px 8px;
-              border-radius: 4px;
               font-size: 8px;
               font-weight: 600;
-              text-transform: uppercase;
             }
-            .status-pending { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
-            .status-approved { background: #DBEAFE; color: #1E40AF; border: 1px solid #93C5FD; }
-            .status-ordered { background: #E0E7FF; color: #3730A3; border: 1px solid #A5B4FC; }
-            .status-delivered { background: #D1FAE5; color: #065F46; border: 1px solid #6EE7B7; }
-            .status-cancelled { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; }
-            .notes-section {
-              margin: 15px 0;
-            }
-            .note-box {
-              padding: 10px;
-              border: 1px solid #333;
-              margin-bottom: 10px;
-              background: #fff;
-            }
-            .note-label {
-              font-weight: 700;
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 12px;
               font-size: 9px;
-              margin-bottom: 5px;
-              text-transform: uppercase;
-            }
-            .note-content {
-              font-size: 9px;
-              line-height: 1.4;
-            }
-            .manager-note {
-              background: #FEF3C7;
-              border-color: #F59E0B;
-            }
-            .items-section {
-              margin: 15px 0;
-            }
-            .items-section h3 {
-              font-size: 12px;
-              font-weight: 700;
-              margin-bottom: 10px;
-              text-transform: uppercase;
-            }
-            .item-card {
               border: 1px solid #333;
-              margin-bottom: 8px;
+            }
+            th, td {
+              padding: 6px 4px;
+              text-align: left;
+              border: 1px solid #333;
+              vertical-align: middle;
+            }
+            th {
               background: #fff;
+              font-weight: 700;
+              font-size: 10px;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+            }
+            tr {
               page-break-inside: avoid;
-            }
-            .item-card-header {
-              display: flex;
-              align-items: center;
-              gap: 10px;
-              padding: 8px 12px;
-              background: #f5f5f5;
-              border-bottom: 1px solid #333;
-            }
-            .item-number {
-              font-weight: 700;
-              font-size: 10px;
-              min-width: 25px;
-            }
-            .item-name {
-              flex: 1;
-              font-weight: 600;
-              font-size: 10px;
-            }
-            .usage-badge {
-              padding: 2px 8px;
-              border-radius: 4px;
-              font-size: 8px;
-              font-weight: 600;
-              text-transform: uppercase;
-            }
-            .usage-salon {
-              background: #E9D5FF;
-              color: #6B21A8;
-              border: 1px solid #C084FC;
-            }
-            .usage-otc {
-              background: #DBEAFE;
-              color: #1E40AF;
-              border: 1px solid #93C5FD;
-            }
-            .item-card-body {
-              padding: 10px 12px;
-            }
-            .item-row {
-              display: flex;
-              justify-content: space-between;
-              padding: 4px 0;
-              border-bottom: 1px dotted #ddd;
-            }
-            .item-row:last-child {
-              border-bottom: none;
-            }
-            .item-row.total-row {
-              margin-top: 5px;
-              padding-top: 8px;
-              border-top: 2px solid #333;
-              border-bottom: none;
-            }
-            .item-row .item-label {
-              font-weight: 600;
-              font-size: 9px;
-            }
-            .item-row .item-value {
-              font-size: 9px;
-            }
-            .item-row .item-value.quantity {
-              font-weight: 700;
-              font-size: 10px;
-            }
-            .item-row.total-row .item-label {
-              font-size: 10px;
-              font-weight: 700;
-            }
-            .item-row.total-row .item-value {
-              font-size: 11px;
-              font-weight: 700;
-            }
-            .empty-state {
-              padding: 20px;
-              text-align: center;
-              color: #666;
-              border: 1px solid #ddd;
-              background: #f9f9f9;
-            }
-            .order-total {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              padding: 12px 15px;
-              background: #fff;
-              border: 2px solid #333;
-              margin: 15px 0;
-            }
-            .order-total-label {
-              font-size: 12px;
-              font-weight: 700;
-              text-transform: uppercase;
-            }
-            .order-total-value {
-              font-size: 14px;
-              font-weight: 700;
-            }
-            .summary-stats {
-              display: grid;
-              grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-              gap: 10px;
-              margin: 15px 0;
-            }
-            .stat-box {
-              text-align: center;
-              padding: 12px;
-              background: #fff;
-              border: 1px solid #333;
-            }
-            .stat-value {
-              font-size: 18px;
-              font-weight: 700;
-              color: #000;
-              margin-bottom: 3px;
-            }
-            .stat-label {
-              font-size: 9px;
-              color: #000;
-              text-transform: uppercase;
-              letter-spacing: 0.5px;
-              font-weight: 600;
-            }
-            .orders-list {
-              margin: 15px 0;
-            }
-            .order-card {
-              border: 1px solid #333;
-              margin-bottom: 10px;
-              background: #fff;
-              page-break-inside: avoid;
-            }
-            .order-card-header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              padding: 8px 12px;
-              background: #f5f5f5;
-              border-bottom: 1px solid #333;
-            }
-            .order-number {
-              font-weight: 700;
-              font-size: 10px;
-              margin-right: 8px;
-            }
-            .order-id {
-              font-family: monospace;
-              font-size: 9px;
-              font-weight: 600;
-            }
-            .order-card-body {
-              padding: 10px 12px;
-            }
-            .order-card-row {
-              display: flex;
-              justify-content: space-between;
-              padding: 4px 0;
-              border-bottom: 1px dotted #ddd;
-            }
-            .order-card-row:last-child {
-              border-bottom: none;
-            }
-            .order-card-row.total {
-              margin-top: 5px;
-              padding-top: 8px;
-              border-top: 2px solid #333;
-              border-bottom: none;
-            }
-            .order-card-row .label {
-              font-weight: 600;
-              font-size: 9px;
-            }
-            .order-card-row .value {
-              font-size: 9px;
-            }
-            .order-card-row.total .label {
-              font-size: 10px;
-              font-weight: 700;
-            }
-            .order-card-row.total .value {
-              font-size: 11px;
-              font-weight: 700;
             }
             .grand-total {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              padding: 12px 15px;
-              background: #fff;
-              border: 2px solid #333;
-              margin: 15px 0;
-            }
-            .grand-total-label {
-              font-size: 12px;
+              background: #f0f0f0;
               font-weight: 700;
-              text-transform: uppercase;
-            }
-            .grand-total-value {
-              font-size: 14px;
-              font-weight: 700;
+              border-top: 2px solid #000;
             }
             .footer {
               margin-top: 20px;
-              padding-top: 10px;
+              padding-top: 12px;
               border-top: 2px solid #333;
-              font-size: 8px;
+              font-size: 10px;
             }
             .footer-info {
               display: grid;
               grid-template-columns: 1fr 1fr;
-              gap: 10px;
-              margin-bottom: 10px;
+              gap: 16px;
+              margin-bottom: 12px;
             }
             .footer-left {
               text-align: left;
@@ -2101,35 +2077,123 @@ const Inventory = () => {
             }
             .footer-center {
               text-align: center;
-              margin-top: 8px;
-              padding-top: 8px;
-              border-top: 1px solid #ccc;
               color: #666;
+              margin-top: 8px;
+              font-size: 10px;
             }
             .footer-center p {
-              margin: 3px 0;
+              margin: 2px 0;
+            }
+            .page-number {
+              position: absolute;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 10px;
+              font-weight: 600;
+              height: 20px;
             }
           </style>
         </head>
         <body>
-          ${summaryPage}
-          ${orderPages}
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Purchase Orders Report</h2>
+            <p><strong>Generated:</strong> ${format(new Date(), 'MMM dd, yyyy HH:mm')}</p>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${filtersText}</div>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">#</th>
+                <th>ORDER ID</th>
+                <th>ORDER DATE</th>
+                <th>SUPPLIER</th>
+                <th style="text-align: center;">ITEMS</th>
+                <th>EXPECTED DELIVERY</th>
+                <th style="text-align: right;">TOTAL AMOUNT</th>
+                <th style="text-align: center;">STATUS</th>
+                <th>CREATED BY</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+              <tr class="grand-total">
+                <td colspan="6" style="text-align: left; padding: 8px 6px; font-size: 11px;">GRAND TOTAL:</td>
+                <td style="text-align: right; padding: 8px 6px; font-size: 11px;">₱${formatCurrency(totalAmount).replace('₱', '')}</td>
+                <td colspan="2"></td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : 'Branch Manager'}<br/>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br/>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p>Purchase Orders Report</p>
+              <p>Total Orders: ${filteredOrders.length}</p>
+            </div>
+          </div>
+          
+          <div id="pageNumbers"></div>
+          
+          <script>
+            window.addEventListener('load', function() {
+              setTimeout(function() {
+                // Calculate pages for A4 landscape
+                const pageHeight = 794;
+                const topMargin = 38;
+                const bottomMargin = 72;
+                const usableHeight = pageHeight - topMargin - bottomMargin;
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / usableHeight));
+                
+                // Create page numbers for each page
+                const pageNumbersContainer = document.getElementById('pageNumbers');
+                for (let i = 1; i <= totalPages; i++) {
+                  const pageNum = document.createElement('div');
+                  pageNum.className = 'page-number';
+                  pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+                  pageNum.style.top = ((pageHeight * i) - bottomMargin - 70) + 'px';
+                  pageNumbersContainer.appendChild(pageNum);
+                }
+                
+                setTimeout(function() {
+                  window.print();
+                  window.onafterprint = function() {
+                    window.close();
+                  };
+                }, 100);
+              }, 250);
+            });
+          </script>
         </body>
       </html>
     `;
 
     // Open print window
     const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to print the report');
+      return;
+    }
+    
     printWindow.document.write(printContent);
     printWindow.document.close();
-    printWindow.focus();
-
-    // Wait for content to load, then print
-    setTimeout(() => {
-      printWindow.print();
-    }, 500);
   };
-
   const handlePrintAnalytics = () => {
     // Determine which data to print based on selected tab
     let dataToShow = [];
@@ -2177,57 +2241,124 @@ const Inventory = () => {
 
     // Generate table rows based on selected tab
     let tableRows = '';
+    let grandTotalRow = '';
     
     if (selectedAnalyticsTab === 'topSelling') {
-      tableRows = dataToShow.map((item, index) => `
+      let totalQuantity = 0;
+      let totalRevenue = 0;
+      let totalProfit = 0;
+      
+      tableRows = dataToShow.map((item, index) => {
+        totalQuantity += item.quantitySold;
+        totalRevenue += item.revenue;
+        totalProfit += item.profit;
+        
+        return `
         <tr>
           <td>${index + 1}</td>
-          <td>${item.name}</td>
+          <td>${item.productName || 'Unknown'}</td>
           <td class="text-right">${item.quantitySold}</td>
           <td class="text-right">${formatCurrency(item.revenue)}</td>
           <td class="text-right">${formatCurrency(item.profit)}</td>
           <td class="text-right">${item.margin.toFixed(1)}%</td>
         </tr>
-      `).join('');
+      `}).join('');
+      
+      grandTotalRow = `
+        <tr class="grand-total">
+          <td colspan="2" style="text-align: left; padding: 8px 6px; font-size: 11px; font-weight: 700;">GRAND TOTAL:</td>
+          <td class="text-right" style="padding: 8px 6px; font-size: 11px; font-weight: 700;">${totalQuantity}</td>
+          <td class="text-right" style="padding: 8px 6px; font-size: 11px; font-weight: 700;">${formatCurrency(totalRevenue)}</td>
+          <td class="text-right" style="padding: 8px 6px; font-size: 11px; font-weight: 700;">${formatCurrency(totalProfit)}</td>
+          <td></td>
+        </tr>
+      `;
     } else if (selectedAnalyticsTab === 'lowSelling') {
-      tableRows = dataToShow.map((item, index) => `
+      let totalQuantity = 0;
+      let totalRevenue = 0;
+      
+      tableRows = dataToShow.map((item, index) => {
+        totalQuantity += item.quantitySold;
+        totalRevenue += item.revenue;
+        
+        return `
         <tr>
           <td>${index + 1}</td>
-          <td>${item.name}</td>
+          <td>${item.productName || 'Unknown'}</td>
           <td class="text-right">${item.quantitySold}</td>
           <td class="text-right">${formatCurrency(item.revenue)}</td>
           <td class="text-right">${item.daysSinceLastSale || 'N/A'}</td>
         </tr>
-      `).join('');
+      `}).join('');
+      
+      grandTotalRow = `
+        <tr class="grand-total">
+          <td colspan="2" style="text-align: left; padding: 8px 6px; font-size: 11px; font-weight: 700;">GRAND TOTAL:</td>
+          <td class="text-right" style="padding: 8px 6px; font-size: 11px; font-weight: 700;">${totalQuantity}</td>
+          <td class="text-right" style="padding: 8px 6px; font-size: 11px; font-weight: 700;">${formatCurrency(totalRevenue)}</td>
+          <td></td>
+        </tr>
+      `;
     } else if (selectedAnalyticsTab === 'lowStock') {
-      tableRows = dataToShow.map((item) => `
+      let totalCurrentStock = 0;
+      
+      tableRows = dataToShow.map((item) => {
+        totalCurrentStock += item.currentStock || 0;
+        
+        return `
         <tr>
-          <td>${item.name}</td>
+          <td>${item.productName || item.name || 'Unknown'}</td>
           <td class="text-right">${item.currentStock}</td>
           <td class="text-right">${item.minStock}</td>
           <td>${item.status}</td>
           <td>${item.lastRestocked ? format(new Date(item.lastRestocked), 'MMM dd, yyyy') : 'N/A'}</td>
         </tr>
-      `).join('');
+      `}).join('');
+      
+      grandTotalRow = `
+        <tr class="grand-total">
+          <td style="text-align: left; padding: 8px 6px; font-size: 11px; font-weight: 700;">GRAND TOTAL:</td>
+          <td class="text-right" style="padding: 8px 6px; font-size: 11px; font-weight: 700;">${totalCurrentStock}</td>
+          <td colspan="3"></td>
+        </tr>
+      `;
     } else if (selectedAnalyticsTab === 'highStock') {
-      tableRows = dataToShow.map((item) => `
+      let totalCurrentStock = 0;
+      let totalExcess = 0;
+      
+      tableRows = dataToShow.map((item) => {
+        totalCurrentStock += item.currentStock || 0;
+        totalExcess += item.excess || 0;
+        
+        return `
         <tr>
-          <td>${item.name}</td>
+          <td>${item.productName || item.name || 'Unknown'}</td>
           <td class="text-right">${item.currentStock}</td>
           <td class="text-right">${item.maxStock}</td>
           <td class="text-right">${item.excess}</td>
           <td class="text-right">${item.daysInStock || 'N/A'}</td>
         </tr>
-      `).join('');
+      `}).join('');
+      
+      grandTotalRow = `
+        <tr class="grand-total">
+          <td style="text-align: left; padding: 8px 6px; font-size: 11px; font-weight: 700;">GRAND TOTAL:</td>
+          <td class="text-right" style="padding: 8px 6px; font-size: 11px; font-weight: 700;">${totalCurrentStock}</td>
+          <td></td>
+          <td class="text-right" style="padding: 8px 6px; font-size: 11px; font-weight: 700;">${totalExcess}</td>
+          <td></td>
+        </tr>
+      `;
     } else if (selectedAnalyticsTab === 'anomalies') {
       tableRows = dataToShow.map((item) => `
         <tr>
-          <td>${item.productName}</td>
+          <td>${item.productName || 'Unknown'}</td>
           <td>${item.type}</td>
           <td>${item.description}</td>
           <td>${item.severity}</td>
         </tr>
       `).join('');
+      // No grand total for anomalies
     }
 
     // Create print content
@@ -2309,6 +2440,11 @@ const Inventory = () => {
             tr:nth-child(even) {
               background-color: #f9f9f9;
             }
+            .grand-total {
+              background: #f0f0f0;
+              font-weight: 700;
+              border-top: 2px solid #000;
+            }
             .text-right { text-align: right; }
             .footer {
               margin-top: 12px;
@@ -2359,6 +2495,7 @@ const Inventory = () => {
             </thead>
             <tbody>
               ${tableRows}
+              ${grandTotalRow}
             </tbody>
           </table>
           
@@ -3168,7 +3305,7 @@ const Inventory = () => {
                 <p className="text-red-600">{error}</p>
               </div>
             ) : (
-        <div className="overflow-x-auto" ref={printRef}>
+        <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -3447,7 +3584,7 @@ const Inventory = () => {
             </div>
           ) : (
                 <Card className="p-6">
-              <div className="overflow-x-auto" ref={printRef}>
+              <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>

@@ -233,8 +233,11 @@ class ThermalPrinterService {
 
   /**
    * Print a complete receipt
+   * @param {Object} billData - Bill/transaction data
+   * @param {Object} branchData - Branch information
+   * @param {string} copyType - Copy type label ('MERCHANT\'S COPY' or 'CUSTOMER\'S COPY')
    */
-  async printReceipt(billData, branchData) {
+  async printReceipt(billData, branchData, copyType = null) {
     if (!this.isConnected) {
       throw new Error('Printer not connected. Please connect first.');
     }
@@ -245,6 +248,13 @@ class ThermalPrinterService {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       const width = 32; // 58mm paper is typically 32 characters
+
+      // Copy Type Label (if provided) - Normal size, bold, centered
+      if (copyType) {
+        await this.printLine(copyType, { center: true, bold: true });
+        await this.printSeparator('=', width);
+        await this.feedPaper(1);
+      }
 
       // Header - Salon Name
       await this.printLine("David's Salon", { center: true, bold: true });
@@ -448,8 +458,7 @@ class ThermalPrinterService {
 
       await this.printSeparator('-', width);
 
-      // FOOTER
-      await this.printLine('FOOTER', { bold: true });
+      // Footer section
       await this.printLine('Thank you for choosing', { center: true });
       await this.printLine("David's Salon!", { center: true, bold: true });
       await this.printLine('This serves as your', { center: true });

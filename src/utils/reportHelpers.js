@@ -108,6 +108,10 @@ export const generateReportStyles = () => {
           counter-reset: page 1;
         }
         
+        header, footer {
+          display: none;
+        }
+        
         .report-header {
           text-align: center;
           margin-bottom: 20px;
@@ -176,8 +180,13 @@ export const generateReportStyles = () => {
           flex: 1;
         }
         
+        /* Page number styling - content will be injected by JavaScript */
+        .page-number {
+          font-weight: 600;
+        }
+        
         .page-number::before {
-          content: "Page " counter(page);
+          content: "Page 1";
         }
         
         table {
@@ -271,6 +280,25 @@ export const generatePrintableReport = ({
         <title>${title}</title>
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
         ${generateReportStyles()}
+        <script>
+          // Calculate page numbers after document loads
+          window.addEventListener('load', function() {
+            setTimeout(function() {
+              // Calculate total pages based on content height and page size
+              // Letter size: 11 inches height, minus margins (0.4in top + 0.75in bottom = 1.15in)
+              // Usable height per page: 11 - 1.15 = 9.85 inches
+              // At 96 DPI: 9.85 * 96 = 945.6 pixels per page
+              const pageHeight = 945;
+              const contentHeight = document.body.scrollHeight;
+              const totalPages = Math.max(1, Math.ceil(contentHeight / pageHeight));
+              
+              // Inject the total pages directly into CSS using page counter
+              const printStyle = document.createElement('style');
+              printStyle.textContent = '.page-number::before { content: "Page " counter(page) " of ' + totalPages + '"; } body { counter-reset: page 1; }';
+              document.head.appendChild(printStyle);
+            }, 250);
+          });
+        </script>
       </head>
       <body>
         ${generateReportHeader(title, filters)}

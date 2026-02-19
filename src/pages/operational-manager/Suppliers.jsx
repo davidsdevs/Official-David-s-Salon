@@ -381,6 +381,12 @@ const Suppliers = () => {
                 size: A4 portrait;
                 margin: 0.4in 0.4in 0.75in 0.4in;
               }
+              body {
+                margin: 0;
+              }
+              header, footer {
+                display: none;
+              }
             }
             * {
               margin: 0;
@@ -587,12 +593,12 @@ const Suppliers = () => {
           </div>
     `;
 
-    filteredSuppliers.forEach(supplier => {
+    filteredSuppliers.forEach((supplier, index) => {
       const products = supplierProducts[supplier.id] || [];
       htmlContent += `
         <div class="supplier-card">
           <div class="supplier-header">
-            <div class="supplier-name">${supplier.name}</div>
+            <div class="supplier-name"><strong>#${index + 1}</strong> - ${supplier.name}</div>
             <span class="status-badge">
               ${supplier.isActive ? 'Active' : 'Inactive'}
             </span>
@@ -712,6 +718,12 @@ const Suppliers = () => {
               @page {
                 size: A4 portrait;
                 margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+              body {
+                margin: 0;
+              }
+              header, footer {
+                display: none;
               }
             }
             * {

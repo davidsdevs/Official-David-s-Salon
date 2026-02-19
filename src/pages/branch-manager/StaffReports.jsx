@@ -548,6 +548,35 @@ const StaffReports = () => {
   // Print Components - Always rendered but hidden
   const PrintSchedulesReport = () => (
     <div ref={schedulesPrintRef} style={{ display: 'none' }}>
+      <style>{`
+        @media print {
+          @page {
+            margin: 0.4in 0.4in 0.75in 0.4in;
+          }
+          body {
+            counter-reset: page 1;
+            margin: 0;
+          }
+          header, footer {
+            display: none;
+          }
+          .print-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 10px 0.4in;
+            border-top: 2px solid #333;
+            font-size: 8pt;
+            background: #fff;
+            display: flex;
+            justify-content: center;
+          }
+          .page-number::before {
+            content: "Page " counter(page);
+          }
+        }
+      `}</style>
       <div className="p-6">
         <div className="text-center mb-4 border-b pb-3">
           <h1 className="text-2xl font-bold">Schedule Report</h1>
@@ -557,6 +586,7 @@ const StaffReports = () => {
       <table className="w-full text-xs border-collapse">
         <thead>
           <tr className="bg-gray-100">
+            <th className="border p-2 text-center" style={{ width: '40px' }}>#</th>
             <th className="border p-2 text-left">Employee</th>
             <th className="border p-2 text-left">Day</th>
             <th className="border p-2 text-left">Start Time</th>
@@ -566,11 +596,12 @@ const StaffReports = () => {
           </tr>
         </thead>
         <tbody>
-          {schedules.map((schedule) => {
+          {schedules.map((schedule, index) => {
             const employee = staff.find(s => (s.id || s.uid) === schedule.employeeId);
             
             return (
               <tr key={schedule.id}>
+                <td className="border p-2 text-center">{index + 1}</td>
                 <td className="border p-2">{employee ? getFullName(employee) : 'Unknown'}</td>
                 <td className="border p-2">{schedule.dayOfWeek || 'N/A'}</td>
                 <td className="border p-2">{schedule.startTime || 'N/A'}</td>
@@ -585,6 +616,21 @@ const StaffReports = () => {
         <div className="mt-4 text-xs text-gray-500 text-center">
           Total Schedules: {schedules.length} | Active: {schedules.filter(s => s.isActive !== false).length}
         </div>
+        <div className="print-footer">
+          <div className="page-number"></div>
+        </div>
+        <script>{`
+          window.addEventListener('load', function() {
+            setTimeout(function() {
+              const pageHeight = 945;
+              const contentHeight = document.body.scrollHeight;
+              const totalPages = Math.max(1, Math.ceil(contentHeight / pageHeight));
+              const style = document.createElement('style');
+              style.textContent = '.page-number::before { content: "Page " counter(page) " of ' + totalPages + '"; }';
+              document.head.appendChild(style);
+            }, 250);
+          });
+        `}</script>
       </div>
     </div>
   );
@@ -604,6 +650,33 @@ const StaffReports = () => {
           }
           .lending-report * {
             font-family: 'Poppins', sans-serif;
+          }
+          @media print {
+            @page {
+              margin: 0.4in 0.4in 0.75in 0.4in;
+            }
+            body {
+              counter-reset: page 1;
+              margin: 0;
+            }
+            header, footer {
+              display: none;
+            }
+            .print-footer {
+              position: fixed;
+              bottom: 0;
+              left: 0;
+              right: 0;
+              padding: 10px 0.4in;
+              border-top: 2px solid #333;
+              font-size: 8pt;
+              background: #fff;
+              display: flex;
+              justify-center;
+            }
+            .page-number::before {
+              content: "Page " counter(page);
+            }
           }
         `}</style>
         <div className="lending-report p-8 bg-white">
@@ -637,6 +710,9 @@ const StaffReports = () => {
                 <table className="w-full border-collapse" style={{ fontFamily: "'Poppins', sans-serif" }}>
                   <thead>
                     <tr className="bg-[#160B53] text-white">
+                      <th className="border border-gray-300 px-4 py-3 text-center text-sm font-semibold" style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 600, width: '40px' }}>
+                        #
+                      </th>
                       <th className="border border-gray-300 px-4 py-3 text-left text-sm font-semibold" style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 600 }}>
                         Stylist
                       </th>
@@ -666,6 +742,9 @@ const StaffReports = () => {
                         key={lending.id} 
                         className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
                       >
+                        <td className="border border-gray-200 px-4 py-3 text-sm text-gray-900 text-center" style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 600 }}>
+                          {index + 1}
+                        </td>
                         <td className="border border-gray-200 px-4 py-3 text-sm text-gray-900" style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 400 }}>
                           {lending.stylistName || 'Unknown'}
                         </td>
@@ -721,6 +800,21 @@ const StaffReports = () => {
               </div>
             </>
           )}
+          <div className="print-footer">
+            <div className="page-number"></div>
+          </div>
+          <script>{`
+            window.addEventListener('load', function() {
+              setTimeout(function() {
+                const pageHeight = 945;
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / pageHeight));
+                const style = document.createElement('style');
+                style.textContent = '.page-number::before { content: "Page " counter(page) " of ' + totalPages + '"; }';
+                document.head.appendChild(style);
+              }, 250);
+            });
+          `}</script>
         </div>
       </div>
     );

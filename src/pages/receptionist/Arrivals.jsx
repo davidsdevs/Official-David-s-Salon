@@ -147,7 +147,29 @@ const ReceptionistArrivals = () => {
   const [completedBill, setCompletedBill] = useState(null);
   const [showReprintConfirm, setShowReprintConfirm] = useState(false);
   const [reprintingReceipt, setReprintingReceipt] = useState(false);
+  const [systemSettings, setSystemSettings] = useState({ printCustomerCopy: true }); // Receipt settings
   const receiptRef = useRef(null);
+
+  // Load system settings for receipt printing
+  useEffect(() => {
+    const loadSystemSettings = async () => {
+      try {
+        const { getSystemSettings } = await import('../../services/systemSettingsService');
+        const settings = await getSystemSettings();
+        console.log('📋 Arrivals - Loaded system settings:', settings);
+        console.log('📋 Arrivals - printCustomerCopy value:', settings?.printCustomerCopy);
+        // Ensure printCustomerCopy defaults to true if not set
+        setSystemSettings({
+          ...settings,
+          printCustomerCopy: settings?.printCustomerCopy !== false // Default to true unless explicitly false
+        });
+      } catch (error) {
+        console.error('Error loading system settings:', error);
+        setSystemSettings({ printCustomerCopy: true }); // Default to enabled
+      }
+    };
+    loadSystemSettings();
+  }, []);
 
   useEffect(() => {
     console.log('🔄 useEffect triggered, userBranch:', userBranch, 'type:', typeof userBranch);
@@ -243,7 +265,8 @@ const ReceptionistArrivals = () => {
         change: completedBill.change || 0
       };
       
-      await thermalPrinter.printReceipt(billData, branchData);
+      // Print as Customer's Copy (reprint is for customer)
+      await thermalPrinter.printReceipt(billData, branchData, 'CUSTOMER\'S COPY');
       toast.success('Receipt printed successfully!');
       setShowReprintConfirm(false);
     } catch (error) {
@@ -2217,24 +2240,34 @@ const ReceptionistArrivals = () => {
                 <Eye className="w-5 h-5" />
                 Preview
               </button>
-              <button
-                type="button"
-                onClick={() => setShowReprintConfirm(true)}
-                disabled={!thermalPrinter.isConnected}
-                className={`flex-1 px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2 ${
-                  thermalPrinter.isConnected 
-                    ? 'bg-purple-600 text-white hover:bg-purple-700' 
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-                title={thermalPrinter.isConnected ? 'Print via Bluetooth' : 'Printer not connected'}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="6 9 6 2 18 2 18 9"></polyline>
-                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-                  <rect x="6" y="14" width="12" height="8"></rect>
-                </svg>
-                Print Receipt
-              </button>
+              {/* Print Receipt button - only show if customer copy printing is enabled */}
+              {(() => {
+                console.log('🖨️ Arrivals - Rendering Print Receipt button check:', {
+                  systemSettings,
+                  printCustomerCopy: systemSettings.printCustomerCopy,
+                  shouldShow: systemSettings.printCustomerCopy
+                });
+                return systemSettings.printCustomerCopy;
+              })() && (
+                <button
+                  type="button"
+                  onClick={() => setShowReprintConfirm(true)}
+                  disabled={!thermalPrinter.isConnected}
+                  className={`flex-1 px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2 ${
+                    thermalPrinter.isConnected 
+                      ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                  title={thermalPrinter.isConnected ? 'Print via Bluetooth' : 'Printer not connected'}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                    <rect x="6" y="14" width="12" height="8"></rect>
+                  </svg>
+                  Print Receipt
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

@@ -353,7 +353,6 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
 
       <div className="border-t border-dashed border-gray-400 my-2"></div>
 
-      {/* FOOTER */}
       <div className="text-center text-xs space-y-1">
         <div className="font-bold">Thank you for choosing David's Salon!</div>
         <div>This serves as your official receipt.</div>

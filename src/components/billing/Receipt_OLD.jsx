@@ -498,7 +498,6 @@ const Receipt = forwardRef(({ bill, branch }, ref) => {
 
       {/* ======================= FOOTER ====================== */}
       <div className="text-xs border-t-2 border-gray-800 pt-3">
-        <div className="font-bold mb-2">FOOTER</div>
         
         <div className="text-center space-y-1">
           <p className="font-bold">{systemSettings?.receiptFooter || 'Thank you for your purchase!'}</p>

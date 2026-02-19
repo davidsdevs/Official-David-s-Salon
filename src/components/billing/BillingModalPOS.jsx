@@ -36,6 +36,23 @@ const BillingModalPOS = ({
 }) => {
   const { userBranch, userData } = useAuth();
   const [branchData, setBranchData] = useState(null);
+  const [systemSettings, setSystemSettings] = useState({ printCustomerCopy: true }); // Receipt settings
+
+  // Load system settings for receipt printing
+  useEffect(() => {
+    const loadSystemSettings = async () => {
+      try {
+        const { getSystemSettings } = await import('../../services/systemSettingsService');
+        const settings = await getSystemSettings();
+        setSystemSettings(settings);
+      } catch (error) {
+        console.error('Error loading system settings:', error);
+        // Default to printing customer copy if settings can't be loaded
+        setSystemSettings({ printCustomerCopy: true });
+      }
+    };
+    loadSystemSettings();
+  }, []);
 
   // Helper for currency formatting
   const formatCurrency = (amount) => {
@@ -2410,14 +2427,28 @@ const BillingModalPOS = ({
       if (result && result.id) {
         const billWithDetails = { ...pendingBillData, ...result, createdAt: new Date() };
 
-        // Auto-print to thermal printer if connected
+        // Set completed bill for receipt printing
+        setCompletedBill(billWithDetails);
+
+        // Auto-print Merchant's Copy (always printed)
+        // Small delay to ensure state is updated
+        setTimeout(async () => {
+          try {
+            await printReceiptCopy('MERCHANT\'S COPY');
+            toast.success('Merchant\'s copy printed', { icon: '🖨️', duration: 1500 });
+          } catch (printError) {
+            console.error('Error printing merchant copy:', printError);
+            toast.error('Failed to print merchant copy');
+          }
+        }, 100);
+
+        // Auto-print Merchant's Copy to thermal printer if connected
         if (printerConnected) {
           try {
-            await thermalPrinter.printReceipt(billWithDetails, branchData);
-            toast.success('Receipt printed!', { icon: '🖨️', duration: 1500 });
+            await thermalPrinter.printReceipt(billWithDetails, branchData, 'MERCHANT\'S COPY');
+            console.log('✅ Thermal printer: Merchant\'s copy printed');
           } catch (printError) {
-            console.error('Print error:', printError);
-            toast.error('Print failed - check printer connection');
+            console.error('Thermal print error:', printError);
           }
         }
 
@@ -2434,21 +2465,64 @@ const BillingModalPOS = ({
     }
   };
 
-  // Print receipt (manual)
-  const handlePrintReceipt = () => {
-    if (receiptRef.current) {
+  // Print receipt (manual) - Customer's Copy only
+  const handlePrintReceipt = async () => {
+    if (!receiptRef.current) return;
+
+    // Check if customer copy printing is enabled
+    if (!systemSettings.printCustomerCopy) {
+      toast.error('Customer copy printing is disabled in system settings');
+      return;
+    }
+
+    try {
+      // Print Customer's Copy to browser
+      await printReceiptCopy('CUSTOMER\'S COPY');
+      
+      // Print Customer's Copy to thermal printer if connected
+      if (printerConnected && completedBill) {
+        try {
+          await thermalPrinter.printReceipt(completedBill, branchData, 'CUSTOMER\'S COPY');
+          console.log('✅ Thermal printer: Customer\'s copy printed');
+        } catch (thermalError) {
+          console.error('Thermal print error:', thermalError);
+          // Don't show error to user - browser print already succeeded
+        }
+      }
+      
+      toast.success('Customer\'s copy printed successfully');
+    } catch (error) {
+      console.error('Error printing receipt:', error);
+      toast.error('Failed to print receipt');
+    }
+  };
+
+  // Helper function to print a single receipt copy
+  const printReceiptCopy = (copyType) => {
+    return new Promise((resolve) => {
       const printContents = receiptRef.current.innerHTML;
       const printWindow = window.open('', '_blank');
       printWindow.document.write(`
         <html>
           <head>
-            <title>Receipt - ${completedBill?.receiptNumber || 'Transaction'}</title>
+            <title>Receipt - ${completedBill?.receiptNumber || 'Transaction'} - ${copyType}</title>
             <style>
               body { 
                 font-family: 'Courier New', monospace; 
                 padding: 20px;
                 max-width: 400px;
                 margin: 0 auto;
+              }
+              .copy-type-label {
+                text-align: center;
+                font-weight: bold;
+                font-size: 14px;
+                margin-bottom: 15px;
+                letter-spacing: 1px;
+                text-transform: uppercase;
+                padding: 8px;
+                border: 2px solid #000;
+                background-color: #f3f4f6;
               }
               .text-center { text-align: center; }
               .text-right { text-align: right; }
@@ -2495,14 +2569,19 @@ const BillingModalPOS = ({
               }
             </style>
           </head>
-          <body>${printContents}</body>
+          <body>
+            <div class="copy-type-label">${copyType}</div>
+            ${printContents}
+          </body>
         </html>
       `);
       printWindow.document.close();
       setTimeout(() => {
         printWindow.print();
+        printWindow.close();
+        resolve();
       }, 250);
-    }
+    });
   };
 
   // Close receipt modal and billing modal
@@ -4372,6 +4451,17 @@ const BillingModalPOS = ({
           </div>
         )
       }
+
+      {/* Hidden Receipt for Printing */}
+      {completedBill && (
+        <div style={{ position: 'absolute', left: '-9999px' }}>
+          <ReceiptComponent
+            ref={receiptRef}
+            bill={completedBill}
+            branch={branchData}
+          />
+        </div>
+      )}
     </div >
   );
 };

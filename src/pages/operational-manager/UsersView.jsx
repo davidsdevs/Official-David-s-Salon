@@ -339,6 +339,12 @@ const UsersView = () => {
                 size: A4 portrait;
                 margin: 0.4in 0.4in 0.75in 0.4in;
               }
+              body {
+                margin: 0;
+              }
+              header, footer {
+                display: none;
+              }
             }
             * {
               margin: 0;
@@ -516,10 +522,10 @@ const UsersView = () => {
             </div>
           </div>
           
-          ${users.map(user => `
+          ${users.map((user, index) => `
             <div class="user-card">
               <div class="user-header">
-                <div class="user-name">${getFullName(user)}</div>
+                <div class="user-name"><strong>#${index + 1}</strong> - ${getFullName(user)}</div>
                 <span class="status-badge">${user.isActive ? 'Active' : 'Inactive'}</span>
               </div>
               

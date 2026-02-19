@@ -305,13 +305,14 @@ const StaffManagement = () => {
     filters.push(`Inactive: ${filteredStaff.filter(s => !s.isActive).length}`);
     
     // Build table content
-    const tableRows = filteredStaff.map((member) => {
+    const tableRows = filteredStaff.map((member, index) => {
       const roles = member.roles || (member.role ? [member.role] : []);
       const shifts = member.shifts || {};
       const shiftCount = Object.keys(shifts).length;
       
       return `
         <tr>
+          <td style="text-align: center;">${index + 1}</td>
           <td>${getFullName(member)}</td>
           <td>${member.email || 'N/A'}</td>
           <td>${member.phone || 'N/A'}</td>
@@ -327,6 +328,7 @@ const StaffManagement = () => {
       <table>
         <thead>
           <tr>
+            <th style="width: 40px;">#</th>
             <th>Name</th>
             <th>Email</th>
             <th>Phone</th>

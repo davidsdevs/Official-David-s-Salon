@@ -644,7 +644,7 @@ const BranchManagerAppointments = () => {
       }
 
       // Generate appointment rows
-      const appointmentRows = sortedAppointments.map(apt => {
+      const appointmentRows = sortedAppointments.map((apt, index) => {
         const aptDate = apt.appointmentDate?.toDate ? apt.appointmentDate.toDate() : new Date(apt.appointmentDate);
         const dateStr = aptDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         const timeStr = aptDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -664,6 +664,7 @@ const BranchManagerAppointments = () => {
 
         return `
           <tr>
+            <td style="text-align: center; font-weight: 600;">${index + 1}</td>
             <td style="font-weight: 600;">${apt.clientName || 'Unknown Client'}</td>
             <td>${dateStr}</td>
             <td>${timeStr}</td>
@@ -737,11 +738,15 @@ const BranchManagerAppointments = () => {
             @media print {
               @page {
                 size: letter;
-                margin: 0.5in 0.5in;
+                margin: 0.4in 0.4in 0.75in 0.4in;
               }
               body {
                 margin: 0;
                 padding: 0;
+                counter-reset: page 1;
+              }
+              header, footer {
+                display: none;
               }
             }
             * {
@@ -1016,6 +1021,7 @@ const BranchManagerAppointments = () => {
           <table>
             <thead>
               <tr>
+                <th style="width: 40px; text-align: center;">#</th>
                 <th>Client Name</th>
                 <th>Date</th>
                 <th>Time</th>
@@ -1026,7 +1032,7 @@ const BranchManagerAppointments = () => {
               </tr>
             </thead>
             <tbody>
-              ${appointmentRows || '<tr><td colspan="7" style="text-align: center; padding: 40px; font-style: italic;">No appointments found</td></tr>'}
+              ${appointmentRows || '<tr><td colspan="8" style="text-align: center; padding: 40px; font-style: italic;">No appointments found</td></tr>'}
             </tbody>
           </table>
 
@@ -1038,25 +1044,38 @@ const BranchManagerAppointments = () => {
               </div>
               <div class="footer-right">
                 <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
-                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
               </div>
             </div>
             <div class="footer-center">
-              <p style="font-weight: 600; color: #333; font-size: 10px;">Page 1 of 1</p>
+              <p style="font-weight: 600; color: #333; font-size: 10px;"><span class="page-number"></span></p>
               <p>${branchName} - Appointment Report</p>
               <p>Total Records: ${totalAppointments} appointment${totalAppointments !== 1 ? 's' : ''}</p>
             </div>
           </div>
 
           <script>
-            window.onload = function() {
+            window.addEventListener('load', function() {
               setTimeout(function() {
-                window.print();
-                window.onafterprint = function() {
-                  window.close();
-                };
+                // Calculate total pages
+                const pageHeight = 945;
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / pageHeight));
+                
+                // Inject page numbering style
+                const printStyle = document.createElement('style');
+                printStyle.textContent = '.page-number::before { content: "Page " counter(page) " of ' + totalPages + '"; }';
+                document.head.appendChild(printStyle);
+                
+                // Print after calculating pages
+                setTimeout(function() {
+                  window.print();
+                  window.onafterprint = function() {
+                    window.close();
+                  };
+                }, 100);
               }, 250);
-            };
+            });
           </script>
         </body>
         </html>

@@ -30,7 +30,6 @@ import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { getAllServices } from '../../services/serviceManagementService';
 import { Scissors } from 'lucide-react';
-import { exportToExcel } from '../../utils/excelExport';
 import { toast } from 'react-hot-toast';
 
 const Products = () => {
@@ -329,10 +328,16 @@ const Products = () => {
               size: A4 landscape;
               margin: 0.4in 0.4in 0.75in 0.4in;
             }
+            @media print {
+              header, footer {
+                display: none;
+              }
+            }
             * {
               margin: 0;
               padding: 0;
               box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
             }
             body {
               font-family: 'Poppins', Arial, sans-serif;
@@ -393,6 +398,14 @@ const Products = () => {
               text-transform: uppercase;
               border-bottom: 2px solid #000;
             }
+            th.row-number {
+              width: 40px;
+              text-align: center;
+            }
+            td.row-number {
+              text-align: center;
+              font-weight: 600;
+            }
             tr:nth-child(even) {
               background-color: #fff;
             }
@@ -400,40 +413,42 @@ const Products = () => {
               background-color: #fff;
             }
             .text-right { text-align: right; }
-            
-            @media print {
-              .footer {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                padding: 10px 0.4in;
-                border-top: 2px solid #333;
-                font-size: 8px;
-                background: white;
-              }
-              .footer-info {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 10px;
-                margin-bottom: 10px;
-              }
-              .footer-left {
-                text-align: left;
-              }
-              .footer-right {
-                text-align: right;
-              }
-              .footer-center {
-                text-align: center;
-                margin-top: 8px;
-                padding-top: 8px;
-                border-top: 1px solid #ccc;
-                color: #666;
-              }
-              .footer-center p {
-                margin: 3px 0;
-              }
+            .footer {
+              margin-top: 12px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
+              color: #666;
+            }
+            .footer-center p {
+              margin: 3px 0;
+            }
+            .page-number {
+              position: fixed;
+              bottom: 2px;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 9px;
+              color: #000;
             }
           </style>
         </head>
@@ -451,6 +466,7 @@ const Products = () => {
           <table>
             <thead>
               <tr>
+                <th class="row-number">#</th>
                 <th>Product Name</th>
                 <th>Brand</th>
                 <th>Category</th>
@@ -465,15 +481,16 @@ const Products = () => {
               </tr>
             </thead>
             <tbody>
-              ${filteredProducts.map(product => `
+              ${filteredProducts.map((product, index) => `
                 <tr>
+                  <td class="row-number">${index + 1}</td>
                   <td style="font-weight: 600;">${product.name || 'N/A'}</td>
                   <td>${product.brand || 'N/A'}</td>
                   <td>${product.category || 'N/A'}</td>
                   <td style="font-family: monospace; font-size: 8px;">${product.upc || 'N/A'}</td>
                   <td style="font-size: 8px;">${product.description || 'N/A'}</td>
-                  <td class="text-right">₱${(product.otcPrice || 0).toLocaleString()}</td>
-                  <td class="text-right">₱${(product.unitCost || 0).toLocaleString()}</td>
+                  <td class="text-right">₱${(product.otcPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td class="text-right">₱${(product.unitCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   <td class="text-right">${product.commissionPercentage || 0}%</td>
                   <td>${product.status || 'Active'}</td>
                   <td style="font-size: 8px;">${product.isBranchProduct ? 'Branch Product' : product.type || 'N/A'}</td>
@@ -492,20 +509,49 @@ const Products = () => {
               </div>
               <div class="footer-right">
                 <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
-                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
               </div>
             </div>
             <div class="footer-center">
-              <p style="font-weight: 600; font-size: 9px;">Products Report</p>
-              <p>${filteredProducts.length} Products Total</p>
+              <p style="font-weight: 600; font-size: 9px;">Products Report - ${filteredProducts.length} Products Total</p>
             </div>
           </div>
+
+          <div class="page-number" id="pageNumber"></div>
+
+          <script>
+            const pageHeight = 794;
+            const topMargin = 38;
+            const bottomMargin = 72;
+            const contentHeight = pageHeight - topMargin - bottomMargin;
+            
+            const bodyHeight = document.body.scrollHeight;
+            const totalPages = Math.ceil(bodyHeight / contentHeight);
+            
+            const pageNumberDiv = document.getElementById('pageNumber');
+            pageNumberDiv.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+              const pageNum = document.createElement('div');
+              pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+              pageNum.style.position = 'absolute';
+              pageNum.style.bottom = '2px';
+              pageNum.style.left = '0';
+              pageNum.style.right = '0';
+              pageNum.style.textAlign = 'center';
+              pageNum.style.fontSize = '9px';
+              pageNum.style.fontFamily = "'Poppins', Arial, sans-serif";
+              pageNum.style.color = '#000';
+              pageNum.style.top = ((i * contentHeight) + topMargin - 2) + 'px';
+              document.body.appendChild(pageNum);
+            }
+          </script>
         </body>
       </html>
     `;
 
     // Open print preview window
-    const printWindow = window.open('', '_blank', 'width=1200,height=900,scrollbars=yes,resizable=yes');
+    const printWindow = window.open('', '_blank');
     if (!printWindow) {
       toast.error('Please allow pop-ups to generate the PDF report');
       return;
@@ -524,48 +570,138 @@ const Products = () => {
   };
 
   // Export products to Excel
-  const exportProducts = () => {
+  const exportProducts = async () => {
     if (!filteredProducts.length) {
       toast.error('No products to export');
       return;
     }
 
     try {
+      const { 
+        createStyledWorkbook, 
+        addReportHeader, 
+        addFiltersSection, 
+        addSummaryStats, 
+        addDataTable, 
+        addFooter, 
+        setColumnWidths, 
+        saveWorkbook 
+      } = await import('../../utils/excelExport');
+
+      // Create workbook and worksheet
+      const workbook = createStyledWorkbook();
+      const worksheet = workbook.addWorksheet('Products');
+
+      // Define columns
       const headers = [
-        { key: 'imageUrl', label: 'Image URL' },
-        { key: 'name', label: 'Name' },
-        { key: 'brand', label: 'Brand' },
-        { key: 'category', label: 'Category' },
-        { key: 'description', label: 'Description' },
-        { key: 'upc', label: 'UPC' },
-        { key: 'otcPrice', label: 'Price (₱)' },
-        { key: 'unitCost', label: 'Unit Cost (₱)' },
-        { key: 'commissionPercentage', label: 'Commission Percentage (%)' },
-        { key: 'status', label: 'Status' },
-        { key: 'productType', label: 'Product Type' },
-        { key: 'hasServiceMapping', label: 'Used in Services' },
-        { key: 'variants', label: 'Variants' },
-        { key: 'shelfLife', label: 'Shelf Life' }
+        { key: 'rowNum', label: '#', align: 'center' },
+        { key: 'name', label: 'Product Name', align: 'left' },
+        { key: 'brand', label: 'Brand', align: 'left' },
+        { key: 'category', label: 'Category', align: 'left' },
+        { key: 'upc', label: 'UPC', align: 'left' },
+        { key: 'description', label: 'Description', align: 'left' },
+        { key: 'otcPrice', label: 'OTC Price', align: 'right' },
+        { key: 'unitCost', label: 'Unit Cost', align: 'right' },
+        { key: 'commissionPercentage', label: 'Commission %', align: 'right' },
+        { key: 'status', label: 'Status', align: 'center' },
+        { key: 'productType', label: 'Type', align: 'center' },
+        { key: 'hasServiceMapping', label: 'Service Mapped', align: 'center' }
       ];
 
-      // Prepare data with formatted suppliers and additional fields
-      const exportData = filteredProducts.map(product => {
+      // Prepare data with row numbers
+      const exportData = filteredProducts.map((product, index) => {
         return {
-          ...product,
-          imageUrl: product.imageUrl || '',
+          rowNum: index + 1,
+          name: product.name || '',
+          brand: product.brand || '',
+          category: product.category || '',
+          upc: product.upc || '',
+          description: product.description || '',
           otcPrice: product.otcPrice || 0,
           unitCost: product.unitCost || 0,
           commissionPercentage: product.commissionPercentage || 0,
+          status: product.status || 'Active',
           productType: product.isBranchProduct ? 'Branch Product' : 'Service Mapped',
           hasServiceMapping: product.hasServiceMapping ? 'Yes' : 'No'
         };
       });
 
-      exportToExcel(exportData, 'products_export', 'Products', headers);
+      // Build filters text
+      let filtersText = 'All Products';
+      if (searchTerm) filtersText += ` | Search: "${searchTerm}"`;
+      if (selectedCategory && selectedCategory !== 'all') filtersText += ` | Category: ${selectedCategory}`;
+      if (selectedStatus && selectedStatus !== 'all') filtersText += ` | Status: ${selectedStatus}`;
+
+      // Add sections
+      let currentRow = 1;
+      currentRow = addReportHeader(worksheet, 'PRODUCTS REPORT', headers.length);
+      currentRow = addFiltersSection(worksheet, filtersText, headers.length, currentRow);
+      
+      // Add summary stats
+      const stats = [
+        { label: 'Total Products', value: exportData.length.toString() },
+        { label: 'Active Products', value: exportData.filter(p => p.status === 'Active').length.toString() },
+        { label: 'Branch Products', value: exportData.filter(p => p.productType === 'Branch Product').length.toString() },
+        { label: 'Service Mapped', value: exportData.filter(p => p.hasServiceMapping === 'Yes').length.toString() }
+      ];
+      currentRow = addSummaryStats(worksheet, stats, currentRow);
+
+      // Add data table
+      currentRow = addDataTable(worksheet, headers, exportData, currentRow, {
+        otcPrice: '₱#,##0.00',
+        unitCost: '₱#,##0.00',
+        commissionPercentage: '0.0'
+      });
+
+      // Calculate totals for grand total row
+      const totalOtcPrice = exportData.reduce((sum, item) => sum + (item.otcPrice || 0), 0);
+      const totalUnitCost = exportData.reduce((sum, item) => sum + (item.unitCost || 0), 0);
+
+      // Add grand total
+      const grandTotal = {
+        rowNum: '',
+        name: 'GRAND TOTAL:',
+        brand: '',
+        category: '',
+        upc: '',
+        description: '',
+        otcPrice: totalOtcPrice,
+        unitCost: totalUnitCost,
+        commissionPercentage: '',
+        status: '',
+        productType: '',
+        hasServiceMapping: ''
+      };
+      currentRow = addGrandTotal(worksheet, headers, grandTotal, currentRow);
+
+      // Get branch name
+      let branchName = userData?.branchName || 'N/A';
+      if (branchName === 'N/A' && userData?.branchId) {
+        try {
+          const { getBranchById } = await import('../../services/branchService');
+          const branch = await getBranchById(userData.branchId);
+          branchName = branch?.name || branch?.branchName || 'N/A';
+        } catch (error) {
+          console.error('Error fetching branch name:', error);
+          branchName = 'N/A';
+        }
+      }
+
+      // Add footer
+      addFooter(worksheet, userData, branchName, currentRow, headers.length);
+
+      // Set column widths
+      setColumnWidths(worksheet, [5, 30, 15, 15, 15, 35, 12, 12, 12, 12, 15, 15]);
+
+      // Save workbook
+      const filename = `Products_${branchName.replace(/\s+/g, '')}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      await saveWorkbook(workbook, filename);
+
       toast.success('Products exported to Excel successfully');
     } catch (error) {
       console.error('Error exporting products:', error);
-      toast.error('Failed to export products');
+      console.error('Error details:', error.message, error.stack);
+      toast.error(`Failed to export products: ${error.message || 'Unknown error'}`);
     }
   };
 
@@ -875,12 +1011,12 @@ const Products = () => {
 
                   {/* OTC Price */}
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="text-sm font-medium text-green-600">₱{product.otcPrice?.toLocaleString() || '0'}</div>
+                    <div className="text-sm font-medium text-green-600">₱{(product.otcPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                   </td>
 
                   {/* Unit Cost */}
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">₱{product.unitCost?.toLocaleString() || '0'}</div>
+                    <div className="text-sm text-gray-900">₱{(product.unitCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                   </td>
 
                   {/* Commission Percentage */}
@@ -1052,7 +1188,7 @@ const Products = () => {
               <div className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-500">OTC Price</label>
-                  <p className="text-lg font-semibold text-green-600 mt-1">₱{selectedProduct.otcPrice?.toLocaleString() || '0'}</p>
+                  <p className="text-lg font-semibold text-green-600 mt-1">₱{(selectedProduct.otcPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 </div>
                 
                 <div>
@@ -1096,7 +1232,7 @@ const Products = () => {
                 
                 <div>
                   <label className="text-sm font-medium text-gray-500">Unit Cost</label>
-                  <p className="text-lg font-semibold text-gray-900 mt-1">₱{selectedProduct.unitCost?.toLocaleString() || '0'}</p>
+                  <p className="text-lg font-semibold text-gray-900 mt-1">₱{(selectedProduct.unitCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 </div>
                 
                 <div>

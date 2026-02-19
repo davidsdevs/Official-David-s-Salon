@@ -3,13 +3,12 @@
  * View and track stylist commissions from product sales
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Banknote, Calendar, User, Search, Download, Filter, Receipt, Printer, X, Upload, ArrowUp } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import PDFPreviewModal from '../../components/ui/PDFPreviewModal';
 import { formatDate, formatCurrency, formatNumberWithCommas } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 
@@ -18,7 +17,6 @@ const Commissions = () => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showPDFPreview, setShowPDFPreview] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [selectedStylists, setSelectedStylists] = useState([]); // Array for multiple selection
   const [selectedItems, setSelectedItems] = useState([]); // Global filter for services or products
@@ -29,7 +27,6 @@ const Commissions = () => {
   const [endDate, setEndDate] = useState('');
   const [allServices, setAllServices] = useState([]); // All branch services
   const [allProducts, setAllProducts] = useState([]); // All branch products
-  const printRef = useRef(null);
 
   useEffect(() => {
     if (userBranch) {
@@ -514,50 +511,404 @@ const Commissions = () => {
 
 
   const handlePrint = () => {
-    if (!printRef.current) {
-      toast.error('Print content not ready. Please try again.');
-      return;
-    }
-    
-    // Wait for images to load before opening preview
-    const images = printRef.current.querySelectorAll('img');
-    if (images.length > 0) {
-      Promise.all(
-        Array.from(images).map((img) => {
-          if (img.complete && img.naturalHeight !== 0) {
-            return Promise.resolve();
-          }
-          return new Promise((resolve) => {
-            if (img.src && !img.crossOrigin) {
-              img.crossOrigin = 'anonymous';
+    try {
+      // Get branch name from userData
+      const branchName = userData?.branchName || userData?.name || 'Branch';
+      
+      // Build filters display
+      const activeFilters = [];
+      
+      // Date Range - always show first
+      if (startDate && endDate) {
+        activeFilters.push(`Date Range: ${startDate} to ${endDate}`);
+      } else if (startDate) {
+        activeFilters.push(`Date Range: From ${startDate}`);
+      } else if (endDate) {
+        activeFilters.push(`Date Range: Until ${endDate}`);
+      } else {
+        // Calculate from transactions
+        if (filteredTransactions.length > 0) {
+          const dates = filteredTransactions.map(t => {
+            if (t.appointmentDate) {
+              return t.appointmentDate.toDate ? t.appointmentDate.toDate() : new Date(t.appointmentDate);
             }
-            const onLoad = () => {
-              img.removeEventListener('load', onLoad);
-              img.removeEventListener('error', onError);
-              resolve();
-            };
-            const onError = () => {
-              img.removeEventListener('load', onLoad);
-              img.removeEventListener('error', onError);
-              resolve(); // Continue even if image fails
-            };
-            img.addEventListener('load', onLoad);
-            img.addEventListener('error', onError);
-            setTimeout(() => {
-              img.removeEventListener('load', onLoad);
-              img.removeEventListener('error', onError);
-              resolve();
-            }, 3000);
-          });
-        })
-      ).then(() => {
-        // Additional wait to ensure rendering
-        setTimeout(() => {
-          setShowPDFPreview(true);
-        }, 300);
-      });
-    } else {
-      setShowPDFPreview(true);
+            if (t.createdAt) {
+              return t.createdAt.toDate ? t.createdAt.toDate() : new Date(t.createdAt);
+            }
+            return new Date();
+          }).filter(date => !isNaN(date.getTime())).sort((a, b) => a - b);
+          
+          if (dates.length > 0) {
+            const minDate = dates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const maxDate = dates[dates.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            activeFilters.push(`Date Range: ${minDate} to ${maxDate}`);
+          } else {
+            activeFilters.push('Date Range: All Dates');
+          }
+        } else {
+          activeFilters.push('Date Range: All Dates');
+        }
+      }
+      
+      if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+      if (selectedStylists.length > 0) {
+        const stylistNames = selectedStylists.map(id => {
+          const stylist = uniqueStylists.find(s => s.id === id);
+          return stylist ? stylist.name : id;
+        }).join(', ');
+        activeFilters.push(`Stylists: ${stylistNames}`);
+      }
+      if (itemFilterType !== 'all') {
+        activeFilters.push(`Type: ${itemFilterType === 'services' ? 'Services Only' : 'Products Only'}`);
+      }
+      if (selectedItems.length > 0) {
+        activeFilters.push(`Items: ${selectedItems.length} selected`);
+      }
+      if (minCommission || maxCommission) {
+        activeFilters.push(`Commission: ${minCommission ? formatCurrency(parseFloat(minCommission)) : 'Any'} - ${maxCommission ? formatCurrency(parseFloat(maxCommission)) : 'Any'}`);
+      }
+      
+      const printWindow = window.open('', '_blank', 'width=1200,height=800');
+      if (!printWindow) {
+        toast.error('Please allow pop-ups to print the report');
+        return;
+      }
+      
+      // Generate transaction rows
+      const transactionRows = filteredTransactions.map((transaction, index) => {
+        const date = transaction.transactionDate?.toDate 
+          ? formatDate(transaction.transactionDate.toDate(), 'MMM dd, yyyy HH:mm')
+          : formatDate(transaction.transactionDate, 'MMM dd, yyyy HH:mm');
+        const itemName = transaction.itemType === 'service' ? transaction.serviceName : transaction.productName;
+        
+        return `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${date}</td>
+            <td>${transaction.commissionerName}</td>
+            <td>${transaction.itemType === 'service' ? 'Service' : 'Product'}</td>
+            <td>${itemName}</td>
+            <td>${transaction.quantity}</td>
+            <td>₱${formatNumberWithCommas(transaction.unitCost)}</td>
+            <td>${transaction.commissionPercentage}%</td>
+            <td style="font-weight: 600;">₱${formatNumberWithCommas(transaction.commissionPoints)}</td>
+            <td>₱${formatNumberWithCommas(transaction.totalAmount)}</td>
+            <td>${transaction.clientName}</td>
+            <td>${transaction.receiptNumber}</td>
+          </tr>
+        `;
+      }).join('');
+      
+      // Generate commission summary rows
+      const summaryRows = commissionSummary.map((summary, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td style="font-weight: 600;">${summary.stylistName}</td>
+          <td>${summary.transactionCount}</td>
+          <td>₱${formatNumberWithCommas(summary.totalSales)}</td>
+          <td style="font-weight: 600;">₱${formatNumberWithCommas(summary.totalCommission)}</td>
+        </tr>
+      `).join('');
+      
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Commission Report - ${branchName}</title>
+          <meta charset="utf-8">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            @media print {
+              @page {
+                size: A4;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+              }
+              header, footer {
+                display: none;
+              }
+            }
+            * {
+              font-family: 'Poppins', sans-serif;
+              box-sizing: border-box;
+            }
+            body {
+              font-family: 'Poppins', sans-serif;
+              margin: 0;
+              padding: 0;
+              color: #000;
+              background: #fff;
+              line-height: 1.4;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 12px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #000;
+            }
+            .header h1 {
+              font-size: 24px;
+              font-weight: 700;
+              margin: 0 0 6px 0;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0 0 6px 0;
+            }
+            .header p {
+              font-size: 11px;
+              margin: 0;
+            }
+            .filters {
+              background: #f8f9fa;
+              padding: 8px;
+              border: 2px solid #333;
+              margin: 8px 0 12px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 9px;
+              font-weight: 700;
+              margin-bottom: 4px;
+              text-transform: uppercase;
+              letter-spacing: 0.4px;
+            }
+            .filters-content {
+              font-size: 8px;
+              font-weight: 600;
+            }
+            .summary-stats {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 10px;
+              margin-bottom: 12px;
+            }
+            .stat-box {
+              background: #fff;
+              padding: 10px 8px;
+              border: 1px solid #333;
+              text-align: center;
+            }
+            .stat-box .value {
+              font-size: 18px;
+              font-weight: 700;
+              margin-bottom: 4px;
+            }
+            .stat-box .label {
+              font-size: 10px;
+              font-weight: 700;
+              text-transform: uppercase;
+            }
+            .section-title {
+              font-size: 13px;
+              font-weight: 700;
+              margin: 12px 0 6px 0;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 12px;
+              font-size: 10px;
+              border: 1px solid #333;
+            }
+            th, td {
+              padding: 6px 4px;
+              text-align: center;
+              border: 1px solid #333;
+              vertical-align: middle;
+            }
+            th {
+              background: #fff;
+              font-weight: 700;
+              font-size: 11px;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+            }
+            tr {
+              page-break-inside: avoid;
+            }
+            .grand-total {
+              background: #f0f0f0;
+              font-weight: 700;
+              border-top: 2px solid #000;
+            }
+            .footer {
+              margin-top: 20px;
+              padding-top: 12px;
+              border-top: 2px solid #333;
+              font-size: 10px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 16px;
+              margin-bottom: 12px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              color: #666;
+              margin-top: 8px;
+              font-size: 10px;
+            }
+            .footer-center p {
+              margin: 2px 0;
+            }
+            .page-number {
+              position: absolute;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 10px;
+              font-weight: 600;
+              height: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Commissions Report</h2>
+            <p><strong>Generated:</strong> ${formatDate(new Date(), 'MMM dd, yyyy HH:mm')}</p>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">${activeFilters.join(' | ')}</div>
+          </div>
+          
+          <div class="summary-stats">
+            <div class="stat-box">
+              <div class="value">₱${formatNumberWithCommas(totalCommission)}</div>
+              <div class="label">Total Commissions</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">₱${formatNumberWithCommas(totalSales)}</div>
+              <div class="label">Total Sales</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">${filteredTransactions.length}</div>
+              <div class="label">Transactions</div>
+            </div>
+          </div>
+          
+          ${commissionSummary.length > 0 ? `
+            <div class="section-title">Commission Summary</div>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 40px;">#</th>
+                  <th>STYLIST</th>
+                  <th>TRANSACTIONS</th>
+                  <th>TOTAL SALES</th>
+                  <th>TOTAL COMMISSION</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${summaryRows}
+              </tbody>
+            </table>
+          ` : ''}
+          
+          <div class="section-title">Commission Transactions</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px;">#</th>
+                <th>DATE</th>
+                <th>STYLIST</th>
+                <th>TYPE</th>
+                <th>SERVICE/PRODUCT</th>
+                <th>QTY</th>
+                <th>UNIT COST</th>
+                <th>COMM %</th>
+                <th>COMMISSION</th>
+                <th>TOTAL SALE</th>
+                <th>CLIENT</th>
+                <th>RECEIPT #</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${transactionRows}
+              <tr class="grand-total">
+                <td colspan="8" style="text-align: left; padding: 8px 6px; font-size: 11px;">GRAND TOTAL:</td>
+                <td style="padding: 8px 6px; font-size: 11px;">₱${formatNumberWithCommas(totalCommission)}</td>
+                <td style="padding: 8px 6px; font-size: 11px;">₱${formatNumberWithCommas(totalSales)}</td>
+                <td colspan="2"></td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : userData?.email || 'Branch Manager'}<br/>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${formatDate(new Date(), 'MMMM dd, yyyy')}<br/>
+                <strong>Time:</strong> ${formatDate(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p>Commission Report</p>
+              <p>Total Commissions: ₱${formatNumberWithCommas(totalCommission)} | Total Sales: ₱${formatNumberWithCommas(totalSales)} | Transactions: ${filteredTransactions.length}</p>
+            </div>
+          </div>
+          
+          <div id="pageNumbers"></div>
+          
+          <script>
+            window.addEventListener('load', function() {
+              setTimeout(function() {
+                // Calculate pages for A4 portrait
+                // A4 portrait: 210mm x 297mm = 794px x 1122px at 96 DPI
+                // With margins: 0.4in top, 0.75in bottom = 38px top, 72px bottom
+                // Usable height per page: 1122 - 38 - 72 = 1012px
+                const pageHeight = 1122;
+                const topMargin = 38;
+                const bottomMargin = 72;
+                const usableHeight = pageHeight - topMargin - bottomMargin;
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / usableHeight));
+                
+                // Create page numbers for each page
+                const pageNumbersContainer = document.getElementById('pageNumbers');
+                for (let i = 1; i <= totalPages; i++) {
+                  const pageNum = document.createElement('div');
+                  pageNum.className = 'page-number';
+                  pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+                  // Position - 70px above bottom margin
+                  pageNum.style.top = ((pageHeight * i) - bottomMargin - 70) + 'px';
+                  pageNumbersContainer.appendChild(pageNum);
+                }
+                
+                setTimeout(function() {
+                  window.print();
+                  window.onafterprint = function() {
+                    window.close();
+                  };
+                }, 100);
+              }, 250);
+            });
+          </script>
+        </body>
+        </html>
+      `);
+      
+      printWindow.document.close();
+    } catch (error) {
+      console.error('Error generating print report:', error);
+      toast.error('Failed to generate print report');
     }
   };
 
@@ -819,246 +1170,6 @@ const Commissions = () => {
             </table>
         </div>
       </div>
-
-      {/* Print View - Rendered off-screen for PDF generation */}
-      <div ref={printRef} style={{ position: 'fixed', left: '-200%', top: 0, width: '8.5in', zIndex: -1 }}>
-        <style>{`
-          @media print {
-            @page {
-              margin: 0.4in 0.5in;
-              size: letter;
-            }
-            * {
-              color: #000 !important;
-              background: transparent !important;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-            body {
-              margin: 0;
-              padding: 0;
-            }
-            .print-break {
-              page-break-after: always;
-            }
-            .print-avoid-break {
-              page-break-inside: avoid;
-            }
-            table {
-              font-size: 10px;
-              border-collapse: collapse;
-              line-height: 1.4;
-            }
-            th, td {
-              padding: 6px 4px !important;
-              border: 1px solid #333 !important;
-              background: transparent !important;
-              text-align: center !important;
-              vertical-align: middle !important;
-            }
-            thead th {
-              border-bottom: 2px solid #000 !important;
-              font-weight: 700;
-            }
-            tbody tr {
-              border-bottom: 1px solid #333 !important;
-            }
-          }
-        `}</style>
-        <div className="p-4" style={{ fontSize: '10px', padding: '0', lineHeight: '1.4' }}>
-          <div className="text-center mb-4 border-b border-black pb-3" style={{ marginBottom: '12px', paddingBottom: '10px', borderBottom: '2px solid #000' }}>
-            <h1 className="font-bold" style={{ fontSize: '24px', marginBottom: '6px', margin: '0 0 6px 0', fontWeight: '700' }}>DAVID'S SALON</h1>
-            <h2 className="font-bold" style={{ fontSize: '18px', marginBottom: '6px', margin: '0 0 6px 0', fontWeight: '700' }}>Commissions Report</h2>
-            <p style={{ fontSize: '11px', margin: '0' }}><strong>Generated:</strong> {formatDate(new Date(), 'MMM dd, yyyy HH:mm')}</p>
-          </div>
-          
-          {/* Applied Filters Section */}
-          <div style={{ 
-            marginBottom: '12px', 
-            padding: '8px', 
-            border: '2px solid #333', 
-            background: '#f8f9fa',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '9px', fontWeight: '700', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>FILTERS APPLIED</div>
-            <div style={{ fontSize: '8px', fontWeight: '600' }}>
-              {(() => {
-                const filters = [];
-                
-                // Date Range - always show first
-                if (startDate && endDate) {
-                  filters.push(`Date Range: ${startDate} to ${endDate}`);
-                } else if (startDate) {
-                  filters.push(`Date Range: From ${startDate}`);
-                } else if (endDate) {
-                  filters.push(`Date Range: Until ${endDate}`);
-                } else {
-                  // Calculate from transactions
-                  if (filteredTransactions.length > 0) {
-                    const dates = filteredTransactions.map(t => {
-                      if (t.appointmentDate) {
-                        return t.appointmentDate.toDate ? t.appointmentDate.toDate() : new Date(t.appointmentDate);
-                      }
-                      if (t.createdAt) {
-                        return t.createdAt.toDate ? t.createdAt.toDate() : new Date(t.createdAt);
-                      }
-                      return new Date();
-                    }).filter(date => !isNaN(date.getTime())).sort((a, b) => a - b);
-                    
-                    if (dates.length > 0) {
-                      const minDate = dates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                      const maxDate = dates[dates.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                      filters.push(`Date Range: ${minDate} to ${maxDate}`);
-                    } else {
-                      filters.push('Date Range: All Dates');
-                    }
-                  } else {
-                    filters.push('Date Range: All Dates');
-                  }
-                }
-                
-                if (searchTerm) {
-                  filters.push(`Search: "${searchTerm}"`);
-                }
-                if (selectedStylists.length > 0) {
-                  const stylistNames = selectedStylists.map(id => {
-                    const stylist = uniqueStylists.find(s => s.id === id);
-                    return stylist ? stylist.name : id;
-                  }).join(', ');
-                  filters.push(`Stylists: ${stylistNames}`);
-                }
-                if (itemFilterType !== 'all') {
-                  filters.push(`Type: ${itemFilterType === 'services' ? 'Services Only' : 'Products Only'}`);
-                }
-                if (selectedItems.length > 0) {
-                  filters.push(`Items: ${selectedItems.length} selected`);
-                }
-                if (minCommission || maxCommission) {
-                  filters.push(`Commission: ${minCommission ? formatCurrency(parseFloat(minCommission)) : 'Any'} - ${maxCommission ? formatCurrency(parseFloat(maxCommission)) : 'Any'}`);
-                }
-                
-                return filters.join(' | ');
-              })()}
-            </div>
-          </div>
-          
-          {/* Summary Stats */}
-          <div className="mb-4 grid grid-cols-3 gap-3 print-avoid-break" style={{ fontSize: '10px', marginBottom: '12px', gap: '10px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #333', padding: '10px 8px', textAlign: 'center', background: '#fff' }}>
-              <div className="font-bold" style={{ fontSize: '18px', marginBottom: '4px', fontWeight: '700' }}>₱{formatNumberWithCommas(totalCommission)}</div>
-              <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>Total Commissions</div>
-            </div>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #333', padding: '10px 8px', textAlign: 'center', background: '#fff' }}>
-              <div className="font-bold" style={{ fontSize: '18px', marginBottom: '4px', fontWeight: '700' }}>₱{formatNumberWithCommas(totalSales)}</div>
-              <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>Total Sales</div>
-            </div>
-            <div className="border border-black p-2 text-center" style={{ border: '1px solid #333', padding: '10px 8px', textAlign: 'center', background: '#fff' }}>
-              <div className="font-bold" style={{ fontSize: '18px', marginBottom: '4px', fontWeight: '700' }}>{filteredTransactions.length}</div>
-              <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>Transactions</div>
-            </div>
-          </div>
-
-          {/* Commission Summary */}
-          {commissionSummary.length > 0 && (
-            <div className="mb-4 print-avoid-break" style={{ marginBottom: '12px' }}>
-              <h2 className="font-bold mb-2" style={{ fontSize: '13px', marginBottom: '6px', fontWeight: '700' }}>Commission Summary</h2>
-              <table className="w-full" style={{ fontSize: '10px', borderCollapse: 'collapse', width: '100%', lineHeight: '1.4', border: '1px solid #333' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #000', background: '#fff' }}>
-                    <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>STYLIST</th>
-                    <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TRANSACTIONS</th>
-                    <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TOTAL SALES</th>
-                    <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TOTAL COMMISSION</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {commissionSummary.map((summary) => (
-                    <tr key={summary.stylistId} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #333', background: '#fff' }}>
-                      <td className="border border-black font-medium" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{summary.stylistName}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{summary.transactionCount}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(summary.totalSales)}</td>
-                      <td className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{formatNumberWithCommas(summary.totalCommission)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Transactions Table */}
-          <div className="print-avoid-break" style={{ pageBreakInside: 'avoid' }}>
-            <h2 className="font-bold mb-2" style={{ fontSize: '13px', marginBottom: '6px', fontWeight: '700' }}>Commission Transaction</h2>
-            <table className="w-full" style={{ fontSize: '10px', borderCollapse: 'collapse', width: '100%', lineHeight: '1.4', border: '1px solid #333' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #000', background: '#fff' }}>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>DATE</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>STYLIST</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TYPE</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>SERVICE/PRODUCT</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>QTY</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>UNIT COST</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>COMM %</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>COMMISSION</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>TOTAL SALE</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>CLIENT</th>
-                  <th className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '8px 6px', fontSize: '11px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '700' }}>RECEIPT #</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTransactions.map((transaction) => {
-                  const date = transaction.transactionDate?.toDate 
-                    ? formatDate(transaction.transactionDate.toDate(), 'MMM dd, yyyy HH:mm')
-                    : formatDate(transaction.transactionDate, 'MMM dd, yyyy HH:mm');
-                  const itemName = transaction.itemType === 'service' ? transaction.serviceName : transaction.productName;
-                  
-                  return (
-                    <tr key={transaction.id} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #333', background: '#fff' }}>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{date}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.commissionerName}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.itemType === 'service' ? 'Service' : 'Product'}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{itemName}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.quantity}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(transaction.unitCost)}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.commissionPercentage}%</td>
-                      <td className="border border-black font-semibold" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '600' }}>₱{formatNumberWithCommas(transaction.commissionPoints)}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>₱{formatNumberWithCommas(transaction.totalAmount)}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.clientName}</td>
-                      <td className="border border-black" style={{ border: '1px solid #333', padding: '6px', fontSize: '10px', textAlign: 'center', verticalAlign: 'middle' }}>{transaction.receiptNumber}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          
-          {/* Footer - Report Info */}
-          <div className="mt-6 pt-4 border-t-2 border-black" style={{ fontSize: '10px', marginTop: '20px', paddingTop: '12px', borderTop: '2px solid #333' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
-              <div>
-                <strong>Generated By:</strong> {userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : userData?.email || 'Branch Manager'}<br/>
-                <strong>Position:</strong> Branch Manager
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <strong>Generated On:</strong> {formatDate(new Date(), 'MMMM dd, yyyy')}<br/>
-                <strong>Time:</strong> {formatDate(new Date(), 'hh:mm a')}
-              </div>
-            </div>
-            <div style={{ textAlign: 'center', color: '#666', marginTop: '8px' }}>
-              <p>Page 1 of 1 | Commission Report</p>
-              <p style={{ marginTop: '4px' }}>Total Commissions: ₱{formatNumberWithCommas(totalCommission)} | Total Sales: ₱{formatNumberWithCommas(totalSales)} | Transactions: {filteredTransactions.length}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* PDF Preview Modal */}
-      <PDFPreviewModal
-        isOpen={showPDFPreview}
-        onClose={() => setShowPDFPreview(false)}
-        contentRef={printRef}
-        title="Commissions Report - PDF Preview"
-        fileName={`Commissions_Report_${new Date().toISOString().split('T')[0]}`}
-      />
 
       {/* Filter Modal */}
       {showFilterModal && (

@@ -191,7 +191,29 @@ const ReceptionistBilling = () => {
   const [isButtonMinimized, setIsButtonMinimized] = useState(false);
   const [showReprintConfirm, setShowReprintConfirm] = useState(false);
   const [reprintingReceipt, setReprintingReceipt] = useState(false);
+  const [systemSettings, setSystemSettings] = useState({ printCustomerCopy: true }); // Receipt settings
   const minimizeTimeoutRef = useRef(null);
+
+  // Load system settings for receipt printing
+  useEffect(() => {
+    const loadSystemSettings = async () => {
+      try {
+        const { getSystemSettings } = await import('../../services/systemSettingsService');
+        const settings = await getSystemSettings();
+        console.log('📋 Billing - Loaded system settings:', settings);
+        console.log('📋 Billing - printCustomerCopy value:', settings?.printCustomerCopy);
+        // Ensure printCustomerCopy defaults to true if not set
+        setSystemSettings({
+          ...settings,
+          printCustomerCopy: settings?.printCustomerCopy !== false // Default to true unless explicitly false
+        });
+      } catch (error) {
+        console.error('Error loading system settings:', error);
+        setSystemSettings({ printCustomerCopy: true }); // Default to enabled
+      }
+    };
+    loadSystemSettings();
+  }, []);
 
   // Tax and service charge rates (can be configured)
   const TAX_RATE = 0; // 12% VAT - set to 0 if no tax
@@ -275,7 +297,8 @@ const ReceptionistBilling = () => {
         change: completedBill.change || 0
       };
       
-      await thermalPrinter.printReceipt(billData, branchData);
+      // Print as Customer's Copy (reprint is for customer)
+      await thermalPrinter.printReceipt(billData, branchData, 'CUSTOMER\'S COPY');
       toast.success('Receipt printed successfully!');
       setShowReprintConfirm(false);
     } catch (error) {
@@ -1954,20 +1977,23 @@ const ReceptionistBilling = () => {
                 <Eye className="w-4 h-4" />
                 Preview
               </button>
-              <button
-                type="button"
-                onClick={() => setShowReprintConfirm(true)}
-                disabled={!thermalPrinter.isConnected}
-                className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
-                  thermalPrinter.isConnected 
-                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-                title={thermalPrinter.isConnected ? 'Print via Bluetooth' : 'Printer not connected'}
-              >
-                <Printer className="w-4 h-4" />
-                Print Receipt
-              </button>
+              {/* Print Receipt button - only show if customer copy printing is enabled */}
+              {systemSettings.printCustomerCopy && (
+                <button
+                  type="button"
+                  onClick={() => setShowReprintConfirm(true)}
+                  disabled={!thermalPrinter.isConnected}
+                  className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                    thermalPrinter.isConnected 
+                      ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                  title={thermalPrinter.isConnected ? 'Print via Bluetooth' : 'Printer not connected'}
+                >
+                  <Printer className="w-4 h-4" />
+                  Print Receipt
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

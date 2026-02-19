@@ -2005,7 +2005,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
             @media print {
               @page {
                 size: letter landscape;
-                margin: 0.3in 0.4in;
+                margin: 0.3in 0.4in 0.75in 0.4in;
               }
               * {
                 color: #000 !important;
@@ -2017,6 +2017,9 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 margin: 0;
                 padding: 0;
               }
+              header, footer {
+                display: none;
+              }
             }
             body {
               font-family: Arial, sans-serif;
@@ -2024,6 +2027,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
               padding: 0;
               background: white;
               color: #000;
+              counter-reset: page 1;
             }
             table {
               border-collapse: collapse;
@@ -2042,21 +2046,34 @@ const StaffSchedule = ({ onEditTrigger }) => {
           ${printContentHTML}
           <script>
             window.onload = function() {
+              // Calculate total pages
               setTimeout(function() {
-                window.print();
-                // Close window after print dialog is closed
-                window.onafterprint = function() {
-                  setTimeout(function() {
-                    window.close();
-                  }, 100);
-                };
-                // Fallback: close after 30 seconds if print dialog doesn't trigger
+                const pageHeight = 700; // Landscape letter size usable height
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / pageHeight));
+                
+                // Inject page numbering style for the existing page-number-display element
+                const printStyle = document.createElement('style');
+                printStyle.textContent = '.page-number-display::before { content: "Page " counter(page) " of ' + totalPages + '"; } body { counter-reset: page 1; }';
+                document.head.appendChild(printStyle);
+                
+                // Print after calculating pages
                 setTimeout(function() {
-                  if (!window.closed) {
-                    window.close();
-                  }
-                }, 30000);
-              }, 500);
+                  window.print();
+                  // Close window after print dialog is closed
+                  window.onafterprint = function() {
+                    setTimeout(function() {
+                      window.close();
+                    }, 100);
+                  };
+                  // Fallback: close after 30 seconds if print dialog doesn't trigger
+                  setTimeout(function() {
+                    if (!window.closed) {
+                      window.close();
+                    }
+                  }, 30000);
+                }, 100);
+              }, 250);
             };
           </script>
         </body>
@@ -4077,9 +4094,6 @@ const StaffSchedule = ({ onEditTrigger }) => {
               color: #000 !important;
               background: transparent !important;
             }
-            .page-number-display::before {
-              content: "Page " counter(page);
-            }
           }
         `}</style>
         <div className="print-content" style={{
@@ -4177,6 +4191,17 @@ const StaffSchedule = ({ onEditTrigger }) => {
                 <th style={{
                   border: '1px solid #333',
                   padding: '10px 8px',
+                  textAlign: 'center',
+                  fontWeight: 700,
+                  background: '#f0f0f0',
+                  fontSize: '13px',
+                  width: '40px'
+                }}>
+                  #
+                </th>
+                <th style={{
+                  border: '1px solid #333',
+                  padding: '10px 8px',
                   textAlign: 'left',
                   fontWeight: 700,
                   background: '#f0f0f0',
@@ -4207,7 +4232,7 @@ const StaffSchedule = ({ onEditTrigger }) => {
             <tbody>
               {staffForPrint.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ border: '1px solid #333', padding: '12px 10px', textAlign: 'center', fontSize: '12px' }}>
+                  <td colSpan={9} style={{ border: '1px solid #333', padding: '12px 10px', textAlign: 'center', fontSize: '12px' }}>
                     No staff with schedules for this week.
                   </td>
                 </tr>
@@ -4221,6 +4246,15 @@ const StaffSchedule = ({ onEditTrigger }) => {
                     pageBreakInside: 'avoid',
                     background: idx % 2 === 0 ? '#fff' : '#fafafa'
                   }}>
+                    <td style={{
+                      border: '1px solid #333',
+                      padding: '10px 8px',
+                      textAlign: 'center',
+                      fontWeight: 600,
+                      fontSize: '12px'
+                    }}>
+                      {idx + 1}
+                    </td>
                     <td style={{
                       border: '1px solid #333',
                       padding: '10px 8px',

@@ -235,6 +235,12 @@ const OperationalManagerDeposits = () => {
                   size: letter;
                   margin: 0.4in 0.4in 0.75in 0.4in;
                 }
+                body {
+                  margin: 0;
+                }
+                header, footer {
+                  display: none;
+                }
               }
               * {
                 margin: 0;
@@ -409,7 +415,7 @@ const OperationalManagerDeposits = () => {
             </div>
       `;
 
-      filteredDeposits.forEach(deposit => {
+      filteredDeposits.forEach((deposit, index) => {
         const statusLabel = deposit.status === 'approved' ? 'Approved' : 
                            deposit.status === 'rejected' ? 'Rejected' : 'Pending';
         const validationLabel = deposit.validationStatus === 'match' ? 'Match' : 
@@ -418,7 +424,7 @@ const OperationalManagerDeposits = () => {
         htmlContent += `
           <div class="deposit-card">
             <div class="deposit-header">
-              <div class="deposit-branch">${branches[deposit.branchId] || 'Unknown Branch'} - ${format(new Date(deposit.depositDate), 'MMM dd, yyyy')}</div>
+              <div class="deposit-branch"><strong>#${index + 1}</strong> - ${branches[deposit.branchId] || 'Unknown Branch'} - ${format(new Date(deposit.depositDate), 'MMM dd, yyyy')}</div>
               <span class="status-badge">${statusLabel}</span>
             </div>
             

@@ -61,21 +61,23 @@ const getActiveFilters = () => {
 
 ### 4. Generate Report Content
 
-Build your table/content HTML:
+Build your table/content HTML with row numbers:
 
 ```javascript
 const content = `
   <table>
     <thead>
       <tr>
+        <th style="width: 40px;">#</th>
         <th>Column 1</th>
         <th>Column 2</th>
         <th class="text-right">Amount</th>
       </tr>
     </thead>
     <tbody>
-      ${data.map(item => `
+      ${data.map((item, index) => `
         <tr>
+          <td style="text-align: center;">${index + 1}</td>
           <td>${item.field1}</td>
           <td>${item.field2}</td>
           <td class="text-right">${formatCurrency(item.amount)}</td>
@@ -96,6 +98,8 @@ const content = `
   </div>
 `;
 ```
+
+**Important:** Always add a `#` column as the first column in tables with row numbers (index + 1).
 
 ### 5. Generate and Print
 

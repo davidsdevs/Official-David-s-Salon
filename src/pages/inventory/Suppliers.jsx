@@ -306,40 +306,105 @@ const Suppliers = () => {
   };
 
   // Export suppliers to CSV
-  const handleExport = () => {
+  const handleExport = async () => {
+    if (!filteredSuppliers.length) {
+      toast.error('No suppliers to export');
+      return;
+    }
+
     try {
-      const headers = ['Supplier Name', 'Contact Person', 'Email', 'Phone', 'Address', 'Website', 'Category', 'Payment Terms', 'Rating', 'Status', 'Products Count'];
-      
-      const rows = filteredSuppliers.map(supplier => [
-        supplier.name,
-        supplier.contactPerson,
-        supplier.email,
-        supplier.phone,
-        supplier.address,
-        supplier.website,
-        supplier.category,
-        supplier.paymentTerms,
-        supplier.rating,
-        supplier.isActive ? 'Active' : 'Inactive',
-        supplierProducts[supplier.id]?.length || 0
-      ]);
+      const { 
+        createStyledWorkbook, 
+        addReportHeader, 
+        addFiltersSection, 
+        addSummaryStats, 
+        addDataTable, 
+        addFooter, 
+        setColumnWidths, 
+        saveWorkbook 
+      } = await import('../../utils/excelExport');
 
-      const csvContent = [
-        headers.join(','),
-        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-      ].join('\n');
+      // Create workbook and worksheet
+      const workbook = createStyledWorkbook();
+      const worksheet = workbook.addWorksheet('Suppliers');
 
-      const blob = new Blob([csvContent], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `suppliers_${format(new Date(), 'yyyy-MM-dd_HH-mm-ss')}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      // Get branch name
+      let branchName = userData?.branchName || 'N/A';
+      if (branchName === 'N/A' && userData?.branchId) {
+        try {
+          const { getBranchById } = await import('../../services/branchService');
+          const branch = await getBranchById(userData.branchId);
+          branchName = branch?.name || branch?.branchName || 'N/A';
+        } catch (error) {
+          console.error('Error fetching branch name:', error);
+          branchName = 'N/A';
+        }
+      }
+
+      // Define columns
+      const headers = [
+        { key: 'rowNum', label: '#', align: 'center' },
+        { key: 'name', label: 'Supplier Name', align: 'left' },
+        { key: 'contactPerson', label: 'Contact Person', align: 'left' },
+        { key: 'phone', label: 'Phone', align: 'left' },
+        { key: 'email', label: 'Email', align: 'left' },
+        { key: 'category', label: 'Category', align: 'left' },
+        { key: 'paymentTerms', label: 'Payment Terms', align: 'left' },
+        { key: 'rating', label: 'Rating', align: 'center' },
+        { key: 'productsCount', label: 'Products', align: 'center' },
+        { key: 'status', label: 'Status', align: 'center' }
+      ];
+
+      // Prepare data with row numbers
+      const exportData = filteredSuppliers.map((supplier, index) => {
+        return {
+          rowNum: index + 1,
+          name: supplier.name || '',
+          contactPerson: supplier.contactPerson || '',
+          phone: supplier.phone || '',
+          email: supplier.email || '',
+          category: supplier.category || '',
+          paymentTerms: supplier.paymentTerms || '',
+          rating: supplier.rating || 0,
+          productsCount: supplierProducts[supplier.id]?.length || 0,
+          status: supplier.isActive ? 'Active' : 'Inactive'
+        };
+      });
+
+      // Build filters text
+      let filtersText = 'All Suppliers';
+      if (searchTerm) filtersText += ` | Search: "${searchTerm}"`;
+      if (selectedCategory && selectedCategory !== 'all') filtersText += ` | Category: ${selectedCategory}`;
+      if (selectedStatus && selectedStatus !== 'all') filtersText += ` | Status: ${selectedStatus}`;
+
+      // Add sections
+      let currentRow = 1;
+      currentRow = addReportHeader(worksheet, 'SUPPLIERS REPORT', headers.length);
+      currentRow = addFiltersSection(worksheet, filtersText, headers.length, currentRow);
       
-      toast.success(`Exported ${filteredSuppliers.length} suppliers`);
+      // Add summary stats
+      const stats = [
+        { label: 'Total Suppliers', value: exportData.length.toString() },
+        { label: 'Active Suppliers', value: exportData.filter(s => s.status === 'Active').length.toString() },
+        { label: 'Total Products', value: exportData.reduce((sum, s) => sum + s.productsCount, 0).toString() },
+        { label: 'Avg Rating', value: (exportData.reduce((sum, s) => sum + s.rating, 0) / exportData.length).toFixed(1) }
+      ];
+      currentRow = addSummaryStats(worksheet, stats, currentRow);
+
+      // Add data table
+      currentRow = addDataTable(worksheet, headers, exportData, currentRow);
+
+      // Add footer
+      addFooter(worksheet, userData, branchName, currentRow, headers.length);
+
+      // Set column widths
+      setColumnWidths(worksheet, [5, 25, 20, 15, 25, 15, 18, 10, 10, 12]);
+
+      // Save workbook
+      const filename = `Suppliers_${branchName.replace(/\s+/g, '')}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      await saveWorkbook(workbook, filename);
+
+      toast.success(`Exported ${filteredSuppliers.length} suppliers to Excel successfully`);
     } catch (err) {
       console.error('Error exporting suppliers:', err);
       toast.error('Failed to export suppliers');
@@ -348,6 +413,11 @@ const Suppliers = () => {
 
   // Print all suppliers
   const handlePrintAll = async () => {
+    if (!filteredSuppliers.length) {
+      toast.error('No suppliers to print');
+      return;
+    }
+
     // Get branch name if not available in userData
     let branchName = userData?.branchName || 'N/A';
     if (branchName === 'N/A' && userData?.branchId) {
@@ -368,18 +438,19 @@ const Suppliers = () => {
     if (selectedStatus !== 'all') activeFilters.push(`Status: ${selectedStatus}`);
     const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Suppliers';
 
-    const printWindow = window.open('', '', 'height=600,width=800');
-    
-    let htmlContent = `
+    const printContent = `
       <html>
         <head>
-          <title>Suppliers Report</title>
-          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <title>Suppliers Report - ${branchName}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
+            @page {
+              size: A4 landscape;
+              margin: 0.4in 0.4in 0.75in 0.4in;
+            }
             @media print {
-              @page {
-                size: A4 portrait;
-                margin: 0.4in 0.4in 0.75in 0.4in;
+              header, footer {
+                display: none;
               }
             }
             * {
@@ -396,14 +467,14 @@ const Suppliers = () => {
             }
             .header {
               text-align: center;
-              margin-bottom: 15px;
-              padding-bottom: 10px;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
               border-bottom: 2px solid #333;
             }
             .header h1 {
-              font-size: 22px;
+              font-size: 20px;
               font-weight: 700;
-              margin: 0 0 5px 0;
+              margin: 0 0 4px 0;
             }
             .header h2 {
               font-size: 16px;
@@ -414,7 +485,7 @@ const Suppliers = () => {
               background: #fff;
               padding: 10px;
               border: 2px solid #333;
-              margin: 10px 0 15px 0;
+              margin: 10px 0;
               text-align: center;
             }
             .filters-title {
@@ -441,7 +512,7 @@ const Suppliers = () => {
               border: 1px solid #333;
             }
             .stat-value {
-              font-size: 16px;
+              font-size: 18px;
               font-weight: 700;
               color: #000;
               margin-bottom: 3px;
@@ -453,91 +524,47 @@ const Suppliers = () => {
               letter-spacing: 0.5px;
               font-weight: 600;
             }
-            .supplier-card {
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+              font-size: 9px;
               border: 1px solid #333;
-              margin-bottom: 12px;
-              background: #fff;
-              page-break-inside: avoid;
             }
-            .supplier-header {
-              background: #f5f5f5;
-              padding: 8px 12px;
-              border-bottom: 1px solid #333;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
+            th, td {
+              border: 1px solid #333;
+              padding: 6px 4px;
+              text-align: left;
+              vertical-align: top;
             }
-            .supplier-name {
-              font-size: 12px;
+            th {
+              background-color: #fff;
               font-weight: 700;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+            }
+            th.row-number {
+              width: 40px;
+              text-align: center;
+            }
+            td.row-number {
+              text-align: center;
+              font-weight: 600;
+            }
+            .text-center { text-align: center; }
+            .rating {
+              color: #000;
+              font-size: 9px;
             }
             .status-badge {
-              padding: 2px 8px;
+              padding: 2px 6px;
               border-radius: 4px;
               font-size: 8px;
               font-weight: 600;
               text-transform: uppercase;
-              border: 1px solid #333;
-            }
-            .status-active {
-              background: #fff;
-              color: #000;
-            }
-            .status-inactive {
-              background: #fff;
-              color: #000;
-            }
-            .supplier-body {
-              padding: 10px 12px;
-            }
-            .info-grid {
-              display: grid;
-              grid-template-columns: repeat(2, 1fr);
-              gap: 8px;
-              margin-bottom: 10px;
-            }
-            .info-row {
-              padding: 4px 0;
-              border-bottom: 1px dotted #ddd;
-              font-size: 9px;
-            }
-            .info-label {
-              font-weight: 600;
-              display: inline-block;
-              width: 100px;
-            }
-            .info-value {
-              color: #333;
-            }
-            .rating {
-              color: #000;
-              font-size: 10px;
-            }
-            .products-section {
-              margin-top: 10px;
-              padding-top: 10px;
-              border-top: 1px solid #ddd;
-            }
-            .products-title {
-              font-weight: 700;
-              font-size: 9px;
-              margin-bottom: 5px;
-              text-transform: uppercase;
-            }
-            .product-list {
-              display: grid;
-              grid-template-columns: repeat(2, 1fr);
-              gap: 4px;
-              font-size: 8px;
-            }
-            .product-item {
-              padding: 3px 6px;
-              background: #f9f9f9;
-              border: 1px solid #ddd;
-              border-radius: 2px;
             }
             .footer {
-              margin-top: 20px;
+              margin-top: 12px;
               padding-top: 10px;
               border-top: 2px solid #333;
               font-size: 8px;
@@ -564,12 +591,21 @@ const Suppliers = () => {
             .footer-center p {
               margin: 3px 0;
             }
+            .page-number {
+              position: fixed;
+              bottom: 2px;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 9px;
+              color: #000;
+            }
           </style>
         </head>
         <body>
           <div class="header">
             <h1>DAVID'S SALON</h1>
-            <h2>Suppliers Report</h2>
+            <h2>Suppliers Report - ${branchName}</h2>
           </div>
           
           <div class="filters">
@@ -595,81 +631,43 @@ const Suppliers = () => {
               <div class="stat-label">Categories</div>
             </div>
           </div>
-    `;
 
-    filteredSuppliers.forEach(supplier => {
-      const products = supplierProducts[supplier.id] || [];
-      htmlContent += `
-        <div class="supplier-card">
-          <div class="supplier-header">
-            <div class="supplier-name">${supplier.name}</div>
-            <span class="status-badge status-${supplier.isActive ? 'active' : 'inactive'}">
-              ${supplier.isActive ? 'Active' : 'Inactive'}
-            </span>
-          </div>
-          
-          <div class="supplier-body">
-            <div class="info-grid">
-              <div class="info-row">
-                <span class="info-label">Contact:</span>
-                <span class="info-value">${supplier.contactPerson || 'N/A'}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Email:</span>
-                <span class="info-value">${supplier.email || 'N/A'}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Phone:</span>
-                <span class="info-value">${supplier.phone || 'N/A'}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Category:</span>
-                <span class="info-value">${supplier.category || 'N/A'}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Payment Terms:</span>
-                <span class="info-value">${supplier.paymentTerms || 'N/A'}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Rating:</span>
-                <span class="rating">${'★'.repeat(supplier.rating || 0)}${'☆'.repeat(5 - (supplier.rating || 0))} (${supplier.rating || 0}/5)</span>
-              </div>
-            </div>
-            
-            ${supplier.address ? `
-            <div class="info-row" style="grid-column: 1 / -1;">
-              <span class="info-label">Address:</span>
-              <span class="info-value">${supplier.address}</span>
-            </div>
-            ` : ''}
-            
-            ${supplier.website ? `
-            <div class="info-row" style="grid-column: 1 / -1;">
-              <span class="info-label">Website:</span>
-              <span class="info-value">${supplier.website}</span>
-            </div>
-            ` : ''}
-            
-            ${supplier.notes ? `
-            <div class="info-row" style="grid-column: 1 / -1;">
-              <span class="info-label">Notes:</span>
-              <span class="info-value">${supplier.notes}</span>
-            </div>
-            ` : ''}
-            
-            <div class="products-section">
-              <div class="products-title">Products Supplied (${products.length})</div>
-              ${products.length > 0 
-                ? `<div class="product-list">${products.map(p => `<div class="product-item">• ${p.name}${p.sku ? ` (${p.sku})` : ''}</div>`).join('')}</div>`
-                : '<div class="product-item" style="color: #999; grid-column: 1 / -1;">No products</div>'
-              }
-            </div>
-          </div>
-        </div>
-      `;
-    });
+          <table>
+            <thead>
+              <tr>
+                <th class="row-number">#</th>
+                <th>Supplier Name</th>
+                <th>Contact Person</th>
+                <th>Phone</th>
+                <th>Email</th>
+                <th>Category</th>
+                <th>Payment Terms</th>
+                <th class="text-center">Rating</th>
+                <th class="text-center">Products</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredSuppliers.map((supplier, index) => {
+                const products = supplierProducts[supplier.id] || [];
+                return `
+                  <tr>
+                    <td class="row-number">${index + 1}</td>
+                    <td style="font-weight: 600;">${supplier.name}</td>
+                    <td>${supplier.contactPerson || 'N/A'}</td>
+                    <td style="font-family: monospace; font-size: 8px;">${supplier.phone || 'N/A'}</td>
+                    <td style="font-size: 8px;">${supplier.email || 'N/A'}</td>
+                    <td>${supplier.category || 'N/A'}</td>
+                    <td style="font-size: 8px;">${supplier.paymentTerms || 'N/A'}</td>
+                    <td class="text-center rating">${'★'.repeat(supplier.rating || 0)}${'☆'.repeat(5 - (supplier.rating || 0))}</td>
+                    <td class="text-center">${products.length}</td>
+                    <td><span class="status-badge">${supplier.isActive ? 'Active' : 'Inactive'}</span></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
 
-    htmlContent += `
           <div class="footer">
             <div class="footer-info">
               <div class="footer-left">
@@ -679,19 +677,52 @@ const Suppliers = () => {
               </div>
               <div class="footer-right">
                 <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
-                <strong>Time:</strong> ${format(new Date(), 'HH:mm')}
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
               </div>
             </div>
             <div class="footer-center">
-              <p style="font-weight: 600;">Suppliers Report - ${filteredSuppliers.length} Suppliers Total</p>
+              <p style="font-weight: 600; font-size: 9px;">Suppliers Report - ${filteredSuppliers.length} Suppliers Total</p>
             </div>
           </div>
+
+          <div class="page-number" id="pageNumber"></div>
+
+          <script>
+            const pageHeight = 794;
+            const topMargin = 38;
+            const bottomMargin = 72;
+            const contentHeight = pageHeight - topMargin - bottomMargin;
+            
+            const bodyHeight = document.body.scrollHeight;
+            const totalPages = Math.ceil(bodyHeight / contentHeight);
+            
+            const pageNumberDiv = document.getElementById('pageNumber');
+            pageNumberDiv.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+              const pageNum = document.createElement('div');
+              pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+              pageNum.style.position = 'absolute';
+              pageNum.style.bottom = '2px';
+              pageNum.style.left = '0';
+              pageNum.style.right = '0';
+              pageNum.style.textAlign = 'center';
+              pageNum.style.fontSize = '9px';
+              pageNum.style.fontFamily = "'Poppins', Arial, sans-serif";
+              pageNum.style.color = '#000';
+              pageNum.style.top = ((i * contentHeight) + topMargin - 2) + 'px';
+              document.body.appendChild(pageNum);
+            }
+          </script>
         </body>
       </html>
     `;
 
-    printWindow.document.write(htmlContent);
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
     printWindow.document.close();
+    printWindow.focus();
+    
     setTimeout(() => {
       printWindow.print();
     }, 250);

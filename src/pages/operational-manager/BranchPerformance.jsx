@@ -334,6 +334,12 @@ const BranchPerformanceReport = () => {
                   size: A4 portrait;
                   margin: 0.4in 0.4in 0.75in 0.4in;
                 }
+                body {
+                  margin: 0;
+                }
+                header, footer {
+                  display: none;
+                }
               }
               * {
                 margin: 0;
@@ -516,12 +522,12 @@ const BranchPerformanceReport = () => {
             </div>
       `;
 
-      filteredBranches.forEach(branch => {
+      filteredBranches.forEach((branch, index) => {
         const data = performanceData[branch.id] || {};
         htmlContent += `
           <div class="branch-card">
             <div class="branch-header">
-              <div class="branch-name">${branch.name || branch.branchName}</div>
+              <div class="branch-name"><strong>#${index + 1}</strong> - ${branch.name || branch.branchName}</div>
             </div>
             
             <div class="branch-body">

@@ -679,6 +679,48 @@ const SystemSettings = () => {
               />
               <p className="text-xs text-gray-500 mt-1">Service warranty information</p>
             </div>
+
+            {/* Print Customer Copy Toggle */}
+            <div className="border-t border-gray-200 pt-6">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Print Customer Copy
+                  </label>
+                  <p className="text-xs text-gray-500">
+                    When enabled, receptionists will print both merchant and customer copies of receipts. 
+                    Merchant's copy is always printed for record-keeping.
+                  </p>
+                </div>
+                <div className="ml-4">
+                  <button
+                    type="button"
+                    onClick={() => handleCheckboxChange('printCustomerCopy')}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#160B53] focus:ring-offset-2 ${
+                      settings.printCustomerCopy ? 'bg-[#160B53]' : 'bg-gray-200'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        settings.printCustomerCopy ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-blue-800">
+                    <p className="font-semibold mb-1">How it works:</p>
+                    <ul className="list-disc list-inside space-y-1">
+                      <li><strong>Merchant's Copy:</strong> Always printed first with "MERCHANT'S COPY" label (for your records)</li>
+                      <li><strong>Customer's Copy:</strong> Printed second with "CUSTOMER'S COPY" label (only if this setting is enabled)</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </Card>
       )}

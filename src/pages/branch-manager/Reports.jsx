@@ -53,6 +53,284 @@ const Reports = () => {
     documentTitle: `Salon_Reports_${format(new Date(), 'yyyy-MM-dd')}`,
   });
 
+  // Handle print for Product Sales Report
+  const handlePrintProductSales = () => {
+    // Calculate product stats
+    const productStats = {};
+    transactions.filter(t => t.status === 'paid' || t.status === 'completed').forEach(t => {
+      if (t.items && Array.isArray(t.items)) {
+        t.items.filter(item => item.type === 'product').forEach(product => {
+          const productName = product.name || product.productName || 'Unknown';
+          if (!productStats[productName]) {
+            productStats[productName] = { quantity: 0, revenue: 0 };
+          }
+          productStats[productName].quantity += product.quantity || 1;
+          productStats[productName].revenue += (product.price || 0) * (product.quantity || 1);
+        });
+      }
+    });
+    
+    const sortedProducts = Object.entries(productStats)
+      .sort((a, b) => b[1].revenue - a[1].revenue);
+    
+    if (sortedProducts.length === 0) {
+      alert('No product sales data to print');
+      return;
+    }
+    
+    // Calculate totals
+    let totalQuantity = 0;
+    let totalRevenue = 0;
+    
+    const tableRows = sortedProducts.map(([productName, stats], index) => {
+      totalQuantity += stats.quantity;
+      totalRevenue += stats.revenue;
+      const avgPrice = stats.revenue / stats.quantity;
+      
+      return `
+        <tr>
+          <td style="text-align: center; font-weight: 600;">${index + 1}</td>
+          <td>${productName}</td>
+          <td style="text-align: center;">${stats.quantity}</td>
+          <td style="text-align: right;">₱${formatCurrency(stats.revenue).replace('₱', '')}</td>
+          <td style="text-align: right;">₱${formatCurrency(avgPrice).replace('₱', '')}</td>
+        </tr>
+      `;
+    }).join('');
+    
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Product Sales Report</title>
+          <meta charset="utf-8">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+          <style>
+            @media print {
+              @page {
+                size: A4;
+                margin: 0.4in 0.4in 0.75in 0.4in;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+              }
+              header, footer {
+                display: none;
+              }
+            }
+            * {
+              font-family: 'Poppins', sans-serif;
+              box-sizing: border-box;
+            }
+            body {
+              font-family: 'Poppins', sans-serif;
+              margin: 0;
+              padding: 0;
+              color: #000;
+              background: #fff;
+              line-height: 1.4;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 12px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #000;
+            }
+            .header h1 {
+              font-size: 24px;
+              font-weight: 700;
+              margin: 0 0 6px 0;
+            }
+            .header h2 {
+              font-size: 18px;
+              font-weight: 700;
+              margin: 0 0 6px 0;
+            }
+            .header p {
+              font-size: 11px;
+              margin: 0;
+            }
+            .filters {
+              background: #f8f9fa;
+              padding: 8px;
+              border: 2px solid #333;
+              margin: 8px 0 12px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 9px;
+              font-weight: 700;
+              margin-bottom: 4px;
+              text-transform: uppercase;
+              letter-spacing: 0.4px;
+            }
+            .filters-content {
+              font-size: 8px;
+              font-weight: 600;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 12px;
+              font-size: 10px;
+              border: 1px solid #333;
+            }
+            th, td {
+              padding: 6px 4px;
+              text-align: left;
+              border: 1px solid #333;
+              vertical-align: middle;
+            }
+            th {
+              background: #fff;
+              font-weight: 700;
+              font-size: 11px;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+            }
+            tr {
+              page-break-inside: avoid;
+            }
+            .grand-total {
+              background: #f0f0f0;
+              font-weight: 700;
+              border-top: 2px solid #000;
+            }
+            .footer {
+              margin-top: 20px;
+              padding-top: 12px;
+              border-top: 2px solid #333;
+              font-size: 10px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 16px;
+              margin-bottom: 12px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              color: #666;
+              margin-top: 8px;
+              font-size: 10px;
+            }
+            .footer-center p {
+              margin: 2px 0;
+            }
+            .page-number {
+              position: absolute;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 10px;
+              font-weight: 600;
+              height: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Product Sales Report</h2>
+            <p><strong>Generated:</strong> ${format(new Date(), 'MMM dd, yyyy HH:mm')}</p>
+          </div>
+          
+          <div class="filters">
+            <div class="filters-title">DATE RANGE</div>
+            <div class="filters-content">${dateRange.start} to ${dateRange.end}</div>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">#</th>
+                <th>PRODUCT NAME</th>
+                <th style="text-align: center;">QUANTITY SOLD</th>
+                <th style="text-align: right;">TOTAL REVENUE</th>
+                <th style="text-align: right;">AVG PRICE</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+              <tr class="grand-total">
+                <td colspan="2" style="text-align: left; padding: 8px 6px; font-size: 11px;">GRAND TOTAL:</td>
+                <td style="text-align: center; padding: 8px 6px; font-size: 11px;">${totalQuantity}</td>
+                <td style="text-align: right; padding: 8px 6px; font-size: 11px;">₱${formatCurrency(totalRevenue).replace('₱', '')}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : userData?.email || 'Branch Manager'}<br/>
+                <strong>Position:</strong> Branch Manager
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br/>
+                <strong>Time:</strong> ${format(new Date(), 'HH:mm:ss')}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p>Product Sales Report</p>
+              <p>Total Products: ${sortedProducts.length} | Total Quantity: ${totalQuantity}</p>
+            </div>
+          </div>
+          
+          <div id="pageNumbers"></div>
+          
+          <script>
+            window.addEventListener('load', function() {
+              setTimeout(function() {
+                // Calculate pages for A4 portrait
+                const pageHeight = 1122;
+                const topMargin = 38;
+                const bottomMargin = 72;
+                const usableHeight = pageHeight - topMargin - bottomMargin;
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / usableHeight));
+                
+                // Create page numbers for each page
+                const pageNumbersContainer = document.getElementById('pageNumbers');
+                for (let i = 1; i <= totalPages; i++) {
+                  const pageNum = document.createElement('div');
+                  pageNum.className = 'page-number';
+                  pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+                  pageNum.style.top = ((pageHeight * i) - bottomMargin - 70) + 'px';
+                  pageNumbersContainer.appendChild(pageNum);
+                }
+                
+                setTimeout(function() {
+                  window.print();
+                  window.onafterprint = function() {
+                    window.close();
+                  };
+                }, 100);
+              }, 250);
+            });
+          </script>
+        </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Please allow pop-ups to print the report');
+      return;
+    }
+    
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+  };
+
   // Set page title with role prefix
   useEffect(() => {
     document.title = 'Branch Manager - Reports | DSMS';
@@ -1734,7 +2012,7 @@ const Reports = () => {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold">Product Sales Report</h2>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={handlePrint}>
+                <Button variant="outline" size="sm" onClick={handlePrintProductSales}>
                   <Printer className="h-4 w-4 mr-2" />
                   Print
                 </Button>

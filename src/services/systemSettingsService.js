@@ -60,6 +60,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   receiptFooter: 'Thank you for choosing David\'s Salon!',
   returnPolicy: 'Products may be returned within 7 days with original receipt and packaging.',
   warrantyPolicy: 'Services are guaranteed for 7 days. Contact us for any concerns.',
+  printCustomerCopy: true, // Enable printing customer copy by default
   
   // System Settings
   defaultCurrency: 'PHP',

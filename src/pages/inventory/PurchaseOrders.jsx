@@ -46,7 +46,6 @@ import { collection, getDocs, query, where, addDoc, serverTimestamp, doc, update
 import { db } from '../../config/firebase';
 import { inventoryService } from '../../services/inventoryService';
 import toast from 'react-hot-toast';
-import { exportToExcel } from '../../utils/excelExport';
 import { sendEmail } from '../../services/emailService';
 
 // Debounce hook for search
@@ -1004,28 +1003,44 @@ const PurchaseOrders = () => {
   }, [purchaseOrders]);
 
   // Export purchase orders to Excel
-  const handleExportOrders = () => {
+  const handleExportOrders = async () => {
     if (!filteredOrders.length) {
       toast.error('No purchase orders to export');
       return;
     }
 
     try {
+      const { 
+        createStyledWorkbook, 
+        addReportHeader, 
+        addFiltersSection, 
+        addSummaryStats, 
+        addDataTable, 
+        addGrandTotal, 
+        addFooter, 
+        setColumnWidths, 
+        saveWorkbook 
+      } = await import('../../utils/excelExport');
+
+      // Create workbook and worksheet
+      const workbook = createStyledWorkbook();
+      const worksheet = workbook.addWorksheet('Purchase Orders');
+
+      // Define columns
       const headers = [
-        { key: 'orderId', label: 'Order ID' },
-        { key: 'orderDate', label: 'Order Date' },
-        { key: 'supplierName', label: 'Supplier' },
-        { key: 'status', label: 'Status' },
-        { key: 'totalAmount', label: 'Total Amount (₱)' },
-        { key: 'itemsCount', label: 'Items Count' },
-        { key: 'expectedDelivery', label: 'Expected Delivery' },
-        { key: 'actualDelivery', label: 'Actual Delivery' },
-        { key: 'notes', label: 'Notes' },
-        { key: 'createdBy', label: 'Created By' }
+        { key: 'rowNum', label: '#', align: 'center' },
+        { key: 'orderId', label: 'Order ID', align: 'left' },
+        { key: 'orderDate', label: 'Order Date', align: 'left' },
+        { key: 'supplierName', label: 'Supplier', align: 'left' },
+        { key: 'itemsCount', label: 'Items', align: 'center' },
+        { key: 'expectedDelivery', label: 'Expected Delivery', align: 'left' },
+        { key: 'totalAmount', label: 'Total Amount', align: 'right' },
+        { key: 'status', label: 'Status', align: 'center' },
+        { key: 'createdBy', label: 'Created By', align: 'left' }
       ];
 
       // Prepare data with formatted values
-      const exportData = filteredOrders.map(order => {
+      const exportData = filteredOrders.map((order, index) => {
         const itemsCount = order.items ? order.items.length : 0;
         const orderDate = order.orderDate 
           ? (order.orderDate.toDate ? order.orderDate.toDate() : new Date(order.orderDate))
@@ -1033,25 +1048,89 @@ const PurchaseOrders = () => {
         const expectedDelivery = order.expectedDelivery
           ? (order.expectedDelivery.toDate ? order.expectedDelivery.toDate() : new Date(order.expectedDelivery))
           : null;
-        const actualDelivery = order.actualDelivery
-          ? (order.actualDelivery.toDate ? order.actualDelivery.toDate() : new Date(order.actualDelivery))
-          : null;
 
         return {
+          rowNum: index + 1,
           orderId: order.orderId || order.id || 'N/A',
           orderDate: orderDate ? format(orderDate, 'MMM dd, yyyy') : 'N/A',
           supplierName: order.supplierName || 'N/A',
-          status: order.status || 'Pending Branch Approval',
-          totalAmount: order.totalAmount || 0,
           itemsCount: itemsCount,
           expectedDelivery: expectedDelivery ? format(expectedDelivery, 'MMM dd, yyyy') : 'N/A',
-          actualDelivery: actualDelivery ? format(actualDelivery, 'MMM dd, yyyy') : 'N/A',
-          notes: order.notes || '',
+          totalAmount: order.totalAmount || 0,
+          status: order.status || 'Pending Branch Approval',
           createdBy: order.createdBy || 'N/A'
         };
       });
 
-      exportToExcel(exportData, 'purchase_orders_export', 'Purchase Orders', headers);
+      // Calculate totals
+      const totalAmount = exportData.reduce((sum, item) => sum + item.totalAmount, 0);
+      const totalItems = exportData.reduce((sum, item) => sum + item.itemsCount, 0);
+
+      // Build filters text
+      let filtersText = 'All Purchase Orders';
+      if (searchTerm) filtersText += ` | Search: "${searchTerm}"`;
+      if (selectedSupplierFilter && selectedSupplierFilter !== 'all') {
+        const supplier = suppliers.find(s => s.id === selectedSupplierFilter);
+        if (supplier) filtersText += ` | Supplier: ${supplier.name}`;
+      }
+      if (selectedStatus && selectedStatus !== 'all') filtersText += ` | Status: ${selectedStatus}`;
+
+      // Add sections
+      let currentRow = 1;
+      currentRow = addReportHeader(worksheet, 'PURCHASE ORDERS REPORT', headers.length);
+      currentRow = addFiltersSection(worksheet, filtersText, headers.length, currentRow);
+      
+      // Add summary stats
+      const stats = [
+        { label: 'Total Orders', value: exportData.length.toString() },
+        { label: 'Total Items', value: totalItems.toLocaleString('en-US') },
+        { label: 'Total Amount', value: `₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+        { label: 'Pending Orders', value: exportData.filter(o => o.status.includes('Pending')).length.toString() }
+      ];
+      currentRow = addSummaryStats(worksheet, stats, currentRow);
+
+      // Add data table
+      currentRow = addDataTable(worksheet, headers, exportData, currentRow, {
+        totalAmount: '₱#,##0.00'
+      });
+
+      // Add grand total
+      const grandTotal = {
+        rowNum: '',
+        orderId: 'GRAND TOTAL:',
+        orderDate: '',
+        supplierName: '',
+        itemsCount: totalItems,
+        expectedDelivery: '',
+        totalAmount: totalAmount,
+        status: '',
+        createdBy: ''
+      };
+      currentRow = addGrandTotal(worksheet, headers, grandTotal, currentRow);
+
+      // Get branch name
+      let branchName = userData?.branchName || 'N/A';
+      if (branchName === 'N/A' && userData?.branchId) {
+        try {
+          const { getBranchById } = await import('../../services/branchService');
+          const branch = await getBranchById(userData.branchId);
+          branchName = branch?.name || branch?.branchName || 'N/A';
+        } catch (error) {
+          console.error('Error fetching branch name:', error);
+          branchName = 'N/A';
+        }
+      }
+
+      // Add footer
+      addFooter(worksheet, userData, branchName, currentRow, headers.length);
+
+      // Set column widths
+      setColumnWidths(worksheet, [5, 15, 15, 25, 10, 18, 18, 20, 20]);
+
+      // Save workbook
+      const filename = `PurchaseOrders_${branchName.replace(/\s+/g, '')}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      await saveWorkbook(workbook, filename);
+
       toast.success('Purchase orders exported to Excel successfully');
     } catch (error) {
       console.error('Error exporting purchase orders:', error);
@@ -1751,7 +1830,7 @@ David's Salon`;
       return;
     }
 
-    // Default: Summary Report for multiple orders - CARD BASED FORMAT
+    // Default: Summary Report for multiple orders - TABLE FORMAT
     // Calculate summary statistics
     const totalOrders = ordersToPrint.length;
     const totalAmount = ordersToPrint.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
@@ -1773,80 +1852,20 @@ David's Salon`;
     if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
     const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Purchase Orders';
 
-    // Generate order cards for summary page
-    const orderCards = ordersToPrint.map((order, idx) => {
-      const orderDate = order.orderDate
-        ? (order.orderDate.toDate ? order.orderDate.toDate() : new Date(order.orderDate))
-        : null;
-      const expectedDelivery = order.expectedDelivery
-        ? (order.expectedDelivery.toDate ? order.expectedDelivery.toDate() : new Date(order.expectedDelivery))
-        : null;
-      const items = order.items || [];
-
-      return `
-        <div class="order-card">
-          <div class="order-card-header">
-            <div>
-              <span class="order-number">#${idx + 1}</span>
-              <span class="order-id">${order.orderId || order.id}</span>
-            </div>
-            <span class="status-badge status-${(order.status || 'pending').toLowerCase().replace(/\s+/g, '-')}">${order.status || 'Pending'}</span>
-          </div>
-          <div class="order-card-body">
-            <div class="order-card-row">
-              <span class="label">Supplier:</span>
-              <span class="value">${order.supplierName || 'Unknown'}</span>
-            </div>
-            <div class="order-card-row">
-              <span class="label">Order Date:</span>
-              <span class="value">${orderDate ? format(orderDate, 'MMM dd, yyyy') : 'N/A'}</span>
-            </div>
-            <div class="order-card-row">
-              <span class="label">Expected Delivery:</span>
-              <span class="value">${expectedDelivery ? format(expectedDelivery, 'MMM dd, yyyy') : 'N/A'}</span>
-            </div>
-            <div class="order-card-row">
-              <span class="label">Items:</span>
-              <span class="value">${items.length} ${items.length === 1 ? 'item' : 'items'}</span>
-            </div>
-            ${order.notes ? `
-            <div class="order-card-row">
-              <span class="label">Notes:</span>
-              <span class="value notes">${order.notes}</span>
-            </div>
-            ` : ''}
-            ${includeDetails && items.length > 0 ? `
-            <div class="items-detail">
-              <div class="items-detail-title">Order Items:</div>
-              ${items.map(item => `
-                <div class="item-detail-row">
-                  <span class="item-name">${item.productName || item.name || 'Unknown'}</span>
-                  <span class="item-qty">Qty: ${item.quantity || 0}</span>
-                  <span class="item-price">₱${((item.quantity || 0) * (item.unitPrice || item.price || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                </div>
-              `).join('')}
-            </div>
-            ` : ''}
-            <div class="order-card-row total">
-              <span class="label">Total Amount:</span>
-              <span class="value">₱${(order.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Purchase Orders Report - ${userData?.branchName || 'Branch'}</title>
-          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
+            @page {
+              size: A4 landscape;
+              margin: 0.4in 0.4in 0.75in 0.4in;
+            }
             @media print {
-              @page { 
-                size: A4 portrait;
-                margin: 0.4in 0.4in 0.75in 0.4in;
+              header, footer {
+                display: none;
               }
             }
             * {
@@ -1863,14 +1882,14 @@ David's Salon`;
             }
             .header {
               text-align: center;
-              margin-bottom: 15px;
-              padding-bottom: 10px;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
               border-bottom: 2px solid #333;
             }
             .header h1 {
-              font-size: 22px;
+              font-size: 20px;
               font-weight: 700;
-              margin: 0 0 5px 0;
+              margin: 0 0 4px 0;
             }
             .header h2 {
               font-size: 16px;
@@ -1881,7 +1900,7 @@ David's Salon`;
               background: #fff;
               padding: 10px;
               border: 2px solid #333;
-              margin: 10px 0 15px 0;
+              margin: 10px 0;
               text-align: center;
             }
             .filters-title {
@@ -1903,7 +1922,7 @@ David's Salon`;
             }
             .stat-box {
               text-align: center;
-              padding: 12px;
+              padding: 10px;
               background: #fff;
               border: 1px solid #333;
             }
@@ -1920,144 +1939,54 @@ David's Salon`;
               letter-spacing: 0.5px;
               font-weight: 600;
             }
-            .orders-list {
-              margin: 15px 0;
-            }
-            .orders-list h3 {
-              font-size: 12px;
-              font-weight: 700;
-              margin-bottom: 10px;
-              text-transform: uppercase;
-            }
-            .order-card {
-              border: 1px solid #333;
-              margin-bottom: 10px;
-              background: #fff;
-              page-break-inside: avoid;
-            }
-            .order-card-header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              padding: 8px 12px;
-              background: #f5f5f5;
-              border-bottom: 1px solid #333;
-            }
-            .order-number {
-              font-weight: 700;
-              font-size: 10px;
-              margin-right: 8px;
-            }
-            .order-id {
-              font-family: monospace;
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
               font-size: 9px;
+              border: 1px solid #333;
+            }
+            th, td {
+              border: 1px solid #333;
+              padding: 6px 4px;
+              text-align: left;
+              vertical-align: top;
+            }
+            th {
+              background-color: #fff;
+              font-weight: 700;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+            }
+            th.row-number {
+              width: 40px;
+              text-align: center;
+            }
+            td.row-number {
+              text-align: center;
               font-weight: 600;
             }
+            .grand-total {
+              background-color: #e0e0e0 !important;
+              font-weight: 700;
+              border-top: 2px solid #000;
+            }
+            .text-right { text-align: right; }
+            .text-center { text-align: center; }
             .status-badge {
-              padding: 2px 8px;
+              padding: 2px 6px;
               border-radius: 4px;
               font-size: 8px;
               font-weight: 600;
               text-transform: uppercase;
             }
-            .status-pending, .status-created { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
-            .status-approved { background: #DBEAFE; color: #1E40AF; border: 1px solid #93C5FD; }
-            .status-ordered, .status-in-transit { background: #E0E7FF; color: #3730A3; border: 1px solid #A5B4FC; }
-            .status-delivered, .status-received { background: #D1FAE5; color: #065F46; border: 1px solid #6EE7B7; }
-            .status-cancelled, .status-rejected { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; }
-            .order-card-body {
-              padding: 10px 12px;
-            }
-            .order-card-row {
-              display: flex;
-              justify-content: space-between;
-              padding: 4px 0;
-              border-bottom: 1px dotted #ddd;
-            }
-            .order-card-row:last-child {
-              border-bottom: none;
-            }
-            .order-card-row.total {
-              margin-top: 5px;
-              padding-top: 8px;
-              border-top: 2px solid #333;
-              border-bottom: none;
-            }
-            .order-card-row .label {
-              font-weight: 600;
-              font-size: 9px;
-            }
-            .order-card-row .value {
-              font-size: 9px;
-            }
-            .order-card-row .value.notes {
-              font-style: italic;
-              color: #666;
-              max-width: 60%;
-              text-align: right;
-            }
-            .order-card-row.total .label {
-              font-size: 10px;
-              font-weight: 700;
-            }
-            .order-card-row.total .value {
-              font-size: 11px;
-              font-weight: 700;
-            }
-            .items-detail {
-              margin-top: 8px;
-              padding-top: 8px;
-              border-top: 1px solid #e0e0e0;
-            }
-            .items-detail-title {
-              font-size: 9px;
-              font-weight: 700;
-              margin-bottom: 5px;
-              text-transform: uppercase;
-            }
-            .item-detail-row {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              padding: 3px 0;
-              font-size: 8px;
-              background: #f9f9f9;
-              padding: 4px 6px;
-              margin-bottom: 2px;
-              border-radius: 2px;
-            }
-            .item-name {
-              flex: 1;
-              font-weight: 600;
-            }
-            .item-qty {
-              margin: 0 10px;
-              color: #666;
-            }
-            .item-price {
-              font-weight: 600;
-              font-family: monospace;
-            }
-            .grand-total {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              padding: 12px 15px;
-              background: #fff;
-              border: 2px solid #333;
-              margin: 15px 0;
-            }
-            .grand-total-label {
-              font-size: 12px;
-              font-weight: 700;
-              text-transform: uppercase;
-            }
-            .grand-total-value {
-              font-size: 14px;
-              font-weight: 700;
-            }
+            .status-pending, .status-created { background: #FEF3C7; color: #92400E; }
+            .status-approved { background: #DBEAFE; color: #1E40AF; }
+            .status-ordered, .status-in-transit { background: #E0E7FF; color: #3730A3; }
+            .status-delivered, .status-received { background: #D1FAE5; color: #065F46; }
+            .status-cancelled, .status-rejected { background: #FEE2E2; color: #991B1B; }
             .footer {
-              margin-top: 20px;
+              margin-top: 12px;
               padding-top: 10px;
               border-top: 2px solid #333;
               font-size: 8px;
@@ -2084,12 +2013,21 @@ David's Salon`;
             .footer-center p {
               margin: 3px 0;
             }
+            .page-number {
+              position: fixed;
+              bottom: 2px;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 9px;
+              color: #000;
+            }
           </style>
         </head>
         <body>
           <div class="header">
             <h1>DAVID'S SALON</h1>
-            <h2>Purchase Orders Summary</h2>
+            <h2>Purchase Orders Report - ${userData?.branchName || 'Branch'}</h2>
           </div>
           
           <div class="filters">
@@ -2097,14 +2035,13 @@ David's Salon`;
             <div class="filters-content">${filtersText}</div>
           </div>
 
-          <!-- Summary Statistics -->
           <div class="summary-stats">
             <div class="stat-box">
               <div class="stat-value">${totalOrders}</div>
               <div class="stat-label">Total Orders</div>
             </div>
             <div class="stat-box">
-              <div class="stat-value">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+              <div class="stat-value">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               <div class="stat-label">Total Amount</div>
             </div>
             ${Object.entries(statusCounts).map(([status, count]) => `
@@ -2115,35 +2052,100 @@ David's Salon`;
             `).join('')}
           </div>
           
-          <!-- Orders List -->
-          <div class="orders-list">
-            <h3>Purchase Orders List (${totalOrders} ${totalOrders === 1 ? 'order' : 'orders'})</h3>
-            ${orderCards}
-          </div>
-
-          <!-- Grand Total -->
-          <div class="grand-total">
-            <span class="grand-total-label">GRAND TOTAL:</span>
-            <span class="grand-total-value">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-          </div>
+          <table>
+            <thead>
+              <tr>
+                <th class="row-number">#</th>
+                <th>Order ID</th>
+                <th>Order Date</th>
+                <th>Supplier</th>
+                <th class="text-center">Items</th>
+                <th>Expected Delivery</th>
+                <th class="text-right">Total Amount</th>
+                <th>Status</th>
+                <th>Created By</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${ordersToPrint.map((order, index) => {
+                const orderDate = order.orderDate
+                  ? (order.orderDate.toDate ? order.orderDate.toDate() : new Date(order.orderDate))
+                  : null;
+                const expectedDelivery = order.expectedDelivery
+                  ? (order.expectedDelivery.toDate ? order.expectedDelivery.toDate() : new Date(order.expectedDelivery))
+                  : null;
+                const items = order.items || [];
+                const statusClass = (order.status || 'pending').toLowerCase().replace(/\s+/g, '-');
+                
+                return `
+                  <tr>
+                    <td class="row-number">${index + 1}</td>
+                    <td style="font-family: monospace; font-weight: 600; font-size: 8px;">${order.orderId || order.id}</td>
+                    <td>${orderDate ? format(orderDate, 'MMM dd, yyyy') : 'N/A'}</td>
+                    <td style="font-weight: 600;">${order.supplierName || 'Unknown'}</td>
+                    <td class="text-center">${items.length}</td>
+                    <td>${expectedDelivery ? format(expectedDelivery, 'MMM dd, yyyy') : 'N/A'}</td>
+                    <td class="text-right" style="font-weight: 600;">₱${(order.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td><span class="status-badge status-${statusClass}">${order.status || 'Pending'}</span></td>
+                    <td>${order.createdBy || 'N/A'}</td>
+                  </tr>
+                `;
+              }).join('')}
+              <tr class="grand-total">
+                <td class="row-number"></td>
+                <td colspan="5" style="text-align: left;">GRAND TOTAL:</td>
+                <td class="text-right">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td colspan="2"></td>
+              </tr>
+            </tbody>
+          </table>
           
-          <!-- Footer -->
           <div class="footer">
             <div class="footer-info">
               <div class="footer-left">
-                <strong>Generated By:</strong> ${userData?.firstName} ${userData?.lastName}<br>
+                <strong>Generated By:</strong> ${userData?.firstName || ''} ${userData?.lastName || 'Inventory Controller'}<br>
                 <strong>Position:</strong> Inventory Controller<br>
                 <strong>Branch:</strong> ${userData?.branchName || 'N/A'}
               </div>
               <div class="footer-right">
                 <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
-                <strong>Time:</strong> ${format(new Date(), 'HH:mm')}
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
               </div>
             </div>
             <div class="footer-center">
-              <p style="font-weight: 600;">Purchase Orders Summary - ${totalOrders} Orders Total</p>
+              <p style="font-weight: 600; font-size: 9px;">Purchase Orders Report - ${totalOrders} Orders Total</p>
             </div>
           </div>
+
+          <div class="page-number" id="pageNumber"></div>
+
+          <script>
+            const pageHeight = 794;
+            const topMargin = 38;
+            const bottomMargin = 72;
+            const contentHeight = pageHeight - topMargin - bottomMargin;
+            
+            const bodyHeight = document.body.scrollHeight;
+            const totalPages = Math.ceil(bodyHeight / contentHeight);
+            
+            const pageNumberDiv = document.getElementById('pageNumber');
+            pageNumberDiv.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+              const pageNum = document.createElement('div');
+              pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+              pageNum.style.position = 'absolute';
+              pageNum.style.bottom = '2px';
+              pageNum.style.left = '0';
+              pageNum.style.right = '0';
+              pageNum.style.textAlign = 'center';
+              pageNum.style.fontSize = '9px';
+              pageNum.style.fontFamily = "'Poppins', Arial, sans-serif";
+              pageNum.style.color = '#000';
+              pageNum.style.top = ((i * contentHeight) + topMargin - 2) + 'px';
+              document.body.appendChild(pageNum);
+            }
+          </script>
         </body>
       </html>
     `;
@@ -2151,7 +2153,11 @@ David's Salon`;
     const printWindow = window.open('', '_blank');
     printWindow.document.write(printContent);
     printWindow.document.close();
-    printWindow.print();
+    printWindow.focus();
+    
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
   // Handle marking order as confirmed by supplier (In Transit)
@@ -2429,7 +2435,7 @@ David's Salon`;
               <Banknote className="h-6 w-6 md:h-8 md:w-8 text-purple-600 flex-shrink-0" />
               <div className="ml-2 md:ml-3 min-w-0">
                 <p className="text-xs md:text-sm font-medium text-gray-600 truncate">Total Value</p>
-                <p className="text-lg md:text-xl font-bold text-gray-900">₱{orderStats.totalValue.toLocaleString()}</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">₱{orderStats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               </div>
             </div>
           </Card>
@@ -2463,20 +2469,10 @@ David's Salon`;
             {/* Export Button */}
                 <Button
                   variant="outline"
-                  onClick={() => {
-                // Export functionality for purchase orders
-                const csvContent = purchaseOrders.map(order => `${order.orderId},${order.supplierName || ''},${order.status},${order.totalValue || ''},${order.createdAt ? new Date(order.createdAt).toLocaleDateString() : ''}`).join('\n');
-                const blob = new Blob([`Order ID,Supplier,Status,Total Value,Date\n${csvContent}`], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `purchase_orders_${Date.now()}.csv`;
-                link.click();
-                URL.revokeObjectURL(url);
-              }}
-              className="flex items-center gap-2"
-              title="Export purchase orders data"
-            >
+                  onClick={handleExportOrders}
+                  className="flex items-center gap-2"
+                  title="Export purchase orders data"
+                >
               <Download className="w-5 h-5" />
                 </Button>
 
@@ -2559,7 +2555,7 @@ David's Salon`;
                         </span>
                       </td>
                       <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap hidden md:table-cell">
-                        <div className="text-xs md:text-sm font-medium text-gray-900">₱{(order.totalAmount || 0).toLocaleString()}</div>
+                        <div className="text-xs md:text-sm font-medium text-gray-900">₱{(order.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                       </td>
                       <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap hidden xl:table-cell">
                         <div className="text-xs md:text-sm text-gray-900">{order.items?.length || 0} items</div>
@@ -3037,7 +3033,7 @@ David's Salon`;
                                       )}
                                       <div className="pt-1">
                                         <span className="text-xs font-bold text-[#160B53] block mb-1">
-                                          ₱{(product.unitCost || 0).toLocaleString()}
+                                          ₱{(product.unitCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </span>
                                         <div className="flex gap-1">
                                           <Button
@@ -3231,8 +3227,8 @@ David's Salon`;
                                       </div>
                                       <div className="flex-1"></div>
                                       <div className="text-right">
-                                        <p className="text-[10px] text-gray-400">₱{item.unitPrice.toLocaleString()} × {item.quantity || 0}</p>
-                                        <p className="text-base font-bold text-[#160B53]">₱{item.totalPrice.toLocaleString()}</p>
+                                        <p className="text-[10px] text-gray-400">₱{item.unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} × {item.quantity || 0}</p>
+                                        <p className="text-base font-bold text-[#160B53]">₱{item.totalPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                                       </div>
                                     </div>
                                   </Card>
@@ -3244,7 +3240,7 @@ David's Salon`;
                             <div className="p-3 bg-gradient-to-r from-[#160B53] to-[#12094A] flex-shrink-0">
                               <div className="flex justify-between items-center">
                                 <span className="text-white font-semibold text-sm">Total Amount:</span>
-                                <span className="text-xl font-bold text-white">₱{orderTotal.toLocaleString()}</span>
+                                <span className="text-xl font-bold text-white">₱{orderTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </div>
                           </div>
@@ -3483,7 +3479,7 @@ David's Salon`;
                     <div className="space-y-4">
                       <div>
                         <label className="text-sm font-medium text-gray-500">Total Amount</label>
-                        <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                       </div>
                       {selectedOrder.notes && (
                         <div>
@@ -3526,8 +3522,8 @@ David's Salon`;
                                   )}
                                 </td>
                                 <td className="px-4 py-3 text-gray-900">{item.quantity}</td>
-                                <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                               </tr>
                             ))
                           ) : (
@@ -3541,7 +3537,7 @@ David's Salon`;
                             <tr>
                               <td colSpan="3" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
                               <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
-                                ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
+                                ₱{(selectedOrder.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
                             </tr>
                           </tfoot>
@@ -3650,7 +3646,7 @@ David's Salon`;
                       </div>
                       <div className="text-right">
                         <p className="text-sm text-blue-700">Total Amount</p>
-                        <p className="text-lg font-bold text-blue-900">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                        <p className="text-lg font-bold text-blue-900">₱{(selectedOrder.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                       </div>
                     </div>
                   </div>
@@ -3670,7 +3666,7 @@ David's Salon`;
                                 )}
                                 <div className="mt-2 flex items-center gap-4 text-sm text-gray-600">
                                   <span>Quantity: <strong>{item.quantity}</strong></span>
-                                  <span>Unit Price: <strong>₱{(item.unitPrice || 0).toLocaleString()}</strong></span>
+                                  <span>Unit Price: <strong>₱{(item.unitPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
                                 </div>
                               </div>
                               <div className="flex-shrink-0">
@@ -3813,7 +3809,7 @@ David's Salon`;
                       </div>
                       <div className="flex justify-between pt-2 border-t border-gray-300">
                         <span className="font-semibold text-gray-900">Total Amount:</span>
-                        <span className="text-lg font-bold text-[#160B53]">₱{orderTotal.toLocaleString()}</span>
+                        <span className="text-lg font-bold text-[#160B53]">₱{orderTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                     </div>
                   </div>
@@ -3841,11 +3837,11 @@ David's Salon`;
                             </div>
                             <div className="flex justify-between text-xs text-gray-600">
                               <span>Unit Price:</span>
-                              <span className="font-medium">₱{item.unitPrice.toLocaleString()}</span>
+                              <span className="font-medium">₱{item.unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                             <div className="flex justify-between text-sm font-semibold text-gray-900 pt-1 border-t border-gray-100">
                               <span>Total:</span>
-                              <span>₱{item.totalPrice.toLocaleString()}</span>
+                              <span>₱{item.totalPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                           </div>
                         </div>

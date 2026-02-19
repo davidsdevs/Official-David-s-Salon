@@ -446,8 +446,8 @@ const LeaveManagement = () => {
             ${styles}
             @media print {
               @page {
-                size: A4;
-                margin: 0.75in;
+                size: letter;
+                margin: 0.4in 0.4in 0.75in 0.4in;
               }
               * {
                 -webkit-print-color-adjust: exact;
@@ -456,12 +456,16 @@ const LeaveManagement = () => {
               body {
                 margin: 0;
                 padding: 0;
+                counter-reset: page 1;
+              }
+              header, footer {
+                display: none;
               }
             }
             body {
               font-family: 'Poppins', sans-serif;
               margin: 0;
-              padding: 20px;
+              padding: 0;
               background: white;
               color: #000;
             }
@@ -482,19 +486,32 @@ const LeaveManagement = () => {
           ${printContentHTML}
           <script>
             window.onload = function() {
+              // Calculate total pages
               setTimeout(function() {
-                window.print();
-                window.onafterprint = function() {
-                  setTimeout(function() {
-                    window.close();
-                  }, 100);
-                };
+                const pageHeight = 945;
+                const contentHeight = document.body.scrollHeight;
+                const totalPages = Math.max(1, Math.ceil(contentHeight / pageHeight));
+                
+                // Inject page numbering style for the existing page-number-display element
+                const printStyle = document.createElement('style');
+                printStyle.textContent = '.page-number-display::before { content: "Page " counter(page) " of ' + totalPages + '"; } body { counter-reset: page 1; }';
+                document.head.appendChild(printStyle);
+                
+                // Print after calculating pages
                 setTimeout(function() {
-                  if (!window.closed) {
-                    window.close();
-                  }
-                }, 30000);
-              }, 500);
+                  window.print();
+                  window.onafterprint = function() {
+                    setTimeout(function() {
+                      window.close();
+                    }, 100);
+                  };
+                  setTimeout(function() {
+                    if (!window.closed) {
+                      window.close();
+                    }
+                  }, 30000);
+                }, 100);
+              }, 250);
             };
           </script>
         </body>
@@ -1024,13 +1041,14 @@ const LeaveManagement = () => {
             }
             body {
               counter-reset: page 1;
+              margin: 0;
             }
             * {
               color: #000 !important;
               background: transparent !important;
             }
-            .page-number-display::before {
-              content: "Page " counter(page);
+            header, footer {
+              display: none;
             }
           }
         `}</style>
@@ -1169,6 +1187,7 @@ const LeaveManagement = () => {
           }}>
             <thead>
               <tr>
+                <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#f5f5f5', width: '40px' }}>#</th>
                 <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'left', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>Employee</th>
                 <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>Type</th>
                 <th style={{ border: '1px solid #333', padding: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>Start Date</th>
@@ -1181,7 +1200,7 @@ const LeaveManagement = () => {
             <tbody>
               {filteredAndSortedRequests.length === 0 ? (
                 <tr>
-                  <td colSpan="7" style={{ border: '1px solid #666', padding: '20px', textAlign: 'center' }}>
+                  <td colSpan="8" style={{ border: '1px solid #666', padding: '20px', textAlign: 'center' }}>
                     No leave requests found
                   </td>
                 </tr>
@@ -1193,6 +1212,9 @@ const LeaveManagement = () => {
 
                   return (
                     <tr key={request.id} style={{ pageBreakInside: 'avoid' }}>
+                      <td style={{ border: '1px solid #666', padding: '6px 8px', textAlign: 'center', fontWeight: '600' }}>
+                        {idx + 1}
+                      </td>
                       <td style={{ border: '1px solid #666', padding: '6px 8px' }}>
                         {employeeName}
                         {isOwnRequest && <span style={{ fontSize: '8pt', color: '#666', display: 'block' }}>(My Request)</span>}

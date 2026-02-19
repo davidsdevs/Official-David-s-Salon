@@ -87,6 +87,11 @@ const Deliveries = () => {
 
   // Enhanced print report function
   const handlePrintReport = async (includeDetails = false) => {
+    if (!filteredDeliveries.length) {
+      toast.error('No deliveries to print');
+      return;
+    }
+
     // Get branch name if not available in userData
     let branchName = userData?.branchName || 'N/A';
     if (branchName === 'N/A' && userData?.branchId) {
@@ -117,86 +122,25 @@ const Deliveries = () => {
     if (maxAmount) activeFilters.push(`Max Amount: ₱${maxAmount}`);
     const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Deliveries';
 
-    // Generate table rows with optional product details
-    const tableRows = filteredDeliveries.map(delivery => {
-      const supplierName = delivery.supplierName || suppliers.find(s => s.id === delivery.supplierId)?.name || 'Unknown Supplier';
-      
-      let itemsDisplay = '';
-      if (includeDetails && delivery.items && delivery.items.length > 0) {
-        itemsDisplay = `
-          <div style="margin-top: 5px; padding: 5px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 3px;">
-            ${delivery.items.map((item, idx) => `
-              <div style="padding: 3px 0; border-bottom: 1px dotted #ccc; font-size: 8px;">
-                <strong>${idx + 1}. ${item.productName || 'Unknown'}</strong>
-                <span style="float: right;">Qty: ${item.quantity || item.orderedQuantity || 0} | ₱${((item.quantity || item.orderedQuantity || 0) * (item.unitPrice || 0)).toLocaleString()}</span>
-              </div>
-            `).join('')}
-          </div>
-        `;
-      }
-
-      return `
-        <tr>
-          <td>${delivery.orderId || delivery.id}</td>
-          <td>${supplierName}</td>
-          <td>${delivery.orderDate ? new Date(delivery.orderDate).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: '2-digit', 
-            year: 'numeric' 
-          }) : 'N/A'}</td>
-          <td>${delivery.expectedDelivery ? new Date(delivery.expectedDelivery).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: '2-digit', 
-            year: 'numeric' 
-          }) : 'N/A'}</td>
-          <td>${delivery.supplierConfirmedAt ? new Date(delivery.supplierConfirmedAt.toDate ? delivery.supplierConfirmedAt.toDate() : delivery.supplierConfirmedAt).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: '2-digit', 
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }) : delivery.approvedAt ? new Date(delivery.approvedAt.toDate ? delivery.approvedAt.toDate() : delivery.approvedAt).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: '2-digit', 
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }) : delivery.overallApprovedAt ? new Date(delivery.overallApprovedAt.toDate ? delivery.overallApprovedAt.toDate() : delivery.overallApprovedAt).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: '2-digit', 
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }) : 'N/A'}</td>
-          <td class="amount">₱${(delivery.totalAmount || 0).toLocaleString()}</td>
-          <td>${delivery.items?.length || 0}${itemsDisplay}</td>
-          <td>
-            <span class="status-badge">
-              ${delivery.status || 'Pending'}
-            </span>
-          </td>
-          <td>${delivery.createdByName || 'Unknown'}</td>
-          <td>${delivery.notes || '-'}</td>
-        </tr>
-      `;
-    }).join('');
+    // Calculate totals
+    const totalAmount = filteredDeliveries.reduce((sum, delivery) => sum + (delivery.totalAmount || 0), 0);
+    const totalItems = filteredDeliveries.reduce((sum, delivery) => sum + (delivery.items?.length || 0), 0);
 
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Deliveries Report - ${new Date().toISOString().split('T')[0]}</title>
+          <title>Deliveries Report - ${branchName}</title>
           <meta charset="utf-8">
-          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
+            @page {
+              size: A4 landscape;
+              margin: 0.4in 0.4in 0.75in 0.4in;
+            }
             @media print {
-              @page {
-                size: A4 landscape;
-                margin: 0.4in 0.4in 0.75in 0.4in;
-              }
-              * {
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
+              header, footer {
+                display: none;
               }
             }
             * {
@@ -213,14 +157,14 @@ const Deliveries = () => {
             }
             .header {
               text-align: center;
-              margin-bottom: 15px;
-              padding-bottom: 10px;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
               border-bottom: 2px solid #333;
             }
             .header h1 {
-              font-size: 22px;
+              font-size: 20px;
               font-weight: 700;
-              margin: 0 0 5px 0;
+              margin: 0 0 4px 0;
             }
             .header h2 {
               font-size: 16px;
@@ -231,7 +175,7 @@ const Deliveries = () => {
               background: #fff;
               padding: 10px;
               border: 2px solid #333;
-              margin: 10px 0 15px 0;
+              margin: 10px 0;
               text-align: center;
             }
             .filters-title {
@@ -248,7 +192,7 @@ const Deliveries = () => {
             .summary-box {
               background: #fff;
               border: 1px solid #333;
-              padding: 12px;
+              padding: 10px;
               margin-bottom: 15px;
               display: grid;
               grid-template-columns: repeat(4, 1fr);
@@ -260,7 +204,7 @@ const Deliveries = () => {
               border: 1px solid #333;
             }
             .summary-value {
-              font-size: 16px;
+              font-size: 18px;
               font-weight: 700;
               color: #000;
               display: block;
@@ -291,29 +235,32 @@ const Deliveries = () => {
               color: #000;
               font-weight: 700;
               text-transform: uppercase;
-              font-size: 8px;
-              letter-spacing: 0.5px;
               border-bottom: 2px solid #000;
             }
-            tr:nth-child(even) {
-              background: #fff;
+            th.row-number {
+              width: 40px;
+              text-align: center;
             }
+            td.row-number {
+              text-align: center;
+              font-weight: 600;
+            }
+            .grand-total {
+              background-color: #e0e0e0 !important;
+              font-weight: 700;
+              border-top: 2px solid #000;
+            }
+            .text-right { text-align: right; }
+            .text-center { text-align: center; }
             .status-badge {
               padding: 2px 6px;
               border-radius: 4px;
               font-size: 8px;
               font-weight: 600;
               text-transform: uppercase;
-              border: 1px solid #333;
-              background: #fff;
-              color: #000;
-            }
-            .amount {
-              font-weight: 600;
-              color: #000;
             }
             .footer {
-              margin-top: 20px;
+              margin-top: 12px;
               padding-top: 10px;
               border-top: 2px solid #333;
               font-size: 8px;
@@ -340,12 +287,21 @@ const Deliveries = () => {
             .footer-center p {
               margin: 3px 0;
             }
+            .page-number {
+              position: fixed;
+              bottom: 2px;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 9px;
+              color: #000;
+            }
           </style>
         </head>
         <body>
           <div class="header">
             <h1>DAVID'S SALON</h1>
-            <h2>Deliveries Report${includeDetails ? ' - With Product Details' : ' - Summary'}</h2>
+            <h2>Deliveries Report - ${branchName}</h2>
           </div>
 
           <div class="filters">
@@ -359,11 +315,11 @@ const Deliveries = () => {
               <span class="summary-label">Total Deliveries</span>
             </div>
             <div class="summary-item">
-              <span class="summary-value">₱${filteredDeliveries.reduce((sum, delivery) => sum + (delivery.totalAmount || 0), 0).toLocaleString()}</span>
+              <span class="summary-value">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               <span class="summary-label">Total Amount</span>
             </div>
             <div class="summary-item">
-              <span class="summary-value">${filteredDeliveries.reduce((sum, delivery) => sum + (delivery.items?.length || 0), 0)}</span>
+              <span class="summary-value">${totalItems}</span>
               <span class="summary-label">Total Items</span>
             </div>
             <div class="summary-item">
@@ -375,20 +331,41 @@ const Deliveries = () => {
           <table>
             <thead>
               <tr>
-                <th style="width: 8%;">Order ID</th>
-                <th style="width: 15%;">Supplier</th>
-                <th style="width: 10%;">Order Date</th>
-                <th style="width: 10%;">Expected Delivery</th>
-                <th style="width: 10%;">Approved At</th>
-                <th style="width: 8%;">Amount</th>
-                <th style="width: ${includeDetails ? '15%' : '6%'};">Items${includeDetails ? ' / Products' : ''}</th>
-                <th style="width: 8%;">Status</th>
-                <th style="width: ${includeDetails ? '10%' : '15%'};">Created By</th>
-                <th style="width: ${includeDetails ? '6%' : '10%'};">Notes</th>
+                <th class="row-number">#</th>
+                <th>Order ID</th>
+                <th>Supplier</th>
+                <th>Order Date</th>
+                <th>Expected Delivery</th>
+                <th class="text-center">Items</th>
+                <th class="text-right">Amount</th>
+                <th>Status</th>
+                <th>Created By</th>
               </tr>
             </thead>
             <tbody>
-              ${tableRows}
+              ${filteredDeliveries.map((delivery, index) => {
+                const supplierName = delivery.supplierName || suppliers.find(s => s.id === delivery.supplierId)?.name || 'Unknown Supplier';
+                return `
+                  <tr>
+                    <td class="row-number">${index + 1}</td>
+                    <td style="font-family: monospace; font-weight: 600; font-size: 8px;">${delivery.orderId || delivery.id}</td>
+                    <td style="font-weight: 600;">${supplierName}</td>
+                    <td>${delivery.orderDate ? new Date(delivery.orderDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'N/A'}</td>
+                    <td>${delivery.expectedDelivery ? new Date(delivery.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'N/A'}</td>
+                    <td class="text-center">${delivery.items?.length || 0}</td>
+                    <td class="text-right" style="font-weight: 600;">₱${(delivery.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td><span class="status-badge">${delivery.status || 'Pending'}</span></td>
+                    <td>${delivery.createdByName || 'Unknown'}</td>
+                  </tr>
+                `;
+              }).join('')}
+              <tr class="grand-total">
+                <td class="row-number"></td>
+                <td colspan="4" style="text-align: left;">GRAND TOTAL:</td>
+                <td class="text-center">${totalItems}</td>
+                <td class="text-right">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td colspan="2"></td>
+              </tr>
             </tbody>
           </table>
 
@@ -401,13 +378,43 @@ const Deliveries = () => {
               </div>
               <div class="footer-right">
                 <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
-                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
               </div>
             </div>
             <div class="footer-center">
-              <p style="font-weight: 600;">Deliveries Report - ${filteredDeliveries.length} Deliveries Total</p>
+              <p style="font-weight: 600; font-size: 9px;">Deliveries Report - ${filteredDeliveries.length} Deliveries Total</p>
             </div>
           </div>
+
+          <div class="page-number" id="pageNumber"></div>
+
+          <script>
+            const pageHeight = 794;
+            const topMargin = 38;
+            const bottomMargin = 72;
+            const contentHeight = pageHeight - topMargin - bottomMargin;
+            
+            const bodyHeight = document.body.scrollHeight;
+            const totalPages = Math.ceil(bodyHeight / contentHeight);
+            
+            const pageNumberDiv = document.getElementById('pageNumber');
+            pageNumberDiv.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+              const pageNum = document.createElement('div');
+              pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+              pageNum.style.position = 'absolute';
+              pageNum.style.bottom = '2px';
+              pageNum.style.left = '0';
+              pageNum.style.right = '0';
+              pageNum.style.textAlign = 'center';
+              pageNum.style.fontSize = '9px';
+              pageNum.style.fontFamily = "'Poppins', Arial, sans-serif";
+              pageNum.style.color = '#000';
+              pageNum.style.top = ((i * contentHeight) + topMargin - 2) + 'px';
+              document.body.appendChild(pageNum);
+            }
+          </script>
         </body>
       </html>
     `;
@@ -421,7 +428,7 @@ const Deliveries = () => {
     // Wait for content to load, then print
     setTimeout(() => {
       printWindow.print();
-    }, 500);
+    }, 250);
   };
 
   // Open a printable receipt in a new window so user can use browser Print (Ctrl+P)
@@ -1336,6 +1343,137 @@ const Deliveries = () => {
     }
   };
 
+  // Export deliveries to Excel
+  const handleExportDeliveries = async () => {
+    if (!filteredDeliveries.length) {
+      toast.error('No deliveries to export');
+      return;
+    }
+
+    try {
+      const { 
+        createStyledWorkbook, 
+        addReportHeader, 
+        addFiltersSection, 
+        addSummaryStats, 
+        addDataTable, 
+        addGrandTotal, 
+        addFooter, 
+        setColumnWidths, 
+        saveWorkbook 
+      } = await import('../../utils/excelExport');
+
+      // Create workbook and worksheet
+      const workbook = createStyledWorkbook();
+      const worksheet = workbook.addWorksheet('Deliveries');
+
+      // Get branch name
+      let branchName = userData?.branchName || 'N/A';
+      if (branchName === 'N/A' && userData?.branchId) {
+        try {
+          const { getBranchById } = await import('../../services/branchService');
+          const branch = await getBranchById(userData.branchId);
+          branchName = branch?.name || branch?.branchName || 'N/A';
+        } catch (error) {
+          console.error('Error fetching branch name:', error);
+          branchName = 'N/A';
+        }
+      }
+
+      // Define columns
+      const headers = [
+        { key: 'rowNum', label: '#', align: 'center' },
+        { key: 'orderId', label: 'Order ID', align: 'left' },
+        { key: 'supplierName', label: 'Supplier', align: 'left' },
+        { key: 'orderDate', label: 'Order Date', align: 'left' },
+        { key: 'expectedDelivery', label: 'Expected Delivery', align: 'left' },
+        { key: 'itemsCount', label: 'Items', align: 'center' },
+        { key: 'totalAmount', label: 'Amount', align: 'right' },
+        { key: 'status', label: 'Status', align: 'center' },
+        { key: 'createdBy', label: 'Created By', align: 'left' }
+      ];
+
+      // Prepare data with row numbers
+      const exportData = filteredDeliveries.map((delivery, index) => {
+        return {
+          rowNum: index + 1,
+          orderId: delivery.orderId || delivery.id || 'N/A',
+          supplierName: delivery.supplierName || 'Unknown',
+          orderDate: delivery.orderDate ? format(new Date(delivery.orderDate), 'MMM dd, yyyy') : 'N/A',
+          expectedDelivery: delivery.expectedDelivery ? format(new Date(delivery.expectedDelivery), 'MMM dd, yyyy') : 'N/A',
+          itemsCount: delivery.items?.length || 0,
+          totalAmount: delivery.totalAmount || 0,
+          status: delivery.status || 'Pending',
+          createdBy: delivery.createdBy || 'N/A'
+        };
+      });
+
+      // Calculate totals
+      const totalAmount = exportData.reduce((sum, item) => sum + item.totalAmount, 0);
+      const totalItems = exportData.reduce((sum, item) => sum + item.itemsCount, 0);
+
+      // Build filters text
+      const activeFilters = [];
+      if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+      if (selectedSupplierFilter !== 'all') {
+        const supplier = suppliers.find(s => s.id === selectedSupplierFilter);
+        if (supplier) activeFilters.push(`Supplier: ${supplier.name}`);
+      }
+      if (dateFilterStart || dateFilterEnd) {
+        activeFilters.push(`Date: ${dateFilterStart || 'Start'} to ${dateFilterEnd || 'End'}`);
+      }
+      const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Deliveries';
+
+      // Add sections
+      let currentRow = 1;
+      currentRow = addReportHeader(worksheet, 'DELIVERIES REPORT', headers.length);
+      currentRow = addFiltersSection(worksheet, filtersText, headers.length, currentRow);
+      
+      // Add summary stats
+      const stats = [
+        { label: 'Total Deliveries', value: exportData.length.toString() },
+        { label: 'Total Items', value: totalItems.toLocaleString('en-US') },
+        { label: 'Total Amount', value: `₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+        { label: 'Completed', value: exportData.filter(d => d.status === 'Completed').length.toString() }
+      ];
+      currentRow = addSummaryStats(worksheet, stats, currentRow);
+
+      // Add data table
+      currentRow = addDataTable(worksheet, headers, exportData, currentRow, {
+        totalAmount: '₱#,##0.00'
+      });
+
+      // Add grand total
+      const grandTotal = {
+        rowNum: '',
+        orderId: 'GRAND TOTAL:',
+        supplierName: '',
+        orderDate: '',
+        expectedDelivery: '',
+        itemsCount: totalItems,
+        totalAmount: totalAmount,
+        status: '',
+        createdBy: ''
+      };
+      currentRow = addGrandTotal(worksheet, headers, grandTotal, currentRow);
+
+      // Add footer
+      addFooter(worksheet, userData, branchName, currentRow, headers.length);
+
+      // Set column widths
+      setColumnWidths(worksheet, [5, 15, 25, 15, 18, 10, 18, 15, 20]);
+
+      // Save workbook
+      const filename = `Deliveries_${branchName.replace(/\s+/g, '')}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      await saveWorkbook(workbook, filename);
+
+      toast.success('Deliveries exported to Excel successfully');
+    } catch (error) {
+      console.error('Error exporting deliveries:', error);
+      toast.error('Failed to export deliveries');
+    }
+  };
+
   // Generate and download report
   const generateReport = () => {
     if (!selectedOrder) return;
@@ -1397,8 +1535,8 @@ const Deliveries = () => {
           <td style="border: 1px solid #e5e7eb; padding: 8px 16px; text-align: center;">${item.orderedQuantity}</td>
           <td style="border: 1px solid #e5e7eb; padding: 8px 16px; text-align: center;">${item.receivedQuantity}</td>
           <td style="border: 1px solid #e5e7eb; padding: 8px 16px; text-align: center; color: ${discrepancyColor}; font-weight: 600;">${discrepancyText}</td>
-          <td style="border: 1px solid #e5e7eb; padding: 8px 16px; text-align: right;">₱${item.unitPrice.toLocaleString()}</td>
-          <td style="border: 1px solid #e5e7eb; padding: 8px 16px; text-align: right;">₱${item.totalPrice.toLocaleString()}</td>
+          <td style="border: 1px solid #e5e7eb; padding: 8px 16px; text-align: right;">₱${item.unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td style="border: 1px solid #e5e7eb; padding: 8px 16px; text-align: right;">₱${item.totalPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td style="border: 1px solid #e5e7eb; padding: 8px 16px; text-align: center;">${item.checked ? '✓' : ''}</td>
         </tr>
       `;
@@ -1450,7 +1588,7 @@ const Deliveries = () => {
               <span class="info-label">Received By:</span> ${data.receivedBy}
             </div>
             <div class="info-item">
-              <span class="info-label">Total Amount:</span> ₱${data.totalAmount.toLocaleString()}
+              <span class="info-label">Total Amount:</span> ₱${data.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
         </div>
@@ -1608,7 +1746,7 @@ const Deliveries = () => {
               <Banknote className="h-6 w-6 md:h-8 md:w-8 text-green-600 flex-shrink-0" />
               <div className="ml-2 md:ml-3 min-w-0">
                 <p className="text-xs md:text-sm font-medium text-gray-600 truncate">Total Value</p>
-                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">₱{deliveryStats.totalValue.toLocaleString()}</p>
+                <p className="text-base md:text-lg lg:text-xl font-bold text-gray-900">₱{deliveryStats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               </div>
             </div>
           </Card>
@@ -1634,36 +1772,7 @@ const Deliveries = () => {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    // Export deliveries as CSV
-                    if (!filteredDeliveries.length) {
-                      toast.error('No deliveries to export');
-                      return;
-                    }
-                    const csvHeaders = ['Order ID', 'Supplier', 'Order Date', 'Expected Delivery', 'Approved At', 'Amount', 'Items'];
-                    const csvRows = filteredDeliveries.map(delivery => [
-                      delivery.orderId || delivery.id,
-                      delivery.supplierName || 'Unknown',
-                      delivery.orderDate ? format(new Date(delivery.orderDate), 'MMM dd, yyyy') : 'N/A',
-                      delivery.expectedDelivery ? format(new Date(delivery.expectedDelivery), 'MMM dd, yyyy') : 'N/A',
-                      delivery.supplierConfirmedAt ? format(new Date(delivery.supplierConfirmedAt.toDate ? delivery.supplierConfirmedAt.toDate() : delivery.supplierConfirmedAt), 'MMM dd, yyyy HH:mm') : 
-                      delivery.approvedAt ? format(new Date(delivery.approvedAt.toDate ? delivery.approvedAt.toDate() : delivery.approvedAt), 'MMM dd, yyyy HH:mm') : 
-                      delivery.overallApprovedAt ? format(new Date(delivery.overallApprovedAt.toDate ? delivery.overallApprovedAt.toDate() : delivery.overallApprovedAt), 'MMM dd, yyyy HH:mm') : 'N/A',
-                      (delivery.totalAmount || 0).toFixed(2),
-                      delivery.items?.length || 0
-                    ]);
-                    const csvContent = [csvHeaders, ...csvRows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
-                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                    const link = document.createElement('a');
-                    const url = URL.createObjectURL(blob);
-                    link.setAttribute('href', url);
-                    link.setAttribute('download', `deliveries_${new Date().toISOString().split('T')[0]}.csv`);
-                    link.style.visibility = 'hidden';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    toast.success('Deliveries exported to CSV');
-                  }}
+                  onClick={handleExportDeliveries}
                 >
                   <Download className="h-4 w-4" />
                 </Button>
@@ -1765,7 +1874,7 @@ const Deliveries = () => {
                         )}
                       </td>
                       <td className="px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
-                        <div className="text-xs md:text-sm font-medium text-gray-900">₱{(delivery.totalAmount || 0).toLocaleString()}</div>
+                        <div className="text-xs md:text-sm font-medium text-gray-900">₱{(delivery.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                       </td>
                       <td className="hidden md:table-cell px-2 md:px-4 py-2 md:py-4 whitespace-nowrap">
                         <div className="text-xs md:text-sm text-gray-900">{delivery.items?.length || 0} items</div>
@@ -2013,7 +2122,7 @@ const Deliveries = () => {
               <div className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-500">Total Amount</label>
-                  <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-[#160B53]">₱{(selectedOrder.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 </div>
                 {selectedOrder.notes && (
                   <div>
@@ -2048,8 +2157,8 @@ const Deliveries = () => {
                             )}
                           </td>
                           <td className="px-4 py-3 text-gray-900">{item.quantity}</td>
-                          <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString()}</td>
+                          <td className="px-4 py-3 text-gray-900">₱{(item.unitPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-gray-900">₱{(item.totalPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                       ))
                     ) : (
@@ -2063,7 +2172,7 @@ const Deliveries = () => {
                       <tr>
                         <td colSpan="3" className="px-4 py-3 text-right font-semibold text-gray-900">Total:</td>
                         <td className="px-4 py-3 text-right font-bold text-[#160B53] text-lg">
-                          ₱{(selectedOrder.totalAmount || 0).toLocaleString()}
+                          ₱{(selectedOrder.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                       </tr>
                     </tfoot>
@@ -2129,7 +2238,7 @@ const Deliveries = () => {
                       <p className="text-sm text-blue-700">Order Date: {selectedOrder.orderDate ? format(new Date(selectedOrder.orderDate), 'MMM dd, yyyy') : 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-blue-900">Total Amount: ₱{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
+                      <p className="text-sm font-medium text-blue-900">Total Amount: ₱{(selectedOrder.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                       <p className="text-sm text-blue-700">Items: {selectedOrder.items?.length || 0}</p>
                     </div>
                   </div>
@@ -2213,7 +2322,7 @@ const Deliveries = () => {
                                   {discrepancyText}
                                 </td>
                                 <td className="px-4 py-3 text-right">
-                                  <div className="text-gray-900">₱{(item.unitPrice || 0).toLocaleString()}</div>
+                                  <div className="text-gray-900">₱{(item.unitPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 </td>
                               </tr>
                             );
@@ -2301,7 +2410,7 @@ const Deliveries = () => {
                             <span className="text-sm font-medium text-gray-700">
                               Original Order Total {checkedItemsCount < (selectedOrder.items?.length || 0) ? '(Checked Items Only)' : ''}:
                             </span>
-                            <span className="text-base font-semibold text-gray-900">₱{orderedTotal.toLocaleString()}</span>
+                            <span className="text-base font-semibold text-gray-900">₱{orderedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                           {discrepancyAmount !== 0 && (
                             <div className={`flex justify-between items-center ${
@@ -2311,14 +2420,14 @@ const Deliveries = () => {
                                 {discrepancyAmount > 0 ? 'Over-delivery Adjustment:' : 'Short-delivery Adjustment:'}
                               </span>
                               <span className="text-base font-semibold">
-                                {discrepancyAmount > 0 ? '+' : ''}₱{Math.abs(discrepancyAmount).toLocaleString()}
+                                {discrepancyAmount > 0 ? '+' : ''}₱{Math.abs(discrepancyAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </span>
                             </div>
                           )}
                           <div className="border-t-2 border-green-400 pt-3 mt-3">
                             <div className="flex justify-between items-center">
                               <span className="text-lg font-bold text-gray-900">Amount to Pay:</span>
-                              <span className="text-2xl font-bold text-green-700">₱{receivedTotal.toLocaleString()}</span>
+                              <span className="text-2xl font-bold text-green-700">₱{receivedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                             <p className="text-xs text-gray-600 mt-1">Based on received quantities</p>
                           </div>
@@ -2690,7 +2799,7 @@ const Deliveries = () => {
                       return (
                         <div className="flex justify-between pt-2 border-t border-gray-300">
                           <span className="font-semibold text-gray-900">Amount to Pay:</span>
-                          <span className="text-lg font-bold text-green-700">₱{receivedTotal.toLocaleString()}</span>
+                          <span className="text-lg font-bold text-green-700">₱{receivedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
                       );
                     })()}

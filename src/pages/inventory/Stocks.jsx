@@ -59,7 +59,6 @@ import {
   Printer
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { exportToExcel } from '../../utils/excelExport';
 import { toast } from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
@@ -934,64 +933,184 @@ const Stocks = () => {
   }, [groupedStocks.length, visibleEndIndex]);
 
   // Export stocks to Excel
-  const handleExportStocks = () => {
+  const handleExportStocks = async () => {
     if (!filteredStocks.length) {
       toast.error('No stocks to export');
       return;
     }
 
     try {
+      const { 
+        createStyledWorkbook, 
+        addReportHeader, 
+        addFiltersSection, 
+        addSummaryStats, 
+        addDataTable, 
+        addGrandTotal, 
+        addFooter, 
+        setColumnWidths, 
+        saveWorkbook 
+      } = await import('../../utils/excelExport');
+
+      // Create workbook and worksheet
+      const workbook = createStyledWorkbook();
+      const worksheet = workbook.addWorksheet('Stocks Management');
+
+      // Define columns
       const headers = [
-        { key: 'productName', label: 'Product Name' },
-        { key: 'brand', label: 'Brand' },
-        { key: 'category', label: 'Category' },
-        { key: 'upc', label: 'UPC' },
-        { key: 'batchNumber', label: 'Batch Number' },
-        { key: 'beginningStock', label: 'Beginning Stock' },
-        { key: 'realTimeStock', label: 'Current Stock' },
-        { key: 'status', label: 'Status' },
-        { key: 'expirationDate', label: 'Expiration Date' },
-        { key: 'receivedDate', label: 'Received Date' },
-        { key: 'startPeriod', label: 'Start Period' },
-        { key: 'endPeriod', label: 'End Period' }
+        { key: 'rowNum', label: '#', align: 'center' },
+        { key: 'productName', label: 'Product Name', align: 'left' },
+        { key: 'brand', label: 'Brand', align: 'left' },
+        { key: 'category', label: 'Category', align: 'left' },
+        { key: 'batchNumber', label: 'Batch', align: 'center' },
+        { key: 'upc', label: 'UPC', align: 'left' },
+        { key: 'usageType', label: 'Usage Type', align: 'center' },
+        { key: 'beginningStock', label: 'Beginning Stock', align: 'right' },
+        { key: 'realTimeStock', label: 'Current Stock', align: 'right' },
+        { key: 'unitCost', label: 'Unit Cost', align: 'right' },
+        { key: 'inventoryValue', label: 'Inventory Value', align: 'right' },
+        { key: 'status', label: 'Status', align: 'center' },
+        { key: 'expirationDate', label: 'Expires', align: 'left' }
       ];
 
-      // Prepare data with formatted dates and status
-      const exportData = filteredStocks.map(stock => {
-        const product = stock.product || {};
-        const isBatchStock = stock.stockType === 'batch' || stock.batchId || stock.batchNumber;
-        const currentStock = getComputedStock(stock);
-        const status = calculateStockStatus(stock);
+      // Prepare data with row numbers
+      const exportData = filteredStocks.map((stock, index) => {
+        try {
+          const product = stock.product || {};
+          const isBatchStock = stock.stockType === 'batch' || stock.batchId || stock.batchNumber;
+          const currentStock = getComputedStock(stock);
+          const status = calculateStockStatus(stock);
+          // Try to get unit cost from multiple possible sources
+          const unitCost = stock.unitCost || product.unitCost || stock.unitPrice || product.unitPrice || 0;
+          const inventoryValue = currentStock * unitCost;
 
-        return {
-          productName: stock.productName || product.name || 'Unknown',
-          brand: stock.brand || product.brand || '',
-          category: stock.category || product.category || '',
-          upc: stock.upc || product.upc || '',
-          batchNumber: isBatchStock ? (stock.batchNumber || 'N/A') : 'N/A',
-          beginningStock: stock.beginningStock || 0,
-          realTimeStock: currentStock,
-          status: status,
-          expirationDate: stock.expirationDate 
-            ? format(new Date(stock.expirationDate), 'MMM dd, yyyy')
-            : 'N/A',
-          receivedDate: stock.receivedDate
-            ? format(new Date(stock.receivedDate), 'MMM dd, yyyy')
-            : 'N/A',
-          startPeriod: stock.startPeriod
-            ? format(new Date(stock.startPeriod), 'MMM dd, yyyy')
-            : 'N/A',
-          endPeriod: stock.endPeriod
-            ? format(new Date(stock.endPeriod), 'MMM dd, yyyy')
-            : 'N/A'
-        };
+          // Debug: Log first item to see available properties
+          if (index === 0) {
+            console.log('Stock item sample:', stock);
+            console.log('Product sample:', product);
+            console.log('Unit cost found:', unitCost);
+          }
+
+          return {
+            rowNum: index + 1,
+            productName: stock.productName || product.name || 'Unknown',
+            brand: stock.brand || product.brand || '',
+            category: stock.category || product.category || '',
+            batchNumber: isBatchStock ? (stock.batchNumber || 'N/A') : 'N/A',
+            upc: stock.upc || product.upc || '',
+            usageType: stock.usageType || 'Retail',
+            beginningStock: stock.beginningStock || 0,
+            realTimeStock: currentStock,
+            unitCost: unitCost,
+            inventoryValue: inventoryValue,
+            status: status,
+            expirationDate: stock.expirationDate 
+              ? format(new Date(stock.expirationDate), 'MMM dd, yyyy')
+              : 'N/A'
+          };
+        } catch (err) {
+          console.error('Error processing stock item:', stock, err);
+          // Return a minimal valid row if there's an error
+          return {
+            rowNum: index + 1,
+            productName: stock.productName || 'Error',
+            brand: '',
+            category: '',
+            batchNumber: 'N/A',
+            upc: '',
+            usageType: 'Retail',
+            beginningStock: 0,
+            realTimeStock: 0,
+            unitCost: 0,
+            inventoryValue: 0,
+            status: 'Error',
+            expirationDate: 'N/A'
+          };
+        }
       });
 
-      exportToExcel(exportData, 'stocks_export', 'Stocks', headers);
+      // Calculate totals
+      const totalBeginningStock = exportData.reduce((sum, item) => sum + item.beginningStock, 0);
+      const totalCurrentStock = exportData.reduce((sum, item) => sum + item.realTimeStock, 0);
+      const totalUnitCost = exportData.reduce((sum, item) => sum + (item.unitCost || 0), 0);
+      const totalInventoryValue = exportData.reduce((sum, item) => sum + item.inventoryValue, 0);
+
+      // Build filters text
+      let filtersText = 'All Stocks';
+      if (searchTerm) filtersText += ` | Search: "${searchTerm}"`;
+      if (filters.category && filters.category !== 'all') filtersText += ` | Category: ${filters.category}`;
+      if (filters.status && filters.status !== 'all') filtersText += ` | Status: ${filters.status}`;
+
+      // Add sections
+      let currentRow = 1;
+      currentRow = addReportHeader(worksheet, 'STOCKS MANAGEMENT REPORT', headers.length);
+      currentRow = addFiltersSection(worksheet, filtersText, headers.length, currentRow);
+      
+      // Add summary stats
+      const stats = [
+        { label: 'Total Products', value: exportData.length.toString() },
+        { label: 'Total Beginning Stock', value: totalBeginningStock.toLocaleString('en-US') },
+        { label: 'Total Current Stock', value: totalCurrentStock.toLocaleString('en-US') },
+        { label: 'Total Inventory Value', value: `₱${totalInventoryValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
+      ];
+      currentRow = addSummaryStats(worksheet, stats, currentRow);
+
+      // Add data table
+      currentRow = addDataTable(worksheet, headers, exportData, currentRow, {
+        unitCost: '₱#,##0.00',
+        inventoryValue: '₱#,##0.00'
+      });
+
+      // Add grand total
+      const grandTotal = {
+        rowNum: '',
+        productName: 'GRAND TOTAL:',
+        brand: '',
+        category: '',
+        batchNumber: '',
+        upc: '',
+        usageType: '',
+        beginningStock: totalBeginningStock,
+        realTimeStock: totalCurrentStock,
+        unitCost: totalUnitCost,
+        inventoryValue: totalInventoryValue,
+        status: '',
+        expirationDate: ''
+      };
+      currentRow = addGrandTotal(worksheet, headers, grandTotal, currentRow);
+
+      // Get branch name
+      let branchName = userData?.branchName || 'N/A';
+      if (branchName === 'N/A' && userData?.branchId) {
+        try {
+          const { getBranchById } = await import('../../services/branchService');
+          const branch = await getBranchById(userData.branchId);
+          branchName = branch?.name || branch?.branchName || 'N/A';
+        } catch (error) {
+          console.error('Error fetching branch name:', error);
+          branchName = 'N/A';
+        }
+      }
+
+      // Debug: Log userData to see what's available
+      console.log('Export userData:', userData);
+      console.log('Export branchName:', branchName);
+
+      // Add footer
+      addFooter(worksheet, userData, branchName, currentRow, headers.length);
+
+      // Set column widths
+      setColumnWidths(worksheet, [5, 30, 15, 15, 15, 15, 12, 15, 15, 15, 18, 12, 15]);
+
+      // Save workbook
+      const filename = `StockManagement_${branchName.replace(/\s+/g, '')}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      await saveWorkbook(workbook, filename);
+
       toast.success('Stocks exported to Excel successfully');
     } catch (error) {
       console.error('Error exporting stocks:', error);
-      toast.error('Failed to export stocks');
+      console.error('Error details:', error.message, error.stack);
+      toast.error(`Failed to export stocks: ${error.message || 'Unknown error'}`);
     }
   };
 
@@ -1165,7 +1284,7 @@ const Stocks = () => {
     // Get branch name
     const branchName = userData?.branchName || 'N/A';
     const currentDate = format(new Date(), 'MMMM dd, yyyy');
-    const currentTime = format(new Date(), 'hh:mm a');
+    const currentTime = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 
     // Get date range label
     let dateRangeLabel = 'All Time';
@@ -1185,129 +1304,128 @@ const Stocks = () => {
           <title>Stock Deduction History - ${branchName}</title>
           <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
-
-            @media print {
-              @page {
-                margin: 1cm;
-                size: A4 landscape;
-              }
-              body {
-                print-color-adjust: exact;
-                -webkit-print-color-adjust: exact;
-              }
-              .no-print { display: none; }
+            @page {
+              size: A4 landscape;
+              margin: 0.4in 0.4in 0.75in 0.4in;
             }
-
+            @media print {
+              header, footer {
+                display: none;
+              }
+            }
             * {
               box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
             }
-
             body {
               font-family: 'Poppins', sans-serif;
-              padding: 20px;
-              color: #333;
-              line-height: 1.5;
+              padding: 10px;
+              color: #000;
+              font-size: 9px;
               background: white;
               margin: 0;
             }
             .header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              border-bottom: 3px solid #160B53;
-              padding-bottom: 20px;
-              margin-bottom: 30px;
-              background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-              padding: 20px;
-              border-radius: 8px;
+              text-align: center;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
+              border-bottom: 2px solid #333;
             }
             .header h1 {
-              color: #160B53;
-              margin: 0;
-              font-size: 28px;
+              font-size: 20px;
               font-weight: 700;
-              font-family: 'Poppins', sans-serif;
-              letter-spacing: -0.5px;
+              margin: 0 0 4px 0;
             }
-            .header-info {
-              display: flex;
-              flex-direction: column;
-              gap: 5px;
-              font-size: 12px;
-              color: #666;
-              text-align: right;
+            .header h2 {
+              font-size: 16px;
+              font-weight: 600;
+              margin: 0;
             }
-            .header-info div {
-              font-weight: 500;
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
             }
             .summary {
               display: grid;
               grid-template-columns: repeat(3, 1fr);
-              gap: 20px;
-              margin-bottom: 30px;
-              padding: 20px;
-              background: #f9f9f9;
-              border-radius: 8px;
-              border: 1px solid #ccc;
+              gap: 10px;
+              margin-bottom: 15px;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
             }
             .summary-box {
               text-align: center;
-              padding: 15px;
-              background: white;
-              border-radius: 6px;
-              border: 1px solid #999;
-              box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
             }
             .summary-box h3 {
-              margin: 0 0 10px 0;
-              font-size: 12px;
-              color: #666;
-              font-weight: 500;
+              margin: 0 0 5px 0;
+              font-size: 9px;
+              color: #000;
+              font-weight: 600;
               text-transform: uppercase;
               letter-spacing: 0.5px;
             }
             .summary-box .value {
-              font-size: 24px;
+              font-size: 18px;
               font-weight: 700;
-              color: #160B53;
+              color: #000;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 20px;
-              font-size: 11px;
-              background: white;
+              margin-top: 10px;
+              font-size: 9px;
+              border: 1px solid #333;
             }
-            thead {
-              background: #160B53;
-              color: white;
-            }
-            th {
-              padding: 12px 8px;
+            th, td {
+              border: 1px solid #333;
+              padding: 6px 4px;
               text-align: left;
-              font-weight: 600;
-              text-transform: uppercase;
-              font-size: 10px;
-              letter-spacing: 0.5px;
-              border: 1px solid #0a0533;
-            }
-            td {
-              padding: 10px 8px;
-              border: 1px solid #ddd;
               vertical-align: top;
             }
-            tbody tr:nth-child(even) {
-              background: #f9f9f9;
+            th {
+              background-color: #fff;
+              font-weight: 700;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
             }
-            tbody tr:hover {
-              background: #f0f0f0;
+            th.row-number {
+              width: 40px;
+              text-align: center;
             }
+            td.row-number {
+              text-align: center;
+              font-weight: 600;
+            }
+            .grand-total {
+              background-color: #e0e0e0 !important;
+              font-weight: 700;
+              border-top: 2px solid #000;
+            }
+            .text-right { text-align: right; }
+            .text-center { text-align: center; }
             .badge {
               display: inline-block;
-              padding: 4px 8px;
-              border-radius: 12px;
-              font-size: 9px;
+              padding: 2px 6px;
+              border-radius: 8px;
+              font-size: 8px;
               font-weight: 600;
               text-transform: uppercase;
             }
@@ -1327,40 +1445,54 @@ const Stocks = () => {
               background: #d1fae5;
               color: #065f46;
             }
-            .text-right {
+            .footer {
+              margin-top: 12px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
               text-align: right;
             }
-            .text-center {
+            .footer-center {
               text-align: center;
-            }
-            .font-mono {
-              font-family: 'Courier New', monospace;
-            }
-            .footer {
-              margin-top: 30px;
-              padding-top: 20px;
-              border-top: 2px solid #ddd;
-              text-align: center;
-              font-size: 10px;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
               color: #666;
+            }
+            .footer-center p {
+              margin: 3px 0;
+            }
+            .page-number {
+              position: fixed;
+              bottom: 2px;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 9px;
+              color: #000;
             }
           </style>
         </head>
         <body>
           <div class="header">
-            <div>
-              <h1>Stock Deduction History</h1>
-              <div style="margin-top: 10px; font-size: 14px; color: #666;">
-                <div><strong>Branch:</strong> ${branchName}</div>
-                <div><strong>Date Range:</strong> ${dateRangeLabel}</div>
-                ${deductionSearchTerm ? `<div><strong>Search:</strong> "${deductionSearchTerm}"</div>` : ''}
-              </div>
-            </div>
-            <div class="header-info">
-              <div>Generated: ${currentDate}</div>
-              <div>Time: ${currentTime}</div>
-              <div>Total Records: ${filteredDeductions.length}</div>
-            </div>
+            <h1>DAVID'S SALON</h1>
+            <h2>Stock Deduction History - ${branchName}</h2>
+          </div>
+
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">Date Range: ${dateRangeLabel}${deductionSearchTerm ? ` | Search: "${deductionSearchTerm}"` : ''}</div>
           </div>
 
           <div class="summary">
@@ -1374,13 +1506,14 @@ const Stocks = () => {
             </div>
             <div class="summary-box">
               <h3>Total Amount</h3>
-              <div class="value">₱${totalAmount.toLocaleString()}</div>
+              <div class="value">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
             </div>
           </div>
 
           <table>
             <thead>
               <tr>
+                <th class="row-number">#</th>
                 <th>Date & Time</th>
                 <th>Product</th>
                 <th class="text-center">Quantity</th>
@@ -1391,7 +1524,7 @@ const Stocks = () => {
               </tr>
             </thead>
             <tbody>
-              ${filteredDeductions.map(deduction => {
+              ${filteredDeductions.map((deduction, index) => {
                 const dateStr = format(deduction.createdAt, 'MMM dd, yyyy');
                 const timeStr = format(deduction.createdAt, 'hh:mm a');
                 
@@ -1403,7 +1536,7 @@ const Stocks = () => {
                   sourceBadge = '<span class="badge badge-salon-use">Salon Use</span>';
                   sourceText = deduction.reason || deduction.clientName || 'Salon Use Deduction';
                   if (deduction.notes) {
-                    sourceText += `<br><small style="color: #666; font-size: 9px;">${deduction.notes}</small>`;
+                    sourceText += `<br><small style="color: #666; font-size: 8px;">${deduction.notes}</small>`;
                   }
                 } else if (deduction.source === 'transfer' || deduction.source === 'stock_transfer') {
                   sourceBadge = '<span class="badge badge-transfer">Transfer</span>';
@@ -1422,39 +1555,90 @@ const Stocks = () => {
                       : 'N/A';
                 
                 const batchInfo = deduction.batchDeductions && deduction.batchDeductions.length > 0
-                  ? `<br><small style="color: #666; font-size: 9px;">Batches: ${deduction.batchDeductions.map(b => b.batchNumber || b.batchId).join(', ')}</small>`
+                  ? `<br><small style="color: #666; font-size: 8px;">Batches: ${deduction.batchDeductions.map(b => b.batchNumber || b.batchId).join(', ')}</small>`
                   : '';
                 
                 return `
                   <tr>
+                    <td class="row-number">${index + 1}</td>
                     <td>
                       <div>${dateStr}</div>
-                      <div style="font-size: 9px; color: #666;">${timeStr}</div>
+                      <div style="font-size: 8px; color: #666;">${timeStr}</div>
                     </td>
-                    <td><strong>${deduction.productName || 'Unknown Product'}</strong></td>
-                    <td class="text-center"><strong style="color: #dc2626;">-${deduction.quantity || 0}</strong></td>
+                    <td style="font-weight: 600;">${deduction.productName || 'Unknown Product'}</td>
+                    <td class="text-center" style="font-weight: 700; color: #dc2626;">-${deduction.quantity || 0}</td>
                     <td>
                       ${sourceBadge}
-                      <div style="margin-top: 4px;">${sourceText}</div>
+                      <div style="margin-top: 4px; font-size: 8px;">${sourceText}</div>
                     </td>
-                    <td class="font-mono">
+                    <td style="font-family: monospace; font-size: 8px;">
                       ${refId}
                       ${batchInfo}
                     </td>
                     <td class="text-right">
-                      ${deduction.total > 0 ? `₱${deduction.total.toLocaleString()}` : 'N/A'}
+                      ${deduction.total > 0 ? `₱${deduction.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'N/A'}
                     </td>
                     <td>${deduction.createdBy || 'System'}</td>
                   </tr>
                 `;
               }).join('')}
+              <tr class="grand-total">
+                <td class="row-number"></td>
+                <td colspan="2" style="text-align: left;">GRAND TOTAL:</td>
+                <td class="text-center">${totalQuantity}</td>
+                <td colspan="2"></td>
+                <td class="text-right">₱${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td></td>
+              </tr>
             </tbody>
           </table>
 
           <div class="footer">
-            <p>This report was generated from the Stock Management System</p>
-            <p>Branch: ${branchName} | Date Range: ${dateRangeLabel} | Generated on ${currentDate} at ${currentTime}</p>
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.name || 'Inventory Controller'}<br>
+                <strong>Position:</strong> Inventory Controller<br>
+                <strong>Branch:</strong> ${branchName}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${currentDate}<br>
+                <strong>Time:</strong> ${currentTime}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600; font-size: 9px;">Stock Deduction History - ${filteredDeductions.length} Records Total</p>
+            </div>
           </div>
+
+          <div class="page-number" id="pageNumber"></div>
+
+          <script>
+            const pageHeight = 794;
+            const topMargin = 38;
+            const bottomMargin = 72;
+            const contentHeight = pageHeight - topMargin - bottomMargin;
+            
+            const bodyHeight = document.body.scrollHeight;
+            const totalPages = Math.ceil(bodyHeight / contentHeight);
+            
+            const pageNumberDiv = document.getElementById('pageNumber');
+            pageNumberDiv.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+              const pageNum = document.createElement('div');
+              pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+              pageNum.style.position = 'absolute';
+              pageNum.style.bottom = '2px';
+              pageNum.style.left = '0';
+              pageNum.style.right = '0';
+              pageNum.style.textAlign = 'center';
+              pageNum.style.fontSize = '9px';
+              pageNum.style.fontFamily = "'Poppins', Arial, sans-serif";
+              pageNum.style.color = '#000';
+              pageNum.style.top = ((i * contentHeight) + topMargin - 2) + 'px';
+              document.body.appendChild(pageNum);
+            }
+          </script>
         </body>
       </html>
     `;
@@ -1500,6 +1684,18 @@ const Stocks = () => {
     if (selectedStatus !== 'all') activeFilters.push(`Status: ${selectedStatus}`);
     const filtersText = activeFilters.length > 0 ? activeFilters.join(' | ') : 'All Stocks';
 
+    // Calculate grand totals
+    let totalBeginningStock = 0;
+    let totalCurrentStock = 0;
+    let totalInventoryValue = 0;
+    filteredStocks.forEach(stock => {
+      totalBeginningStock += stock.beginningStock || 0;
+      const currentStock = getComputedStock(stock);
+      totalCurrentStock += currentStock;
+      const unitCost = stock.unitCost || stock.product?.unitCost || 0;
+      totalInventoryValue += currentStock * unitCost;
+    });
+
     // Create standardized print content
     const printContent = `
       <!DOCTYPE html>
@@ -1510,7 +1706,12 @@ const Stocks = () => {
           <style>
             @page {
               size: A4 landscape;
-              margin: 0.4in;
+              margin: 0.4in 0.4in 0.75in 0.4in;
+            }
+            @media print {
+              header, footer {
+                display: none;
+              }
             }
             * {
               margin: 0;
@@ -1617,11 +1818,24 @@ const Stocks = () => {
               border-bottom: 2px solid #000;
               font-family: 'Poppins', Arial, sans-serif;
             }
+            th.row-number {
+              width: 40px;
+              text-align: center;
+            }
+            td.row-number {
+              text-align: center;
+              font-weight: 600;
+            }
             tr:nth-child(even) {
               background-color: #fff;
             }
             tr:nth-child(odd) {
               background-color: #fff;
+            }
+            .grand-total {
+              background-color: #e0e0e0 !important;
+              font-weight: 700;
+              border-top: 2px solid #000;
             }
             .text-center { text-align: center; }
             .text-right { text-align: right; }
@@ -1659,6 +1873,16 @@ const Stocks = () => {
               margin: 3px 0;
               font-family: 'Poppins', Arial, sans-serif;
             }
+            .page-number {
+              position: fixed;
+              bottom: 2px;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 9px;
+              font-family: 'Poppins', Arial, sans-serif;
+              color: #000;
+            }
           </style>
         </head>
         <body>
@@ -1694,6 +1918,7 @@ const Stocks = () => {
           <table>
             <thead>
               <tr>
+                <th class="row-number">#</th>
                 <th>Product Name</th>
                 <th>Brand</th>
                 <th>Category</th>
@@ -1702,19 +1927,24 @@ const Stocks = () => {
                 <th>Usage Type</th>
                 <th class="text-center">Beginning</th>
                 <th class="text-center">Current</th>
+                <th class="text-right">Unit Cost</th>
+                <th class="text-right">Inventory Value</th>
                 <th>Status</th>
                 <th>Expires</th>
               </tr>
             </thead>
             <tbody>
-              ${filteredStocks.map(stock => {
+              ${filteredStocks.map((stock, index) => {
                 const product = stock.product || {};
                 const currentStock = getComputedStock(stock);
                 const status = calculateStockStatus(stock);
                 const usageType = stock.usageType || product.usageType || 'otc';
                 const usageTypeDisplay = usageType === 'salon-use' ? 'Salon Use' : 'OTC';
+                const unitCost = stock.unitCost || product.unitCost || 0;
+                const inventoryValue = currentStock * unitCost;
                 return `
                   <tr>
+                    <td class="row-number">${index + 1}</td>
                     <td style="font-weight: 600;">${stock.productName || product.name || 'N/A'}</td>
                     <td>${stock.brand || product.brand || 'N/A'}</td>
                     <td>${stock.category || product.category || 'N/A'}</td>
@@ -1723,11 +1953,22 @@ const Stocks = () => {
                     <td style="font-size: 8px;">${usageTypeDisplay}</td>
                     <td class="text-center" style="font-weight: 600;">${stock.beginningStock || 0}</td>
                     <td class="text-center" style="font-weight: 700;">${currentStock}</td>
+                    <td class="text-right">₱${unitCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="text-right" style="font-weight: 600;">₱${inventoryValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td>${status}</td>
                     <td>${stock.expirationDate ? format(new Date(stock.expirationDate), 'MMM dd, yyyy') : 'N/A'}</td>
                   </tr>
                 `;
               }).join('')}
+              <tr class="grand-total">
+                <td class="row-number"></td>
+                <td colspan="6" style="text-align: left;">GRAND TOTAL:</td>
+                <td class="text-center">${totalBeginningStock}</td>
+                <td class="text-center">${totalCurrentStock}</td>
+                <td class="text-right"></td>
+                <td class="text-right">₱${totalInventoryValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td colspan="2"></td>
+              </tr>
             </tbody>
           </table>
           
@@ -1740,13 +1981,45 @@ const Stocks = () => {
               </div>
               <div class="footer-right">
                 <strong>Generated On:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}<br>
-                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
               </div>
             </div>
             <div class="footer-center">
               <p style="font-weight: 600; font-size: 9px;">Stock Inventory Report - ${filteredStocks.length} Items Total</p>
             </div>
           </div>
+
+          <div class="page-number" id="pageNumber"></div>
+
+          <script>
+            // Calculate page numbers for A4 landscape
+            const pageHeight = 794; // A4 landscape height in pixels at 96 DPI
+            const topMargin = 38; // 0.4in top margin
+            const bottomMargin = 72; // 0.75in bottom margin
+            const contentHeight = pageHeight - topMargin - bottomMargin;
+            
+            const bodyHeight = document.body.scrollHeight;
+            const totalPages = Math.ceil(bodyHeight / contentHeight);
+            
+            // Create page number elements for each page
+            const pageNumberDiv = document.getElementById('pageNumber');
+            pageNumberDiv.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+              const pageNum = document.createElement('div');
+              pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+              pageNum.style.position = 'absolute';
+              pageNum.style.bottom = '2px';
+              pageNum.style.left = '0';
+              pageNum.style.right = '0';
+              pageNum.style.textAlign = 'center';
+              pageNum.style.fontSize = '9px';
+              pageNum.style.fontFamily = "'Poppins', Arial, sans-serif";
+              pageNum.style.color = '#000';
+              pageNum.style.top = ((i * contentHeight) + topMargin - 2) + 'px';
+              document.body.appendChild(pageNum);
+            }
+          </script>
         </body>
       </html>
     `;
@@ -2655,66 +2928,305 @@ const Stocks = () => {
 
   // Print adjustments function
   const handlePrintAdjustments = () => {
+    if (!stockAdjustments.length) {
+      toast.error('No adjustments to print');
+      return;
+    }
+
     const branchName = userData?.branchName || 'Branch';
     const dateRange = adjustmentStartDate && adjustmentEndDate 
       ? `${format(new Date(adjustmentStartDate), 'MMM dd, yyyy')} - ${format(new Date(adjustmentEndDate), 'MMM dd, yyyy')}`
       : 'All Time';
+    
+    // Calculate totals
+    const totalAdjustments = stockAdjustments.length;
+    const totalPositive = stockAdjustments.filter(adj => (adj.adjustmentQuantity || 0) > 0).reduce((sum, adj) => sum + (adj.adjustmentQuantity || 0), 0);
+    const totalNegative = stockAdjustments.filter(adj => (adj.adjustmentQuantity || 0) < 0).reduce((sum, adj) => sum + Math.abs(adj.adjustmentQuantity || 0), 0);
     
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>Stock Adjustments History - ${branchName}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            h1 { color: #160B53; margin-bottom: 5px; }
-            .subtitle { color: #666; margin-bottom: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 11px; }
-            th { background-color: #160B53; color: white; font-weight: bold; }
-            tr:nth-child(even) { background-color: #f9f9f9; }
-            .positive { color: green; font-weight: bold; }
-            .negative { color: red; font-weight: bold; }
-            .print-date { text-align: right; color: #666; font-size: 12px; margin-bottom: 10px; }
+            @page {
+              size: A4 landscape;
+              margin: 0.4in 0.4in 0.75in 0.4in;
+            }
             @media print {
-              @page { margin: 0.5in; }
+              header, footer {
+                display: none;
+              }
+            }
+            * {
+              box-sizing: border-box;
+              font-family: 'Poppins', Arial, sans-serif;
+            }
+            body {
+              font-family: 'Poppins', Arial, sans-serif;
+              padding: 10px;
+              color: #000;
+              font-size: 9px;
+              background: white;
+              margin: 0;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 20px;
+              font-weight: 700;
+              margin: 0 0 4px 0;
+            }
+            .header h2 {
+              font-size: 16px;
+              font-weight: 600;
+              margin: 0;
+            }
+            .filters {
+              background: #fff;
+              padding: 10px;
+              border: 2px solid #333;
+              margin: 10px 0;
+              text-align: center;
+            }
+            .filters-title {
+              font-size: 10px;
+              font-weight: 700;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .filters-content {
+              font-size: 9px;
+              font-weight: 600;
+            }
+            .summary {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 10px;
+              margin-bottom: 15px;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .summary-box {
+              text-align: center;
+              padding: 10px;
+              background: #fff;
+              border: 1px solid #333;
+            }
+            .summary-box h3 {
+              margin: 0 0 5px 0;
+              font-size: 9px;
+              color: #000;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .summary-box .value {
+              font-size: 18px;
+              font-weight: 700;
+              color: #000;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+              font-size: 9px;
+              border: 1px solid #333;
+            }
+            th, td {
+              border: 1px solid #333;
+              padding: 6px 4px;
+              text-align: left;
+              vertical-align: top;
+            }
+            th {
+              background-color: #fff;
+              font-weight: 700;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+            }
+            th.row-number {
+              width: 40px;
+              text-align: center;
+            }
+            td.row-number {
+              text-align: center;
+              font-weight: 600;
+            }
+            .grand-total {
+              background-color: #e0e0e0 !important;
+              font-weight: 700;
+              border-top: 2px solid #000;
+            }
+            .text-right { text-align: right; }
+            .text-center { text-align: center; }
+            .positive { color: #16a34a; font-weight: 700; }
+            .negative { color: #dc2626; font-weight: 700; }
+            .footer {
+              margin-top: 12px;
+              padding-top: 10px;
+              border-top: 2px solid #333;
+              font-size: 8px;
+            }
+            .footer-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-bottom: 10px;
+            }
+            .footer-left {
+              text-align: left;
+            }
+            .footer-right {
+              text-align: right;
+            }
+            .footer-center {
+              text-align: center;
+              margin-top: 8px;
+              padding-top: 8px;
+              border-top: 1px solid #ccc;
+              color: #666;
+            }
+            .footer-center p {
+              margin: 3px 0;
+            }
+            .page-number {
+              position: fixed;
+              bottom: 2px;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 9px;
+              color: #000;
             }
           </style>
         </head>
-        <body onload="window.print(); window.close();">
-          <div class="print-date">Printed: ${format(new Date(), 'MMM dd, yyyy hh:mm a')}</div>
-          <h1>Stock Adjustments History</h1>
-          <div class="subtitle">${branchName} | ${dateRange}</div>
+        <body>
+          <div class="header">
+            <h1>DAVID'S SALON</h1>
+            <h2>Stock Adjustments History - ${branchName}</h2>
+          </div>
+
+          <div class="filters">
+            <div class="filters-title">FILTERS APPLIED</div>
+            <div class="filters-content">Date Range: ${dateRange}${adjustmentSearchTerm ? ` | Search: "${adjustmentSearchTerm}"` : ''}</div>
+          </div>
+
+          <div class="summary">
+            <div class="summary-box">
+              <h3>Total Adjustments</h3>
+              <div class="value">${totalAdjustments}</div>
+            </div>
+            <div class="summary-box">
+              <h3>Total Added (+)</h3>
+              <div class="value" style="color: #16a34a;">+${totalPositive}</div>
+            </div>
+            <div class="summary-box">
+              <h3>Total Removed (-)</h3>
+              <div class="value" style="color: #dc2626;">-${totalNegative}</div>
+            </div>
+          </div>
+
           <table>
             <thead>
               <tr>
-                <th style="width: 12%;">Date & Time</th>
-                <th style="width: 12%;">Type</th>
-                <th style="width: 20%;">Product</th>
-                <th style="width: 8%;">Previous</th>
-                <th style="width: 8%;">New</th>
-                <th style="width: 8%;">Adjustment</th>
-                <th style="width: 18%;">Reason</th>
-                <th style="width: 14%;">Adjusted By</th>
+                <th class="row-number">#</th>
+                <th>Date & Time</th>
+                <th>Type</th>
+                <th>Product</th>
+                <th class="text-center">Previous</th>
+                <th class="text-center">New</th>
+                <th class="text-center">Adjustment</th>
+                <th>Reason</th>
+                <th>Adjusted By</th>
               </tr>
             </thead>
             <tbody>
-              ${stockAdjustments.map(adj => `
+              ${stockAdjustments.map((adj, index) => `
                 <tr>
-                  <td>${format(adj.createdAt, 'MMM dd, yyyy')}<br/><small>${format(adj.createdAt, 'hh:mm a')}</small></td>
-                  <td>${adj.adjustmentType || 'Adjustment'}</td>
-                  <td><strong>${adj.productName}</strong><br/><small>SKU: ${adj.productSku}</small></td>
-                  <td style="text-align: center;"><strong>${adj.previousStock !== null && adj.previousStock !== undefined && adj.previousStock !== '-' ? adj.previousStock : '-'}</strong></td>
-                  <td style="text-align: center;"><strong>${adj.newStock !== null && adj.newStock !== undefined && adj.newStock !== '-' ? adj.newStock : '-'}</strong></td>
-                  <td style="text-align: center;" class="${(adj.adjustmentQuantity || 0) >= 0 ? 'positive' : 'negative'}">
-                    <strong>${(adj.adjustmentQuantity || 0) >= 0 ? '+' : ''}${adj.adjustmentQuantity || 0}</strong>
+                  <td class="row-number">${index + 1}</td>
+                  <td>
+                    <div>${format(adj.createdAt, 'MMM dd, yyyy')}</div>
+                    <div style="font-size: 8px; color: #666;">${format(adj.createdAt, 'hh:mm a')}</div>
                   </td>
-                  <td>${adj.reason || 'N/A'}</td>
+                  <td style="font-size: 8px;">${adj.adjustmentType || 'Adjustment'}</td>
+                  <td style="font-weight: 600;">
+                    ${adj.productName}
+                    <div style="font-size: 8px; color: #666; font-weight: 400;">SKU: ${adj.productSku}</div>
+                  </td>
+                  <td class="text-center" style="font-weight: 600;">${adj.previousStock !== null && adj.previousStock !== undefined && adj.previousStock !== '-' ? adj.previousStock : '-'}</td>
+                  <td class="text-center" style="font-weight: 600;">${adj.newStock !== null && adj.newStock !== undefined && adj.newStock !== '-' ? adj.newStock : '-'}</td>
+                  <td class="text-center ${(adj.adjustmentQuantity || 0) >= 0 ? 'positive' : 'negative'}">
+                    ${(adj.adjustmentQuantity || 0) >= 0 ? '+' : ''}${adj.adjustmentQuantity || 0}
+                  </td>
+                  <td style="font-size: 8px;">${adj.reason || 'N/A'}</td>
                   <td>${adj.adjustedBy || 'Unknown'}</td>
                 </tr>
               `).join('')}
+              <tr class="grand-total">
+                <td class="row-number"></td>
+                <td colspan="5" style="text-align: left;">GRAND TOTAL:</td>
+                <td class="text-center">
+                  <span class="positive">+${totalPositive}</span> / <span class="negative">-${totalNegative}</span>
+                </td>
+                <td colspan="2"></td>
+              </tr>
             </tbody>
           </table>
+
+          <div class="footer">
+            <div class="footer-info">
+              <div class="footer-left">
+                <strong>Generated By:</strong> ${userData?.name || 'Inventory Controller'}<br>
+                <strong>Position:</strong> Inventory Controller<br>
+                <strong>Branch:</strong> ${branchName}
+              </div>
+              <div class="footer-right">
+                <strong>Generated On:</strong> ${format(new Date(), 'MMMM dd, yyyy')}<br>
+                <strong>Time:</strong> ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+              </div>
+            </div>
+            <div class="footer-center">
+              <p style="font-weight: 600; font-size: 9px;">Stock Adjustments History - ${totalAdjustments} Records Total</p>
+            </div>
+          </div>
+
+          <div class="page-number" id="pageNumber"></div>
+
+          <script>
+            const pageHeight = 794;
+            const topMargin = 38;
+            const bottomMargin = 72;
+            const contentHeight = pageHeight - topMargin - bottomMargin;
+            
+            const bodyHeight = document.body.scrollHeight;
+            const totalPages = Math.ceil(bodyHeight / contentHeight);
+            
+            const pageNumberDiv = document.getElementById('pageNumber');
+            pageNumberDiv.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+              const pageNum = document.createElement('div');
+              pageNum.textContent = 'Page ' + i + ' of ' + totalPages;
+              pageNum.style.position = 'absolute';
+              pageNum.style.bottom = '2px';
+              pageNum.style.left = '0';
+              pageNum.style.right = '0';
+              pageNum.style.textAlign = 'center';
+              pageNum.style.fontSize = '9px';
+              pageNum.style.fontFamily = "'Poppins', Arial, sans-serif";
+              pageNum.style.color = '#000';
+              pageNum.style.top = ((i * contentHeight) + topMargin - 2) + 'px';
+              document.body.appendChild(pageNum);
+            }
+          </script>
         </body>
       </html>
     `;
@@ -2722,6 +3234,11 @@ const Stocks = () => {
     const printWindow = window.open('', '_blank');
     printWindow.document.write(printContent);
     printWindow.document.close();
+    printWindow.focus();
+    
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
   // Load adjustments when showing history or filters change
@@ -2822,7 +3339,7 @@ const Stocks = () => {
               <Banknote className="h-6 w-6 md:h-8 md:w-8 text-purple-600 flex-shrink-0" />
               <div className="ml-2 md:ml-3 min-w-0">
                 <p className="text-xs md:text-sm font-medium text-gray-600 truncate">Total Value</p>
-                <p className="text-lg md:text-xl font-bold text-gray-900">₱{stockStats.totalValue.toLocaleString()}</p>
+                <p className="text-lg md:text-xl font-bold text-gray-900">₱{stockStats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               </div>
             </div>
           </Card>
