@@ -85,42 +85,78 @@ export const sendExpoPushNotification = async (pushTokens, title, body, data = {
 };
 
 /**
- * Get user's Expo push token from Firestore
+ * Get user's Expo push tokens from Firestore (role-based)
  * @param {string} userId - User ID
- * @returns {Promise<string|null>} - Push token or null
+ * @param {string} role - User role ('client' or 'stylist')
+ * @returns {Promise<string[]>} - Array of push tokens
  */
-export const getUserPushToken = async (userId) => {
+export const getUserPushTokens = async (userId, role) => {
   try {
     if (!userId) {
-      console.log('📱 getUserPushToken: No userId provided');
-      return null;
+      console.log('📱 getUserPushTokens: No userId provided');
+      return [];
     }
     
-    console.log('📱 Fetching push token for user:', userId);
+    if (!role) {
+      console.log('📱 getUserPushTokens: No role provided');
+      return [];
+    }
+    
+    console.log('📱 Fetching push tokens for user:', userId, 'role:', role);
     
     const userRef = doc(db, 'users', userId);
     const userSnap = await getDoc(userRef);
     
     if (userSnap.exists()) {
       const userData = userSnap.data();
-      const token = userData.expoPushToken || userData.pushToken || null;
       
-      if (token) {
-        console.log('📱 Found push token for user', userId, ':', token.substring(0, 30) + '...');
+      // Get role-specific tokens based on the guide
+      let tokens = [];
+      if (role === 'client') {
+        tokens = userData.clientPushTokens || [];
+      } else if (role === 'stylist') {
+        tokens = userData.stylistPushTokens || [];
+      }
+      
+      // Filter valid tokens
+      const validTokens = tokens.filter(token => 
+        token && 
+        typeof token === 'string' && 
+        (token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken['))
+      );
+      
+      if (validTokens.length > 0) {
+        console.log('📱 Found', validTokens.length, 'push token(s) for user', userId, 'role:', role);
       } else {
-        console.log('📱 No push token found for user', userId);
+        console.log('📱 No push tokens found for user', userId, 'role:', role);
         console.log('📱 User data fields:', Object.keys(userData).join(', '));
       }
       
-      return token;
+      return validTokens;
     }
     
     console.log('📱 User document not found:', userId);
-    return null;
+    return [];
   } catch (error) {
-    console.error('Error getting user push token:', error);
-    return null;
+    console.error('Error getting user push tokens:', error);
+    return [];
   }
+};
+
+/**
+ * Legacy function for backward compatibility
+ * @deprecated Use getUserPushTokens with role parameter instead
+ */
+export const getUserPushToken = async (userId) => {
+  console.warn('⚠️ getUserPushToken is deprecated. Use getUserPushTokens with role parameter.');
+  // Try to get tokens from both roles and return the first one found
+  const clientTokens = await getUserPushTokens(userId, 'client');
+  if (clientTokens.length > 0) return clientTokens[0];
+  
+  const stylistTokens = await getUserPushTokens(userId, 'stylist');
+  if (stylistTokens.length > 0) return stylistTokens[0];
+  
+  return null;
 };
 
 /**
@@ -150,16 +186,20 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Get multiple users' push tokens
- * @param {string[]} userIds - Array of user IDs
+ * Get multiple users' push tokens with role support
+ * @param {Array<{userId: string, role: string}>} userRoles - Array of user IDs with their roles
  * @returns {Promise<string[]>} - Array of push tokens
  */
-export const getMultipleUserPushTokens = async (userIds) => {
+export const getMultipleUserPushTokens = async (userRoles) => {
   try {
-    const tokens = await Promise.all(
-      userIds.map(userId => getUserPushToken(userId))
-    );
-    return tokens.filter(token => token !== null);
+    const allTokens = [];
+    
+    for (const { userId, role } of userRoles) {
+      const tokens = await getUserPushTokens(userId, role);
+      allTokens.push(...tokens);
+    }
+    
+    return allTokens;
   } catch (error) {
     console.error('Error getting multiple push tokens:', error);
     return [];
@@ -185,7 +225,7 @@ const toDate = (dateValue) => {
  */
 export const sendAppointmentConfirmedNotification = async (appointment) => {
   try {
-    const userIds = [];
+    const userRoles = [];
     
     console.log('📱 sendAppointmentConfirmedNotification called with:', {
       appointmentId: appointment.id,
@@ -193,36 +233,38 @@ export const sendAppointmentConfirmedNotification = async (appointment) => {
       services: appointment.services?.length || 0
     });
     
-    // Get client's push token
+    // Get client's push tokens
     if (appointment.clientId) {
-      userIds.push(appointment.clientId);
+      userRoles.push({ userId: appointment.clientId, role: 'client' });
     }
     
     // Get stylist(s) push tokens
     if (appointment.services && appointment.services.length > 0) {
       // Multi-service appointment
-      appointment.services.forEach(service => {
-        if (service.stylistId && !userIds.includes(service.stylistId)) {
-          userIds.push(service.stylistId);
-        }
+      const uniqueStylistIds = [...new Set(
+        appointment.services
+          .map(service => service.stylistId)
+          .filter(id => id)
+      )];
+      
+      uniqueStylistIds.forEach(stylistId => {
+        userRoles.push({ userId: stylistId, role: 'stylist' });
       });
     } else if (appointment.stylistId) {
       // Single-service appointment
-      if (!userIds.includes(appointment.stylistId)) {
-        userIds.push(appointment.stylistId);
-      }
+      userRoles.push({ userId: appointment.stylistId, role: 'stylist' });
     }
     
-    console.log('📱 User IDs to fetch tokens for:', userIds);
+    console.log('📱 User roles to fetch tokens for:', userRoles);
     
     // Get all push tokens
-    const pushTokens = await getMultipleUserPushTokens(userIds);
+    const pushTokens = await getMultipleUserPushTokens(userRoles);
     
-    console.log('📱 Push tokens retrieved:', pushTokens);
+    console.log('📱 Push tokens retrieved:', pushTokens.length);
     
     if (pushTokens.length === 0) {
       console.log('📱 No push tokens found for appointment notification');
-      console.log('📱 Make sure users have expoPushToken field in their Firestore document');
+      console.log('📱 Make sure users have clientPushTokens or stylistPushTokens in their Firestore document');
       return { success: false, message: 'No push tokens found' };
     }
     
@@ -270,7 +312,7 @@ export const sendAppointmentConfirmedNotification = async (appointment) => {
  */
 export const sendAppointmentCancelledNotification = async (appointment, reason = '') => {
   try {
-    const userIds = [];
+    const userRoles = [];
     
     console.log('📱 sendAppointmentCancelledNotification called with:', {
       appointmentId: appointment.id,
@@ -278,33 +320,35 @@ export const sendAppointmentCancelledNotification = async (appointment, reason =
       reason
     });
     
-    // Get client's push token
+    // Get client's push tokens
     if (appointment.clientId) {
-      userIds.push(appointment.clientId);
+      userRoles.push({ userId: appointment.clientId, role: 'client' });
     }
     
     // Get stylist(s) push tokens
     if (appointment.services && appointment.services.length > 0) {
-      appointment.services.forEach(service => {
-        if (service.stylistId && !userIds.includes(service.stylistId)) {
-          userIds.push(service.stylistId);
-        }
+      const uniqueStylistIds = [...new Set(
+        appointment.services
+          .map(service => service.stylistId)
+          .filter(id => id)
+      )];
+      
+      uniqueStylistIds.forEach(stylistId => {
+        userRoles.push({ userId: stylistId, role: 'stylist' });
       });
     } else if (appointment.stylistId) {
-      if (!userIds.includes(appointment.stylistId)) {
-        userIds.push(appointment.stylistId);
-      }
+      userRoles.push({ userId: appointment.stylistId, role: 'stylist' });
     }
     
-    console.log('📱 User IDs to fetch tokens for:', userIds);
+    console.log('📱 User roles to fetch tokens for:', userRoles);
     
-    const pushTokens = await getMultipleUserPushTokens(userIds);
+    const pushTokens = await getMultipleUserPushTokens(userRoles);
     
-    console.log('📱 Push tokens retrieved:', pushTokens);
+    console.log('📱 Push tokens retrieved:', pushTokens.length);
     
     if (pushTokens.length === 0) {
       console.log('📱 No push tokens found for cancellation notification');
-      console.log('📱 Make sure users have expoPushToken field in their Firestore document');
+      console.log('📱 Make sure users have clientPushTokens or stylistPushTokens in their Firestore document');
       return { success: false, message: 'No push tokens found' };
     }
     
@@ -341,25 +385,27 @@ export const sendAppointmentCancelledNotification = async (appointment, reason =
  */
 export const sendAppointmentRescheduledNotification = async (appointment, _oldDate) => {
   try {
-    const userIds = [];
+    const userRoles = [];
     
     if (appointment.clientId) {
-      userIds.push(appointment.clientId);
+      userRoles.push({ userId: appointment.clientId, role: 'client' });
     }
     
     if (appointment.services && appointment.services.length > 0) {
-      appointment.services.forEach(service => {
-        if (service.stylistId && !userIds.includes(service.stylistId)) {
-          userIds.push(service.stylistId);
-        }
+      const uniqueStylistIds = [...new Set(
+        appointment.services
+          .map(service => service.stylistId)
+          .filter(id => id)
+      )];
+      
+      uniqueStylistIds.forEach(stylistId => {
+        userRoles.push({ userId: stylistId, role: 'stylist' });
       });
     } else if (appointment.stylistId) {
-      if (!userIds.includes(appointment.stylistId)) {
-        userIds.push(appointment.stylistId);
-      }
+      userRoles.push({ userId: appointment.stylistId, role: 'stylist' });
     }
     
-    const pushTokens = await getMultipleUserPushTokens(userIds);
+    const pushTokens = await getMultipleUserPushTokens(userRoles);
     
     if (pushTokens.length === 0) {
       return { success: false, message: 'No push tokens found' };
@@ -405,10 +451,10 @@ export const sendAppointmentReminderNotification = async (appointment, reminderT
       return { success: false, message: 'No client ID' };
     }
     
-    const pushToken = await getUserPushToken(appointment.clientId);
+    const pushTokens = await getUserPushTokens(appointment.clientId, 'client');
     
-    if (!pushToken) {
-      return { success: false, message: 'No push token found' };
+    if (pushTokens.length === 0) {
+      return { success: false, message: 'No push tokens found' };
     }
     
     // Handle Firestore Timestamp
@@ -435,7 +481,7 @@ export const sendAppointmentReminderNotification = async (appointment, reminderT
       body = `Reminder: You have an appointment tomorrow (${dateStr}) at ${timeStr}.`;
     }
     
-    return await sendExpoPushNotification(pushToken, title, body, {
+    return await sendExpoPushNotification(pushTokens, title, body, {
       type: 'appointment_reminder',
       appointmentId: appointment.id,
       screen: 'Appointments'
@@ -453,23 +499,27 @@ export const sendAppointmentReminderNotification = async (appointment, reminderT
  */
 export const sendNewAppointmentToStylistNotification = async (appointment) => {
   try {
-    const stylistIds = [];
+    const userRoles = [];
     
     if (appointment.services && appointment.services.length > 0) {
-      appointment.services.forEach(service => {
-        if (service.stylistId && !stylistIds.includes(service.stylistId)) {
-          stylistIds.push(service.stylistId);
-        }
+      const uniqueStylistIds = [...new Set(
+        appointment.services
+          .map(service => service.stylistId)
+          .filter(id => id)
+      )];
+      
+      uniqueStylistIds.forEach(stylistId => {
+        userRoles.push({ userId: stylistId, role: 'stylist' });
       });
     } else if (appointment.stylistId) {
-      stylistIds.push(appointment.stylistId);
+      userRoles.push({ userId: appointment.stylistId, role: 'stylist' });
     }
     
-    if (stylistIds.length === 0) {
+    if (userRoles.length === 0) {
       return { success: false, message: 'No stylist assigned' };
     }
     
-    const pushTokens = await getMultipleUserPushTokens(stylistIds);
+    const pushTokens = await getMultipleUserPushTokens(userRoles);
     
     if (pushTokens.length === 0) {
       return { success: false, message: 'No push tokens found' };
@@ -512,23 +562,27 @@ export const sendNewAppointmentToStylistNotification = async (appointment) => {
  */
 export const sendClientArrivedNotification = async (appointment) => {
   try {
-    const stylistIds = [];
+    const userRoles = [];
     
     if (appointment.services && appointment.services.length > 0) {
-      appointment.services.forEach(service => {
-        if (service.stylistId && !stylistIds.includes(service.stylistId)) {
-          stylistIds.push(service.stylistId);
-        }
+      const uniqueStylistIds = [...new Set(
+        appointment.services
+          .map(service => service.stylistId)
+          .filter(id => id)
+      )];
+      
+      uniqueStylistIds.forEach(stylistId => {
+        userRoles.push({ userId: stylistId, role: 'stylist' });
       });
     } else if (appointment.stylistId) {
-      stylistIds.push(appointment.stylistId);
+      userRoles.push({ userId: appointment.stylistId, role: 'stylist' });
     }
     
-    if (stylistIds.length === 0) {
+    if (userRoles.length === 0) {
       return { success: false, message: 'No stylist assigned' };
     }
     
-    const pushTokens = await getMultipleUserPushTokens(stylistIds);
+    const pushTokens = await getMultipleUserPushTokens(userRoles);
     
     if (pushTokens.length === 0) {
       return { success: false, message: 'No push tokens found' };
@@ -565,24 +619,28 @@ export const sendClientArrivedNotification = async (appointment) => {
  */
 export const sendInServiceNotification = async (appointment) => {
   try {
-    const stylistIds = [];
+    const userRoles = [];
     
     // Get stylist(s) push tokens
     if (appointment.services && appointment.services.length > 0) {
-      appointment.services.forEach(service => {
-        if (service.stylistId && !stylistIds.includes(service.stylistId)) {
-          stylistIds.push(service.stylistId);
-        }
+      const uniqueStylistIds = [...new Set(
+        appointment.services
+          .map(service => service.stylistId)
+          .filter(id => id)
+      )];
+      
+      uniqueStylistIds.forEach(stylistId => {
+        userRoles.push({ userId: stylistId, role: 'stylist' });
       });
     } else if (appointment.stylistId) {
-      stylistIds.push(appointment.stylistId);
+      userRoles.push({ userId: appointment.stylistId, role: 'stylist' });
     }
     
-    if (stylistIds.length === 0) {
+    if (userRoles.length === 0) {
       return { success: false, message: 'No stylist assigned' };
     }
     
-    const pushTokens = await getMultipleUserPushTokens(stylistIds);
+    const pushTokens = await getMultipleUserPushTokens(userRoles);
     
     if (pushTokens.length === 0) {
       return { success: false, message: 'No push token found' };
@@ -621,29 +679,31 @@ export const sendInServiceNotification = async (appointment) => {
  */
 export const sendCancellationNotification = async (appointment, reason = '', wasPending = false) => {
   try {
-    const userIds = [];
+    const userRoles = [];
     
     // Always notify client
     if (appointment.clientId) {
-      userIds.push(appointment.clientId);
+      userRoles.push({ userId: appointment.clientId, role: 'client' });
     }
     
     // Only notify stylists if appointment was NOT pending (was already confirmed)
     if (!wasPending) {
       if (appointment.services && appointment.services.length > 0) {
-        appointment.services.forEach(service => {
-          if (service.stylistId && !userIds.includes(service.stylistId)) {
-            userIds.push(service.stylistId);
-          }
+        const uniqueStylistIds = [...new Set(
+          appointment.services
+            .map(service => service.stylistId)
+            .filter(id => id)
+        )];
+        
+        uniqueStylistIds.forEach(stylistId => {
+          userRoles.push({ userId: stylistId, role: 'stylist' });
         });
       } else if (appointment.stylistId) {
-        if (!userIds.includes(appointment.stylistId)) {
-          userIds.push(appointment.stylistId);
-        }
+        userRoles.push({ userId: appointment.stylistId, role: 'stylist' });
       }
     }
     
-    const pushTokens = await getMultipleUserPushTokens(userIds);
+    const pushTokens = await getMultipleUserPushTokens(userRoles);
     
     if (pushTokens.length === 0) {
       return { success: false, message: 'No push tokens found' };
@@ -684,10 +744,10 @@ export const sendPortfolioApprovedNotification = async (portfolio, stylistId) =>
       return { success: false, message: 'No stylist ID' };
     }
     
-    const pushToken = await getUserPushToken(stylistId);
+    const pushTokens = await getUserPushTokens(stylistId, 'stylist');
     
-    if (!pushToken) {
-      return { success: false, message: 'No push token found' };
+    if (pushTokens.length === 0) {
+      return { success: false, message: 'No push tokens found' };
     }
     
     const title = 'Portfolio Approved';
@@ -695,7 +755,7 @@ export const sendPortfolioApprovedNotification = async (portfolio, stylistId) =>
       ? `Your portfolio "${portfolio.title}" has been approved and is now visible to clients.`
       : 'Your portfolio submission has been approved and is now visible to clients.';
     
-    return await sendExpoPushNotification(pushToken, title, body, {
+    return await sendExpoPushNotification(pushTokens, title, body, {
       type: 'portfolio_approved',
       portfolioId: portfolio.id,
       screen: 'Portfolio'
@@ -719,10 +779,10 @@ export const sendPortfolioRejectedNotification = async (portfolio, stylistId, re
       return { success: false, message: 'No stylist ID' };
     }
     
-    const pushToken = await getUserPushToken(stylistId);
+    const pushTokens = await getUserPushTokens(stylistId, 'stylist');
     
-    if (!pushToken) {
-      return { success: false, message: 'No push token found' };
+    if (pushTokens.length === 0) {
+      return { success: false, message: 'No push tokens found' };
     }
     
     const title = 'Portfolio Rejected';
@@ -730,7 +790,7 @@ export const sendPortfolioRejectedNotification = async (portfolio, stylistId, re
       ? `Your portfolio submission was rejected. Reason: ${reason}`
       : 'Your portfolio submission was rejected. Please review and resubmit.';
     
-    return await sendExpoPushNotification(pushToken, title, body, {
+    return await sendExpoPushNotification(pushTokens, title, body, {
       type: 'portfolio_rejected',
       portfolioId: portfolio.id,
       screen: 'Portfolio'
@@ -762,23 +822,24 @@ export const testPushNotification = async (token) => {
 
 /**
  * Test function to send push notification to a user by their Firestore document ID
- * Call from browser console: window.testPushToUser('userId')
+ * Call from browser console: window.testPushToUser('userId', 'client') or window.testPushToUser('userId', 'stylist')
  */
-export const testPushToUser = async (userId) => {
+export const testPushToUser = async (userId, role = 'client') => {
   console.log('=== TEST: Sending test push to user ===');
   console.log('User ID:', userId);
+  console.log('Role:', role);
   
-  const token = await getUserPushToken(userId);
+  const tokens = await getUserPushTokens(userId, role);
   
-  if (!token) {
-    console.log('❌ No push token found for user');
-    return { success: false, message: 'No push token found' };
+  if (tokens.length === 0) {
+    console.log('❌ No push tokens found for user');
+    return { success: false, message: 'No push tokens found' };
   }
   
-  console.log('✅ Token found:', token);
+  console.log('✅ Tokens found:', tokens.length);
   
   const result = await sendExpoPushNotification(
-    token,
+    tokens,
     'Test Notification',
     'This is a test push notification from David\'s Salon web app.',
     { type: 'test', screen: 'Home' }
@@ -788,7 +849,32 @@ export const testPushToUser = async (userId) => {
   return result;
 };
 
-// Expose test functions to window for console access
+/**
+ * Debug function to check if a user has push tokens
+ * Call from browser console: window.checkPushToken('userId', 'client') or window.checkPushToken('userId', 'stylist')
+ */
+export const debugCheckPushToken = async (userId, role = 'client') => {
+  console.log('=== DEBUG: Checking push tokens for user ===');
+  console.log('User ID:', userId);
+  console.log('Role:', role);
+  
+  const tokens = await getUserPushTokens(userId, role);
+  
+  if (tokens.length > 0) {
+    console.log('✅ Push tokens found:', tokens.length);
+    tokens.forEach((token, index) => {
+      console.log(`Token ${index + 1}:`, token);
+      console.log('Token is valid Expo format:', token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken['));
+    });
+  } else {
+    console.log('❌ No push tokens found');
+    console.log(`The mobile app needs to save tokens to ${role}PushTokens array in the user document`);
+  }
+  
+  return tokens;
+};
+
+// Expose debug functions to window for console access
 if (typeof window !== 'undefined') {
   window.checkPushToken = debugCheckPushToken;
   window.testPushNotification = testPushNotification;
@@ -798,6 +884,7 @@ if (typeof window !== 'undefined') {
 export default {
   sendExpoPushNotification,
   getUserPushToken,
+  getUserPushTokens,
   getMultipleUserPushTokens,
   sendAppointmentConfirmedNotification,
   sendAppointmentCancelledNotification,
@@ -810,5 +897,6 @@ export default {
   sendPortfolioApprovedNotification,
   sendPortfolioRejectedNotification,
   testPushNotification,
-  testPushToUser
+  testPushToUser,
+  debugCheckPushToken
 };
